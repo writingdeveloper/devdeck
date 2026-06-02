@@ -1,4 +1,8 @@
-import type { ProjectViewModel } from '../shared/types';
+// Derive the type from the global window.devdeck signature so this file stays a
+// non-module. A runtime/type `import` makes tsc (CommonJS) emit an
+// `Object.defineProperty(exports, ...)` line that throws in the classic-script
+// renderer, where `exports` is undefined — which would abort the whole script.
+type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[number];
 
 const cardsEl = document.getElementById('cards')!;
 const refreshBtn = document.getElementById('refresh') as HTMLButtonElement;
