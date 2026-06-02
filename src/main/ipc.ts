@@ -6,7 +6,7 @@ import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
 import { getLastSessionMs } from './sessionInfo';
 import { buildProjectList } from './projects';
-import { openProjects, resolveWtPath } from './launcher';
+import { openProjects, resolveWtPath, resolveShell } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
@@ -39,7 +39,7 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   ipcMain.handle('projects:open', (_e, paths: string[]) => {
-    const shell = 'pwsh';
+    const shell = resolveShell();
     const tabs: WtTab[] = paths.map((p) => ({ name: p.split('\\').pop() ?? p, dir: p }));
     const now = new Date().toISOString();
     for (const p of paths) cfg.store.setLastOpened(p, now);

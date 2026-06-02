@@ -10,7 +10,13 @@ export interface RawProject {
 
 export function scanRepos(baseDir: string): RawProject[] {
   const out: RawProject[] = [];
-  for (const entry of readdirSync(baseDir, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = readdirSync(baseDir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (entry.name.startsWith('.') || IGNORE.has(entry.name)) continue;
     const full = join(baseDir, entry.name);

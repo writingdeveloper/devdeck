@@ -44,10 +44,13 @@ function render(): void {
     const meta = document.createElement('div');
     meta.className = 'meta';
     const dirty = p.uncommitted > 0 ? ` · ✎${p.uncommitted}` : '';
-    meta.innerHTML =
-      `${p.branch ?? '(no branch)'}${dirty}<br>` +
-      `git ${fmtTime(p.lastCommitMs)} ${p.lastSubject ? `"${p.lastSubject}"` : '(no commits)'}<br>` +
-      `claude ${fmtTime(p.lastSessionMs)}`;
+    const line1 = `${p.branch ?? '(no branch)'}${dirty}`;
+    const line2 = `git ${fmtTime(p.lastCommitMs)} ${p.lastSubject ? `"${p.lastSubject}"` : '(no commits)'}`;
+    const line3 = `claude ${fmtTime(p.lastSessionMs)}`;
+    for (const [i, line] of [line1, line2, line3].entries()) {
+      if (i > 0) meta.appendChild(document.createElement('br'));
+      meta.appendChild(document.createTextNode(line));
+    }
 
     const note = document.createElement('textarea');
     note.className = 'note';
