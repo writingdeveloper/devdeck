@@ -1,2 +1,92 @@
-const cards = document.getElementById('cards')!;
-cards.textContent = 'DevDeck scaffold OK';
+import type { ProjectViewModel } from '../shared/types';
+
+const cardsEl = document.getElementById('cards')!;
+const refreshBtn = document.getElementById('refresh') as HTMLButtonElement;
+const openBtn = document.getElementById('open-selected') as HTMLButtonElement;
+const neglectedOnly = document.getElementById('neglected-only') as HTMLInputElement;
+
+let projects: ProjectViewModel[] = [];
+const selected = new Set<string>();
+
+function fmtTime(ms: number | null): string {
+  if (ms == null) return '—';
+  const d = new Date(ms);
+  return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function render(): void {
+  const visible = neglectedOnly.checked
+    ? projects.filter((p) => p.stale.level === 'neglected')
+    : projects;
+
+  cardsEl.replaceChildren();
+  if (visible.length === 0) {
+    cardsEl.textContent = '표시할 프로젝트가 없습니다.';
+    return;
+  }
+
+  for (const p of visible) {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const h2 = document.createElement('h2');
+    const title = document.createElement('span');
+    title.textContent = p.name;
+    const badge = document.createElement('span');
+    badge.className = `badge lvl-${p.stale.level}`;
+    badge.textContent = p.stale.badge;
+    h2.append(title, badge);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const dirty = p.uncommitted > 0 ? ` · ✎${p.uncommitted}` : '';
+    meta.innerHTML =
+      `${p.branch ?? '(no branch)'}${dirty}<br>` +
+      `git ${fmtTime(p.lastCommitMs)} ${p.lastSubject ? `"${p.lastSubject}"` : '(no commits)'}<br>` +
+      `claude ${fmtTime(p.lastSessionMs)}`;
+
+    const note = document.createElement('textarea');
+    note.className = 'note';
+    note.rows = 2;
+    note.placeholder = '다음 할 일…';
+    note.value = p.note;
+    note.addEventListener('blur', () => {
+      if (note.value !== p.note) {
+        p.note = note.value;
+        window.devdeck.setNote(p.path, note.value);
+      }
+    });
+
+    const foot = document.createElement('div');
+    foot.className = 'cardfoot';
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.checked = selected.has(p.path);
+    check.addEventListener('change', () => {
+      if (check.checked) selected.add(p.path);
+      else selected.delete(p.path);
+    });
+    const open = document.createElement('button');
+    open.textContent = '▶ Open';
+    open.addEventListener('click', () => window.devdeck.open([p.path]));
+    foot.append(check, open);
+
+    card.append(h2, meta, note, foot);
+    cardsEl.append(card);
+  }
+}
+
+async function load(): Promise<void> {
+  cardsEl.textContent = '로딩 중…';
+  projects = await window.devdeck.listProjects();
+  render();
+}
+
+refreshBtn.addEventListener('click', load);
+neglectedOnly.addEventListener('change', render);
+openBtn.addEventListener('click', () => {
+  if (selected.size > 0) window.devdeck.open([...selected]);
+});
+window.addEventListener('focus', load);
+
+load();
