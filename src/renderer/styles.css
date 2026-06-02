@@ -1,0 +1,16 @@
+:root { color-scheme: dark; }
+body { font-family: "Segoe UI", system-ui, sans-serif; margin: 0; background: #16181d; color: #e7e9ee; }
+header { position: sticky; top: 0; background: #1d2027; padding: 12px 16px; border-bottom: 1px solid #2c2f38; display: flex; align-items: center; gap: 16px; }
+header h1 { font-size: 18px; margin: 0; }
+.toolbar { display: flex; gap: 10px; align-items: center; margin-left: auto; }
+button { background: #2b6cb0; color: #fff; border: 0; border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+button:hover { background: #3182ce; }
+#cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; padding: 16px; }
+.card { background: #1d2027; border: 1px solid #2c2f38; border-radius: 10px; padding: 12px; }
+.card h2 { font-size: 15px; margin: 0 0 4px; display: flex; justify-content: space-between; align-items: center; }
+.badge { font-size: 12px; padding: 2px 6px; border-radius: 10px; }
+.lvl-fresh { background: #1c4532; } .lvl-neutral { background: #2c2f38; }
+.lvl-warn { background: #5f4b1b; } .lvl-neglected { background: #5c1a1a; }
+.meta { font-size: 12px; color: #aab1c0; line-height: 1.5; }
+.note { width: 100%; box-sizing: border-box; margin: 8px 0; background: #14161b; color: #e7e9ee; border: 1px solid #2c2f38; border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }
+.cardfoot { display: flex; align-items: center; gap: 8px; }
