@@ -6,13 +6,21 @@
   "type": "commonjs",
   "scripts": {
     "build": "tsc && node scripts/copy-assets.mjs",
+    "dist": "npm run build && electron-builder --win --dir",
     "start": "npm run build && electron .",
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "build": {
+    "appId": "com.soursea.devdeck",
+    "productName": "DevDeck",
+    "files": ["dist/**/*", "package.json"],
+    "directories": { "output": "release" }
+  },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "electron": "^31.0.0",
+    "electron-builder": "^26.8.1",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }
