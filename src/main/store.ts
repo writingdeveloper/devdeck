@@ -27,7 +27,11 @@ export class Store {
   }
 
   private save(): void {
-    writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf8');
+    try {
+      writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf8');
+    } catch (err) {
+      console.error('DevDeck: failed to persist state', err);
+    }
   }
 
   get(path: string): StoreEntry {

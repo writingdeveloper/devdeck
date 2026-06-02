@@ -7,10 +7,20 @@ export function getLastSessionMs(projectPath: string, claudeProjectsDir: string)
   const dir = join(claudeProjectsDir, encodeProjectPath(projectPath));
   if (!existsSync(dir)) return null;
   let newest: number | null = null;
-  for (const name of readdirSync(dir)) {
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  for (const name of names) {
     if (!name.endsWith('.jsonl')) continue;
-    const m = statSync(join(dir, name)).mtimeMs;
-    if (newest == null || m > newest) newest = m;
+    try {
+      const m = statSync(join(dir, name)).mtimeMs;
+      if (newest == null || m > newest) newest = m;
+    } catch {
+      // skip unreadable file
+    }
   }
   return newest;
 }

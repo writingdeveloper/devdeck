@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { openProjects } from './launcher';
+import { openProjects, resolveShell } from './launcher';
 
 describe('openProjects', () => {
   it('spawns wt once with new-tab args for each project', () => {
@@ -22,5 +22,14 @@ describe('openProjects', () => {
     let called = false;
     openProjects([], { wtPath: 'wt.exe', shell: 'pwsh', command: 'claude -c', spawnFn: () => { called = true; } });
     expect(called).toBe(false);
+  });
+});
+
+describe('resolveShell', () => {
+  it('returns pwsh when pwsh is present', () => {
+    expect(resolveShell(() => true)).toBe('pwsh');
+  });
+  it('falls back to powershell when pwsh is absent', () => {
+    expect(resolveShell(() => false)).toBe('powershell');
   });
 });
