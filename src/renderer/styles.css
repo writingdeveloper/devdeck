@@ -14,3 +14,5 @@ button:hover { background: #3182ce; }
 .meta { font-size: 12px; color: #aab1c0; line-height: 1.5; }
 .note { width: 100%; box-sizing: border-box; margin: 8px 0; background: #14161b; color: #e7e9ee; border: 1px solid #2c2f38; border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }
 .cardfoot { display: flex; align-items: center; gap: 8px; }
+#toast-host { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
+.toast { background: #2a1416; border: 1px solid #5c1a1a; color: #f3d6d6; padding: 10px 14px; border-radius: 8px; font-size: 13px; max-width: 360px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }

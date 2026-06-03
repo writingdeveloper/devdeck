@@ -14,6 +14,7 @@ const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 export interface IpcConfig {
   baseDir: string;
   store: Store;
+  sendError: (msg: string) => void;
 }
 
 export function registerIpc(cfg: IpcConfig): void {
@@ -47,6 +48,6 @@ export function registerIpc(cfg: IpcConfig): void {
     }));
     const now = new Date().toISOString();
     for (const p of paths) cfg.store.setLastOpened(p, now);
-    openProjects(tabs, { wtPath: resolveWtPath(), shell });
+    openProjects(tabs, { wtPath: resolveWtPath(), shell, onError: cfg.sendError });
   });
 }

@@ -97,3 +97,12 @@ openBtn.addEventListener('click', () => {
 window.addEventListener('focus', load);
 
 load();
+
+const toastHost = document.getElementById('toast-host')!;
+window.devdeck.onError((msg) => {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  toastHost.appendChild(t);
+  setTimeout(() => t.remove(), 6000);
+});
