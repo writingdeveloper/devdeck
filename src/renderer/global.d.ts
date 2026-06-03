@@ -8,6 +8,7 @@ declare global {
       setPinned(path: string, pinned: boolean): Promise<void>;
       setHidden(path: string, hidden: boolean): Promise<void>;
       open(paths: string[]): Promise<void>;
+      onError(cb: (msg: string) => void): void;
     };
   }
 }

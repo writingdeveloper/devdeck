@@ -5,7 +5,7 @@ import { registerIpc } from './ipc';
 
 const BASE_DIR = 'C:\\Users\\dev\\Documents\\GitHub';
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1000,
     height: 720,
@@ -16,12 +16,17 @@ function createWindow(): void {
     },
   });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  return win;
 }
 
 app.whenReady().then(() => {
   const store = new Store(path.join(app.getPath('userData'), 'state.json'));
-  registerIpc({ baseDir: BASE_DIR, store });
-  createWindow();
+  const win = createWindow();
+  registerIpc({
+    baseDir: BASE_DIR,
+    store,
+    sendError: (msg) => win.webContents.send('devdeck:error', msg),
+  });
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
