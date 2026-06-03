@@ -2,6 +2,7 @@
 // Run via `npm run icons` (which runs tsc first so dist/shared/ico.js exists).
 const { app, BrowserWindow } = require('electron');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { packIco } = require('../dist/shared/ico.js');
 
@@ -15,14 +16,16 @@ function svgAt512(withDot) {
 }
 
 async function capture512(win, withDot, tag) {
-  const tmp = path.join(ROOT, 'design', 'logos', `_g${tag}.html`);
-  fs.writeFileSync(tmp, `<!doctype html><meta charset="utf-8">` +
-    `<style>html,body{margin:0;padding:0;background:transparent}</style>${svgAt512(withDot)}`);
-  await win.loadFile(tmp);
-  await new Promise((r) => setTimeout(r, 400));
-  const img = await win.webContents.capturePage();
-  fs.unlinkSync(tmp);
-  return img; // nativeImage at 512x512
+  const tmp = path.join(os.tmpdir(), `devdeck-icon-${tag}.html`);
+  try {
+    fs.writeFileSync(tmp, `<!doctype html><meta charset="utf-8">` +
+      `<style>html,body{margin:0;padding:0;background:transparent}</style>${svgAt512(withDot)}`);
+    await win.loadFile(tmp);
+    await new Promise((r) => setTimeout(r, 400)); // let the SVG rasterise before capture
+    return await win.webContents.capturePage();
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 }
 
 app.disableHardwareAcceleration();
