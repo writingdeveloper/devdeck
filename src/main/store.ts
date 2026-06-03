@@ -3,6 +3,7 @@ import type { StoreEntry } from '../shared/types';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
+  settings?: { language?: string };
 }
 
 const EMPTY: StoreEntry = {
@@ -20,7 +21,7 @@ export class Store {
     if (!existsSync(this.filePath)) return { projects: {} };
     try {
       const parsed = JSON.parse(readFileSync(this.filePath, 'utf8'));
-      return { projects: parsed.projects ?? {} };
+      return { projects: parsed.projects ?? {}, settings: parsed.settings };
     } catch {
       return { projects: {} };
     }
@@ -42,6 +43,14 @@ export class Store {
 
   private mutate(path: string, patch: Partial<StoreEntry>): void {
     this.state.projects[path] = { ...this.get(path), ...patch };
+    this.save();
+  }
+
+  getLanguage(): string | null {
+    return this.state.settings?.language ?? null;
+  }
+  setLanguage(language: string): void {
+    this.state.settings = { ...(this.state.settings ?? {}), language };
     this.save();
   }
 

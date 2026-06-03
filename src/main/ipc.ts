@@ -8,6 +8,7 @@ import { listSessions } from './sessions';
 import { buildProjectList } from './projects';
 import { openProjects, resolveShell, resolveWtPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
+import { scanUsage } from './usageScan';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 
@@ -16,6 +17,7 @@ export interface IpcConfig {
   store: Store;
   sendError: (msg: string) => void;
   selfName: string;
+  defaultLanguage: string;
 }
 
 export function registerIpc(cfg: IpcConfig): void {
@@ -39,6 +41,13 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('project:setHidden', (_e, path: string, hidden: boolean) => {
     cfg.store.setHidden(path, hidden);
   });
+
+  ipcMain.handle('usage:report', (_e, sinceMs: number) => {
+    const repos = scanRepos(cfg.baseDir).filter((r) => r.name !== cfg.selfName);
+    return scanUsage(repos, CLAUDE_PROJECTS, sinceMs);
+  });
+  ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
+  ipcMain.handle('settings:setLanguage', (_e, lang: string) => cfg.store.setLanguage(lang));
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
     const shell = resolveShell();

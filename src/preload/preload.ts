@@ -8,4 +8,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   open: (items: { path: string; sessionId: string | null }[]) => ipcRenderer.invoke('projects:open', items),
   onError: (cb: (msg: string) => void) =>
     ipcRenderer.on('devdeck:error', (_e, msg: string) => cb(msg)),
+  usageReport: (sinceMs: number) => ipcRenderer.invoke('usage:report', sinceMs),
+  getLanguage: () => ipcRenderer.invoke('settings:getLanguage'),
+  setLanguage: (lang: string) => ipcRenderer.invoke('settings:setLanguage', lang),
 });
