@@ -15,6 +15,7 @@ export interface IpcConfig {
   baseDir: string;
   store: Store;
   sendError: (msg: string) => void;
+  selfName: string;
 }
 
 export function registerIpc(cfg: IpcConfig): void {
@@ -22,7 +23,7 @@ export function registerIpc(cfg: IpcConfig): void {
     return buildProjectList({
       baseDir: cfg.baseDir,
       nowMs: Date.now(),
-      scan: scanRepos,
+      scan: (base) => scanRepos(base).filter((r) => r.name !== cfg.selfName),
       git: (dir) => getGitInfo(dir),
       session: (p) => getLastSessionMs(p, CLAUDE_PROJECTS),
       getEntry: (p) => cfg.store.get(p),
