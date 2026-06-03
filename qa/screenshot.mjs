@@ -1,7 +1,8 @@
 // AI-QA screenshot harness: launches DevDeck via Playwright's Electron support,
 // drives each view across all 4 languages, captures screenshots + console errors.
 import { _electron as electron } from 'playwright';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,7 +13,11 @@ mkdirSync(out, { recursive: true });
 const consoleErrors = [];
 const pageErrors = [];
 
-const app = await electron.launch({ args: ['.'], cwd: root });
+// Isolated user-data-dir so the single-instance lock never makes this launch quit.
+const app = await electron.launch({
+  args: ['.', `--user-data-dir=${mkdtempSync(join(tmpdir(), 'devdeck-qa-'))}`, '--no-sandbox', '--disable-gpu'],
+  cwd: root,
+});
 const win = await app.firstWindow();
 win.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 win.on('pageerror', (e) => pageErrors.push(String(e)));
