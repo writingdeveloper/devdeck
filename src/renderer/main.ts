@@ -16,6 +16,8 @@ function applyStaticLabels(): void {
   for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) el.title = tr(key); }
   const chk = document.querySelector('#view-projects .chk');
   if (chk?.lastChild) chk.lastChild.textContent = ' ' + tr('proj.neglected_only');
+  const showHidden = document.getElementById('show-hidden');
+  if (showHidden?.firstChild) showHidden.firstChild.textContent = '🙈 ' + tr('proj.hidden') + ' ';
   const setEmpty = document.querySelector('#view-settings .empty');
   if (setEmpty) setEmpty.textContent = tr('settings.soon');
 }
