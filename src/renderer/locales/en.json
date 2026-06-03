@@ -36,5 +36,11 @@
   "usage.col_project": "Project",
   "usage.col_cost": "Est. cost",
   "usage.disclaimer": "* Some models have no price card — excluded from cost. Cost is a public-rate API-equivalent estimate and may differ from your (subscription) bill.",
-  "settings.soon": "Settings (coming soon)"
+  "settings.soon": "Settings (coming soon)",
+  "set.scan_dir": "Scan folder",
+  "set.browse": "Browse…",
+  "set.thresholds": "Staleness thresholds (days)",
+  "set.fresh": "Fresh",
+  "set.warn": "Warn",
+  "set.neglected": "Neglected"
 }
