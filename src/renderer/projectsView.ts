@@ -68,7 +68,7 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
       for (const s of p.sessions) {
         const row = document.createElement('div'); row.className = 'session-row'; row.setAttribute('role', 'listitem');
         const when = document.createElement('span'); when.className = 'when'; when.textContent = fmtTime(s.mtimeMs);
-        const msg = document.createElement('span'); msg.className = 'msg'; msg.textContent = s.firstMessage ?? '(no message)';
+        const msg = document.createElement('span'); msg.className = 'msg'; msg.textContent = s.firstMessage ?? tr('proj.no_message');
         const open = document.createElement('button'); open.className = 'chip'; open.textContent = tr('proj.open'); open.setAttribute('aria-label', 'open session');
         open.addEventListener('click', () => openItems([{ path: p.path, sessionId: s.id }]));
         row.append(when, msg, open); list.appendChild(row);
