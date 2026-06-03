@@ -1,3 +1,20 @@
+import type { UsageTotals } from './usage';
+
+export type Language = 'ko' | 'en' | 'ja' | 'zh';
+
+export interface ModelUsage { model: string; totals: UsageTotals; costEstimate: number | null; }
+export interface ProjectUsage {
+  path: string; name: string; sessions: number;
+  totals: UsageTotals; costEstimate: number | null; hasUnknownModel: boolean;
+}
+export interface UsageReport {
+  global: UsageTotals; globalCost: number | null; hasUnknownModel: boolean;
+  webSearch: number; webFetch: number; sessions: number;
+  byModel: ModelUsage[];
+  byProject: ProjectUsage[];
+  daily: { day: string; cost: number | null; tokens: number }[];
+}
+
 export type StaleLevel = 'fresh' | 'neutral' | 'warn' | 'neglected';
 
 export interface StaleThresholds {
