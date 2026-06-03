@@ -7,7 +7,8 @@ declare global {
       setNote(path: string, note: string): Promise<void>;
       setPinned(path: string, pinned: boolean): Promise<void>;
       setHidden(path: string, hidden: boolean): Promise<void>;
-      open(paths: string[]): Promise<void>;
+      open(items: { path: string; sessionId: string | null }[]): Promise<void>;
+      onError(cb: (msg: string) => void): void;
     };
   }
 }

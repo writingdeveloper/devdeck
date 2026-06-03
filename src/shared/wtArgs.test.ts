@@ -2,26 +2,27 @@ import { describe, it, expect } from 'vitest';
 import { buildWtArgs } from './wtArgs';
 
 describe('buildWtArgs', () => {
-  const projects = [
-    { name: 'rockgaze', dir: 'C:\\g\\rockgaze' },
-    { name: 'rentrights', dir: 'C:\\g\\rentrights' },
+  const tabs = [
+    { name: 'rockgaze', dir: 'C:\\g\\rockgaze', command: 'claude -r aaa' },
+    { name: 'rentrights', dir: 'C:\\g\\rentrights', command: 'claude -r bbb' },
   ];
 
-  it('builds one tab per project with a ; separator between them', () => {
-    expect(buildWtArgs(projects, 'pwsh', 'claude -c')).toEqual([
-      'new-tab', '--title', 'rockgaze', '-d', 'C:\\g\\rockgaze', 'pwsh', '-NoExit', '-Command', 'claude -c',
+  it('targets the current window (-w 0) and runs each tab\'s own command', () => {
+    expect(buildWtArgs(tabs, 'pwsh')).toEqual([
+      '-w', '0',
+      'new-tab', '--title', 'rockgaze', '-d', 'C:\\g\\rockgaze', 'pwsh', '-NoExit', '-Command', 'claude -r aaa',
       ';',
-      'new-tab', '--title', 'rentrights', '-d', 'C:\\g\\rentrights', 'pwsh', '-NoExit', '-Command', 'claude -c',
+      'new-tab', '--title', 'rentrights', '-d', 'C:\\g\\rentrights', 'pwsh', '-NoExit', '-Command', 'claude -r bbb',
     ]);
   });
 
-  it('emits no leading separator for a single project', () => {
-    const args = buildWtArgs([projects[0]], 'powershell', 'claude -c');
-    expect(args[0]).toBe('new-tab');
+  it('emits no ; separator for a single tab', () => {
+    const args = buildWtArgs([tabs[0]], 'powershell');
+    expect(args.slice(0, 2)).toEqual(['-w', '0']);
     expect(args).not.toContain(';');
   });
 
-  it('throws on an empty project list', () => {
-    expect(() => buildWtArgs([], 'pwsh', 'claude -c')).toThrow();
+  it('throws on an empty tab list', () => {
+    expect(() => buildWtArgs([], 'pwsh')).toThrow();
   });
 });

@@ -1,12 +1,16 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, globalShortcut } from 'electron';
 import * as path from 'node:path';
 import { Store } from './store';
 import { registerIpc } from './ipc';
+import { setupTray } from './tray';
 
 const BASE_DIR = 'C:\\Users\\SIHYEONG\\Documents\\GitHub';
+const SELF_NAME = 'devdeck';
 
-function createWindow(): void {
-  const win = new BrowserWindow({
+let win: BrowserWindow | null = null;
+
+function createWindow(): BrowserWindow {
+  const w = new BrowserWindow({
     width: 1000,
     height: 720,
     webPreferences: {
@@ -15,18 +19,36 @@ function createWindow(): void {
       nodeIntegration: false,
     },
   });
-  win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  return w;
 }
 
-app.whenReady().then(() => {
-  const store = new Store(path.join(app.getPath('userData'), 'state.json'));
-  registerIpc({ baseDir: BASE_DIR, store });
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
+function showWindow(): void {
+  if (!win) return;
+  win.show();
+  win.focus();
+}
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', showWindow);
+
+  app.whenReady().then(() => {
+    const store = new Store(path.join(app.getPath('userData'), 'state.json'));
+    win = createWindow();
+    registerIpc({
+      baseDir: BASE_DIR,
+      store,
+      selfName: SELF_NAME,
+      sendError: (msg) => win?.webContents.send('devdeck:error', msg),
+    });
+    setupTray(win);
+    globalShortcut.register('Control+Alt+D', showWindow);
+    app.on('activate', () => { if (!win) win = createWindow(); });
+  });
+
+  app.on('window-all-closed', () => { /* stay alive in tray */ });
+  app.on('will-quit', () => globalShortcut.unregisterAll());
+}

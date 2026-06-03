@@ -7,7 +7,6 @@ export type SpawnFn = (file: string, args: string[]) => void;
 export interface OpenOptions {
   wtPath: string;
   shell: string;
-  command: string;
   spawnFn?: SpawnFn;
 }
 
@@ -27,16 +26,6 @@ export function resolveWtPath(localAppData = process.env.LOCALAPPDATA): string {
     : 'wt.exe';
 }
 
-const defaultSpawn: SpawnFn = (file, args) => {
-  const child = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: false });
-  // Without an 'error' listener a spawn failure becomes an uncaught exception in
-  // the main process, which Electron surfaces as a blocking error dialog.
-  child.on('error', (err) => {
-    console.error('DevDeck: failed to launch Windows Terminal', err);
-  });
-  child.unref();
-};
-
 export type ExistsProbe = (cmd: string) => boolean;
 
 const defaultPwshExists: ExistsProbe = (cmd) => {
@@ -53,8 +42,17 @@ export function resolveShell(exists: ExistsProbe = defaultPwshExists): string {
   return exists('pwsh') ? 'pwsh' : 'powershell';
 }
 
-export function openProjects(projects: WtTab[], opts: OpenOptions): void {
-  if (projects.length === 0) return;
-  const args = buildWtArgs(projects, opts.shell, opts.command);
-  (opts.spawnFn ?? defaultSpawn)(opts.wtPath, args);
+export function openProjects(
+  tabs: WtTab[],
+  opts: OpenOptions & { onError?: (msg: string) => void },
+): void {
+  if (tabs.length === 0) return;
+  const args = buildWtArgs(tabs, opts.shell);
+  if (opts.spawnFn) { opts.spawnFn(opts.wtPath, args); return; }
+  const child = spawn(opts.wtPath, args, { detached: true, stdio: 'ignore', windowsHide: false });
+  child.on('error', (err) => {
+    console.error('DevDeck: failed to launch Windows Terminal', err);
+    opts.onError?.(`Windows Terminal 실행 실패: ${(err as Error).message}`);
+  });
+  child.unref();
 }
