@@ -1,5 +1,6 @@
 import { mountProjects } from './projectsView';
 import { mountNav } from './nav';
+import { mountUsage, showUsage } from './usageView';
 
 const toastHost = document.getElementById('toast-host')!;
 window.devdeck.onError((msg) => {
@@ -8,4 +9,5 @@ window.devdeck.onError((msg) => {
 });
 
 mountProjects();
-mountNav((view) => { void view; });
+mountUsage();
+mountNav((view) => { if (view === 'usage') showUsage(); });
