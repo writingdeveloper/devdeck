@@ -10,6 +10,8 @@
   "proj.no_branch": "(ブランチなし)",
   "proj.no_commits": "(コミットなし)",
   "proj.no_record": "∅ 記録なし",
+  "badge.today": "今日",
+  "badge.days": "{n}日",
   "proj.next_todo": "+ 次のタスク…",
   "proj.next_todo_ph": "次のタスク…",
   "proj.sessions": "セッション",

@@ -28,7 +28,7 @@ export interface StaleThresholds {
 
 export interface StaleInfo {
   level: StaleLevel;
-  badge: string; // e.g. "🟢 오늘", "🔴 9일"
+  ageDays: number | null;
 }
 
 export interface SessionMeta {

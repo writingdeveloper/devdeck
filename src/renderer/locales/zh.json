@@ -10,6 +10,8 @@
   "proj.no_branch": "（无分支）",
   "proj.no_commits": "（无提交）",
   "proj.no_record": "∅ 无记录",
+  "badge.today": "今天",
+  "badge.days": "{n}天",
   "proj.next_todo": "+ 下一个任务…",
   "proj.next_todo_ph": "下一个任务…",
   "proj.sessions": "会话",
