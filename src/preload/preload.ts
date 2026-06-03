@@ -11,4 +11,8 @@ contextBridge.exposeInMainWorld('devdeck', {
   usageReport: (sinceMs: number) => ipcRenderer.invoke('usage:report', sinceMs),
   getLanguage: () => ipcRenderer.invoke('settings:getLanguage'),
   setLanguage: (lang: string) => ipcRenderer.invoke('settings:setLanguage', lang),
+  getSettings: () => ipcRenderer.invoke('settings:get'),
+  setBaseDir: (dir: string) => ipcRenderer.invoke('settings:setBaseDir', dir),
+  setThresholds: (t: { freshDays: number; warnDays: number; neglectedDays: number }) => ipcRenderer.invoke('settings:setThresholds', t),
+  pickFolder: () => ipcRenderer.invoke('settings:pickFolder'),
 });
