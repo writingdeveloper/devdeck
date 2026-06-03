@@ -27,7 +27,7 @@ async function boot(): Promise<void> {
   applyStaticLabels();
   mountProjects();
   mountUsage();
-  mountSettings(() => reloadProjects());
+  mountSettings(() => { applyStaticLabels(); reloadProjects(); });
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); });
 
   document.getElementById('lang-btn')!.addEventListener('click', async () => {
