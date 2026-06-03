@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildProjectList, type BuildDeps } from './projects';
-import type { GitInfo } from '../shared/types';
+import type { GitInfo, SessionMeta } from '../shared/types';
 
 const NOW = 1_700_000_000_000;
 const DAY = 86_400_000;
@@ -19,7 +19,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
       lastSubject: 'x',
       uncommitted: 0,
     }),
-    session: () => null,
+    sessions: () => [],
     getEntry: () => ({ note: '', pinned: false, hidden: false, staleDays: null, lastOpened: null }),
     ...over,
   };
@@ -49,5 +49,20 @@ describe('buildProjectList', () => {
       }),
     }));
     expect(list[0].name).toBe('old');
+  });
+
+  it('wires sessions + sessionCount and uses the latest session for activity', async () => {
+    const NOW2 = NOW;
+    const list = await buildProjectList(deps({
+      git: async (): Promise<GitInfo> => ({ branch: 'main', lastCommitMs: null, lastSubject: null, uncommitted: 0 }),
+      sessions: (p) => p.endsWith('fresh')
+        ? [{ id: 'x', mtimeMs: NOW2 - 3_600_000, firstMessage: 'hi' }]
+        : [],
+    }));
+    const fresh = list.find((p) => p.name === 'fresh')!;
+    expect(fresh.sessionCount).toBe(1);
+    expect(fresh.sessions[0].firstMessage).toBe('hi');
+    expect(fresh.lastSessionMs).toBe(NOW2 - 3_600_000);
+    expect(fresh.stale.level).toBe('fresh');
   });
 });

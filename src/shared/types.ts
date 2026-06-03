@@ -14,6 +14,12 @@ export interface StaleInfo {
   badge: string; // e.g. "🟢 오늘", "🔴 9일"
 }
 
+export interface SessionMeta {
+  id: string;
+  mtimeMs: number;
+  firstMessage: string | null;
+}
+
 export interface GitInfo {
   branch: string | null;
   lastCommitMs: number | null;
@@ -37,6 +43,8 @@ export interface ProjectViewModel {
   lastCommitMs: number | null;
   lastSubject: string | null;
   lastSessionMs: number | null;
+  sessions: SessionMeta[];
+  sessionCount: number;
   activityMs: number | null; // max(lastCommitMs, lastSessionMs)
   stale: StaleInfo;
   note: string;
