@@ -75,7 +75,7 @@ function render(): void {
     });
     const open = document.createElement('button');
     open.textContent = '▶ Open';
-    open.addEventListener('click', () => window.devdeck.open([p.path]));
+    open.addEventListener('click', () => window.devdeck.open([{ path: p.path, sessionId: p.sessions[0]?.id ?? null }]));
     foot.append(check, open);
 
     card.append(h2, meta, note, foot);
@@ -92,7 +92,9 @@ async function load(): Promise<void> {
 refreshBtn.addEventListener('click', load);
 neglectedOnly.addEventListener('change', render);
 openBtn.addEventListener('click', () => {
-  if (selected.size > 0) window.devdeck.open([...selected]);
+  if (selected.size > 0) {
+    window.devdeck.open([...selected].map((path) => ({ path, sessionId: null })));
+  }
 });
 window.addEventListener('focus', load);
 

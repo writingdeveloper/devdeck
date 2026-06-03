@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { Store } from './store';
 import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
-import { getLastSessionMs } from './sessionInfo';
+import { listSessions } from './sessions';
 import { buildProjectList } from './projects';
 import { openProjects, resolveShell, resolveWtPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
@@ -25,7 +25,7 @@ export function registerIpc(cfg: IpcConfig): void {
       nowMs: Date.now(),
       scan: (base) => scanRepos(base).filter((r) => r.name !== cfg.selfName),
       git: (dir) => getGitInfo(dir),
-      session: (p) => getLastSessionMs(p, CLAUDE_PROJECTS),
+      sessions: (p) => listSessions(p, CLAUDE_PROJECTS),
       getEntry: (p) => cfg.store.get(p),
     });
   });
@@ -40,15 +40,15 @@ export function registerIpc(cfg: IpcConfig): void {
     cfg.store.setHidden(path, hidden);
   });
 
-  ipcMain.handle('projects:open', (_e, paths: string[]) => {
+  ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
     const shell = resolveShell();
-    const tabs: WtTab[] = paths.map((p) => ({
-      name: p.split('\\').pop() ?? p,
-      dir: p,
-      command: 'claude -c',
+    const tabs: WtTab[] = items.map((it) => ({
+      name: it.path.split('\\').pop() ?? it.path,
+      dir: it.path,
+      command: it.sessionId ? `claude -r ${it.sessionId}` : 'claude',
     }));
     const now = new Date().toISOString();
-    for (const p of paths) cfg.store.setLastOpened(p, now);
+    for (const it of items) cfg.store.setLastOpened(it.path, now);
     openProjects(tabs, { wtPath: resolveWtPath(), shell, onError: cfg.sendError });
   });
 }
