@@ -10,6 +10,7 @@ window.devdeck.onError((msg) => {
 });
 
 function applyStaticLabels(): void {
+  document.documentElement.lang = currentLang();
   document.querySelector<HTMLButtonElement>('#open-selected')!.textContent = '▶ ' + tr('app.open_selected');
   document.querySelector<HTMLButtonElement>('#refresh')!.title = tr('app.refresh');
   const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['#lang-btn', 'nav.language']];
