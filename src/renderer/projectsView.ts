@@ -6,6 +6,9 @@ const selected = new Set<string>();
 const expanded = new Set<string>();
 let projects: ProjectViewModel[] = [];
 let showHidden = false;
+// Per-project estimated cost, filled asynchronously after the list renders so a
+// (potentially slow) full token scan never blocks the project list.
+const costByPath = new Map<string, number | null>();
 
 let cardsEl: HTMLElement;
 let neglectedOnly: HTMLInputElement;
@@ -17,6 +20,7 @@ function fmtTime(ms: number | null): string {
   if (ms == null) return '—';
   return new Date(ms).toLocaleString(localeTag(), { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
+function usdShort(n: number | null | undefined): string { return n == null ? '' : ` · ~$${n.toFixed(2)}`; }
 function isNoRecord(p: ProjectViewModel): boolean { return p.sessionCount === 0 && p.lastCommitMs == null; }
 function openItems(items: { path: string; sessionId: string | null }[]): void { window.devdeck.open(items); }
 
@@ -49,7 +53,7 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
   const head = document.createElement('div');
   head.className = 'sessions-head' + (expanded.has(p.path) ? ' open' : '');
   const label = document.createElement('span');
-  label.textContent = `claude ${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} ${tr('proj.sessions')}` : ''}`;
+  label.textContent = `claude ${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} ${tr('proj.sessions')}` : ''}${usdShort(costByPath.get(p.path))}`;
   head.appendChild(label);
   if (p.sessionCount > 1) {
     const caret = document.createElement('span'); caret.className = 'caret'; caret.textContent = '⌄';
@@ -165,6 +169,11 @@ async function reload(): Promise<void> {
   showSkeleton();
   projects = await window.devdeck.listProjects();
   render();
+  // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch).
+  void window.devdeck.usageReport(0).then((r) => {
+    for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);
+    render();
+  }).catch(() => { /* cost is best-effort; ignore failures */ });
 }
 
 export function mountProjects(): void {
