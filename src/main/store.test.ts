@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from './store';
@@ -35,5 +35,12 @@ describe('Store', () => {
     const reread = new Store(file);
     expect(reread.get('C:\\g\\x').pinned).toBe(true);
     expect(reread.get('C:\\g\\x').hidden).toBe(true);
+  });
+
+  it('does not leave a .tmp file behind after a successful save', () => {
+    const s = new Store(file);
+    s.setNote('C:\\g\\x', 'hi');
+    expect(existsSync(file + '.tmp')).toBe(false);
+    expect(existsSync(file)).toBe(true);
   });
 });
