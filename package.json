@@ -17,6 +17,7 @@
   "build": {
     "appId": "com.soursea.devdeck",
     "productName": "DevDeck",
+    "icon": "build/icon.ico",
     "files": [
       "dist/**/*",
       "package.json"

@@ -1,4 +1,4 @@
-import { mkdir, copyFile } from 'node:fs/promises';
+import { mkdir, copyFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,4 +10,11 @@ await mkdir(outDir, { recursive: true });
 for (const file of ['index.html', 'styles.css']) {
   await copyFile(join(srcDir, file), join(outDir, file));
 }
-console.log('copied renderer assets to dist/renderer');
+
+const assetsSrc = join(root, 'src', 'assets');
+const assetsOut = join(outDir, 'assets');
+await mkdir(assetsOut, { recursive: true });
+for (const f of await readdir(assetsSrc)) {
+  await copyFile(join(assetsSrc, f), join(assetsOut, f));
+}
+console.log('copied renderer assets to dist/renderer (incl. assets/)');
