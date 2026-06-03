@@ -1,13 +1,41 @@
-import { mountProjects } from './projectsView';
+import { mountProjects, renderProjects } from './projectsView';
 import { mountNav } from './nav';
 import { mountUsage, showUsage } from './usageView';
+import { setLanguage, tr, currentLang, SUPPORTED } from './i18n-runtime';
 
 const toastHost = document.getElementById('toast-host')!;
 window.devdeck.onError((msg) => {
-  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
-  toastHost.appendChild(t); setTimeout(() => t.remove(), 6000);
+  const el = document.createElement('div'); el.className = 'toast'; el.textContent = msg;
+  toastHost.appendChild(el); setTimeout(() => el.remove(), 6000);
 });
 
-mountProjects();
-mountUsage();
-mountNav((view) => { if (view === 'usage') showUsage(); });
+function applyStaticLabels(): void {
+  document.querySelector<HTMLButtonElement>('#open-selected')!.textContent = '▶ ' + tr('app.open_selected');
+  document.querySelector<HTMLButtonElement>('#refresh')!.title = tr('app.refresh');
+  const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['#lang-btn', 'nav.language']];
+  for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) el.title = tr(key); }
+  const chk = document.querySelector('#view-projects .chk');
+  if (chk?.lastChild) chk.lastChild.textContent = ' ' + tr('proj.neglected_only');
+  const setEmpty = document.querySelector('#view-settings .empty');
+  if (setEmpty) setEmpty.textContent = tr('settings.soon');
+}
+
+async function boot(): Promise<void> {
+  setLanguage(await window.devdeck.getLanguage());
+  applyStaticLabels();
+  mountProjects();
+  mountUsage();
+  mountNav((view) => { if (view === 'usage') showUsage(); });
+
+  document.getElementById('lang-btn')!.addEventListener('click', async () => {
+    const i = SUPPORTED.indexOf(currentLang());
+    const next = SUPPORTED[(i + 1) % SUPPORTED.length];
+    await window.devdeck.setLanguage(next);
+    setLanguage(next);
+    applyStaticLabels();
+    renderProjects();
+    if (document.getElementById('view-usage')!.classList.contains('active')) showUsage();
+  });
+}
+
+boot();

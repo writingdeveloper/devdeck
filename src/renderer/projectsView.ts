@@ -1,3 +1,5 @@
+import { tr, localeTag } from './i18n-runtime';
+
 type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[number];
 
 const selected = new Set<string>();
@@ -13,7 +15,7 @@ let openBtn: HTMLButtonElement;
 
 function fmtTime(ms: number | null): string {
   if (ms == null) return '—';
-  return new Date(ms).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return new Date(ms).toLocaleString(localeTag(), { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 function isNoRecord(p: ProjectViewModel): boolean { return p.sessionCount === 0 && p.lastCommitMs == null; }
 function openItems(items: { path: string; sessionId: string | null }[]): void { window.devdeck.open(items); }
@@ -24,14 +26,14 @@ function makeNote(p: ProjectViewModel): HTMLElement {
     wrap.replaceChildren();
     const el = document.createElement('div');
     if (p.note) { el.className = 'note-preview'; el.textContent = p.note; }
-    else { el.className = 'note-ghost'; el.textContent = '+ 다음 할 일…'; }
+    else { el.className = 'note-ghost'; el.textContent = tr('proj.next_todo'); }
     el.addEventListener('click', showEdit);
     wrap.appendChild(el);
   };
   const showEdit = () => {
     wrap.replaceChildren();
     const ta = document.createElement('textarea');
-    ta.className = 'note-edit'; ta.rows = 2; ta.value = p.note; ta.placeholder = '다음 할 일…';
+    ta.className = 'note-edit'; ta.rows = 2; ta.value = p.note; ta.placeholder = tr('proj.next_todo_ph');
     ta.addEventListener('blur', () => {
       if (ta.value !== p.note) { p.note = ta.value; window.devdeck.setNote(p.path, ta.value); }
       showRead();
@@ -47,7 +49,7 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
   const head = document.createElement('div');
   head.className = 'sessions-head' + (expanded.has(p.path) ? ' open' : '');
   const label = document.createElement('span');
-  label.textContent = `claude ${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} sessions` : ''}`;
+  label.textContent = `claude ${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} ${tr('proj.sessions')}` : ''}`;
   head.appendChild(label);
   if (p.sessionCount > 1) {
     const caret = document.createElement('span'); caret.className = 'caret'; caret.textContent = '⌄';
@@ -67,7 +69,7 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
         const row = document.createElement('div'); row.className = 'session-row'; row.setAttribute('role', 'listitem');
         const when = document.createElement('span'); when.className = 'when'; when.textContent = fmtTime(s.mtimeMs);
         const msg = document.createElement('span'); msg.className = 'msg'; msg.textContent = s.firstMessage ?? '(no message)';
-        const open = document.createElement('button'); open.className = 'chip'; open.textContent = 'open'; open.setAttribute('aria-label', 'open session');
+        const open = document.createElement('button'); open.className = 'chip'; open.textContent = tr('proj.open'); open.setAttribute('aria-label', 'open session');
         open.addEventListener('click', () => openItems([{ path: p.path, sessionId: s.id }]));
         row.append(when, msg, open); list.appendChild(row);
       }
@@ -87,14 +89,14 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   const title = document.createElement('span'); title.className = 'card-title'; title.textContent = p.name;
   const badge = document.createElement('span');
   badge.className = 'badge ' + (noRecord ? 'norecord' : 'lvl-' + p.stale.level);
-  badge.textContent = noRecord ? '∅ 기록 없음' : p.stale.badge;
+  badge.textContent = noRecord ? tr('proj.no_record') : p.stale.badge;
 
   const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
   const menuBtn = document.createElement('button'); menuBtn.className = 'iconbtn'; menuBtn.textContent = '⋯'; menuBtn.setAttribute('aria-label', 'more');
   const menu = document.createElement('div'); menu.className = 'menu hidden';
-  const pinItem = document.createElement('button'); pinItem.className = 'menu-item'; pinItem.textContent = p.pinned ? '📌 고정 해제' : '📌 고정';
+  const pinItem = document.createElement('button'); pinItem.className = 'menu-item'; pinItem.textContent = p.pinned ? tr('proj.unpin') : tr('proj.pin');
   pinItem.addEventListener('click', () => { window.devdeck.setPinned(p.path, !p.pinned); reload(); });
-  const hideItem = document.createElement('button'); hideItem.className = 'menu-item'; hideItem.textContent = '🙈 숨기기';
+  const hideItem = document.createElement('button'); hideItem.className = 'menu-item'; hideItem.textContent = tr('proj.hide');
   hideItem.addEventListener('click', () => { window.devdeck.setHidden(p.path, true); reload(); });
   menu.append(pinItem, hideItem);
   menuBtn.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); });
@@ -103,14 +105,14 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   headRow.append(title, badge, menuWrap);
 
   const meta = document.createElement('div'); meta.className = 'meta';
-  const branch = document.createElement('span'); branch.className = 'branch'; branch.textContent = p.branch ?? '(no branch)';
+  const branch = document.createElement('span'); branch.className = 'branch'; branch.textContent = p.branch ?? tr('proj.no_branch');
   meta.appendChild(branch);
   if (p.uncommitted > 0) {
     const dirty = document.createElement('span'); dirty.className = 'dirty' + (p.stale.level === 'neglected' ? ' alarm' : '');
     dirty.textContent = ` · ✎${p.uncommitted}`; meta.appendChild(dirty);
   }
   meta.appendChild(document.createElement('br'));
-  meta.appendChild(document.createTextNode(`git ${fmtTime(p.lastCommitMs)} ${p.lastSubject ? `"${p.lastSubject}"` : '(no commits)'}`));
+  meta.appendChild(document.createTextNode(`git ${fmtTime(p.lastCommitMs)} ${p.lastSubject ? `"${p.lastSubject}"` : tr('proj.no_commits')}`));
 
   const foot = document.createElement('div'); foot.className = 'cardfoot';
   const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
@@ -120,7 +122,7 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
     syncOpenBtn();
   });
   const spacer = document.createElement('span'); spacer.className = 'spacer';
-  const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ Open';
+  const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
   open.addEventListener('click', () => openItems([{ path: p.path, sessionId: p.sessions[0]?.id ?? null }]));
   foot.append(check, spacer, open);
 
@@ -140,13 +142,13 @@ function render(): void {
   cardsEl.setAttribute('role', 'list');
   if (visible.length === 0) {
     const e = document.createElement('div'); e.className = 'empty';
-    e.textContent = neglectedOnly.checked ? '방치된 프로젝트가 없습니다 — 좋아요!' : (showHidden ? '숨긴 프로젝트가 없습니다.' : '표시할 프로젝트가 없습니다.');
+    e.textContent = neglectedOnly.checked ? tr('proj.empty_neglected') : (showHidden ? tr('proj.empty_hidden') : tr('proj.empty_none'));
     cardsEl.appendChild(e); return;
   }
   for (const p of visible) {
     if (showHidden) {
       const card = makeCard(p, render);
-      const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = '↩ 복원';
+      const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = tr('proj.restore');
       restore.addEventListener('click', () => { window.devdeck.setHidden(p.path, false); reload(); });
       card.appendChild(restore);
       cardsEl.appendChild(card);
@@ -183,3 +185,5 @@ export function mountProjects(): void {
   document.addEventListener('click', () => document.querySelectorAll('.menu:not(.hidden)').forEach((m) => m.classList.add('hidden')));
   reload();
 }
+
+export function renderProjects(): void { render(); }
