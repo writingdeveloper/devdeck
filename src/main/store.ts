@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import type { StoreEntry } from '../shared/types';
 
 interface StateFile {
@@ -27,8 +27,10 @@ export class Store {
   }
 
   private save(): void {
+    const tmp = this.filePath + '.tmp';
     try {
-      writeFileSync(this.filePath, JSON.stringify(this.state, null, 2), 'utf8');
+      writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf8');
+      renameSync(tmp, this.filePath);
     } catch (err) {
       console.error('DevDeck: failed to persist state', err);
     }
