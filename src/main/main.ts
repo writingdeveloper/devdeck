@@ -5,7 +5,6 @@ import { registerIpc } from './ipc';
 import { setupTray } from './tray';
 
 const DEFAULT_BASE_DIR = 'C:\\Users\\SIHYEONG\\Documents\\GitHub';
-const SELF_NAME = 'devdeck';
 
 let win: BrowserWindow | null = null;
 
@@ -41,7 +40,6 @@ if (!gotLock) {
     registerIpc({
       defaultBaseDir: DEFAULT_BASE_DIR,
       store,
-      selfName: SELF_NAME,
       sendError: (msg) => win?.webContents.send('devdeck:error', msg),
       defaultLanguage: app.getLocale().split('-')[0] || 'en',
     });
