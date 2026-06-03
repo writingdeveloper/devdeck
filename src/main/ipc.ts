@@ -17,7 +17,6 @@ export interface IpcConfig {
   defaultBaseDir: string;
   store: Store;
   sendError: (msg: string) => void;
-  selfName: string;
   defaultLanguage: string;
 }
 
@@ -30,7 +29,7 @@ export function registerIpc(cfg: IpcConfig): void {
       baseDir: effBaseDir(),
       nowMs: Date.now(),
       thresholds: effThresholds(),
-      scan: (base) => scanRepos(base).filter((r) => r.name !== cfg.selfName),
+      scan: (base) => scanRepos(base),
       git: (dir) => getGitInfo(dir),
       sessions: (p) => listSessions(p, CLAUDE_PROJECTS),
       getEntry: (p) => cfg.store.get(p),
@@ -48,7 +47,7 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   ipcMain.handle('usage:report', (_e, sinceMs: number) => {
-    const repos = scanRepos(effBaseDir()).filter((r) => r.name !== cfg.selfName);
+    const repos = scanRepos(effBaseDir());
     return scanUsage(repos, CLAUDE_PROJECTS, sinceMs);
   });
   ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
