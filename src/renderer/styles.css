@@ -24,11 +24,18 @@ body {
   font-size: 13px;
 }
 
-#topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: rgba(13,14,18,.85); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
-#topbar h1 { font-size: 14px; font-weight: 600; margin: 0; }
-.top-actions { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+#topbar { -webkit-app-region: drag; position: sticky; top: 0; z-index: 10; display: flex; align-items: center; height: 40px; padding-left: 12px; background: #0b0c10; border-bottom: 1px solid var(--border); user-select: none; }
+.tb-brand { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
+.tb-logo { width: 20px; height: 20px; border-radius: 5px; display: block; }
+.tb-title { font-size: 13px; font-weight: 600; letter-spacing: .2px; color: var(--text); }
+.tb-drag { flex: 1; align-self: stretch; -webkit-app-region: drag; }
+.top-actions { display: flex; gap: 6px; align-items: center; -webkit-app-region: no-drag; padding-right: 4px; }
+.win-controls { display: flex; align-items: stretch; height: 100%; -webkit-app-region: no-drag; }
+.winbtn { width: 46px; height: 40px; border: 0; border-radius: 0; background: transparent; color: var(--text-dim); font-size: 12px; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.winbtn:hover { background: var(--surface-hover); color: var(--text); }
+.winbtn-close:hover { background: var(--bad); color: #fff; }
 
-#shell { display: flex; height: calc(100vh - 41px); }
+#shell { display: flex; height: calc(100vh - 40px); }
 #rail { width: 48px; flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; background: #101218; border-right: 1px solid var(--border); }
 .rail-item { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 8px; font-size: 16px; color: var(--text-dim); cursor: pointer; }
 .rail-item:hover { background: var(--surface-hover); color: var(--text); }
