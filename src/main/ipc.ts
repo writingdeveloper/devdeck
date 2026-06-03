@@ -65,7 +65,7 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
-    const shell = resolveShell();
+    const shellExe = resolveShell();
     const tabs: WtTab[] = items.map((it) => ({
       name: it.path.split('\\').pop() ?? it.path,
       dir: it.path,
@@ -73,7 +73,7 @@ export function registerIpc(cfg: IpcConfig): void {
     }));
     const now = new Date().toISOString();
     for (const it of items) cfg.store.setLastOpened(it.path, now);
-    openProjects(tabs, { wtPath: resolveWtPath(), shell, onError: cfg.sendError });
+    openProjects(tabs, { wtPath: resolveWtPath(), shell: shellExe, onError: cfg.sendError });
   });
 
   // Open the project folder in the OS file manager.
