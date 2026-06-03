@@ -9,9 +9,18 @@
   </head>
   <body>
     <header id="topbar">
-      <h1>DevDeck</h1>
+      <div class="tb-brand">
+        <img class="tb-logo" src="./assets/icon-256.png" alt="" />
+        <span class="tb-title">DevDeck</span>
+      </div>
+      <div class="tb-drag"></div>
       <div class="top-actions">
         <button id="refresh" class="iconbtn" title="새로고침">↻</button>
+      </div>
+      <div class="win-controls">
+        <button id="win-min" class="winbtn" aria-label="Minimize" title="Minimize">─</button>
+        <button id="win-max" class="winbtn" aria-label="Maximize" title="Maximize">☐</button>
+        <button id="win-close" class="winbtn winbtn-close" aria-label="Close" title="Close">✕</button>
       </div>
     </header>
     <div id="shell">

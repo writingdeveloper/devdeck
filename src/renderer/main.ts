@@ -22,7 +22,20 @@ function applyStaticLabels(): void {
   if (showHidden?.firstChild) showHidden.firstChild.textContent = '🙈 ' + tr('proj.hidden') + ' ';
 }
 
+function mountTitlebar(): void {
+  const wc = window.devdeck.windowControls;
+  document.getElementById('win-min')!.addEventListener('click', () => void wc.minimize());
+  document.getElementById('win-close')!.addEventListener('click', () => void wc.close());
+  const maxBtn = document.getElementById('win-max')!;
+  maxBtn.addEventListener('click', () => void wc.toggleMaximize());
+  document.querySelector<HTMLElement>('.tb-drag')!.addEventListener('dblclick', () => void wc.toggleMaximize());
+  const setGlyph = (m: boolean) => { maxBtn.textContent = m ? '❐' : '☐'; maxBtn.title = m ? 'Restore' : 'Maximize'; };
+  wc.onMaximizeChange(setGlyph);
+  void wc.isMaximized().then(setGlyph);
+}
+
 async function boot(): Promise<void> {
+  mountTitlebar();
   setLanguage(await window.devdeck.getLanguage());
   applyStaticLabels();
   mountProjects();
