@@ -12,6 +12,10 @@ declare global {
       usageReport(sinceMs: number): Promise<import('../shared/types').UsageReport>;
       getLanguage(): Promise<string>;
       setLanguage(lang: string): Promise<void>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string }>;
+      setBaseDir(dir: string): Promise<void>;
+      setThresholds(t: { freshDays: number; warnDays: number; neglectedDays: number }): Promise<void>;
+      pickFolder(): Promise<string | null>;
     };
   }
 }

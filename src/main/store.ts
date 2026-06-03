@@ -3,7 +3,7 @@ import type { StoreEntry } from '../shared/types';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string };
+  settings?: { language?: string; baseDir?: string; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number } };
 }
 
 const EMPTY: StoreEntry = {
@@ -53,6 +53,11 @@ export class Store {
     this.state.settings = { ...(this.state.settings ?? {}), language };
     this.save();
   }
+
+  getBaseDir(): string | null { return this.state.settings?.baseDir ?? null; }
+  setBaseDir(baseDir: string): void { this.state.settings = { ...(this.state.settings ?? {}), baseDir }; this.save(); }
+  getThresholds(): { freshDays: number; warnDays: number; neglectedDays: number } | null { return this.state.settings?.thresholds ?? null; }
+  setThresholds(thresholds: { freshDays: number; warnDays: number; neglectedDays: number }): void { this.state.settings = { ...(this.state.settings ?? {}), thresholds }; this.save(); }
 
   setNote(path: string, note: string): void { this.mutate(path, { note }); }
   setPinned(path: string, pinned: boolean): void { this.mutate(path, { pinned }); }

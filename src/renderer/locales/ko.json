@@ -10,6 +10,8 @@
   "proj.no_branch": "(브랜치 없음)",
   "proj.no_commits": "(커밋 없음)",
   "proj.no_record": "∅ 기록 없음",
+  "badge.today": "오늘",
+  "badge.days": "{n}일",
   "proj.next_todo": "+ 다음 할 일…",
   "proj.next_todo_ph": "다음 할 일…",
   "proj.sessions": "세션",
@@ -34,5 +36,11 @@
   "usage.col_project": "프로젝트",
   "usage.col_cost": "추정비용",
   "usage.disclaimer": "* 일부 모델은 단가 미등록 — 비용 추정에서 제외됨. 비용은 공개 단가 기반 API 환산 추정치이며 실제 청구(구독)와 다를 수 있습니다.",
-  "settings.soon": "설정 (준비 중)"
+  "settings.soon": "설정 (준비 중)",
+  "set.scan_dir": "스캔 폴더",
+  "set.browse": "찾아보기…",
+  "set.thresholds": "방치 기준(일)",
+  "set.fresh": "신선",
+  "set.warn": "주의",
+  "set.neglected": "방치"
 }

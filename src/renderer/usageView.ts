@@ -50,6 +50,16 @@ function render(r: UsageReport): void {
   ] as [string, string][]).map(([k, v]) => { const d = document.createElement('div'); d.className = 'stat'; d.innerHTML = `<b></b><span></span>`; d.querySelector('b')!.textContent = v; d.querySelector('span')!.textContent = k; return d; }));
   sum.appendChild(stats);
   sum.appendChild(shareBar(r.byModel.map((m, i) => ({ label: m.model, value: m.totals.input + m.totals.output, color: COLORS[i % COLORS.length] }))));
+  const legend = document.createElement('div'); legend.className = 'usage-legend';
+  const totalTok = r.byModel.reduce((acc, m) => acc + m.totals.input + m.totals.output, 0) || 1;
+  r.byModel.forEach((m, i) => {
+    const item = document.createElement('span'); item.className = 'legend-item';
+    const sw = document.createElement('span'); sw.className = 'legend-swatch'; sw.style.background = COLORS[i % COLORS.length];
+    const pct = Math.round(((m.totals.input + m.totals.output) / totalTok) * 100);
+    const label = document.createElement('span'); label.textContent = `${m.model} · ${pct}%`;
+    item.append(sw, label); legend.appendChild(item);
+  });
+  sum.appendChild(legend);
   viewEl.appendChild(sum);
 
   if (r.daily.length) {
