@@ -15,4 +15,13 @@ contextBridge.exposeInMainWorld('devdeck', {
   setBaseDir: (dir: string) => ipcRenderer.invoke('settings:setBaseDir', dir),
   setThresholds: (t: { freshDays: number; warnDays: number; neglectedDays: number }) => ipcRenderer.invoke('settings:setThresholds', t),
   pickFolder: () => ipcRenderer.invoke('settings:pickFolder'),
+  openFolder: (path: string) => ipcRenderer.invoke('project:openFolder', path),
+  windowControls: {
+    minimize: () => ipcRenderer.invoke('win:minimize'),
+    toggleMaximize: () => ipcRenderer.invoke('win:toggleMaximize'),
+    close: () => ipcRenderer.invoke('win:close'),
+    isMaximized: () => ipcRenderer.invoke('win:isMaximized'),
+    onMaximizeChange: (cb: (maximized: boolean) => void) =>
+      ipcRenderer.on('win:maximize-changed', (_e, m: boolean) => cb(m)),
+  },
 });
