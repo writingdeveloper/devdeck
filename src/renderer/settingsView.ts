@@ -1,11 +1,13 @@
-import { tr, SUPPORTED } from './i18n-runtime';
+import { tr, SUPPORTED, setLanguage as setRuntimeLang } from './i18n-runtime';
 
 let host: HTMLElement;
 let onChangedCb: () => void = () => {};
+let uid = 0;
 
-function field(labelKey: string, control: HTMLElement): HTMLElement {
+function field(labelKey: string, control: HTMLElement, forEl?: HTMLElement): HTMLElement {
   const row = document.createElement('div'); row.className = 'set-row';
   const lab = document.createElement('label'); lab.className = 'set-label'; lab.textContent = tr(labelKey);
+  if (forEl) { if (!forEl.id) forEl.id = `set-f${uid++}`; lab.htmlFor = forEl.id; }
   row.append(lab, control); return row;
 }
 
@@ -20,22 +22,25 @@ async function render(): Promise<void> {
   browse.addEventListener('click', async () => { const p = await window.devdeck.pickFolder(); if (p) { dir.value = p; await window.devdeck.setBaseDir(p); onChangedCb(); } });
   dir.addEventListener('change', async () => { await window.devdeck.setBaseDir(dir.value.trim()); onChangedCb(); });
   const dirWrap = document.createElement('div'); dirWrap.className = 'set-inline'; dirWrap.append(dir, browse);
-  host.appendChild(field('set.scan_dir', dirWrap));
+  host.appendChild(field('set.scan_dir', dirWrap, dir));
 
   const mk = (v: number) => { const n = document.createElement('input'); n.type = 'number'; n.min = '1'; n.className = 'set-num'; n.value = String(v); return n; };
   const f = mk(s.thresholds.freshDays), w = mk(s.thresholds.warnDays), g = mk(s.thresholds.neglectedDays);
   const save = async () => { await window.devdeck.setThresholds({ freshDays: +f.value, warnDays: +w.value, neglectedDays: +g.value }); onChangedCb(); };
   [f, w, g].forEach((n) => n.addEventListener('change', save));
   const tWrap = document.createElement('div'); tWrap.className = 'set-inline';
-  for (const [key, el] of [['set.fresh', f], ['set.warn', w], ['set.neglected', g]] as [string, HTMLElement][]) {
-    const grp = document.createElement('span'); grp.className = 'set-thr'; const l = document.createElement('span'); l.textContent = tr(key); grp.append(l, el); tWrap.appendChild(grp);
+  for (const [key, el] of [['set.fresh', f], ['set.warn', w], ['set.neglected', g]] as [string, HTMLInputElement][]) {
+    const grp = document.createElement('span'); grp.className = 'set-thr';
+    const l = document.createElement('label'); l.textContent = tr(key);
+    if (!el.id) el.id = `set-f${uid++}`; l.htmlFor = el.id;
+    grp.append(l, el); tWrap.appendChild(grp);
   }
   host.appendChild(field('set.thresholds', tWrap));
 
   const sel = document.createElement('select'); sel.className = 'set-input';
   for (const lng of SUPPORTED) { const o = document.createElement('option'); o.value = lng; o.textContent = lng.toUpperCase(); if (lng === s.language) o.selected = true; sel.appendChild(o); }
-  sel.addEventListener('change', async () => { await window.devdeck.setLanguage(sel.value); onChangedCb(); });
-  host.appendChild(field('nav.language', sel));
+  sel.addEventListener('change', async () => { await window.devdeck.setLanguage(sel.value); setRuntimeLang(sel.value); render(); onChangedCb(); });
+  host.appendChild(field('nav.language', sel, sel));
 }
 
 export function mountSettings(onChanged: () => void): void { host = document.getElementById('settings-form')!; onChangedCb = onChanged; }
