@@ -6,7 +6,7 @@ import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
 import { getLastSessionMs } from './sessionInfo';
 import { buildProjectList } from './projects';
-import { openProjects, resolveWtPath, resolveShell } from './launcher';
+import { openProjects, resolveShell, resolveWtPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');

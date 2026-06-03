@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { openProjects, resolveShell } from './launcher';
+import { openProjects, resolveShell, resolveWtPath } from './launcher';
 
 describe('openProjects', () => {
   it('spawns wt once with new-tab args for each project', () => {
@@ -31,5 +31,19 @@ describe('resolveShell', () => {
   });
   it('falls back to powershell when pwsh is absent', () => {
     expect(resolveShell(() => false)).toBe('powershell');
+  });
+});
+
+describe('resolveWtPath', () => {
+  // Regression: spawning the bare alias name `wt.exe` fails with ENOENT (Node's
+  // PATH search stat-rejects the reparse-point alias). We must return the FULL
+  // WindowsApps path so CreateProcess can resolve the alias.
+  it('returns the full WindowsApps alias path, not the bare name', () => {
+    expect(resolveWtPath('C:\\Users\\x\\AppData\\Local')).toBe(
+      'C:\\Users\\x\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe',
+    );
+  });
+  it('falls back to the bare name when LOCALAPPDATA is empty/unset', () => {
+    expect(resolveWtPath('')).toBe('wt.exe');
   });
 });
