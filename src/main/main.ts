@@ -4,7 +4,7 @@ import { Store } from './store';
 import { registerIpc } from './ipc';
 import { setupTray } from './tray';
 
-const BASE_DIR = 'C:\\Users\\SIHYEONG\\Documents\\GitHub';
+const DEFAULT_BASE_DIR = 'C:\\Users\\SIHYEONG\\Documents\\GitHub';
 const SELF_NAME = 'devdeck';
 
 let win: BrowserWindow | null = null;
@@ -39,7 +39,7 @@ if (!gotLock) {
     const store = new Store(path.join(app.getPath('userData'), 'state.json'));
     win = createWindow();
     registerIpc({
-      baseDir: BASE_DIR,
+      defaultBaseDir: DEFAULT_BASE_DIR,
       store,
       selfName: SELF_NAME,
       sendError: (msg) => win?.webContents.send('devdeck:error', msg),
