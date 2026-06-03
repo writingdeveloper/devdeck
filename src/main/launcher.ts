@@ -26,12 +26,6 @@ export function resolveWtPath(localAppData = process.env.LOCALAPPDATA): string {
     : 'wt.exe';
 }
 
-const defaultSpawn: SpawnFn = (file, args) => {
-  const child = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: false });
-  child.on('error', (err) => console.error('DevDeck: failed to launch Windows Terminal', err));
-  child.unref();
-};
-
 export type ExistsProbe = (cmd: string) => boolean;
 
 const defaultPwshExists: ExistsProbe = (cmd) => {
