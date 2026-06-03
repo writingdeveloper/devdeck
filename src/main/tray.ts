@@ -10,7 +10,7 @@ export function setupTray(win: BrowserWindow): Tray {
   const menu = Menu.buildFromTemplate([
     { label: 'Open DevDeck', click: () => { win.show(); win.focus(); } },
     { type: 'separator' },
-    { label: 'Quit', click: () => { (app as unknown as { isQuitting: boolean }).isQuitting = true; app.quit(); } },
+    { label: 'Quit', click: () => { (app as unknown as { isQuitting?: boolean }).isQuitting = true; app.quit(); } },
   ]);
   tray.setContextMenu(menu);
   tray.on('click', () => { win.show(); win.focus(); });
