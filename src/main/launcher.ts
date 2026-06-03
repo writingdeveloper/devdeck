@@ -1,5 +1,4 @@
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildWtArgs, type WtTab } from '../shared/wtArgs';
 
@@ -12,8 +11,30 @@ export interface OpenOptions {
   spawnFn?: SpawnFn;
 }
 
+/**
+ * Path to Windows Terminal's WindowsApps execution alias.
+ *
+ * `wt.exe` is a reparse-point alias, not a normal file: `fs.existsSync` reports it
+ * as missing and Node's PATH search for a bare `wt.exe` stat-rejects it, so
+ * `spawn('wt.exe')` fails with ENOENT even when WindowsApps is on PATH. Spawning
+ * the FULL alias path directly works — CreateProcess resolves the reparse point —
+ * so we always return the full path (never gate it on existsSync) and fall back to
+ * the bare name only when LOCALAPPDATA is unavailable.
+ */
+export function resolveWtPath(localAppData = process.env.LOCALAPPDATA): string {
+  return localAppData
+    ? join(localAppData, 'Microsoft', 'WindowsApps', 'wt.exe')
+    : 'wt.exe';
+}
+
 const defaultSpawn: SpawnFn = (file, args) => {
-  spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: false }).unref();
+  const child = spawn(file, args, { detached: true, stdio: 'ignore', windowsHide: false });
+  // Without an 'error' listener a spawn failure becomes an uncaught exception in
+  // the main process, which Electron surfaces as a blocking error dialog.
+  child.on('error', (err) => {
+    console.error('DevDeck: failed to launch Windows Terminal', err);
+  });
+  child.unref();
 };
 
 export type ExistsProbe = (cmd: string) => boolean;
@@ -36,13 +57,4 @@ export function openProjects(projects: WtTab[], opts: OpenOptions): void {
   if (projects.length === 0) return;
   const args = buildWtArgs(projects, opts.shell, opts.command);
   (opts.spawnFn ?? defaultSpawn)(opts.wtPath, args);
-}
-
-/** Resolve wt.exe: prefer the WindowsApps alias path if it exists, else bare 'wt.exe' on PATH. */
-export function resolveWtPath(): string {
-  const fallback = join(
-    process.env.LOCALAPPDATA ?? '',
-    'Microsoft', 'WindowsApps', 'wt.exe',
-  );
-  return existsSync(fallback) ? fallback : 'wt.exe';
 }
