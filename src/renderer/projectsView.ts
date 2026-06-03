@@ -183,6 +183,8 @@ async function reload(): Promise<void> {
   }).catch(() => { /* cost is best-effort; ignore failures */ });
 }
 
+export function reloadProjects(): void { reload(); }
+
 export function mountProjects(): void {
   cardsEl = document.getElementById('cards')!;
   neglectedOnly = document.getElementById('neglected-only') as HTMLInputElement;

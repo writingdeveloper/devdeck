@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color-scheme: dark;
   --bg: #0d0e12;
   --surface: #15171c;
@@ -145,3 +145,12 @@ button.primary:hover { background: var(--accent-hover); }
 .usage-table th:first-child, .usage-table td:first-child { text-align: left; }
 .usage-table td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
 .usage-note { padding: 0 16px 16px; color: var(--text-faint); font-size: 11px; }
+
+#settings-form { padding: 18px 20px; max-width: 640px; }
+.set-title { font-size: 16px; margin: 0 0 16px; }
+.set-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.set-label { color: var(--text-dim); font-size: 12px; }
+.set-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.set-input { flex: 1; min-width: 200px; background: #0f1115; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; font: inherit; }
+.set-num { width: 64px; background: #0f1115; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px; font: inherit; }
+.set-thr { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 12px; }

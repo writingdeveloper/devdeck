@@ -36,5 +36,11 @@
   "usage.col_project": "プロジェクト",
   "usage.col_cost": "推定コスト",
   "usage.disclaimer": "* 一部のモデルは単価未登録 — コスト推定から除外。コストは公開単価ベースのAPI換算推定値であり、実際の請求（サブスクリプション）と異なる場合があります。",
-  "settings.soon": "設定（準備中）"
+  "settings.soon": "設定（準備中）",
+  "set.scan_dir": "スキャンフォルダ",
+  "set.browse": "参照…",
+  "set.thresholds": "放置しきい値(日)",
+  "set.fresh": "新鮮",
+  "set.warn": "注意",
+  "set.neglected": "放置"
 }
