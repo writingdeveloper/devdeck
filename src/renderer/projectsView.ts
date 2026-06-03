@@ -24,6 +24,13 @@ function usdShort(n: number | null | undefined): string { return n == null ? '' 
 function isNoRecord(p: ProjectViewModel): boolean { return p.sessionCount === 0 && p.lastCommitMs == null; }
 function openItems(items: { path: string; sessionId: string | null }[]): void { window.devdeck.open(items); }
 
+const LEVEL_EMOJI: Record<string, string> = { fresh: '🟢', neutral: '⚪', warn: '🟡', neglected: '🔴' };
+function badgeText(p: ProjectViewModel): string {
+  if (isNoRecord(p) || p.stale.ageDays == null) return tr('proj.no_record');
+  const age = p.stale.ageDays < 1 ? tr('badge.today') : tr('badge.days', { n: p.stale.ageDays });
+  return `${LEVEL_EMOJI[p.stale.level] ?? ''} ${age}`;
+}
+
 function makeNote(p: ProjectViewModel): HTMLElement {
   const wrap = document.createElement('div');
   const showRead = () => {
@@ -93,7 +100,7 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   const title = document.createElement('span'); title.className = 'card-title'; title.textContent = p.name;
   const badge = document.createElement('span');
   badge.className = 'badge ' + (noRecord ? 'norecord' : 'lvl-' + p.stale.level);
-  badge.textContent = noRecord ? tr('proj.no_record') : p.stale.badge;
+  badge.textContent = badgeText(p);
 
   const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
   const menuBtn = document.createElement('button'); menuBtn.className = 'iconbtn'; menuBtn.textContent = '⋯'; menuBtn.setAttribute('aria-label', 'more');
@@ -175,6 +182,8 @@ async function reload(): Promise<void> {
     render();
   }).catch(() => { /* cost is best-effort; ignore failures */ });
 }
+
+export function reloadProjects(): void { reload(); }
 
 export function mountProjects(): void {
   cardsEl = document.getElementById('cards')!;

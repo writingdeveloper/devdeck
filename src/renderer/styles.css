@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color-scheme: dark;
   --bg: #0d0e12;
   --surface: #15171c;
@@ -7,9 +7,9 @@
   --border-strong: #2d313b;
   --text: #e6e8ee;
   --text-dim: #9aa1ad;
-  --text-faint: #6b7280;
-  --accent: #6366f1;
-  --accent-hover: #7c7ff5;
+  --text-faint: #8b93a1;
+  --accent: #5558ef;
+  --accent-hover: #8b8ef7;
   --ok: #3b82f6;
   --neutral: #6b7280;
   --warn: #d98a1f;
@@ -125,6 +125,10 @@ button.primary:hover { background: var(--accent-hover); }
 .menu-item { background: transparent; border: 0; color: var(--text); text-align: left; padding: 6px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; }
 .menu-item:hover { background: var(--surface-hover); }
 
+.vt-spacer { flex: 1; }
+.usage-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
+.legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .usage-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .usage-total { margin-left: auto; font-family: var(--mono); color: var(--text); }
 .usage-summary { padding: 14px 16px; }
@@ -141,3 +145,12 @@ button.primary:hover { background: var(--accent-hover); }
 .usage-table th:first-child, .usage-table td:first-child { text-align: left; }
 .usage-table td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
 .usage-note { padding: 0 16px 16px; color: var(--text-faint); font-size: 11px; }
+
+#settings-form { padding: 18px 20px; max-width: 640px; }
+.set-title { font-size: 16px; margin: 0 0 16px; }
+.set-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.set-label { color: var(--text-dim); font-size: 12px; }
+.set-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.set-input { flex: 1; min-width: 200px; background: #0f1115; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; font: inherit; }
+.set-num { width: 64px; background: #0f1115; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px; font: inherit; }
+.set-thr { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 12px; }

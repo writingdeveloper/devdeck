@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildProjectList, type BuildDeps } from './projects';
 import type { GitInfo, SessionMeta } from '../shared/types';
+import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 
 const NOW = 1_700_000_000_000;
 const DAY = 86_400_000;
@@ -9,6 +10,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
   return {
     baseDir: 'C:\\g',
     nowMs: NOW,
+    thresholds: DEFAULT_THRESHOLDS,
     scan: () => [
       { path: 'C:\\g\\fresh', name: 'fresh' },
       { path: 'C:\\g\\old', name: 'old' },

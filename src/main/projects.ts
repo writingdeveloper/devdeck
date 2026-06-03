@@ -1,10 +1,11 @@
-import type { GitInfo, ProjectViewModel, StoreEntry, SessionMeta } from '../shared/types';
+import type { GitInfo, ProjectViewModel, StoreEntry, SessionMeta, StaleThresholds } from '../shared/types';
 import type { RawProject } from './scanner';
-import { classifyStaleness, DEFAULT_THRESHOLDS } from '../shared/staleness';
+import { classifyStaleness } from '../shared/staleness';
 
 export interface BuildDeps {
   baseDir: string;
   nowMs: number;
+  thresholds: StaleThresholds;
   scan: (baseDir: string) => RawProject[];
   git: (dir: string) => Promise<GitInfo>;
   sessions: (projectPath: string) => SessionMeta[];
@@ -37,7 +38,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
         sessions,
         sessionCount: sessions.length,
         activityMs,
-        stale: classifyStaleness(activityMs, deps.nowMs, DEFAULT_THRESHOLDS),
+        stale: classifyStaleness(activityMs, deps.nowMs, deps.thresholds),
         note: entry.note,
         pinned: entry.pinned,
         hidden: entry.hidden,

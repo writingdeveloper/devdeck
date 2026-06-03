@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog } from 'electron';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Store } from './store';
@@ -9,11 +9,12 @@ import { buildProjectList } from './projects';
 import { openProjects, resolveShell, resolveWtPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
+import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 
 export interface IpcConfig {
-  baseDir: string;
+  defaultBaseDir: string;
   store: Store;
   sendError: (msg: string) => void;
   selfName: string;
@@ -21,10 +22,14 @@ export interface IpcConfig {
 }
 
 export function registerIpc(cfg: IpcConfig): void {
+  const effBaseDir = () => cfg.store.getBaseDir() ?? cfg.defaultBaseDir;
+  const effThresholds = () => cfg.store.getThresholds() ?? DEFAULT_THRESHOLDS;
+
   ipcMain.handle('projects:list', async () => {
     return buildProjectList({
-      baseDir: cfg.baseDir,
+      baseDir: effBaseDir(),
       nowMs: Date.now(),
+      thresholds: effThresholds(),
       scan: (base) => scanRepos(base).filter((r) => r.name !== cfg.selfName),
       git: (dir) => getGitInfo(dir),
       sessions: (p) => listSessions(p, CLAUDE_PROJECTS),
@@ -43,11 +48,21 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   ipcMain.handle('usage:report', (_e, sinceMs: number) => {
-    const repos = scanRepos(cfg.baseDir).filter((r) => r.name !== cfg.selfName);
+    const repos = scanRepos(effBaseDir()).filter((r) => r.name !== cfg.selfName);
     return scanUsage(repos, CLAUDE_PROJECTS, sinceMs);
   });
   ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
   ipcMain.handle('settings:setLanguage', (_e, lang: string) => cfg.store.setLanguage(lang));
+
+  ipcMain.handle('settings:get', () => ({
+    baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
+  }));
+  ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(dir));
+  ipcMain.handle('settings:setThresholds', (_e, t: { freshDays: number; warnDays: number; neglectedDays: number }) => cfg.store.setThresholds(t));
+  ipcMain.handle('settings:pickFolder', async () => {
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory'] });
+    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+  });
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
     const shell = resolveShell();

@@ -43,4 +43,18 @@ describe('Store', () => {
     expect(existsSync(file + '.tmp')).toBe(false);
     expect(existsSync(file)).toBe(true);
   });
+
+  it('persists baseDir and thresholds', () => {
+    const s = new Store(file);
+    s.setBaseDir('C:\\repos');
+    s.setThresholds({ freshDays: 2, warnDays: 5, neglectedDays: 14 });
+    const re = new Store(file);
+    expect(re.getBaseDir()).toBe('C:\\repos');
+    expect(re.getThresholds()).toEqual({ freshDays: 2, warnDays: 5, neglectedDays: 14 });
+  });
+  it('returns null baseDir / null thresholds by default', () => {
+    const s = new Store(file);
+    expect(s.getBaseDir()).toBeNull();
+    expect(s.getThresholds()).toBeNull();
+  });
 });
