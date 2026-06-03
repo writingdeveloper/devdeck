@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc && node scripts/build-renderer.mjs && node scripts/copy-assets.mjs",
     "dist": "npm run build && electron-builder --win --dir",
+    "icons": "tsc && npx electron scripts/gen-icons.js",
     "start": "npm run build && electron .",
     "test": "vitest run",
     "test:watch": "vitest",
