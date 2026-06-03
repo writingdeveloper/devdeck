@@ -7,7 +7,6 @@ export type SpawnFn = (file: string, args: string[]) => void;
 export interface OpenOptions {
   wtPath: string;
   shell: string;
-  command: string;
   spawnFn?: SpawnFn;
 }
 
@@ -53,8 +52,8 @@ export function resolveShell(exists: ExistsProbe = defaultPwshExists): string {
   return exists('pwsh') ? 'pwsh' : 'powershell';
 }
 
-export function openProjects(projects: WtTab[], opts: OpenOptions): void {
-  if (projects.length === 0) return;
-  const args = buildWtArgs(projects, opts.shell, opts.command);
+export function openProjects(tabs: WtTab[], opts: OpenOptions): void {
+  if (tabs.length === 0) return;
+  const args = buildWtArgs(tabs, opts.shell);
   (opts.spawnFn ?? defaultSpawn)(opts.wtPath, args);
 }

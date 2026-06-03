@@ -40,9 +40,13 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('projects:open', (_e, paths: string[]) => {
     const shell = resolveShell();
-    const tabs: WtTab[] = paths.map((p) => ({ name: p.split('\\').pop() ?? p, dir: p }));
+    const tabs: WtTab[] = paths.map((p) => ({
+      name: p.split('\\').pop() ?? p,
+      dir: p,
+      command: 'claude -c',
+    }));
     const now = new Date().toISOString();
     for (const p of paths) cfg.store.setLastOpened(p, now);
-    openProjects(tabs, { wtPath: resolveWtPath(), shell, command: 'claude -c' });
+    openProjects(tabs, { wtPath: resolveWtPath(), shell });
   });
 }
