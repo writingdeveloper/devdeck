@@ -9,6 +9,9 @@ declare global {
       setHidden(path: string, hidden: boolean): Promise<void>;
       open(items: { path: string; sessionId: string | null }[]): Promise<void>;
       onError(cb: (msg: string) => void): void;
+      usageReport(sinceMs: number): Promise<import('../shared/types').UsageReport>;
+      getLanguage(): Promise<string>;
+      setLanguage(lang: string): Promise<void>;
     };
   }
 }

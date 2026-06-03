@@ -43,6 +43,7 @@ if (!gotLock) {
       store,
       selfName: SELF_NAME,
       sendError: (msg) => win?.webContents.send('devdeck:error', msg),
+      defaultLanguage: app.getLocale().split('-')[0] || 'en',
     });
     setupTray(win);
     globalShortcut.register('Control+Alt+D', showWindow);
