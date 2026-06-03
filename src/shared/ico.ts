@@ -23,8 +23,8 @@ export function packIco(pngs: Uint8Array[], sizes: number[]): Uint8Array {
     out[entry + 1] = sz;       // height
     out[entry + 2] = 0;        // palette color count
     out[entry + 3] = 0;        // reserved
-    dv.setUint16(entry + 4, 1, true);   // color planes
-    dv.setUint16(entry + 6, 32, true);  // bits per pixel
+    dv.setUint16(entry + 4, 0, true);   // color planes (0 for PNG-compressed entries)
+    dv.setUint16(entry + 6, 0, true);   // bits per pixel (0; format read from the PNG)
     dv.setUint32(entry + 8, pngs[i].length, true);  // bytes in resource
     dv.setUint32(entry + 12, imgOffset, true);      // offset to image data
     out.set(pngs[i], imgOffset);

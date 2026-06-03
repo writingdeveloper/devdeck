@@ -20,6 +20,9 @@ describe('packIco', () => {
     expect(dv.getUint32(6 + 8, true)).toBe(3);  // entry0 bytesInRes = len(a)
     expect(ico.length).toBe(6 + 16 * 2 + 3 + 4); // 45
     expect([...ico.slice(38, 41)]).toEqual([1, 2, 3]); // image #1 bytes appended
+    expect(dv.getUint16(6 + 4, true)).toBe(0);  // entry0 planes = 0 (PNG-in-ICO convention)
+    expect(dv.getUint16(6 + 6, true)).toBe(0);  // entry0 bitCount = 0 (format read from PNG)
+    expect([...ico.slice(41, 45)]).toEqual([4, 5, 6, 7]); // image #2 bytes verbatim
   });
 
   it('encodes 256 as width/height byte 0', () => {
