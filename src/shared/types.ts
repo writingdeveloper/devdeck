@@ -51,6 +51,11 @@ export interface StoreEntry {
   lastOpened: string | null; // ISO timestamp
 }
 
+export interface ResumeCue {
+  kind: 'lastMessage'; // 'todos' reserved for future structured harvesting
+  text: string;
+}
+
 export interface ProjectViewModel {
   path: string;
   name: string;
@@ -67,4 +72,5 @@ export interface ProjectViewModel {
   pinned: boolean;
   hidden: boolean;
   lastOpened: string | null;
+  resumeCue: ResumeCue | null;
 }

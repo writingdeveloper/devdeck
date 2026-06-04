@@ -22,6 +22,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
       uncommitted: 0,
     }),
     sessions: () => [],
+    resumeCue: () => null,
     getEntry: () => ({ note: '', pinned: false, hidden: false, lastOpened: null }),
     ...over,
   };
@@ -68,5 +69,16 @@ describe('buildProjectList', () => {
     expect(fresh.sessions[0].firstMessage).toBe('hi');
     expect(fresh.lastSessionMs).toBe(NOW2 - 3_600_000);
     expect(fresh.stale.level).toBe('fresh');
+  });
+
+  it('derives resumeCue from the newest session via the dep', async () => {
+    const list = await buildProjectList(deps({
+      sessions: (p) => p.endsWith('fresh')
+        ? [{ id: 'newest', mtimeMs: NOW, firstMessage: 'hi' }]
+        : [],
+      resumeCue: (_p, sessionId) => (sessionId === 'newest' ? 'continue the cue work' : null),
+    }));
+    expect(list.find((p) => p.name === 'fresh')!.resumeCue).toEqual({ kind: 'lastMessage', text: 'continue the cue work' });
+    expect(list.find((p) => p.name === 'old')!.resumeCue).toBeNull();
   });
 });
