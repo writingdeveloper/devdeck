@@ -17,7 +17,7 @@ describe('Store', () => {
   it('returns a default entry for an unknown project', () => {
     const s = new Store(file);
     expect(s.get('C:\\g\\x')).toEqual({
-      note: '', pinned: false, hidden: false, staleDays: null, lastOpened: null,
+      note: '', pinned: false, hidden: false, lastOpened: null,
     });
   });
 

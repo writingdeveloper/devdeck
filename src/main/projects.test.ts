@@ -22,7 +22,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
       uncommitted: 0,
     }),
     sessions: () => [],
-    getEntry: () => ({ note: '', pinned: false, hidden: false, staleDays: null, lastOpened: null }),
+    getEntry: () => ({ note: '', pinned: false, hidden: false, lastOpened: null }),
     ...over,
   };
 }
@@ -38,7 +38,7 @@ describe('buildProjectList', () => {
   it('excludes hidden projects', async () => {
     const list = await buildProjectList(deps({
       getEntry: (path) => ({
-        note: '', pinned: false, hidden: path.endsWith('old'), staleDays: null, lastOpened: null,
+        note: '', pinned: false, hidden: path.endsWith('old'), lastOpened: null,
       }),
     }));
     expect(list.map((p) => p.name)).toEqual(['fresh']);
@@ -47,7 +47,7 @@ describe('buildProjectList', () => {
   it('floats pinned projects to the top regardless of activity', async () => {
     const list = await buildProjectList(deps({
       getEntry: (path) => ({
-        note: '', pinned: path.endsWith('old'), hidden: false, staleDays: null, lastOpened: null,
+        note: '', pinned: path.endsWith('old'), hidden: false, lastOpened: null,
       }),
     }));
     expect(list[0].name).toBe('old');
