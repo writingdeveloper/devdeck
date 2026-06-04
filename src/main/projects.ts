@@ -1,4 +1,4 @@
-import type { GitInfo, ProjectViewModel, StoreEntry, SessionMeta, StaleThresholds } from '../shared/types';
+import type { GitInfo, ProjectViewModel, StoreEntry, SessionMeta, StaleThresholds, ResumeCue } from '../shared/types';
 import type { RawProject } from './scanner';
 import { classifyStaleness } from '../shared/staleness';
 
@@ -9,6 +9,7 @@ export interface BuildDeps {
   scan: (baseDir: string) => Promise<RawProject[]>;
   git: (dir: string) => Promise<GitInfo>;
   sessions: (projectPath: string) => SessionMeta[];
+  resumeCue: (projectPath: string, sessionId: string) => string | null;
   getEntry: (path: string) => StoreEntry;
 }
 
@@ -24,6 +25,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
     raw.map(async (r): Promise<ProjectViewModel> => {
       const git = await deps.git(r.path);
       const sessions = deps.sessions(r.path);
+      const cueText = sessions[0] ? deps.resumeCue(r.path, sessions[0].id) : null;
       const lastSessionMs = sessions[0]?.mtimeMs ?? null;
       const activityMs = maxMs(git.lastCommitMs, lastSessionMs);
       const entry = deps.getEntry(r.path);
@@ -43,6 +45,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
         pinned: entry.pinned,
         hidden: entry.hidden,
         lastOpened: entry.lastOpened,
+        resumeCue: cueText ? ({ kind: 'lastMessage', text: cueText } satisfies ResumeCue) : null,
       };
     }),
   );

@@ -14,6 +14,7 @@
   "badge.days": "{n}d",
   "proj.next_todo": "+ next task…",
   "proj.next_todo_ph": "next task…",
+  "proj.resume_prefix": "Resume",
   "proj.sessions": "sessions",
   "proj.open": "open",
   "proj.open_folder": "Open folder",
