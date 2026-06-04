@@ -4,6 +4,9 @@ import { encodeProjectPath } from '../shared/paths';
 import { emptyTotals, addUsage, estimateCost, MODEL_PRICING, type UsageTotals, type RawUsage } from '../shared/usage';
 import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 
+// Cache: key = filepath + ':' + mtimeMs → parsed lines
+const _fileCache = new Map<string, string[]>();
+
 interface RepoRef { path: string; name: string; }
 
 function dayKey(ts: string | undefined, fallbackMs: number): string {
@@ -41,12 +44,20 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
       try { files = readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { files = []; }
       for (const f of files) {
         const full = join(dir, f);
-        let text = '';
-        try { text = readFileSync(full, 'utf8'); } catch { continue; }
         let fileMs = Date.now();
         try { fileMs = statSync(full).mtimeMs; } catch { /* keep now */ }
+        const cacheKey = full + ':' + fileMs;
+        let lines: string[];
+        if (_fileCache.has(cacheKey)) {
+          lines = _fileCache.get(cacheKey)!;
+        } else {
+          let text = '';
+          try { text = readFileSync(full, 'utf8'); } catch { continue; }
+          lines = text.split('\n');
+          _fileCache.set(cacheKey, lines);
+        }
         projSessions++;
-        for (const line of text.split('\n')) {
+        for (const line of lines) {
           if (!line.trim()) continue;
           let o: { type?: string; timestamp?: string; message?: { model?: string; usage?: RawUsage & { server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } } } };
           try { o = JSON.parse(line); } catch { continue; }

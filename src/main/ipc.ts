@@ -1,10 +1,10 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type { Store } from './store';
 import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
-import { listSessions } from './sessions';
+import { listSessions, isValidSessionId } from './sessions';
 import { buildProjectList } from './projects';
 import { openProjects, resolveShell, resolveWtPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
@@ -19,6 +19,12 @@ export interface IpcConfig {
   store: Store;
   sendError: (msg: string) => void;
   defaultLanguage: string;
+}
+
+function isUnderBase(base: string, incoming: string): boolean {
+  const r = resolve(incoming);
+  const b = resolve(base);
+  return r === b || r.startsWith(b + sep);
 }
 
 export function registerIpc(cfg: IpcConfig): void {
@@ -38,7 +44,7 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   ipcMain.handle('project:setNote', (_e, path: string, note: string) => {
-    cfg.store.setNote(path, note);
+    cfg.store.setNote(path, String(note).slice(0, 10000));
   });
   ipcMain.handle('project:setPinned', (_e, path: string, pinned: boolean) => {
     cfg.store.setPinned(path, pinned);
@@ -47,9 +53,10 @@ export function registerIpc(cfg: IpcConfig): void {
     cfg.store.setHidden(path, hidden);
   });
 
-  ipcMain.handle('usage:report', (_e, sinceMs: number) => {
-    const repos = scanRepos(effBaseDir());
-    return scanUsage(repos, CLAUDE_PROJECTS, sinceMs);
+  ipcMain.handle('usage:report', async (_e, sinceMs: number) => {
+    const ms = (Number.isFinite(sinceMs) || sinceMs === Infinity) ? sinceMs : 0;
+    const repos = await scanRepos(effBaseDir());
+    return scanUsage(repos, CLAUDE_PROJECTS, ms);
   });
   ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
   ipcMain.handle('settings:setLanguage', (_e, lang: string) => cfg.store.setLanguage(lang));
@@ -57,27 +64,59 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
   }));
-  ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(dir));
-  ipcMain.handle('settings:setThresholds', (_e, t: { freshDays: number; warnDays: number; neglectedDays: number }) => cfg.store.setThresholds(t));
+  ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
+  ipcMain.handle('settings:setThresholds', (_e, t: { freshDays: number; warnDays: number; neglectedDays: number }) => {
+    const { freshDays, warnDays, neglectedDays } = t ?? {};
+    if (
+      typeof freshDays === 'number' && typeof warnDays === 'number' && typeof neglectedDays === 'number' &&
+      freshDays > 0 && freshDays <= warnDays && warnDays <= neglectedDays
+    ) {
+      cfg.store.setThresholds({ freshDays, warnDays, neglectedDays });
+    }
+  });
   ipcMain.handle('settings:pickFolder', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] });
     return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
   });
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
+    const base = effBaseDir();
     const shellExe = resolveShell();
-    const tabs: WtTab[] = items.map((it) => ({
-      name: it.path.split('\\').pop() ?? it.path,
-      dir: it.path,
-      command: it.sessionId ? `claude -r ${it.sessionId}` : 'claude',
-    }));
     const now = new Date().toISOString();
-    for (const it of items) cfg.store.setLastOpened(it.path, now);
+    const tabs: WtTab[] = [];
+    for (const it of items) {
+      if (!isUnderBase(base, it.path)) {
+        cfg.sendError(`Path outside base dir: ${it.path}`);
+        continue;
+      }
+      let command: string;
+      // Only interpolate a session id into the shell command if it is a valid
+      // (UUID-ish) id; otherwise fall back to continue/new so a crafted id cannot
+      // inject into `claude -r <id>` at this trust boundary.
+      if (typeof it.sessionId === 'string' && isValidSessionId(it.sessionId)) {
+        command = `claude -r ${it.sessionId}`;
+      } else if (listSessions(it.path, CLAUDE_PROJECTS).length > 0) {
+        command = 'claude -c';
+      } else {
+        command = 'claude';
+      }
+      tabs.push({
+        name: it.path.split('\\').pop() ?? it.path,
+        dir: it.path,
+        command,
+      });
+      // Record lastOpened only for accepted (validated) projects.
+      cfg.store.setLastOpened(it.path, now);
+    }
     openProjects(tabs, { wtPath: resolveWtPath(), shell: shellExe, onError: cfg.sendError });
   });
 
   // Open the project folder in the OS file manager.
   ipcMain.handle('project:openFolder', async (_e, p: string) => {
+    if (!isUnderBase(effBaseDir(), p)) {
+      cfg.sendError(`Path outside base dir: ${p}`);
+      return;
+    }
     const err = await shell.openPath(p);
     if (err) cfg.sendError(err);
   });

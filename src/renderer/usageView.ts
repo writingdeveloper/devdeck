@@ -14,6 +14,7 @@ const COLORS = ['#6366f1', '#3b82f6', '#d98a1f', '#e0623f', '#9aa1ad'];
 let viewEl: HTMLElement;
 let activeRange = '30d';
 let sortKey: 'cost' | 'input' | 'output' | 'sessions' = 'cost';
+let sortDir: 'desc' | 'asc' = 'desc';
 
 function fmt(n: number): string { return new Intl.NumberFormat(localeTag()).format(n); }
 function usd(n: number | null): string { return n == null ? '—' : `~$${n.toFixed(2)}`; }
@@ -36,14 +37,18 @@ function render(r: UsageReport): void {
     b.addEventListener('click', () => { activeRange = rg.key; load(); });
     bar.appendChild(b);
   }
-  const cost = document.createElement('span'); cost.className = 'usage-total';
-  cost.textContent = `${tr('usage.est_cost')} ${usd(r.globalCost)}${r.hasUnknownModel ? ' *' : ''}`;
+  const cost = document.createElement('span'); cost.className = 'usage-total usage-total--secondary';
+  cost.textContent = `${tr('usage.est_cost')}: ${usd(r.globalCost)}${r.hasUnknownModel ? ' *' : ''}`;
   bar.appendChild(cost);
   viewEl.appendChild(bar);
 
   const sum = document.createElement('div'); sum.className = 'usage-summary';
   const stats = document.createElement('div'); stats.className = 'usage-stats';
+  const cacheHitPct = r.global.cacheRead + r.global.input > 0
+    ? Math.round((r.global.cacheRead / (r.global.cacheRead + r.global.input)) * 100)
+    : 0;
   stats.append(...([
+    [tr('usage.cache_hit'), `${cacheHitPct}%`],
     [tr('usage.input'), fmt(r.global.input)], [tr('usage.output'), fmt(r.global.output)],
     [tr('usage.cache_w'), fmt(r.global.cacheWrite)], [tr('usage.cache_r'), fmt(r.global.cacheRead)],
     [tr('usage.web'), `${r.webSearch + r.webFetch}`], [tr('usage.sessions'), `${r.sessions}`],
@@ -72,13 +77,34 @@ function render(r: UsageReport): void {
   const rows = [...r.byProject].filter((p) => p.sessions > 0).sort((a, b) => {
     const av = sortKey === 'cost' ? (a.costEstimate ?? -1) : sortKey === 'sessions' ? a.sessions : a.totals[sortKey];
     const bv = sortKey === 'cost' ? (b.costEstimate ?? -1) : sortKey === 'sessions' ? b.sessions : b.totals[sortKey];
-    return bv - av;
+    return sortDir === 'desc' ? bv - av : av - bv;
   });
   const table = document.createElement('table'); table.className = 'usage-table';
   const head = document.createElement('tr');
   for (const [key, label] of [['name', tr('usage.col_project')], ['sessions', tr('proj.sessions')], ['input', tr('usage.input')], ['output', tr('usage.output')], ['cost', tr('usage.col_cost')]] as const) {
-    const th = document.createElement('th'); th.textContent = label;
-    if (key !== 'name') th.addEventListener('click', () => { sortKey = key as typeof sortKey; render(r); });
+    const th = document.createElement('th');
+    const isSortable = key !== 'name';
+    const isActive = isSortable && key === sortKey;
+
+    if (isSortable) {
+      th.setAttribute('tabindex', '0');
+      th.setAttribute('aria-sort', isActive ? (sortDir === 'desc' ? 'descending' : 'ascending') : 'none');
+      const lbl = document.createElement('span'); lbl.textContent = label;
+      const ind = document.createElement('span');
+      ind.setAttribute('aria-hidden', 'true');
+      ind.textContent = isActive ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '';
+      th.append(lbl, ind);
+      const activate = (): void => {
+        if (sortKey === (key as typeof sortKey)) sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+        else { sortKey = key as typeof sortKey; sortDir = 'desc'; }
+        render(r);
+      };
+      th.addEventListener('click', activate);
+      th.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activate(); } });
+    } else {
+      th.textContent = label;
+      th.setAttribute('aria-sort', 'none');
+    }
     head.appendChild(th);
   }
   table.appendChild(head);

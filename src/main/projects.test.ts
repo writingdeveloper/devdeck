@@ -11,7 +11,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
     baseDir: 'C:\\g',
     nowMs: NOW,
     thresholds: DEFAULT_THRESHOLDS,
-    scan: () => [
+    scan: async () => [
       { path: 'C:\\g\\fresh', name: 'fresh' },
       { path: 'C:\\g\\old', name: 'old' },
     ],
@@ -22,7 +22,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
       uncommitted: 0,
     }),
     sessions: () => [],
-    getEntry: () => ({ note: '', pinned: false, hidden: false, staleDays: null, lastOpened: null }),
+    getEntry: () => ({ note: '', pinned: false, hidden: false, lastOpened: null }),
     ...over,
   };
 }
@@ -35,19 +35,21 @@ describe('buildProjectList', () => {
     expect(list[1].stale.level).toBe('neglected');
   });
 
-  it('excludes hidden projects', async () => {
+  it('includes hidden projects in output (renderer filters them)', async () => {
     const list = await buildProjectList(deps({
       getEntry: (path) => ({
-        note: '', pinned: false, hidden: path.endsWith('old'), staleDays: null, lastOpened: null,
+        note: '', pinned: false, hidden: path.endsWith('old'), lastOpened: null,
       }),
     }));
-    expect(list.map((p) => p.name)).toEqual(['fresh']);
+    expect(list.map((p) => p.name)).toEqual(['fresh', 'old']);
+    expect(list.find((p) => p.name === 'old')!.hidden).toBe(true);
+    expect(list.find((p) => p.name === 'fresh')!.hidden).toBe(false);
   });
 
   it('floats pinned projects to the top regardless of activity', async () => {
     const list = await buildProjectList(deps({
       getEntry: (path) => ({
-        note: '', pinned: path.endsWith('old'), hidden: false, staleDays: null, lastOpened: null,
+        note: '', pinned: path.endsWith('old'), hidden: false, lastOpened: null,
       }),
     }));
     expect(list[0].name).toBe('old');

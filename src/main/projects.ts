@@ -6,7 +6,7 @@ export interface BuildDeps {
   baseDir: string;
   nowMs: number;
   thresholds: StaleThresholds;
-  scan: (baseDir: string) => RawProject[];
+  scan: (baseDir: string) => Promise<RawProject[]>;
   git: (dir: string) => Promise<GitInfo>;
   sessions: (projectPath: string) => SessionMeta[];
   getEntry: (path: string) => StoreEntry;
@@ -19,7 +19,7 @@ function maxMs(a: number | null, b: number | null): number | null {
 }
 
 export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewModel[]> {
-  const raw = deps.scan(deps.baseDir);
+  const raw = await deps.scan(deps.baseDir);
   const models = await Promise.all(
     raw.map(async (r): Promise<ProjectViewModel> => {
       const git = await deps.git(r.path);
@@ -42,12 +42,12 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
         note: entry.note,
         pinned: entry.pinned,
         hidden: entry.hidden,
+        lastOpened: entry.lastOpened,
       };
     }),
   );
 
   return models
-    .filter((m) => !m.hidden)
     .sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       return (b.activityMs ?? -Infinity) - (a.activityMs ?? -Infinity);

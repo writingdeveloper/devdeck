@@ -52,7 +52,7 @@ export function openProjects(
   const child = spawn(opts.wtPath, args, { detached: true, stdio: 'ignore', windowsHide: false });
   child.on('error', (err) => {
     console.error('DevDeck: failed to launch Windows Terminal', err);
-    opts.onError?.(`Windows Terminal 실행 실패: ${(err as Error).message}`);
+    opts.onError?.(`Failed to launch Windows Terminal: ${(err as Error).message}`);
   });
   child.unref();
 }
