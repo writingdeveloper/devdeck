@@ -35,13 +35,15 @@ describe('buildProjectList', () => {
     expect(list[1].stale.level).toBe('neglected');
   });
 
-  it('excludes hidden projects', async () => {
+  it('includes hidden projects in output (renderer filters them)', async () => {
     const list = await buildProjectList(deps({
       getEntry: (path) => ({
         note: '', pinned: false, hidden: path.endsWith('old'), lastOpened: null,
       }),
     }));
-    expect(list.map((p) => p.name)).toEqual(['fresh']);
+    expect(list.map((p) => p.name)).toEqual(['fresh', 'old']);
+    expect(list.find((p) => p.name === 'old')!.hidden).toBe(true);
+    expect(list.find((p) => p.name === 'fresh')!.hidden).toBe(false);
   });
 
   it('floats pinned projects to the top regardless of activity', async () => {

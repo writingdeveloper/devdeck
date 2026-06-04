@@ -25,6 +25,7 @@
   "proj.empty_none": "No projects to show.",
   "proj.empty_neglected": "No neglected projects — nice!",
   "proj.empty_hidden": "No hidden projects.",
+  "proj.empty_hint": "Set your scan folder in Settings",
   "usage.range_all": "All",
   "usage.est_cost": "Est. cost",
   "usage.input": "Input",
