@@ -9,9 +9,10 @@
 See every repo's state at a glance — git status, how long it's been neglected, your Claude session history — and jump back in with one click (`claude -c`).
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-31-47848F)
-![Tests](https://img.shields.io/badge/tests-70%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-83%20passing-3fb950)
+![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 <img src="docs/demo/demo.gif" width="820" alt="DevDeck demo" />
 
@@ -38,24 +39,28 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 <img src="docs/screenshots/usage.png" width="600" alt="Usage analytics" />
 </div>
 
-## Install (Windows)
+## Install
 
-> ⚠️ **Early release (v0.1) — Windows only** for now. macOS/Linux are planned (see [Platform support](#platform-support)).
+Grab the latest from [**Releases**](https://github.com/writingdeveloper/devdeck/releases/latest):
 
-1. Download the latest **`DevDeck-win-x64.zip`** from [**Releases**](https://github.com/writingdeveloper/devdeck/releases/latest).
-2. Extract it anywhere and run **`DevDeck.exe`**.
-3. The build is **unsigned**, so Windows SmartScreen may warn: click **More info → Run anyway**.
-4. Open **Settings** and point DevDeck at the folder that holds your git repos (defaults to `~/Documents/GitHub`).
+| OS | Download | First run (unsigned build) |
+|----|----------|----------------------------|
+| **Windows** | `DevDeck-0.2.0-Setup.exe` | SmartScreen → **More info → Run anyway** |
+| **macOS** — Apple Silicon | `DevDeck-0.2.0-arm64.dmg` | Right-click the app → **Open** (Gatekeeper) |
+| **macOS** — Intel | `DevDeck-0.2.0-x64.dmg` | Right-click the app → **Open** |
+| **Linux** | `DevDeck-0.2.0-x86_64.AppImage` (portable) or `…-amd64.deb` | `chmod +x` the AppImage, then run |
+
+Builds are **unsigned** (no code-signing certificate yet), so the first launch needs the bypass above. Then open **Settings** and point DevDeck at the folder that holds your git repos (defaults to `~/Documents/GitHub`).
 
 ## Platform support
 
 | OS | Status |
 |----|--------|
-| Windows | ✅ Supported — Windows Terminal / PowerShell. Packaged release available. |
-| macOS | ✅ Supported (beta) — opens Terminal.app via `osascript`. Run from source for now. Launcher logic + AppleScript are CI-verified on real macOS runners; the GUI flow hasn't been hardware-tested yet — feedback welcome. |
-| Linux | ✅ Supported (beta) — auto-detects `gnome-terminal` / `konsole` / `alacritty` / `kitty` / `xterm` (and `x-terminal-emulator`). Run from source. |
+| Windows | ✅ Supported — Windows Terminal / PowerShell. Installer provided. |
+| macOS | ✅ Supported — opens Terminal.app via `osascript`. `.dmg` provided (arm64 + x64). Launcher logic + AppleScript are validated on real macOS CI runners; GUI hardware-testing & signing still pending — feedback welcome. |
+| Linux | ✅ Supported — auto-detects `gnome-terminal` / `konsole` / `alacritty` / `kitty` / `xterm` (and `x-terminal-emulator`). AppImage + `.deb` provided. |
 
-> Packaged installers are Windows-only so far; on macOS/Linux, run from source (`npm start`). CI (GitHub Actions) builds + tests on Windows, macOS, and Linux on every push.
+> Every release is built **and** unit-tested on real Windows, macOS, and Linux GitHub Actions runners; the macOS `.dmg` is produced on a genuine Mac runner.
 
 ## Build from source
 
