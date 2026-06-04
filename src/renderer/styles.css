@@ -104,6 +104,7 @@ button.primary:hover { background: var(--accent-hover); }
 .meta .branch { color: var(--text); }
 .dirty { color: var(--text); }
 .dirty.alarm { color: var(--warn); }
+.ahead { color: var(--accent-hover); }
 
 .sessions { margin-top: 4px; }
 .sessions-head { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); cursor: pointer; }

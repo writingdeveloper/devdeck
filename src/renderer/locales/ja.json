@@ -15,6 +15,8 @@
   "proj.next_todo": "+ 次のタスク…",
   "proj.next_todo_ph": "次のタスク…",
   "proj.resume_prefix": "再開",
+  "proj.unpushed": "{n} 件の未プッシュコミット",
+  "proj.open_editor": "エディタで開く",
   "proj.sessions": "セッション",
   "proj.open": "開く",
   "proj.open_folder": "フォルダを開く",

@@ -42,6 +42,8 @@ export interface GitInfo {
   lastCommitMs: number | null;
   lastSubject: string | null;
   uncommitted: number;
+  /** Commits ahead of the upstream branch (unpushed); null when there is no upstream. */
+  ahead: number | null;
 }
 
 export interface StoreEntry {
@@ -61,6 +63,7 @@ export interface ProjectViewModel {
   name: string;
   branch: string | null;
   uncommitted: number;
+  ahead: number | null;
   lastCommitMs: number | null;
   lastSubject: string | null;
   lastSessionMs: number | null;

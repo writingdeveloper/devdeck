@@ -6,7 +6,7 @@ import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
 import { listSessions, isValidSessionId, lastUserMessageForSession } from './sessions';
 import { buildProjectList } from './projects';
-import { openProjects } from './launcher';
+import { openProjects, openInEditor } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
@@ -119,6 +119,15 @@ export function registerIpc(cfg: IpcConfig): void {
     }
     const err = await shell.openPath(p);
     if (err) cfg.sendError(err);
+  });
+
+  // Open the project in VS Code (`code <path>`).
+  ipcMain.handle('project:openEditor', (_e, p: string) => {
+    if (!isUnderBase(effBaseDir(), p)) {
+      cfg.sendError(`Path outside base dir: ${p}`);
+      return;
+    }
+    openInEditor(p, { onError: cfg.sendError });
   });
 
   // Frameless-window controls (the title bar draws its own buttons).

@@ -20,3 +20,11 @@ export function parseLastCommit(out: string): {
 export function parsePorcelainCount(out: string): number {
   return out.split('\n').filter((l) => l.trim().length > 0).length;
 }
+
+/** `git rev-list --count @{upstream}..HEAD` -> unpushed commit count, or null when there is no upstream. */
+export function parseAheadCount(out: string): number | null {
+  const t = out.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}

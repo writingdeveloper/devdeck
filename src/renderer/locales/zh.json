@@ -15,6 +15,8 @@
   "proj.next_todo": "+ 下一个任务…",
   "proj.next_todo_ph": "下一个任务…",
   "proj.resume_prefix": "继续",
+  "proj.unpushed": "{n} 个未推送提交",
+  "proj.open_editor": "在编辑器中打开",
   "proj.sessions": "会话",
   "proj.open": "打开",
   "proj.open_folder": "打开文件夹",
