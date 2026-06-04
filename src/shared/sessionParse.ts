@@ -39,3 +39,23 @@ export function firstUserMessage(jsonlText: string): string | null {
   }
   return null;
 }
+
+/** Last genuine user message in a session .jsonl, or null. Tail-scan mirror of firstUserMessage. */
+export function lastUserMessage(jsonlText: string): string | null {
+  const lines = jsonlText.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const raw = lines[i];
+    if (!raw.trim()) continue;
+    let obj: { type?: string; message?: { content?: unknown } };
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (obj.type !== 'user' || !obj.message) continue;
+    const text = textOf(obj.message.content).trim();
+    if (!text || isWrapper(text)) continue;
+    return text;
+  }
+  return null;
+}
