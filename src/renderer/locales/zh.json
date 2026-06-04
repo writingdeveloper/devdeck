@@ -43,5 +43,11 @@
   "set.thresholds": "闲置阈值(天)",
   "set.fresh": "新鲜",
   "set.warn": "注意",
-  "set.neglected": "闲置"
+  "set.neglected": "闲置",
+  "proj.search_ph": "搜索项目…",
+  "proj.sort": "排序",
+  "proj.sort_activity": "活动",
+  "proj.sort_uncommitted": "未提交",
+  "proj.sort_name": "名称",
+  "proj.sort_opened": "最近打开"
 }

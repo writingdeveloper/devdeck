@@ -66,4 +66,5 @@ export interface ProjectViewModel {
   note: string;
   pinned: boolean;
   hidden: boolean;
+  lastOpened: string | null;
 }

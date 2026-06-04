@@ -43,5 +43,11 @@
   "set.thresholds": "放置しきい値(日)",
   "set.fresh": "新鮮",
   "set.warn": "注意",
-  "set.neglected": "放置"
+  "set.neglected": "放置",
+  "proj.search_ph": "プロジェクトを検索…",
+  "proj.sort": "並び替え",
+  "proj.sort_activity": "アクティビティ",
+  "proj.sort_uncommitted": "未コミット",
+  "proj.sort_name": "名前",
+  "proj.sort_opened": "最終開覧"
 }

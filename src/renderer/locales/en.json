@@ -43,5 +43,11 @@
   "set.thresholds": "Staleness thresholds (days)",
   "set.fresh": "Fresh",
   "set.warn": "Warn",
-  "set.neglected": "Neglected"
+  "set.neglected": "Neglected",
+  "proj.search_ph": "Search projects…",
+  "proj.sort": "Sort",
+  "proj.sort_activity": "Activity",
+  "proj.sort_uncommitted": "Uncommitted",
+  "proj.sort_name": "Name",
+  "proj.sort_opened": "Last opened"
 }
