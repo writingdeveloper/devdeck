@@ -4,9 +4,15 @@
   "description": "Project command deck — at-a-glance state + claude -c resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
+  "license": "MIT",
+  "author": "Si Hyeong Lee",
+  "homepage": "https://github.com/writingdeveloper/devdeck#readme",
+  "repository": { "type": "git", "url": "https://github.com/writingdeveloper/devdeck.git" },
+  "keywords": ["claude-code", "claude", "electron", "developer-tools", "git", "dashboard", "productivity"],
   "scripts": {
     "build": "tsc && node scripts/build-renderer.mjs && node scripts/copy-assets.mjs",
     "dist": "npm run build && electron-builder --win --dir",
+    "dist:installer": "npm run build && electron-builder --win nsis",
     "icons": "tsc && npx electron scripts/gen-icons.js",
     "start": "npm run build && electron .",
     "test": "vitest run",
@@ -24,6 +30,15 @@
     ],
     "directories": {
       "output": "release"
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-${version}-Setup.${ext}"
     }
   },
   "devDependencies": {
