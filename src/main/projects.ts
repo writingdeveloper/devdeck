@@ -47,7 +47,6 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
   );
 
   return models
-    .filter((m) => !m.hidden)
     .sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
       return (b.activityMs ?? -Infinity) - (a.activityMs ?? -Infinity);

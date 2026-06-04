@@ -25,6 +25,7 @@
   "proj.empty_none": "表示するプロジェクトがありません。",
   "proj.empty_neglected": "放置されたプロジェクトはありません — いいですね！",
   "proj.empty_hidden": "非表示のプロジェクトはありません。",
+  "proj.empty_hint": "設定でスキャンフォルダを指定してください",
   "usage.range_all": "全期間",
   "usage.est_cost": "推定コスト",
   "usage.input": "入力",

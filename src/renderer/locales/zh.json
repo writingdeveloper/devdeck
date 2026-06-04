@@ -25,6 +25,7 @@
   "proj.empty_none": "没有可显示的项目。",
   "proj.empty_neglected": "没有搁置的项目 — 不错！",
   "proj.empty_hidden": "没有隐藏的项目。",
+  "proj.empty_hint": "在设置中指定扫描文件夹",
   "usage.range_all": "全部",
   "usage.est_cost": "预估费用",
   "usage.input": "输入",

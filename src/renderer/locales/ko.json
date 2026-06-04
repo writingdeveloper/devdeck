@@ -25,6 +25,7 @@
   "proj.empty_none": "표시할 프로젝트가 없습니다.",
   "proj.empty_neglected": "방치된 프로젝트가 없습니다 — 좋아요!",
   "proj.empty_hidden": "숨긴 프로젝트가 없습니다.",
+  "proj.empty_hint": "스캔 폴더를 설정에서 지정하세요",
   "usage.range_all": "전체",
   "usage.est_cost": "추정 비용",
   "usage.input": "입력",

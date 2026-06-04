@@ -158,7 +158,17 @@ function render(): void {
   if (visible.length === 0) {
     const e = document.createElement('div'); e.className = 'empty';
     e.textContent = neglectedOnly.checked ? tr('proj.empty_neglected') : (showHidden ? tr('proj.empty_hidden') : tr('proj.empty_none'));
-    cardsEl.appendChild(e); return;
+    cardsEl.appendChild(e);
+    if (!showHidden && !neglectedOnly.checked && projects.length === 0) {
+      const hint = document.createElement('button');
+      hint.className = 'chip';
+      hint.textContent = tr('proj.empty_hint');
+      hint.addEventListener('click', () => {
+        document.querySelector<HTMLElement>('.rail-item[data-view=settings]')?.click();
+      });
+      cardsEl.appendChild(hint);
+    }
+    return;
   }
   for (const p of visible) {
     if (showHidden) {
