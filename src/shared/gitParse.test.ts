@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseBranch, parseLastCommit, parsePorcelainCount } from './gitParse';
+import { parseBranch, parseLastCommit, parsePorcelainCount, parseAheadCount } from './gitParse';
 
 describe('parseBranch', () => {
   it('trims branch output', () => {
@@ -34,5 +34,17 @@ describe('parsePorcelainCount', () => {
   });
   it('returns 0 for a clean tree', () => {
     expect(parsePorcelainCount('')).toBe(0);
+  });
+});
+
+describe('parseAheadCount', () => {
+  it('parses the unpushed (ahead-of-upstream) commit count', () => {
+    expect(parseAheadCount('3\n')).toBe(3);
+    expect(parseAheadCount('0\n')).toBe(0);
+  });
+  it('returns null when there is no upstream or output is unparseable', () => {
+    expect(parseAheadCount('')).toBeNull();
+    expect(parseAheadCount('   ')).toBeNull();
+    expect(parseAheadCount('fatal: no upstream configured')).toBeNull();
   });
 });

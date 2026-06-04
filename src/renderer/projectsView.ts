@@ -192,6 +192,12 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
     const dirty = document.createElement('span'); dirty.className = 'dirty' + (p.stale.level === 'neglected' ? ' alarm' : '');
     dirty.textContent = ` · ✎${p.uncommitted}`; meta.appendChild(dirty);
   }
+  if (p.ahead && p.ahead > 0) {
+    const ahead = document.createElement('span'); ahead.className = 'ahead';
+    ahead.textContent = ` · ↑${p.ahead}`;
+    ahead.title = tr('proj.unpushed', { n: p.ahead });
+    meta.appendChild(ahead);
+  }
   meta.appendChild(document.createElement('br'));
   const commitLine = document.createElement('span');
   const subjectText = p.lastSubject ? `"${p.lastSubject}"` : tr('proj.no_commits');
@@ -207,13 +213,17 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
     syncOpenBtn();
   });
   const spacer = document.createElement('span'); spacer.className = 'spacer';
+  const editorBtn = document.createElement('button'); editorBtn.className = 'iconbtn';
+  editorBtn.textContent = '{ }'; editorBtn.title = tr('proj.open_editor');
+  editorBtn.setAttribute('aria-label', tr('proj.open_editor'));
+  editorBtn.addEventListener('click', () => window.devdeck.openEditor(p.path));
   const folderBtn = document.createElement('button'); folderBtn.className = 'iconbtn';
   folderBtn.textContent = '📁'; folderBtn.title = tr('proj.open_folder');
   folderBtn.setAttribute('aria-label', tr('proj.open_folder'));
   folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
   const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
   open.addEventListener('click', () => openItems([{ path: p.path, sessionId: null }]));
-  foot.append(check, spacer, folderBtn, open);
+  foot.append(check, spacer, editorBtn, folderBtn, open);
 
   card.append(headRow, meta, makeSessions(p, render), makeNote(p), foot);
   return card;
