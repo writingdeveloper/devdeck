@@ -9,6 +9,7 @@ let showHidden = false;
 // Per-project estimated cost, filled asynchronously after the list renders so a
 // (potentially slow) full token scan never blocks the project list.
 const costByPath = new Map<string, number | null>();
+let lastLoadMs = 0;
 
 let cardsEl: HTMLElement;
 let neglectedOnly: HTMLInputElement;
@@ -187,6 +188,7 @@ function showSkeleton(): void {
 }
 
 async function reload(): Promise<void> {
+  lastLoadMs = Date.now();
   showSkeleton();
   projects = await window.devdeck.listProjects();
   render();
@@ -213,7 +215,9 @@ export function mountProjects(): void {
     if (selected.size === 0) return;
     openItems(projects.filter((p) => selected.has(p.path)).map((p) => ({ path: p.path, sessionId: p.sessions[0]?.id ?? null })));
   });
-  window.addEventListener('focus', () => { if (document.getElementById('view-projects')!.classList.contains('active')) reload(); });
+  window.addEventListener('focus', () => {
+    if (document.getElementById('view-projects')!.classList.contains('active') && Date.now() - lastLoadMs > 10_000) reload();
+  });
   document.addEventListener('click', () => document.querySelectorAll('.menu:not(.hidden)').forEach((m) => m.classList.add('hidden')));
   reload();
 }
