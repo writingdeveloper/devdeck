@@ -116,6 +116,7 @@ button.primary:hover { background: var(--accent-hover); }
 .session-row .msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .note-ghost { color: var(--text-dim); font-size: 12px; margin: 8px 0; cursor: text; }
+.note-ghost.has-cue { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note-preview { color: var(--text); font-size: 12px; margin: 8px 0; white-space: pre-wrap; cursor: text; }
 .note-edit { width: 100%; margin: 8px 0; background: #0f1115; color: var(--text); border: 1px solid var(--accent); border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }
 

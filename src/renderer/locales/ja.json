@@ -14,6 +14,7 @@
   "badge.days": "{n}日",
   "proj.next_todo": "+ 次のタスク…",
   "proj.next_todo_ph": "次のタスク…",
+  "proj.resume_prefix": "再開",
   "proj.sessions": "セッション",
   "proj.open": "開く",
   "proj.open_folder": "フォルダを開く",
