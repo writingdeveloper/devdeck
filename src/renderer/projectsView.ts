@@ -133,9 +133,13 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
     syncOpenBtn();
   });
   const spacer = document.createElement('span'); spacer.className = 'spacer';
+  const folderBtn = document.createElement('button'); folderBtn.className = 'iconbtn';
+  folderBtn.textContent = '📁'; folderBtn.title = tr('proj.open_folder');
+  folderBtn.setAttribute('aria-label', tr('proj.open_folder'));
+  folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
   const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
   open.addEventListener('click', () => openItems([{ path: p.path, sessionId: p.sessions[0]?.id ?? null }]));
-  foot.append(check, spacer, open);
+  foot.append(check, spacer, folderBtn, open);
 
   card.append(headRow, meta, makeSessions(p, render), makeNote(p), foot);
   return card;
