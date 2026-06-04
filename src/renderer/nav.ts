@@ -6,7 +6,8 @@ export function mountNav(onShow: (view: string) => void): void {
     for (const it of items) {
       const isActive = it.dataset.view === view;
       it.classList.toggle('active', isActive);
-      it.setAttribute('aria-selected', String(isActive));
+      if (isActive) it.setAttribute('aria-current', 'page');
+      else it.removeAttribute('aria-current');
     }
     for (const [id, el] of views) el.classList.toggle('active', id === view);
     onShow(view);

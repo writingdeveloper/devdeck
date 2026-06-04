@@ -4,7 +4,7 @@ import { join, resolve, sep } from 'node:path';
 import type { Store } from './store';
 import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
-import { listSessions } from './sessions';
+import { listSessions, isValidSessionId } from './sessions';
 import { buildProjectList } from './projects';
 import { openProjects, resolveShell, resolveWtPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
@@ -82,6 +82,7 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
     const base = effBaseDir();
     const shellExe = resolveShell();
+    const now = new Date().toISOString();
     const tabs: WtTab[] = [];
     for (const it of items) {
       if (!isUnderBase(base, it.path)) {
@@ -89,7 +90,10 @@ export function registerIpc(cfg: IpcConfig): void {
         continue;
       }
       let command: string;
-      if (typeof it.sessionId === 'string' && it.sessionId.length > 0) {
+      // Only interpolate a session id into the shell command if it is a valid
+      // (UUID-ish) id; otherwise fall back to continue/new so a crafted id cannot
+      // inject into `claude -r <id>` at this trust boundary.
+      if (typeof it.sessionId === 'string' && isValidSessionId(it.sessionId)) {
         command = `claude -r ${it.sessionId}`;
       } else if (listSessions(it.path, CLAUDE_PROJECTS).length > 0) {
         command = 'claude -c';
@@ -101,9 +105,9 @@ export function registerIpc(cfg: IpcConfig): void {
         dir: it.path,
         command,
       });
+      // Record lastOpened only for accepted (validated) projects.
+      cfg.store.setLastOpened(it.path, now);
     }
-    const now = new Date().toISOString();
-    for (const it of items) cfg.store.setLastOpened(it.path, now);
     openProjects(tabs, { wtPath: resolveWtPath(), shell: shellExe, onError: cfg.sendError });
   });
 
