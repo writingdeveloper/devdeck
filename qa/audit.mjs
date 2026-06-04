@@ -44,6 +44,18 @@ ipc.errorToast = await (async () => {
   return { received: msg === 'qa-test-error', toastVisible };
 })();
 
+ipc.surface = await win.evaluate(() => ({
+  openFolder: typeof window.devdeck.openFolder === 'function',
+  windowControls: !!window.devdeck.windowControls &&
+    ['minimize', 'toggleMaximize', 'close', 'isMaximized', 'onMaximizeChange']
+      .every((k) => typeof window.devdeck.windowControls[k] === 'function'),
+}));
+ipc.titlebar = await win.evaluate(() => ({
+  logo: !!document.querySelector('.tb-logo'),
+  controls: ['win-min', 'win-max', 'win-close'].every((id) => !!document.getElementById(id)),
+  closeLabeled: document.getElementById('win-close')?.getAttribute('aria-label') === 'Close',
+}));
+
 // --- axe a11y per view (inject axe-core source directly; Electron CDP lacks Target.createTarget) ---
 const a11y = {};
 for (const view of ['projects', 'usage', 'settings']) {

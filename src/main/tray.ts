@@ -1,10 +1,9 @@
 import { app, Tray, Menu, nativeImage, type BrowserWindow } from 'electron';
+import { join } from 'node:path';
 
 /** Build a tray icon with Open/Quit, and make window-close hide to tray instead of quitting. */
 export function setupTray(win: BrowserWindow): Tray {
-  const icon = nativeImage.createFromDataURL(
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-  );
+  const icon = nativeImage.createFromPath(join(__dirname, '..', 'renderer', 'assets', 'tray.png'));
   const tray = new Tray(icon);
   tray.setToolTip('DevDeck');
   const menu = Menu.buildFromTemplate([

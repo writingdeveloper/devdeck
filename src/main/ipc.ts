@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Store } from './store';
@@ -14,6 +14,7 @@ import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 
 export interface IpcConfig {
+  win: BrowserWindow;
   defaultBaseDir: string;
   store: Store;
   sendError: (msg: string) => void;
@@ -64,7 +65,7 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
-    const shell = resolveShell();
+    const shellExe = resolveShell();
     const tabs: WtTab[] = items.map((it) => ({
       name: it.path.split('\\').pop() ?? it.path,
       dir: it.path,
@@ -72,6 +73,22 @@ export function registerIpc(cfg: IpcConfig): void {
     }));
     const now = new Date().toISOString();
     for (const it of items) cfg.store.setLastOpened(it.path, now);
-    openProjects(tabs, { wtPath: resolveWtPath(), shell, onError: cfg.sendError });
+    openProjects(tabs, { wtPath: resolveWtPath(), shell: shellExe, onError: cfg.sendError });
   });
+
+  // Open the project folder in the OS file manager.
+  ipcMain.handle('project:openFolder', async (_e, p: string) => {
+    const err = await shell.openPath(p);
+    if (err) cfg.sendError(err);
+  });
+
+  // Frameless-window controls (the title bar draws its own buttons).
+  ipcMain.handle('win:minimize', () => cfg.win.minimize());
+  ipcMain.handle('win:toggleMaximize', () => {
+    cfg.win.isMaximized() ? cfg.win.unmaximize() : cfg.win.maximize();
+  });
+  ipcMain.handle('win:close', () => cfg.win.close());
+  ipcMain.handle('win:isMaximized', () => cfg.win.isMaximized());
+  cfg.win.on('maximize', () => cfg.win.webContents.send('win:maximize-changed', true));
+  cfg.win.on('unmaximize', () => cfg.win.webContents.send('win:maximize-changed', false));
 }

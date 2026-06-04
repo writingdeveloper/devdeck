@@ -12,6 +12,11 @@ function createWindow(): BrowserWindow {
   const w = new BrowserWindow({
     width: 1000,
     height: 720,
+    minWidth: 720,
+    minHeight: 480,
+    frame: false,
+    backgroundColor: '#0d0e12',
+    icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon-256.png'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
@@ -36,14 +41,16 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     const store = new Store(path.join(app.getPath('userData'), 'state.json'));
-    win = createWindow();
+    const w = createWindow();
+    win = w;
     registerIpc({
+      win: w,
       defaultBaseDir: DEFAULT_BASE_DIR,
       store,
-      sendError: (msg) => win?.webContents.send('devdeck:error', msg),
+      sendError: (msg) => w.webContents.send('devdeck:error', msg),
       defaultLanguage: app.getLocale().split('-')[0] || 'en',
     });
-    setupTray(win);
+    setupTray(w);
     globalShortcut.register('Control+Alt+D', showWindow);
     app.on('activate', () => { if (!win) win = createWindow(); });
   });
