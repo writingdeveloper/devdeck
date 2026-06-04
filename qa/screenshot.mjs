@@ -81,4 +81,10 @@ writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageEr
 console.log(`\nconsole errors: ${consoleErrors.length}, page errors: ${pageErrors.length}`);
 
 await app.close();
+
+if (consoleErrors.length > 0 || pageErrors.length > 0) {
+  console.error('QA FAILED — console/page errors detected:');
+  console.error(JSON.stringify({ consoleErrors, pageErrors }, null, 2));
+  process.exit(1);
+}
 console.log('done');

@@ -7,7 +7,7 @@ interface StateFile {
 }
 
 const EMPTY: StoreEntry = {
-  note: '', pinned: false, hidden: false, staleDays: null, lastOpened: null,
+  note: '', pinned: false, hidden: false, lastOpened: null,
 };
 
 export class Store {
