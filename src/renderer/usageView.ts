@@ -37,14 +37,18 @@ function render(r: UsageReport): void {
     b.addEventListener('click', () => { activeRange = rg.key; load(); });
     bar.appendChild(b);
   }
-  const cost = document.createElement('span'); cost.className = 'usage-total';
-  cost.textContent = `${tr('usage.est_cost')} ${usd(r.globalCost)}${r.hasUnknownModel ? ' *' : ''}`;
+  const cost = document.createElement('span'); cost.className = 'usage-total usage-total--secondary';
+  cost.textContent = `${tr('usage.est_cost')}: ${usd(r.globalCost)}${r.hasUnknownModel ? ' *' : ''}`;
   bar.appendChild(cost);
   viewEl.appendChild(bar);
 
   const sum = document.createElement('div'); sum.className = 'usage-summary';
   const stats = document.createElement('div'); stats.className = 'usage-stats';
+  const cacheHitPct = r.global.cacheRead + r.global.input > 0
+    ? Math.round((r.global.cacheRead / (r.global.cacheRead + r.global.input)) * 100)
+    : 0;
   stats.append(...([
+    [tr('usage.cache_hit'), `${cacheHitPct}%`],
     [tr('usage.input'), fmt(r.global.input)], [tr('usage.output'), fmt(r.global.output)],
     [tr('usage.cache_w'), fmt(r.global.cacheWrite)], [tr('usage.cache_r'), fmt(r.global.cacheRead)],
     [tr('usage.web'), `${r.webSearch + r.webFetch}`], [tr('usage.sessions'), `${r.sessions}`],

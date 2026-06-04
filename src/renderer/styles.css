@@ -142,6 +142,7 @@ button.primary:hover { background: var(--accent-hover); }
 .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .usage-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .usage-total { margin-left: auto; font-family: var(--mono); color: var(--text); }
+.usage-total--secondary { font-size: 12px; color: var(--text-dim); }
 .usage-summary { padding: 14px 16px; }
 .usage-stats { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; }
 .stat { display: flex; flex-direction: column; }
