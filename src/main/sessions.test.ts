@@ -85,4 +85,17 @@ describe('lastUserMessageForSession', () => {
     expect(lastUserMessageForSession('C:\\g\\cue', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789', root)).toBeNull();
     expect(lastUserMessageForSession('C:\\g\\cue', '$(evil)', root)).toBeNull();
   });
+
+  it('finds the last user message even when it is beyond the first tail chunk', () => {
+    const d = join(root, 'C--g-big');
+    mkdirSync(d, { recursive: true });
+    const id = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+    const target = 'resume THIS specific work';
+    const lines = [JSON.stringify({ type: 'user', message: { content: target } })];
+    // ~1.3MB of trailing assistant content (> the 1MB chunk) after the last user message.
+    const filler = 'x'.repeat(2000);
+    for (let i = 0; i < 650; i++) lines.push(JSON.stringify({ type: 'assistant', message: { content: filler } }));
+    writeFileSync(join(d, `${id}.jsonl`), lines.join('\n'));
+    expect(lastUserMessageForSession('C:\\g\\big', id, root)).toBe(target);
+  });
 });

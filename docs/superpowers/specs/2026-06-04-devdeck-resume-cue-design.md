@@ -27,7 +27,7 @@ Offline, deterministic **resume cue**, shown **non-destructively** alongside the
 Add `lastUserMessage(jsonlText: string): string | null`, the tail-scanning mirror of the existing `firstUserMessage`. Iterates lines **from the end**, returns the first `type:'user'` entry with genuine text, reusing the existing `textOf` / `isWrapper` helpers (so tool-results, system-reminders, and slash-command wrappers are skipped). Returns `null` if none.
 
 ### 2. Tail read — `src/main/sessions.ts`
-Session files can be multiple MB; reading them whole per refresh is too costly. Add `readTail(file, bytes)` (mirror of the existing `readHead`) and `lastUserMessageForSession(projectPath, sessionId, claudeProjectsDir): string | null` that reads the **last ~256 KB** of the given session file and runs `lastUserMessage` on it. A tail that cuts mid-line just yields an unparseable first line (skipped) — acceptable. If the last user turn is beyond the tail window (huge trailing assistant output), returns `null` (graceful).
+Session files can be tens of MB. Real-data check: the last user message sits **0.4–3.4 MB** from the end (a single autonomous turn after a "진행처리"-style prompt is itself multi-MB), so a fixed small tail misses almost everything. `lastUserMessageForSession(projectPath, sessionId, claudeProjectsDir): string | null` therefore scans the file **backward in 1 MB chunks**, decoding each contiguous byte range and dropping the leading partial line, and returns as soon as `lastUserMessage` finds a hit — capped at **8 MB** from the end (`TAIL_MAX`). Reads only as much as needed (early-exit), so most projects cost one chunk. Beyond the cap → `null` (graceful).
 
 ### 3. View model — `src/shared/types.ts` + `src/main/projects.ts`
 ```ts
