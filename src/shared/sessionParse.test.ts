@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { firstUserMessage } from './sessionParse';
+import { firstUserMessage, lastUserMessage } from './sessionParse';
 
 const line = (o: unknown) => JSON.stringify(o);
 
@@ -34,5 +34,39 @@ describe('firstUserMessage', () => {
     expect(firstUserMessage(line({ type: 'mode' }))).toBeNull();
     expect(firstUserMessage('')).toBeNull();
     expect(firstUserMessage('not json\n{bad')).toBeNull();
+  });
+});
+
+describe('lastUserMessage', () => {
+  it('returns the last genuine user message, skipping trailing assistant lines', () => {
+    const jsonl = [
+      line({ type: 'user', message: { content: 'first thing' } }),
+      line({ type: 'user', message: { content: 'the last thing I asked' } }),
+      line({ type: 'assistant', message: { content: 'working on it' } }),
+    ].join('\n');
+    expect(lastUserMessage(jsonl)).toBe('the last thing I asked');
+  });
+
+  it('skips trailing tool-results, wrappers, and system-reminders', () => {
+    const jsonl = [
+      line({ type: 'user', message: { content: 'where I left off' } }),
+      line({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x' }] } }),
+      line({ type: 'user', message: { content: '<system-reminder>noise</system-reminder>' } }),
+      line({ type: 'user', message: { content: '<command-name>/compact</command-name>' } }),
+    ].join('\n');
+    expect(lastUserMessage(jsonl)).toBe('where I left off');
+  });
+
+  it('tolerates a trailing partial/invalid JSON line', () => {
+    const jsonl = [
+      line({ type: 'user', message: { content: 'complete line' } }),
+      '{"type":"user","message":{"content":"cut off',
+    ].join('\n');
+    expect(lastUserMessage(jsonl)).toBe('complete line');
+  });
+
+  it('returns null when there is no genuine user message', () => {
+    expect(lastUserMessage(line({ type: 'assistant', message: { content: 'hi' } }))).toBeNull();
+    expect(lastUserMessage('')).toBeNull();
   });
 });
