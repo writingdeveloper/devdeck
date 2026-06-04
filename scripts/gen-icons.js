@@ -9,17 +9,20 @@ const { packIco } = require('../dist/shared/ico.js');
 const ROOT = path.join(__dirname, '..');
 const MARK = fs.readFileSync(path.join(ROOT, 'design', 'logos', 'mark.svg'), 'utf8');
 
-function svgAt512(withDot) {
+function svgAt512({ withDot = true, flat = false } = {}) {
   let s = MARK.replace('width="256" height="256"', 'width="512" height="512"');
   if (!withDot) s = s.replace(/<circle data-role="dot"[^>]*\/>/, ''); // tiny sizes stay crisp
+  // The soft drop shadow looks great large but muddies into a faint horizontal
+  // band under the card at tray sizes (≤32px) — strip it so small icons stay crisp.
+  if (flat) s = s.replace(/ filter="url\(#sh\)"/, '');
   return s;
 }
 
-async function capture512(win, withDot, tag) {
+async function capture512(win, opts, tag) {
   const tmp = path.join(os.tmpdir(), `devdeck-icon-${tag}.html`);
   try {
     fs.writeFileSync(tmp, `<!doctype html><meta charset="utf-8">` +
-      `<style>html,body{margin:0;padding:0;overflow:hidden;background:transparent}svg{display:block}</style>${svgAt512(withDot)}`);
+      `<style>html,body{margin:0;padding:0;overflow:hidden;background:transparent}svg{display:block}</style>${svgAt512(opts)}`);
     await win.loadFile(tmp);
     await new Promise((r) => setTimeout(r, 400)); // let the SVG rasterise before capture
     return await win.webContents.capturePage();
@@ -34,13 +37,14 @@ app.whenReady().then(async () => {
     width: 512, height: 512, show: false, frame: false, transparent: true,
     webPreferences: { offscreen: true },
   });
-  const full = await capture512(win, true, 'full');
-  const noDot = await capture512(win, false, 'nodot');
+  const full = await capture512(win, { withDot: true, flat: false }, 'full'); // 48px+: shadow reads fine
+  const flat = await capture512(win, { withDot: true, flat: true }, 'flat'); // 24/32 + tray: crisp, no shadow band
+  const tiny = await capture512(win, { withDot: false, flat: true }, 'tiny'); // ≤16: drop the dot too
   win.destroy();
 
   const icoSizes = [16, 24, 32, 48, 64, 128, 256];
   const pngAt = (size) => {
-    const src = size <= 16 ? noDot : full;
+    const src = size <= 16 ? tiny : size <= 32 ? flat : full;
     return src.resize({ width: size, height: size, quality: 'best' }).toPNG();
   };
   const png = {};
