@@ -4,7 +4,7 @@ import { join, resolve, sep } from 'node:path';
 import type { Store } from './store';
 import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
-import { listSessions, isValidSessionId } from './sessions';
+import { listSessions, isValidSessionId, lastUserMessageForSession } from './sessions';
 import { buildProjectList } from './projects';
 import { openProjects, resolveShell, resolveWtPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
@@ -39,6 +39,7 @@ export function registerIpc(cfg: IpcConfig): void {
       scan: (base) => scanRepos(base),
       git: (dir) => getGitInfo(dir),
       sessions: (p) => listSessions(p, CLAUDE_PROJECTS),
+      resumeCue: (p, sessionId) => lastUserMessageForSession(p, sessionId, CLAUDE_PROJECTS),
       getEntry: (p) => cfg.store.get(p),
     });
   });
