@@ -16,7 +16,7 @@
       </div>
       <div class="tb-drag"></div>
       <div class="top-actions">
-        <button id="refresh" class="iconbtn" title="새로고침">↻</button>
+        <button id="refresh" class="iconbtn" title="새로고침" aria-label="새로고침">↻</button>
       </div>
       <div class="win-controls">
         <button id="win-min" class="winbtn" aria-label="Minimize" title="Minimize">─</button>
@@ -25,12 +25,12 @@
       </div>
     </header>
     <div id="shell">
-      <nav id="rail">
-        <button class="rail-item active" data-view="projects" title="Projects">📁</button>
-        <button class="rail-item" data-view="usage" title="Usage">📊</button>
-        <button class="rail-item" data-view="settings" title="Settings">⚙</button>
+      <nav id="rail" role="tablist">
+        <button class="rail-item active" data-view="projects" title="Projects" role="tab" aria-selected="true" aria-label="Projects">📁</button>
+        <button class="rail-item" data-view="usage" title="Usage" role="tab" aria-selected="false" aria-label="Usage">📊</button>
+        <button class="rail-item" data-view="settings" title="Settings" role="tab" aria-selected="false" aria-label="Settings">⚙</button>
         <span class="rail-spacer"></span>
-        <button id="lang-btn" class="rail-item" title="Language">🌐</button>
+        <button id="lang-btn" class="rail-item" title="Language" aria-label="Language">🌐</button>
       </nav>
       <main id="content">
         <section id="view-projects" class="view active">

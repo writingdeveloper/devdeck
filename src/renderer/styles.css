@@ -18,6 +18,10 @@
 }
 
 * { box-sizing: border-box; }
+:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
 body {
   font-family: "Segoe UI", system-ui, sans-serif;
   margin: 0; background: var(--bg); color: var(--text);
@@ -173,6 +177,5 @@ button.primary:hover { background: var(--accent-hover); }
 }
 #proj-search { width: 160px; }
 #proj-search:focus, #proj-sort:focus {
-  outline: none;
   border-color: var(--accent);
 }
