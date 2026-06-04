@@ -10,7 +10,11 @@ export interface SessionMeta {
 }
 
 const HEAD_BYTES = 64 * 1024;
-const TAIL_BYTES = 256 * 1024;
+// Sessions can be tens of MB and a single autonomous turn after the user's last
+// prompt can itself be multiple MB, so read the tail backward in chunks and stop
+// as soon as a genuine user message is found, up to a hard cap.
+const TAIL_CHUNK = 1024 * 1024;
+const TAIL_MAX = 8 * 1024 * 1024;
 
 const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
 
@@ -25,24 +29,6 @@ function readHead(file: string): string {
     try {
       const buf = Buffer.alloc(HEAD_BYTES);
       const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
-      return buf.toString('utf8', 0, n);
-    } finally {
-      closeSync(fd);
-    }
-  } catch {
-    try { return readFileSync(file, 'utf8'); } catch { return ''; }
-  }
-}
-
-function readTail(file: string, bytes: number): string {
-  try {
-    const fd = openSync(file, 'r');
-    try {
-      const size = fstatSync(fd).size;
-      const start = Math.max(0, size - bytes);
-      const len = size - start;
-      const buf = Buffer.alloc(len);
-      const n = readSync(fd, buf, 0, len, start);
       return buf.toString('utf8', 0, n);
     } finally {
       closeSync(fd);
@@ -88,7 +74,11 @@ export function listSessions(
   return top;
 }
 
-/** Last genuine user message of a session, read from the file tail. Null if absent/unreadable. */
+/**
+ * Last genuine user message of a session, found by scanning the file backward in
+ * chunks (so a multi-MB trailing assistant turn doesn't hide it) up to TAIL_MAX.
+ * Null if absent/unreadable or no user message within the cap.
+ */
 export function lastUserMessageForSession(
   projectPath: string,
   sessionId: string,
@@ -96,6 +86,32 @@ export function lastUserMessageForSession(
 ): string | null {
   if (!SESSION_ID_RE.test(sessionId)) return null;
   const file = join(claudeProjectsDir, encodeProjectPath(projectPath), sessionId + '.jsonl');
-  if (!existsSync(file)) return null;
-  return lastUserMessage(readTail(file, TAIL_BYTES));
+  let fd: number;
+  try {
+    fd = openSync(file, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const size = fstatSync(fd).size;
+    let pos = size;
+    let acc = Buffer.alloc(0);
+    while (pos > 0 && size - pos < TAIL_MAX) {
+      const readLen = Math.min(TAIL_CHUNK, pos);
+      pos -= readLen;
+      const buf = Buffer.alloc(readLen);
+      readSync(fd, buf, 0, readLen, pos);
+      acc = Buffer.concat([buf, acc]); // contiguous byte range [pos, size) — safe to decode whole
+      const text = acc.toString('utf8');
+      // Drop the leading partial line until we've read the very start of the file.
+      const body = pos === 0 ? text : text.slice(text.indexOf('\n') + 1);
+      const found = lastUserMessage(body);
+      if (found) return found;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
 }
