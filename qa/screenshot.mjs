@@ -70,6 +70,13 @@ await win.click('#neglected-only').catch(() => {});
 await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
 await shot('projects-narrow');
 
+// Title bar: maximized state (restore glyph)
+await win.setViewportSize({ width: 1000, height: 720 }).catch(() => {});
+await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
+await win.waitForTimeout(400);
+await shot('titlebar-maximized');
+await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
+
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));
 console.log(`\nconsole errors: ${consoleErrors.length}, page errors: ${pageErrors.length}`);
 
