@@ -11,11 +11,17 @@ let showHidden = false;
 const costByPath = new Map<string, number | null>();
 let lastLoadMs = 0;
 
+type SortMode = 'activity' | 'uncommitted' | 'name' | 'opened';
+let searchQuery = '';
+let sortMode: SortMode = 'activity';
+
 let cardsEl: HTMLElement;
 let neglectedOnly: HTMLInputElement;
 let showHiddenBtn: HTMLButtonElement;
 let hiddenCountEl: HTMLElement;
 let openBtn: HTMLButtonElement;
+let searchEl: HTMLInputElement | null = null;
+let sortEl: HTMLSelectElement | null = null;
 
 function fmtTime(ms: number | null): string {
   if (ms == null) return '—';
@@ -154,6 +160,38 @@ function render(): void {
   let visible = showHidden ? projects.filter((p) => p.hidden) : projects.filter((p) => !p.hidden);
   if (neglectedOnly.checked) visible = visible.filter((p) => p.stale.level === 'neglected');
 
+  // Search filter (case-insensitive substring match on name, branch, note)
+  if (searchQuery) {
+    const q = searchQuery.toLowerCase();
+    visible = visible.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      (p.branch ?? '').toLowerCase().includes(q) ||
+      p.note.toLowerCase().includes(q),
+    );
+  }
+
+  // Sort
+  const sorted = [...visible];
+  if (sortMode === 'activity') {
+    // already sorted by main process (pinned first, then activityMs desc); preserve
+    // pinned-first only for activity sort
+    sorted.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return (b.activityMs ?? -Infinity) - (a.activityMs ?? -Infinity);
+    });
+  } else if (sortMode === 'uncommitted') {
+    sorted.sort((a, b) => b.uncommitted - a.uncommitted);
+  } else if (sortMode === 'name') {
+    sorted.sort((a, b) => a.name.localeCompare(b.name));
+  } else if (sortMode === 'opened') {
+    sorted.sort((a, b) => {
+      const ta = a.lastOpened ? new Date(a.lastOpened).getTime() : -Infinity;
+      const tb = b.lastOpened ? new Date(b.lastOpened).getTime() : -Infinity;
+      return tb - ta;
+    });
+  }
+  visible = sorted;
+
   cardsEl.replaceChildren();
   cardsEl.setAttribute('role', 'list');
   if (visible.length === 0) {
@@ -201,12 +239,25 @@ async function reload(): Promise<void> {
 
 export function reloadProjects(): void { reload(); }
 
+function applyProjectLabels(): void {
+  if (!searchEl || !sortEl) return;
+  searchEl.placeholder = tr('proj.search_ph');
+  searchEl.setAttribute('aria-label', tr('proj.search_ph'));
+  sortEl.setAttribute('aria-label', tr('proj.sort'));
+  sortEl.options[0].text = tr('proj.sort_activity');
+  sortEl.options[1].text = tr('proj.sort_uncommitted');
+  sortEl.options[2].text = tr('proj.sort_name');
+  sortEl.options[3].text = tr('proj.sort_opened');
+}
+
 export function mountProjects(): void {
   cardsEl = document.getElementById('cards')!;
   neglectedOnly = document.getElementById('neglected-only') as HTMLInputElement;
   showHiddenBtn = document.getElementById('show-hidden') as HTMLButtonElement;
   hiddenCountEl = document.getElementById('hidden-count')!;
   openBtn = document.getElementById('open-selected') as HTMLButtonElement;
+  searchEl = document.getElementById('proj-search') as HTMLInputElement;
+  sortEl = document.getElementById('proj-sort') as HTMLSelectElement;
 
   document.getElementById('refresh')!.addEventListener('click', reload);
   neglectedOnly.addEventListener('change', render);
@@ -215,11 +266,17 @@ export function mountProjects(): void {
     if (selected.size === 0) return;
     openItems(projects.filter((p) => selected.has(p.path)).map((p) => ({ path: p.path, sessionId: null })));
   });
+  searchEl.addEventListener('input', () => { searchQuery = searchEl!.value; render(); });
+  sortEl.addEventListener('change', () => { sortMode = sortEl!.value as SortMode; render(); });
   window.addEventListener('focus', () => {
     if (document.getElementById('view-projects')!.classList.contains('active') && Date.now() - lastLoadMs > 10_000) reload();
   });
   document.addEventListener('click', () => document.querySelectorAll('.menu:not(.hidden)').forEach((m) => m.classList.add('hidden')));
+  applyProjectLabels();
   reload();
 }
 
-export function renderProjects(): void { render(); }
+export function renderProjects(): void {
+  applyProjectLabels();
+  render();
+}

@@ -43,5 +43,11 @@
   "set.thresholds": "방치 기준(일)",
   "set.fresh": "신선",
   "set.warn": "주의",
-  "set.neglected": "방치"
+  "set.neglected": "방치",
+  "proj.search_ph": "프로젝트 검색…",
+  "proj.sort": "정렬",
+  "proj.sort_activity": "활동",
+  "proj.sort_uncommitted": "미커밋",
+  "proj.sort_name": "이름",
+  "proj.sort_opened": "최근 열람"
 }

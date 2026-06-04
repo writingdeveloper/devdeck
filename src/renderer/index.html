@@ -37,6 +37,13 @@
           <div class="view-toolbar">
             <label class="chk"><input type="checkbox" id="neglected-only" /> 방치만</label>
             <button id="show-hidden" class="chip">🙈 숨김 <span id="hidden-count">0</span></button>
+            <input type="text" id="proj-search" placeholder="Search projects…" aria-label="Search projects…" />
+            <select id="proj-sort" aria-label="Sort">
+              <option value="activity">Activity</option>
+              <option value="uncommitted">Uncommitted</option>
+              <option value="name">Name</option>
+              <option value="opened">Last opened</option>
+            </select>
             <span class="vt-spacer"></span>
             <button id="open-selected" class="primary" disabled>▶ 선택 열기</button>
           </div>

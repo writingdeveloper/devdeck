@@ -42,6 +42,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
         note: entry.note,
         pinned: entry.pinned,
         hidden: entry.hidden,
+        lastOpened: entry.lastOpened,
       };
     }),
   );
