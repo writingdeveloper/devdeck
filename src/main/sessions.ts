@@ -13,6 +13,11 @@ const HEAD_BYTES = 64 * 1024;
 
 const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
 
+/** A session id is safe to interpolate into a `claude -r <id>` command only if it matches this. */
+export function isValidSessionId(id: string): boolean {
+  return SESSION_ID_RE.test(id);
+}
+
 function readHead(file: string): string {
   try {
     const fd = openSync(file, 'r');
