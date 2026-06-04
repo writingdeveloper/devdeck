@@ -16,6 +16,14 @@ declare global {
       setBaseDir(dir: string): Promise<void>;
       setThresholds(t: { freshDays: number; warnDays: number; neglectedDays: number }): Promise<void>;
       pickFolder(): Promise<string | null>;
+      openFolder(path: string): Promise<void>;
+      windowControls: {
+        minimize(): Promise<void>;
+        toggleMaximize(): Promise<void>;
+        close(): Promise<void>;
+        isMaximized(): Promise<boolean>;
+        onMaximizeChange(cb: (maximized: boolean) => void): void;
+      };
     };
   }
 }
