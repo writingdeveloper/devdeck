@@ -38,21 +38,36 @@ function badgeText(p: ProjectViewModel): string {
   return `${LEVEL_EMOJI[p.stale.level] ?? ''} ${age}`;
 }
 
+function truncateCue(text: string, max = 60): string {
+  const oneLine = text.replace(/\s+/g, ' ').trim();
+  return oneLine.length > max ? oneLine.slice(0, max - 1) + '…' : oneLine;
+}
+
 function makeNote(p: ProjectViewModel): HTMLElement {
   const wrap = document.createElement('div');
   const showRead = () => {
     wrap.replaceChildren();
     const el = document.createElement('div');
-    if (p.note) { el.className = 'note-preview'; el.textContent = p.note; }
-    else { el.className = 'note-ghost'; el.textContent = tr('proj.next_todo'); }
-    el.addEventListener('click', showEdit);
+    if (p.note) {
+      el.className = 'note-preview'; el.textContent = p.note;
+      el.addEventListener('click', () => showEdit());
+    } else if (p.resumeCue) {
+      const cueText = p.resumeCue.text;
+      el.className = 'note-ghost has-cue';
+      el.textContent = `↩ ${tr('proj.resume_prefix')}: ${truncateCue(cueText)}`;
+      el.title = cueText;
+      el.addEventListener('click', () => showEdit(cueText));
+    } else {
+      el.className = 'note-ghost'; el.textContent = tr('proj.next_todo');
+      el.addEventListener('click', () => showEdit());
+    }
     wrap.appendChild(el);
   };
-  const showEdit = () => {
+  const showEdit = (prefill?: string) => {
     const original = p.note;
     wrap.replaceChildren();
     const ta = document.createElement('textarea');
-    ta.className = 'note-edit'; ta.rows = 2; ta.value = p.note; ta.placeholder = tr('proj.next_todo_ph');
+    ta.className = 'note-edit'; ta.rows = 2; ta.value = prefill ?? p.note; ta.placeholder = tr('proj.next_todo_ph');
     let cancelling = false;
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
