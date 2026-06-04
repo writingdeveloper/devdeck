@@ -6,7 +6,7 @@ import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
 import { listSessions, isValidSessionId, lastUserMessageForSession } from './sessions';
 import { buildProjectList } from './projects';
-import { openProjects, resolveShell, resolveWtPath } from './launcher';
+import { openProjects } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
@@ -82,7 +82,6 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
     const base = effBaseDir();
-    const shellExe = resolveShell();
     const now = new Date().toISOString();
     const tabs: WtTab[] = [];
     for (const it of items) {
@@ -102,14 +101,14 @@ export function registerIpc(cfg: IpcConfig): void {
         command = 'claude';
       }
       tabs.push({
-        name: it.path.split('\\').pop() ?? it.path,
+        name: it.path.split(/[\\/]/).pop() ?? it.path,
         dir: it.path,
         command,
       });
       // Record lastOpened only for accepted (validated) projects.
       cfg.store.setLastOpened(it.path, now);
     }
-    openProjects(tabs, { wtPath: resolveWtPath(), shell: shellExe, onError: cfg.sendError });
+    openProjects(tabs, { onError: cfg.sendError });
   });
 
   // Open the project folder in the OS file manager.

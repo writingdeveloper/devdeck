@@ -51,8 +51,11 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 
 | OS | Status |
 |----|--------|
-| Windows | ✅ Supported |
-| macOS / Linux | ⏳ Planned — the terminal launcher is currently Windows-only (`wt.exe` / PowerShell). PRs welcome. |
+| Windows | ✅ Supported — Windows Terminal / PowerShell. Packaged release available. |
+| macOS | ✅ Supported (beta) — opens Terminal.app via `osascript`. Run from source for now. Launcher logic + AppleScript are CI-verified on real macOS runners; the GUI flow hasn't been hardware-tested yet — feedback welcome. |
+| Linux | ✅ Supported (beta) — auto-detects `gnome-terminal` / `konsole` / `alacritty` / `kitty` / `xterm` (and `x-terminal-emulator`). Run from source. |
+
+> Packaged installers are Windows-only so far; on macOS/Linux, run from source (`npm start`). CI (GitHub Actions) builds + tests on Windows, macOS, and Linux on every push.
 
 ## Build from source
 
