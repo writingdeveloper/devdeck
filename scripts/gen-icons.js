@@ -10,7 +10,7 @@ const ROOT = path.join(__dirname, '..');
 const MARK = fs.readFileSync(path.join(ROOT, 'design', 'logos', 'mark.svg'), 'utf8');
 
 function svgAt512({ withDot = true, flat = false } = {}) {
-  let s = MARK.replace('width="256" height="256"', 'width="512" height="512"');
+  let s = MARK.replace('width="256" height="256"', 'width="1024" height="1024"');
   if (!withDot) s = s.replace(/<circle data-role="dot"[^>]*\/>/, ''); // tiny sizes stay crisp
   // The soft drop shadow looks great large but muddies into a faint horizontal
   // band under the card at tray sizes (≤32px) — strip it so small icons stay crisp.
@@ -34,7 +34,7 @@ async function capture512(win, opts, tag) {
 app.disableHardwareAcceleration();
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
-    width: 512, height: 512, show: false, frame: false, transparent: true,
+    width: 1024, height: 1024, show: false, frame: false, transparent: true,
     webPreferences: { offscreen: true },
   });
   const full = await capture512(win, { withDot: true, flat: false }, 'full'); // 48px+: shadow reads fine
@@ -48,11 +48,11 @@ app.whenReady().then(async () => {
     return src.resize({ width: size, height: size, quality: 'best' }).toPNG();
   };
   const png = {};
-  for (const s of [...icoSizes, 512]) { png[s] = pngAt(s); console.log('made', s, png[s].length, 'bytes'); }
+  for (const s of [...icoSizes, 512, 1024]) { png[s] = pngAt(s); console.log('made', s, png[s].length, 'bytes'); }
 
   fs.mkdirSync(path.join(ROOT, 'build'), { recursive: true });
   fs.mkdirSync(path.join(ROOT, 'src', 'assets'), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'build', 'icon.png'), png[512]);
+  fs.writeFileSync(path.join(ROOT, 'build', 'icon.png'), png[1024]);
   fs.writeFileSync(path.join(ROOT, 'build', 'icon.ico'), packIco(icoSizes.map((s) => png[s]), icoSizes));
   fs.writeFileSync(path.join(ROOT, 'src', 'assets', 'icon-256.png'), png[256]);
   fs.writeFileSync(path.join(ROOT, 'src', 'assets', 'tray.png'), png[32]);
