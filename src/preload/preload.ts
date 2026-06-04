@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   setThresholds: (t: { freshDays: number; warnDays: number; neglectedDays: number }) => ipcRenderer.invoke('settings:setThresholds', t),
   pickFolder: () => ipcRenderer.invoke('settings:pickFolder'),
   openFolder: (path: string) => ipcRenderer.invoke('project:openFolder', path),
+  openEditor: (path: string) => ipcRenderer.invoke('project:openEditor', path),
   windowControls: {
     minimize: () => ipcRenderer.invoke('win:minimize'),
     toggleMaximize: () => ipcRenderer.invoke('win:toggleMaximize'),

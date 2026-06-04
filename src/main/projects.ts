@@ -34,6 +34,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
         name: r.name,
         branch: git.branch,
         uncommitted: git.uncommitted,
+        ahead: git.ahead,
         lastCommitMs: git.lastCommitMs,
         lastSubject: git.lastSubject,
         lastSessionMs,

@@ -39,7 +39,7 @@ const user = (text) => JSON.stringify({ type: 'user', message: { content: text }
 // stale days chosen for a balanced traffic-light spread (fresh<1, neutral<3, warn<7, else neglected).
 // usageDaysAgo clustered in the last week for a clean Usage chart (decoupled from deck staleness).
 const PROJECTS = [
-  { name: 'acme-dashboard', branch: 'main', stale: 0, dirty: 3,
+  { name: 'acme-dashboard', branch: 'main', stale: 0, dirty: 3, ahead: 2,
     commit: 'feat(ui): dark mode toggle + theme persistence',
     sessions: [{ first: 'scaffold the settings page', cue: 'add a dark mode toggle to the settings page', model: 'claude-opus-4-8', usageDaysAgo: [0, 1] }] },
   { name: 'payments-api', branch: 'feat/refunds', stale: 0, dirty: 1,
@@ -76,6 +76,17 @@ for (const p of PROJECTS) {
   git(repo, ['add', '-A'], d);
   git(repo, ['commit', '-m', p.commit], d);
   if (p.branch !== 'main') git(repo, ['checkout', '-b', p.branch], d);
+  // simulate unpushed commits: set an upstream ref at the current HEAD, then commit ahead of it
+  if (p.ahead) {
+    git(repo, ['remote', 'add', 'origin', 'https://example.invalid/repo.git'], d); // sets remote.origin.fetch refspec
+    git(repo, ['update-ref', `refs/remotes/origin/${p.branch}`, 'HEAD'], d);
+    git(repo, ['branch', `--set-upstream-to=origin/${p.branch}`, p.branch], d);
+    for (let i = 0; i < p.ahead; i++) {
+      writeFileSync(join(repo, `local_${i}.js`), `// local work ${i}\n`);
+      git(repo, ['add', '-A'], d);
+      git(repo, ['commit', '-m', `feat: local work ${i}`], d);
+    }
+  }
   // leave N uncommitted changes
   for (let i = 0; i < p.dirty; i++) writeFileSync(join(repo, `wip_${i}.txt`), `work in progress ${i}\n`);
 
@@ -94,5 +105,20 @@ for (const p of PROJECTS) {
   });
 }
 
-console.log('projects:', PROJECTS.length, '| sessions:', sid);
+// nested org/repo (depth 2) to exercise nested scanning: acme-labs/ is a non-repo dir holding a repo
+const np = join(REPOS, 'acme-labs', 'prototype');
+const nd = iso(3);
+mkdirSync(np, { recursive: true });
+git(np, ['-c', 'init.defaultBranch=main', 'init'], nd);
+writeFileSync(join(np, 'README.md'), '# prototype\n');
+git(np, ['add', '-A'], nd);
+git(np, ['commit', '-m', 'init prototype scaffold'], nd);
+const nsd = join(CLAUDE, encode(np));
+mkdirSync(nsd, { recursive: true });
+const nf = join(nsd, uuid(sid++) + '.jsonl');
+writeFileSync(nf, [user('scaffold the prototype'), asst('claude-sonnet-4-6', iso(3, 11), 30000, 5000, 80000), user('wire up the auth flow')].join('\n'));
+const nms = NOW - 3 * DAY;
+utimesSync(nf, new Date(nms), new Date(nms));
+
+console.log('projects:', PROJECTS.length + 1, '| sessions:', sid);
 console.log(HOME);
