@@ -49,11 +49,22 @@ function makeNote(p: ProjectViewModel): HTMLElement {
     wrap.appendChild(el);
   };
   const showEdit = () => {
+    const original = p.note;
     wrap.replaceChildren();
     const ta = document.createElement('textarea');
     ta.className = 'note-edit'; ta.rows = 2; ta.value = p.note; ta.placeholder = tr('proj.next_todo_ph');
+    let cancelling = false;
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        cancelling = true;
+        p.note = original;
+        ta.blur();
+      } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        ta.blur();
+      }
+    });
     ta.addEventListener('blur', () => {
-      if (ta.value !== p.note) { p.note = ta.value; window.devdeck.setNote(p.path, ta.value); }
+      if (!cancelling && ta.value !== p.note) { p.note = ta.value; window.devdeck.setNote(p.path, ta.value); }
       showRead();
     });
     wrap.appendChild(ta); ta.focus();
@@ -104,20 +115,57 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   card.setAttribute('role', 'listitem');
 
   const headRow = document.createElement('div'); headRow.className = 'card-head';
-  const title = document.createElement('span'); title.className = 'card-title'; title.textContent = p.name;
+  const title = document.createElement('span'); title.className = 'card-title'; title.textContent = p.name; title.title = p.name;
   const badge = document.createElement('span');
   badge.className = 'badge ' + (noRecord ? 'norecord' : 'lvl-' + p.stale.level);
   badge.textContent = badgeText(p);
 
   const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
-  const menuBtn = document.createElement('button'); menuBtn.className = 'iconbtn'; menuBtn.textContent = '⋯'; menuBtn.setAttribute('aria-label', 'more');
-  const menu = document.createElement('div'); menu.className = 'menu hidden';
-  const pinItem = document.createElement('button'); pinItem.className = 'menu-item'; pinItem.textContent = p.pinned ? tr('proj.unpin') : tr('proj.pin');
+  const menuBtn = document.createElement('button');
+  menuBtn.className = 'iconbtn';
+  menuBtn.textContent = '⋯';
+  menuBtn.setAttribute('aria-label', 'more options');
+  menuBtn.setAttribute('aria-haspopup', 'menu');
+  menuBtn.setAttribute('aria-expanded', 'false');
+
+  const menu = document.createElement('div');
+  menu.className = 'menu hidden';
+  menu.setAttribute('role', 'menu');
+
+  const pinItem = document.createElement('button');
+  pinItem.className = 'menu-item';
+  pinItem.setAttribute('role', 'menuitem');
+  pinItem.textContent = p.pinned ? tr('proj.unpin') : tr('proj.pin');
   pinItem.addEventListener('click', () => { window.devdeck.setPinned(p.path, !p.pinned); reload(); });
-  const hideItem = document.createElement('button'); hideItem.className = 'menu-item'; hideItem.textContent = tr('proj.hide');
+
+  const hideItem = document.createElement('button');
+  hideItem.className = 'menu-item';
+  hideItem.setAttribute('role', 'menuitem');
+  hideItem.textContent = tr('proj.hide');
   hideItem.addEventListener('click', () => { window.devdeck.setHidden(p.path, true); reload(); });
+
   menu.append(pinItem, hideItem);
-  menuBtn.addEventListener('click', (e) => { e.stopPropagation(); menu.classList.toggle('hidden'); });
+
+  const openMenu = (): void => {
+    menu.classList.remove('hidden');
+    menuBtn.setAttribute('aria-expanded', 'true');
+    pinItem.focus();
+  };
+  const closeMenu = (): void => {
+    menu.classList.add('hidden');
+    menuBtn.setAttribute('aria-expanded', 'false');
+  };
+
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (menu.classList.contains('hidden')) openMenu();
+    else { closeMenu(); menuBtn.focus(); }
+  });
+
+  menu.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeMenu(); menuBtn.focus(); }
+  });
+
   menuWrap.append(menuBtn, menu);
 
   headRow.append(title, badge, menuWrap);
@@ -130,7 +178,11 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
     dirty.textContent = ` · ✎${p.uncommitted}`; meta.appendChild(dirty);
   }
   meta.appendChild(document.createElement('br'));
-  meta.appendChild(document.createTextNode(`git ${fmtTime(p.lastCommitMs)} ${p.lastSubject ? `"${p.lastSubject}"` : tr('proj.no_commits')}`));
+  const commitLine = document.createElement('span');
+  const subjectText = p.lastSubject ? `"${p.lastSubject}"` : tr('proj.no_commits');
+  commitLine.textContent = `git ${fmtTime(p.lastCommitMs)} ${subjectText}`;
+  if (p.lastSubject) commitLine.title = p.lastSubject;
+  meta.appendChild(commitLine);
 
   const foot = document.createElement('div'); foot.className = 'cardfoot';
   const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
@@ -271,7 +323,13 @@ export function mountProjects(): void {
   window.addEventListener('focus', () => {
     if (document.getElementById('view-projects')!.classList.contains('active') && Date.now() - lastLoadMs > 10_000) reload();
   });
-  document.addEventListener('click', () => document.querySelectorAll('.menu:not(.hidden)').forEach((m) => m.classList.add('hidden')));
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.menu:not(.hidden)').forEach((m) => {
+      m.classList.add('hidden');
+      const trigger = m.previousElementSibling as HTMLButtonElement | null;
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    });
+  });
   applyProjectLabels();
   reload();
 }
