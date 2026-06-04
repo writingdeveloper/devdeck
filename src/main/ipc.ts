@@ -47,8 +47,8 @@ export function registerIpc(cfg: IpcConfig): void {
     cfg.store.setHidden(path, hidden);
   });
 
-  ipcMain.handle('usage:report', (_e, sinceMs: number) => {
-    const repos = scanRepos(effBaseDir());
+  ipcMain.handle('usage:report', async (_e, sinceMs: number) => {
+    const repos = await scanRepos(effBaseDir());
     return scanUsage(repos, CLAUDE_PROJECTS, sinceMs);
   });
   ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);

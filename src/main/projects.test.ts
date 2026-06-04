@@ -11,7 +11,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
     baseDir: 'C:\\g',
     nowMs: NOW,
     thresholds: DEFAULT_THRESHOLDS,
-    scan: () => [
+    scan: async () => [
       { path: 'C:\\g\\fresh', name: 'fresh' },
       { path: 'C:\\g\\old', name: 'old' },
     ],
