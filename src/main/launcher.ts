@@ -1,5 +1,5 @@
 import { spawn, execFileSync } from 'node:child_process';
-import { join } from 'node:path';
+import { win32 as pathWin32 } from 'node:path';
 import { buildWtArgs, type WtTab } from '../shared/wtArgs';
 import { buildMacLaunch, buildLinuxLaunch, type LaunchCmd } from '../shared/posixLaunch';
 
@@ -15,8 +15,10 @@ export type ExistsProbe = (cmd: string) => boolean;
  * the FULL alias path directly works — CreateProcess resolves the reparse point.
  */
 export function resolveWtPath(localAppData = process.env.LOCALAPPDATA): string {
+  // Always a Windows path (wt.exe is Windows-only), so use win32.join — plain
+  // join() would emit POSIX separators when this runs/tests on macOS or Linux.
   return localAppData
-    ? join(localAppData, 'Microsoft', 'WindowsApps', 'wt.exe')
+    ? pathWin32.join(localAppData, 'Microsoft', 'WindowsApps', 'wt.exe')
     : 'wt.exe';
 }
 
