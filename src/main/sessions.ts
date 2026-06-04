@@ -1,7 +1,7 @@
-import { readdirSync, statSync, existsSync, readFileSync, openSync, readSync, closeSync } from 'node:fs';
+import { readdirSync, statSync, existsSync, readFileSync, openSync, readSync, closeSync, fstatSync } from 'node:fs';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
-import { firstUserMessage } from '../shared/sessionParse';
+import { firstUserMessage, lastUserMessage } from '../shared/sessionParse';
 
 export interface SessionMeta {
   id: string;
@@ -10,6 +10,7 @@ export interface SessionMeta {
 }
 
 const HEAD_BYTES = 64 * 1024;
+const TAIL_BYTES = 256 * 1024;
 
 const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
 
@@ -24,6 +25,24 @@ function readHead(file: string): string {
     try {
       const buf = Buffer.alloc(HEAD_BYTES);
       const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
+      return buf.toString('utf8', 0, n);
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    try { return readFileSync(file, 'utf8'); } catch { return ''; }
+  }
+}
+
+function readTail(file: string, bytes: number): string {
+  try {
+    const fd = openSync(file, 'r');
+    try {
+      const size = fstatSync(fd).size;
+      const start = Math.max(0, size - bytes);
+      const len = size - start;
+      const buf = Buffer.alloc(len);
+      const n = readSync(fd, buf, 0, len, start);
       return buf.toString('utf8', 0, n);
     } finally {
       closeSync(fd);
@@ -67,4 +86,16 @@ export function listSessions(
     m.firstMessage = firstUserMessage(readHead(join(dir, m.id + '.jsonl')));
   }
   return top;
+}
+
+/** Last genuine user message of a session, read from the file tail. Null if absent/unreadable. */
+export function lastUserMessageForSession(
+  projectPath: string,
+  sessionId: string,
+  claudeProjectsDir: string,
+): string | null {
+  if (!SESSION_ID_RE.test(sessionId)) return null;
+  const file = join(claudeProjectsDir, encodeProjectPath(projectPath), sessionId + '.jsonl');
+  if (!existsSync(file)) return null;
+  return lastUserMessage(readTail(file, TAIL_BYTES));
 }
