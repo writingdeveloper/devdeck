@@ -11,6 +11,8 @@ export interface SessionMeta {
 
 const HEAD_BYTES = 64 * 1024;
 
+const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
+
 function readHead(file: string): string {
   try {
     const fd = openSync(file, 'r');
@@ -50,7 +52,9 @@ export function listSessions(
     } catch {
       continue;
     }
-    metas.push({ id: name.slice(0, -'.jsonl'.length), mtimeMs, firstMessage: null });
+    const id = name.slice(0, -'.jsonl'.length);
+    if (!SESSION_ID_RE.test(id)) continue;
+    metas.push({ id, mtimeMs, firstMessage: null });
   }
   metas.sort((a, b) => b.mtimeMs - a.mtimeMs);
   const top = metas.slice(0, limit);

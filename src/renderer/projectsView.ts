@@ -139,7 +139,7 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   folderBtn.setAttribute('aria-label', tr('proj.open_folder'));
   folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
   const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
-  open.addEventListener('click', () => openItems([{ path: p.path, sessionId: p.sessions[0]?.id ?? null }]));
+  open.addEventListener('click', () => openItems([{ path: p.path, sessionId: null }]));
   foot.append(check, spacer, folderBtn, open);
 
   card.append(headRow, meta, makeSessions(p, render), makeNote(p), foot);
@@ -213,7 +213,7 @@ export function mountProjects(): void {
   showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); });
   openBtn.addEventListener('click', () => {
     if (selected.size === 0) return;
-    openItems(projects.filter((p) => selected.has(p.path)).map((p) => ({ path: p.path, sessionId: p.sessions[0]?.id ?? null })));
+    openItems(projects.filter((p) => selected.has(p.path)).map((p) => ({ path: p.path, sessionId: null })));
   });
   window.addEventListener('focus', () => {
     if (document.getElementById('view-projects')!.classList.contains('active') && Date.now() - lastLoadMs > 10_000) reload();

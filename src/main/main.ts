@@ -19,9 +19,12 @@ function createWindow(): BrowserWindow {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
   return w;
 }
 
