@@ -19,7 +19,7 @@ async function capture512(win, withDot, tag) {
   const tmp = path.join(os.tmpdir(), `devdeck-icon-${tag}.html`);
   try {
     fs.writeFileSync(tmp, `<!doctype html><meta charset="utf-8">` +
-      `<style>html,body{margin:0;padding:0;background:transparent}</style>${svgAt512(withDot)}`);
+      `<style>html,body{margin:0;padding:0;overflow:hidden;background:transparent}svg{display:block}</style>${svgAt512(withDot)}`);
     await win.loadFile(tmp);
     await new Promise((r) => setTimeout(r, 400)); // let the SVG rasterise before capture
     return await win.webContents.capturePage();
