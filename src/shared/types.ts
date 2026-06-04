@@ -48,7 +48,6 @@ export interface StoreEntry {
   note: string;
   pinned: boolean;
   hidden: boolean;
-  staleDays: number | null;
   lastOpened: string | null; // ISO timestamp
 }
 
@@ -67,4 +66,5 @@ export interface ProjectViewModel {
   note: string;
   pinned: boolean;
   hidden: boolean;
+  lastOpened: string | null;
 }

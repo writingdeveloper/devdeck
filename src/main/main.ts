@@ -4,8 +4,6 @@ import { Store } from './store';
 import { registerIpc } from './ipc';
 import { setupTray } from './tray';
 
-const DEFAULT_BASE_DIR = 'C:\\Users\\dev\\Documents\\GitHub';
-
 let win: BrowserWindow | null = null;
 
 function createWindow(): BrowserWindow {
@@ -21,9 +19,12 @@ function createWindow(): BrowserWindow {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
   return w;
 }
 
@@ -45,7 +46,7 @@ if (!gotLock) {
     win = w;
     registerIpc({
       win: w,
-      defaultBaseDir: DEFAULT_BASE_DIR,
+      defaultBaseDir: path.join(app.getPath('home'), 'Documents', 'GitHub'),
       store,
       sendError: (msg) => w.webContents.send('devdeck:error', msg),
       defaultLanguage: app.getLocale().split('-')[0] || 'en',

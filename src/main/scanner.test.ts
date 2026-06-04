@@ -15,13 +15,13 @@ beforeEach(() => {
 afterEach(() => rmSync(base, { recursive: true, force: true }));
 
 describe('scanRepos', () => {
-  it('returns only git repos, excluding ignored names', () => {
-    const repos = scanRepos(base).map((p) => p.name).sort();
+  it('returns only git repos, excluding ignored names', async () => {
+    const repos = (await scanRepos(base)).map((p) => p.name).sort();
     expect(repos).toEqual(['projA', 'projB']);
   });
 
-  it('returns absolute paths', () => {
-    const repos = scanRepos(base);
+  it('returns absolute paths', async () => {
+    const repos = await scanRepos(base);
     expect(repos[0].path.startsWith(base)).toBe(true);
   });
 });

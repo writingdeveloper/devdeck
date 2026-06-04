@@ -1,4 +1,4 @@
-import { readdirSync, existsSync } from 'node:fs';
+import { readdir, access } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const IGNORE = new Set(['__pycache__', '.pytest_cache', '.claude', '.playwright-mcp']);
@@ -8,21 +8,24 @@ export interface RawProject {
   name: string;
 }
 
-export function scanRepos(baseDir: string): RawProject[] {
+export async function scanRepos(baseDir: string): Promise<RawProject[]> {
   const out: RawProject[] = [];
   let entries;
   try {
-    entries = readdirSync(baseDir, { withFileTypes: true });
+    entries = await readdir(baseDir, { withFileTypes: true });
   } catch {
     return out;
   }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name.startsWith('.') || IGNORE.has(entry.name)) continue;
-    const full = join(baseDir, entry.name);
-    if (existsSync(join(full, '.git'))) {
-      out.push({ path: full, name: entry.name });
-    }
-  }
+  await Promise.all(
+    entries
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.') && !IGNORE.has(e.name))
+      .map(async (entry) => {
+        const full = join(baseDir, entry.name);
+        try {
+          await access(join(full, '.git'));
+          out.push({ path: full, name: entry.name });
+        } catch { /* no .git */ }
+      }),
+  );
   return out;
 }

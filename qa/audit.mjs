@@ -73,4 +73,18 @@ writeFileSync(join(out, '_audit.json'), JSON.stringify({ ipc, a11y }, null, 2));
 console.log('IPC:', JSON.stringify(ipc));
 for (const v of Object.keys(a11y)) console.log(`a11y ${v}: ${a11y[v].length} violations`, a11y[v].map((x) => `${x.id}(${x.impact},${x.n})`).join(', '));
 await app.close();
+
+const criticalViolations = Object.entries(a11y).flatMap(([view, viols]) =>
+  viols.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => ({ view, ...v }))
+);
+const surfaceFails = Object.entries(ipc.surface).filter(([, v]) => v === false);
+const titlebarFails = Object.entries(ipc.titlebar).filter(([, v]) => v === false);
+
+if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0) {
+  console.error('QA FAILED:');
+  if (criticalViolations.length > 0) console.error('  a11y critical/serious:', JSON.stringify(criticalViolations, null, 2));
+  if (surfaceFails.length > 0) console.error('  ipc.surface checks failed:', surfaceFails.map(([k]) => k).join(', '));
+  if (titlebarFails.length > 0) console.error('  ipc.titlebar checks failed:', titlebarFails.map(([k]) => k).join(', '));
+  process.exit(1);
+}
 console.log('done');
