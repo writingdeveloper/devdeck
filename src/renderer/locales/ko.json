@@ -15,6 +15,8 @@
   "proj.next_todo": "+ 다음 할 일…",
   "proj.next_todo_ph": "다음 할 일…",
   "proj.resume_prefix": "이어가기",
+  "proj.unpushed": "{n} 미푸시 커밋",
+  "proj.open_editor": "에디터로 열기",
   "proj.sessions": "세션",
   "proj.open": "열기",
   "proj.open_folder": "폴더 열기",

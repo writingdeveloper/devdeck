@@ -17,6 +17,7 @@ declare global {
       setThresholds(t: { freshDays: number; warnDays: number; neglectedDays: number }): Promise<void>;
       pickFolder(): Promise<string | null>;
       openFolder(path: string): Promise<void>;
+      openEditor(path: string): Promise<void>;
       windowControls: {
         minimize(): Promise<void>;
         toggleMaximize(): Promise<void>;

@@ -5,6 +5,7 @@ import { getGitInfo } from './gitInfo';
 function fakeRunner(map: Record<string, string>) {
   return async (args: string[]): Promise<string> => {
     if (args.includes('rev-parse')) return map.branch ?? '';
+    if (args.includes('rev-list')) return map.ahead ?? '';
     if (args.includes('log')) return map.log ?? '';
     if (args.includes('status')) return map.status ?? '';
     return '';
@@ -17,13 +18,24 @@ describe('getGitInfo', () => {
       branch: 'main\n',
       log: '1717287840|scaffold\n',
       status: ' M a.ts\n?? b.ts\n',
+      ahead: '2\n',
     });
     expect(await getGitInfo('C:\\g\\x', run)).toEqual({
       branch: 'main',
       lastCommitMs: 1717287840000,
       lastSubject: 'scaffold',
       uncommitted: 2,
+      ahead: 2,
     });
+  });
+
+  it('reports null ahead when there is no upstream (rev-list throws)', async () => {
+    const run = async (args: string[]): Promise<string> => {
+      if (args.includes('rev-list')) throw new Error('no upstream');
+      if (args.includes('rev-parse')) return 'main\n';
+      return '';
+    };
+    expect((await getGitInfo('C:\\g\\x', run)).ahead).toBeNull();
   });
 
   it('handles a repo with no commits', async () => {

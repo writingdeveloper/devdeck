@@ -24,4 +24,19 @@ describe('scanRepos', () => {
     const repos = await scanRepos(base);
     expect(repos[0].path.startsWith(base)).toBe(true);
   });
+
+  it('finds org/repo (depth 2) but not repos inside a repo or beyond maxDepth', async () => {
+    mkdirSync(join(base, 'org', 'repoX', '.git'), { recursive: true });   // depth-2 repo under a non-repo
+    mkdirSync(join(base, 'org', 'repoY', '.git'), { recursive: true });
+    mkdirSync(join(base, 'projA', 'nested', '.git'), { recursive: true }); // inside a repo -> NOT scanned
+    mkdirSync(join(base, 'deep', 'a', 'b', '.git'), { recursive: true });  // depth 3 -> NOT scanned
+    const repos = (await scanRepos(base)).map((p) => p.name).sort();
+    expect(repos).toEqual(['projA', 'projB', 'repoX', 'repoY']);
+  });
+
+  it('respects an explicit maxDepth of 1 (top level only)', async () => {
+    mkdirSync(join(base, 'org', 'repoX', '.git'), { recursive: true });
+    const repos = (await scanRepos(base, 1)).map((p) => p.name).sort();
+    expect(repos).toEqual(['projA', 'projB']);
+  });
 });

@@ -88,6 +88,37 @@ function defaultSpawn(onError?: (msg: string) => void): SpawnFn {
   };
 }
 
+export interface EditorSpec { command: string; args: string[]; shell: boolean; }
+
+/**
+ * How to launch VS Code at a directory. On POSIX `code` is a plain script — pass the
+ * dir as an args-array entry (no shell = injection-safe). On Windows `code` is
+ * `code.cmd`, which Node can only run through a shell, so quote the path (Windows
+ * paths cannot contain `"`, so the quoting is safe).
+ */
+export function editorSpec(dir: string, platform: NodeJS.Platform = process.platform): EditorSpec {
+  if (platform === 'win32') return { command: `code "${dir}"`, args: [], shell: true };
+  return { command: 'code', args: [dir], shell: false };
+}
+
+export interface EditorOptions {
+  platform?: NodeJS.Platform;
+  spawnFn?: (command: string, args: string[], shell: boolean) => void;
+  onError?: (msg: string) => void;
+}
+
+/** Open a directory in VS Code (`code <dir>`). */
+export function openInEditor(dir: string, opts: EditorOptions = {}): void {
+  const spec = editorSpec(dir, opts.platform ?? process.platform);
+  if (opts.spawnFn) { opts.spawnFn(spec.command, spec.args, spec.shell); return; }
+  const child = spawn(spec.command, spec.args, { detached: true, stdio: 'ignore', shell: spec.shell, windowsHide: false });
+  child.on('error', (err) => {
+    console.error('DevDeck: failed to open editor', err);
+    opts.onError?.(`Failed to open editor (is the \`code\` CLI on your PATH?): ${(err as Error).message}`);
+  });
+  child.unref();
+}
+
 /** Open each project in a platform-appropriate terminal running its command. */
 export function openProjects(tabs: WtTab[], opts: OpenOptions = {}): void {
   if (tabs.length === 0) return;

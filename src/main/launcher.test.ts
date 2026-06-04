@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { openProjects, resolveShell, resolveWtPath, detectLinuxTerminal } from './launcher';
+import { openProjects, resolveShell, resolveWtPath, detectLinuxTerminal, editorSpec, openInEditor } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 
 type Call = { file: string; args: string[] };
@@ -62,6 +62,24 @@ describe('detectLinuxTerminal', () => {
   });
   it('returns null when none are installed', () => {
     expect(detectLinuxTerminal(() => false)).toBeNull();
+  });
+});
+
+describe('editorSpec', () => {
+  it('posix: code with the dir as an args-array entry (no shell)', () => {
+    expect(editorSpec('/g/a', 'darwin')).toEqual({ command: 'code', args: ['/g/a'], shell: false });
+    expect(editorSpec('/g/a', 'linux')).toEqual({ command: 'code', args: ['/g/a'], shell: false });
+  });
+  it('windows: quoted path through a shell (code is code.cmd)', () => {
+    expect(editorSpec('C:\\g\\a', 'win32')).toEqual({ command: 'code "C:\\g\\a"', args: [], shell: true });
+  });
+});
+
+describe('openInEditor', () => {
+  it('dispatches the editor spec to spawnFn', () => {
+    let got: { c: string; a: string[]; s: boolean } | null = null;
+    openInEditor('/g/a', { platform: 'linux', spawnFn: (c, a, s) => { got = { c, a, s }; } });
+    expect(got).toEqual({ c: 'code', a: ['/g/a'], s: false });
   });
 });
 
