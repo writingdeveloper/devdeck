@@ -1,6 +1,6 @@
 {
   "name": "devdeck",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Project command deck — at-a-glance state + claude -c resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
@@ -23,7 +23,6 @@
   "build": {
     "appId": "com.soursea.devdeck",
     "productName": "DevDeck",
-    "icon": "build/icon.ico",
     "files": [
       "dist/**/*",
       "package.json"
@@ -32,13 +31,27 @@
       "output": "release"
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }]
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "artifactName": "${productName}-${version}-Setup.${ext}"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "maintainer": "writingdeveloper <writingdeveloper@users.noreply.github.com>",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   },
   "devDependencies": {
