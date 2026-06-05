@@ -3,3 +3,4 @@ dist/
 *.log
 release/
 qa/shots/
+docs/superpowers/
