@@ -54,6 +54,11 @@ await shot('demo-usage');
 // 5) settings
 await showView('settings');
 await shot('demo-settings');
+// 6) Next (cross-project "what's next") — set a note on one project so it mixes notes + cues
+await win.evaluate((p) => window.devdeck.setNote(p, 'ship the v0.3 release notes'), join(REPOS, 'acme-dashboard'));
+await showView('next');
+await win.waitForTimeout(500);
+await shot('demo-next');
 
 await app.close();
 console.log('done — qa/shots/demo-*.png');
