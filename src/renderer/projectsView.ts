@@ -1,4 +1,7 @@
 import { tr, localeTag } from './i18n-runtime';
+import { shouldAutoRefresh } from '../shared/autoRefresh';
+
+const AUTO_REFRESH_MS = 45_000;
 
 type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[number];
 
@@ -348,6 +351,16 @@ export function mountProjects(): void {
   window.addEventListener('focus', () => {
     if (document.getElementById('view-projects')!.classList.contains('active') && Date.now() - lastLoadMs > 10_000) reload();
   });
+  // Keep the always-open deck live: periodically re-scan while it is the focused, active view.
+  setInterval(() => {
+    if (shouldAutoRefresh({
+      now: Date.now(),
+      lastLoadMs,
+      intervalMs: AUTO_REFRESH_MS,
+      viewActive: document.getElementById('view-projects')!.classList.contains('active'),
+      windowFocused: document.hasFocus(),
+    })) reload();
+  }, 15_000);
   document.addEventListener('click', () => {
     document.querySelectorAll('.menu:not(.hidden)').forEach((m) => {
       m.classList.add('hidden');

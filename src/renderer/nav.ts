@@ -1,7 +1,7 @@
 export function mountNav(onShow: (view: string) => void): void {
   const items = Array.from(document.querySelectorAll<HTMLButtonElement>('.rail-item[data-view]'));
   const views = new Map<string, HTMLElement>();
-  for (const id of ['projects', 'usage', 'settings']) views.set(id, document.getElementById('view-' + id)!);
+  for (const id of ['projects', 'usage', 'settings', 'next']) views.set(id, document.getElementById('view-' + id)!);
   function show(view: string): void {
     for (const it of items) {
       const isActive = it.dataset.view === view;
