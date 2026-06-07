@@ -1,11 +1,13 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
 import { homedir } from 'node:os';
-import { join, resolve, sep } from 'node:path';
+import { join } from 'node:path';
+import { stat } from 'node:fs/promises';
 import type { Store } from './store';
-import { scanRepos } from './scanner';
+import { scanFolders, isRepo } from './scanner';
 import { getGitInfo } from './gitInfo';
 import { getProvider, availableAgents } from './agents';
-import type { AgentId } from '../shared/types';
+import type { AgentId, Folder } from '../shared/types';
+import { isAllowedPath } from '../shared/pathGuard';
 import { buildProjectList } from './projects';
 import { openProjects, openInEditor } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
@@ -22,15 +24,14 @@ export interface IpcConfig {
   defaultLanguage: string;
 }
 
-function isUnderBase(base: string, incoming: string): boolean {
-  const r = resolve(incoming);
-  const b = resolve(base);
-  return r === b || r.startsWith(b + sep);
-}
-
 export function registerIpc(cfg: IpcConfig): void {
+  // Legacy single-base value, retained only for the settings:get response (back-compat); not used for scanning or the security guard.
   const effBaseDir = () => cfg.store.getBaseDir() ?? cfg.defaultBaseDir;
   const effThresholds = () => cfg.store.getThresholds() ?? DEFAULT_THRESHOLDS;
+  const effFolders = (): Folder[] => {
+    const f = cfg.store.getFolders();
+    return f.length ? f : [{ path: cfg.defaultBaseDir, kind: 'root' }];
+  };
 
   const activeAgent = (): AgentId => {
     const a = cfg.store.getAgent();
@@ -40,10 +41,9 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('projects:list', async () => {
     return buildProjectList({
-      baseDir: effBaseDir(),
       nowMs: Date.now(),
       thresholds: effThresholds(),
-      scan: (base) => scanRepos(base),
+      scan: () => scanFolders(effFolders()),
       git: (dir) => getGitInfo(dir),
       sessions: (p) => agent().listSessions(p),
       resumeCue: (p, sessionId) => agent().lastUserMessage(p, sessionId),
@@ -63,7 +63,7 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('usage:report', async (_e, sinceMs: number) => {
     const ms = (Number.isFinite(sinceMs) || sinceMs === Infinity) ? sinceMs : 0;
-    const repos = await scanRepos(effBaseDir());
+    const repos = await scanFolders(effFolders());
     return scanUsage(repos, CLAUDE_PROJECTS, ms);
   });
   ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
@@ -78,6 +78,21 @@ export function registerIpc(cfg: IpcConfig): void {
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
   }));
   ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
+  ipcMain.handle('settings:getFolders', () => effFolders());
+  ipcMain.handle('settings:addFolder', async (_e, p: string) => {
+    const path = String(p).trim().slice(0, 2000);
+    let isDir = false;
+    try { isDir = (await stat(path)).isDirectory(); } catch { isDir = false; }
+    if (isDir) {
+      const kind: Folder['kind'] = (await isRepo(path)) ? 'repo' : 'root';
+      cfg.store.addFolder({ path, kind });
+    }
+    return effFolders();
+  });
+  ipcMain.handle('settings:removeFolder', (_e, p: string) => {
+    cfg.store.removeFolder(String(p).slice(0, 2000));
+    return effFolders();
+  });
   ipcMain.handle('settings:setThresholds', (_e, t: { freshDays: number; warnDays: number; neglectedDays: number }) => {
     const { freshDays, warnDays, neglectedDays } = t ?? {};
     if (
@@ -93,12 +108,12 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
-    const base = effBaseDir();
     const now = new Date().toISOString();
+    const folders = effFolders();
     const tabs: WtTab[] = [];
     for (const it of items) {
-      if (!isUnderBase(base, it.path)) {
-        cfg.sendError(`Path outside base dir: ${it.path}`);
+      if (!isAllowedPath(folders, it.path)) {
+        cfg.sendError(`Path outside allowed folders: ${it.path}`);
         continue;
       }
       const a = agent();
@@ -119,8 +134,8 @@ export function registerIpc(cfg: IpcConfig): void {
 
   // Open the project folder in the OS file manager.
   ipcMain.handle('project:openFolder', async (_e, p: string) => {
-    if (!isUnderBase(effBaseDir(), p)) {
-      cfg.sendError(`Path outside base dir: ${p}`);
+    if (!isAllowedPath(effFolders(), p)) {
+      cfg.sendError(`Path outside allowed folders: ${p}`);
       return;
     }
     const err = await shell.openPath(p);
@@ -129,8 +144,8 @@ export function registerIpc(cfg: IpcConfig): void {
 
   // Open the project in VS Code (`code <path>`).
   ipcMain.handle('project:openEditor', (_e, p: string) => {
-    if (!isUnderBase(effBaseDir(), p)) {
-      cfg.sendError(`Path outside base dir: ${p}`);
+    if (!isAllowedPath(effFolders(), p)) {
+      cfg.sendError(`Path outside allowed folders: ${p}`);
       return;
     }
     openInEditor(p, { onError: cfg.sendError });

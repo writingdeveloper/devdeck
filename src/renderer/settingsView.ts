@@ -1,4 +1,5 @@
 import { tr, SUPPORTED, setLanguage as setRuntimeLang } from './i18n-runtime';
+import type { Folder } from '../shared/types';
 
 let host: HTMLElement;
 let onChangedCb: () => void = () => {};
@@ -17,12 +18,26 @@ async function render(): Promise<void> {
   const title = document.createElement('h2'); title.className = 'set-title'; title.textContent = tr('nav.settings');
   host.appendChild(title);
 
-  const dir = document.createElement('input'); dir.className = 'set-input'; dir.type = 'text'; dir.value = s.baseDir;
-  const browse = document.createElement('button'); browse.className = 'chip'; browse.textContent = tr('set.browse');
-  browse.addEventListener('click', async () => { const p = await window.devdeck.pickFolder(); if (p) { dir.value = p; await window.devdeck.setBaseDir(p); onChangedCb(); } });
-  dir.addEventListener('change', async () => { await window.devdeck.setBaseDir(dir.value.trim()); onChangedCb(); });
-  const dirWrap = document.createElement('div'); dirWrap.className = 'set-inline'; dirWrap.append(dir, browse);
-  host.appendChild(field('set.scan_dir', dirWrap, dir));
+  const folders = await window.devdeck.getFolders();
+  const list = document.createElement('div'); list.className = 'folder-list';
+  const renderRow = (f: Folder) => {
+    const row = document.createElement('div'); row.className = 'folder-row';
+    const path = document.createElement('span'); path.className = 'folder-path'; path.textContent = f.path;
+    const kind = document.createElement('span'); kind.className = 'folder-kind';
+    kind.textContent = tr(f.kind === 'repo' ? 'set.kind_repo' : 'set.kind_root');
+    const rm = document.createElement('button'); rm.className = 'folder-rm'; rm.textContent = '✕';
+    rm.setAttribute('aria-label', tr('set.remove_folder'));
+    rm.addEventListener('click', async () => { await window.devdeck.removeFolder(f.path); render(); onChangedCb(); });
+    row.append(path, kind, rm); return row;
+  };
+  for (const f of folders) list.appendChild(renderRow(f));
+  const add = document.createElement('button'); add.className = 'chip'; add.textContent = tr('set.add_folder');
+  add.addEventListener('click', async () => {
+    const p = await window.devdeck.pickFolder();
+    if (p) { await window.devdeck.addFolder(p); render(); onChangedCb(); }
+  });
+  const listWrap = document.createElement('div'); listWrap.append(list, add);
+  host.appendChild(field('set.scan_locations', listWrap));
 
   const mk = (v: number) => { const n = document.createElement('input'); n.type = 'number'; n.min = '1'; n.className = 'set-num'; n.value = String(v); return n; };
   const f = mk(s.thresholds.freshDays), w = mk(s.thresholds.warnDays), g = mk(s.thresholds.neglectedDays);
