@@ -8,7 +8,6 @@ const DAY = 86_400_000;
 
 function deps(over: Partial<BuildDeps>): BuildDeps {
   return {
-    baseDir: 'C:\\g',
     nowMs: NOW,
     thresholds: DEFAULT_THRESHOLDS,
     scan: async () => [

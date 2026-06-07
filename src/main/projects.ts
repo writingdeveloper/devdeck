@@ -3,10 +3,9 @@ import type { RawProject } from './scanner';
 import { classifyStaleness } from '../shared/staleness';
 
 export interface BuildDeps {
-  baseDir: string;
   nowMs: number;
   thresholds: StaleThresholds;
-  scan: (baseDir: string) => Promise<RawProject[]>;
+  scan: () => Promise<RawProject[]>;
   git: (dir: string) => Promise<GitInfo>;
   sessions: (projectPath: string) => SessionMeta[];
   resumeCue: (projectPath: string, sessionId: string) => string | null;
@@ -20,7 +19,7 @@ function maxMs(a: number | null, b: number | null): number | null {
 }
 
 export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewModel[]> {
-  const raw = await deps.scan(deps.baseDir);
+  const raw = await deps.scan();
   const models = await Promise.all(
     raw.map(async (r): Promise<ProjectViewModel> => {
       const git = await deps.git(r.path);
