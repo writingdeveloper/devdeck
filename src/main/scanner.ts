@@ -60,13 +60,12 @@ function dedupeByResolvedPath(items: RawProject[]): RawProject[] {
 
 /** Scan every configured folder: roots walked depth-2, repos included directly; deduped by resolved path. */
 export async function scanFolders(folders: Folder[]): Promise<RawProject[]> {
-  const out: RawProject[] = [];
-  for (const f of folders) {
-    if (f.kind === 'repo') {
-      if (await isRepo(f.path)) out.push({ path: f.path, name: basename(f.path) });
-    } else {
-      out.push(...(await scanRepos(f.path)));
-    }
-  }
-  return dedupeByResolvedPath(out);
+  const chunks = await Promise.all(
+    folders.map((f) =>
+      f.kind === 'repo'
+        ? isRepo(f.path).then((ok) => (ok ? [{ path: f.path, name: basename(f.path) }] : []))
+        : scanRepos(f.path),
+    ),
+  );
+  return dedupeByResolvedPath(chunks.flat());
 }
