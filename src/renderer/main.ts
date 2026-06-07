@@ -11,6 +11,27 @@ window.devdeck.onError((msg) => {
   toastHost.appendChild(el); setTimeout(() => el.remove(), 6000);
 });
 
+const updateBanner = document.getElementById('update-banner')!;
+function renderUpdate(p: import('../shared/update').UpdatePayload): void {
+  updateBanner.classList.remove('hidden');
+  updateBanner.replaceChildren();
+  const text = document.createElement('span');
+  if (p.status === 'available') text.textContent = tr('update.available', { version: p.version });
+  else if (p.status === 'downloading') text.textContent = tr('update.downloading', { percent: p.percent });
+  else text.textContent = tr('update.ready', { version: p.version });
+  updateBanner.appendChild(text);
+  if (p.status === 'available') {
+    const btn = document.createElement('button'); btn.className = 'chip'; btn.textContent = tr('update.download');
+    btn.addEventListener('click', () => { btn.disabled = true; void window.devdeck.downloadUpdate(); });
+    updateBanner.appendChild(btn);
+  } else if (p.status === 'downloaded') {
+    const btn = document.createElement('button'); btn.className = 'primary'; btn.textContent = tr('update.restart');
+    btn.addEventListener('click', () => { void window.devdeck.installUpdate(); });
+    updateBanner.appendChild(btn);
+  }
+}
+window.devdeck.onUpdate(renderUpdate);
+
 function applyStaticLabels(): void {
   document.documentElement.lang = currentLang();
   document.querySelector<HTMLButtonElement>('#open-selected')!.textContent = '▶ ' + tr('app.open_selected');

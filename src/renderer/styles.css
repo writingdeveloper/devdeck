@@ -192,3 +192,5 @@ button.primary:hover { background: var(--accent-hover); }
 #proj-search:focus, #proj-sort:focus {
   border-color: var(--accent);
 }
+#update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: #14223a; border: 1px solid #2d4a7a; color: #d6e4ff; padding: 10px 16px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.4); z-index: 60; }
+#update-banner.hidden { display: none; }
