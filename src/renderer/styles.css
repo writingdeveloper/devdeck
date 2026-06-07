@@ -143,6 +143,7 @@ button.primary:hover { background: var(--accent-hover); }
 
 .menu-wrap { position: relative; }
 .menu { position: absolute; right: 0; top: 22px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; min-width: 120px; z-index: 20; box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+.hidden { display: none; }
 .menu.hidden { display: none; }
 .menu-item { background: transparent; border: 0; color: var(--text); text-align: left; padding: 6px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; }
 .menu-item:hover { background: var(--surface-hover); }

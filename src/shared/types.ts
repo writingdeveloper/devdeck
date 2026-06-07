@@ -1,5 +1,7 @@
 import type { UsageTotals } from './usage';
 
+export type AgentId = 'claude' | 'codex';
+
 export type Language = 'ko' | 'en' | 'ja' | 'zh';
 
 export interface ModelUsage { model: string; totals: UsageTotals; costEstimate: number | null; }

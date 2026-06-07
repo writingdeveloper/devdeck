@@ -19,6 +19,8 @@ function applyStaticLabels(): void {
   refreshBtn.setAttribute('aria-label', tr('app.refresh'));
   const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next'], ['#lang-btn', 'nav.language']];
   for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) { el.title = tr(key); el.setAttribute('aria-label', tr(key)); } }
+  const agentSel = document.getElementById('agent-select');
+  if (agentSel && !agentSel.classList.contains('hidden')) agentSel.setAttribute('aria-label', tr('agent.label'));
   const chk = document.querySelector('#view-projects .chk');
   if (chk?.lastChild) chk.lastChild.textContent = ' ' + tr('proj.neglected_only');
   const showHidden = document.getElementById('show-hidden');
@@ -46,6 +48,21 @@ async function boot(): Promise<void> {
   mountSettings(() => { applyStaticLabels(); reloadProjects(); });
   mountNext();
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); });
+
+  const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
+  const agents = await window.devdeck.availableAgents();
+  const active = await window.devdeck.getAgent();
+  if (agents.length > 1) {
+    agentSel.classList.remove('hidden');
+    agentSel.replaceChildren(...agents.map((a) => {
+      const o = document.createElement('option'); o.value = a; o.textContent = tr('agent.' + a); o.selected = a === active; return o;
+    }));
+    agentSel.setAttribute('aria-label', tr('agent.label'));
+    agentSel.addEventListener('change', async () => {
+      await window.devdeck.setAgent(agentSel.value);
+      reloadProjects();
+    });
+  }
 
   document.getElementById('lang-btn')!.addEventListener('click', async () => {
     const i = SUPPORTED.indexOf(currentLang());

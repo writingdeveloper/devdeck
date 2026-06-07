@@ -57,4 +57,12 @@ describe('Store', () => {
     expect(s.getBaseDir()).toBeNull();
     expect(s.getThresholds()).toBeNull();
   });
+
+  it('persists the active agent and defaults to null', () => {
+    const s = new Store(file);
+    expect(s.getAgent()).toBeNull();
+    s.setAgent('codex');
+    const re = new Store(file);
+    expect(re.getAgent()).toBe('codex');
+  });
 });
