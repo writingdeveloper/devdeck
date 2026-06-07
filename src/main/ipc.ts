@@ -1,6 +1,7 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { stat } from 'node:fs/promises';
 import type { Store } from './store';
 import { scanFolders, isRepo } from './scanner';
 import { getGitInfo } from './gitInfo';
@@ -24,6 +25,7 @@ export interface IpcConfig {
 }
 
 export function registerIpc(cfg: IpcConfig): void {
+  // Legacy single-base value, retained only for the settings:get response (back-compat); not used for scanning or the security guard.
   const effBaseDir = () => cfg.store.getBaseDir() ?? cfg.defaultBaseDir;
   const effThresholds = () => cfg.store.getThresholds() ?? DEFAULT_THRESHOLDS;
   const effFolders = (): Folder[] => {
@@ -78,9 +80,13 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
   ipcMain.handle('settings:getFolders', () => effFolders());
   ipcMain.handle('settings:addFolder', async (_e, p: string) => {
-    const path = String(p).slice(0, 2000);
-    const kind: Folder['kind'] = (await isRepo(path)) ? 'repo' : 'root';
-    cfg.store.addFolder({ path, kind });
+    const path = String(p).trim().slice(0, 2000);
+    let isDir = false;
+    try { isDir = (await stat(path)).isDirectory(); } catch { isDir = false; }
+    if (isDir) {
+      const kind: Folder['kind'] = (await isRepo(path)) ? 'repo' : 'root';
+      cfg.store.addFolder({ path, kind });
+    }
     return effFolders();
   });
   ipcMain.handle('settings:removeFolder', (_e, p: string) => {
@@ -103,9 +109,10 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
     const now = new Date().toISOString();
+    const folders = effFolders();
     const tabs: WtTab[] = [];
     for (const it of items) {
-      if (!isAllowedPath(effFolders(), it.path)) {
+      if (!isAllowedPath(folders, it.path)) {
         cfg.sendError(`Path outside base dir: ${it.path}`);
         continue;
       }
