@@ -53,7 +53,6 @@
   "set.kind_repo": "single repo",
   "set.add_folder": "+ Add folder…",
   "set.remove_folder": "Remove",
-  "set.browse": "Browse…",
   "set.thresholds": "Staleness thresholds (days)",
   "set.fresh": "Fresh",
   "set.warn": "Warn",

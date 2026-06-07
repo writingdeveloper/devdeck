@@ -1,4 +1,5 @@
 import { tr, SUPPORTED, setLanguage as setRuntimeLang } from './i18n-runtime';
+import type { Folder } from '../shared/types';
 
 let host: HTMLElement;
 let onChangedCb: () => void = () => {};
@@ -19,7 +20,7 @@ async function render(): Promise<void> {
 
   const folders = await window.devdeck.getFolders();
   const list = document.createElement('div'); list.className = 'folder-list';
-  const renderRow = (f: { path: string; kind: 'root' | 'repo' }) => {
+  const renderRow = (f: Folder) => {
     const row = document.createElement('div'); row.className = 'folder-row';
     const path = document.createElement('span'); path.className = 'folder-path'; path.textContent = f.path;
     const kind = document.createElement('span'); kind.className = 'folder-kind';

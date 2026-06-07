@@ -196,6 +196,6 @@ button.primary:hover { background: var(--accent-hover); }
 .folder-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .folder-row { display: flex; align-items: center; gap: 8px; }
 .folder-path { flex: 1; font-family: var(--mono, monospace); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folder-kind { opacity: 0.6; font-size: 11px; }
-.folder-rm { background: none; border: none; cursor: pointer; color: inherit; opacity: 0.6; }
+.folder-kind { opacity: 0.6; font-size: 11px; white-space: nowrap; }
+.folder-rm { background: none; border: none; cursor: pointer; color: inherit; opacity: 0.6; flex-shrink: 0; }
 .folder-rm:hover { opacity: 1; }

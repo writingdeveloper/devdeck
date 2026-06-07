@@ -53,7 +53,6 @@
   "set.kind_repo": "单个仓库",
   "set.add_folder": "+ 添加文件夹…",
   "set.remove_folder": "移除",
-  "set.browse": "浏览…",
   "set.thresholds": "闲置阈值(天)",
   "set.fresh": "新鲜",
   "set.warn": "注意",

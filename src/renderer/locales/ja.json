@@ -53,7 +53,6 @@
   "set.kind_repo": "単一リポジトリ",
   "set.add_folder": "+ フォルダを追加…",
   "set.remove_folder": "削除",
-  "set.browse": "参照…",
   "set.thresholds": "放置しきい値(日)",
   "set.fresh": "新鮮",
   "set.warn": "注意",
