@@ -113,7 +113,7 @@ export function registerIpc(cfg: IpcConfig): void {
     const tabs: WtTab[] = [];
     for (const it of items) {
       if (!isAllowedPath(folders, it.path)) {
-        cfg.sendError(`Path outside base dir: ${it.path}`);
+        cfg.sendError(`Path outside allowed folders: ${it.path}`);
         continue;
       }
       const a = agent();
@@ -135,7 +135,7 @@ export function registerIpc(cfg: IpcConfig): void {
   // Open the project folder in the OS file manager.
   ipcMain.handle('project:openFolder', async (_e, p: string) => {
     if (!isAllowedPath(effFolders(), p)) {
-      cfg.sendError(`Path outside base dir: ${p}`);
+      cfg.sendError(`Path outside allowed folders: ${p}`);
       return;
     }
     const err = await shell.openPath(p);
@@ -145,7 +145,7 @@ export function registerIpc(cfg: IpcConfig): void {
   // Open the project in VS Code (`code <path>`).
   ipcMain.handle('project:openEditor', (_e, p: string) => {
     if (!isAllowedPath(effFolders(), p)) {
-      cfg.sendError(`Path outside base dir: ${p}`);
+      cfg.sendError(`Path outside allowed folders: ${p}`);
       return;
     }
     openInEditor(p, { onError: cfg.sendError });
