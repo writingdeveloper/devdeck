@@ -60,5 +60,21 @@ await showView('next');
 await win.waitForTimeout(500);
 await shot('demo-next');
 
+// 7) Codex agent — switch the active agent and show the Codex deck (multi-agent QA)
+await showView('projects');
+await win.evaluate(() => window.devdeck.setAgent('codex'));
+await win.reload();
+await win.waitForSelector('#cards .card', { timeout: 30000 }).catch(() => {});
+await win.waitForTimeout(600);
+await shot('demo-codex');
+// expand the first card (acme-dashboard, freshest) to show its Codex session + resume cue
+await win.evaluate(() => {
+  const c = document.querySelector('.sessions-head .caret');
+  if (c) c.parentElement.click();
+});
+await shot('demo-codex-sessions');
+// restore Claude so the captured user-data isn't left on Codex
+await win.evaluate(() => window.devdeck.setAgent('claude'));
+
 await app.close();
 console.log('done — qa/shots/demo-*.png');
