@@ -60,7 +60,7 @@ export class Store {
 
   getFolders(): Folder[] {
     const f = this.state.settings?.folders;
-    if (f && f.length) return f;
+    if (f !== undefined) return [...f];
     const b = this.state.settings?.baseDir;
     return b ? [{ path: b, kind: 'root' }] : [];
   }

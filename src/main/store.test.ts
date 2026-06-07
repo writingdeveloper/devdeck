@@ -92,4 +92,11 @@ describe('Store', () => {
       { path: 'D:\\more', kind: 'root' },
     ]);
   });
+
+  it('keeps a migrated baseDir folder removed after reload', () => {
+    const s = new Store(file);
+    s.setBaseDir('C:\\repos');                 // legacy single base, no explicit folders
+    s.removeFolder('C:\\repos');               // remove the migrated entry
+    expect(new Store(file).getFolders()).toEqual([]); // must stay empty after reload
+  });
 });
