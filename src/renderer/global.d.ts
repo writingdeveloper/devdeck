@@ -24,6 +24,9 @@ declare global {
       pickFolder(): Promise<string | null>;
       openFolder(path: string): Promise<void>;
       openEditor(path: string): Promise<void>;
+      onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
+      downloadUpdate(): Promise<void>;
+      installUpdate(): Promise<void>;
       windowControls: {
         minimize(): Promise<void>;
         toggleMaximize(): Promise<void>;
