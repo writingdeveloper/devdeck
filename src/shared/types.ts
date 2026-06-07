@@ -4,6 +4,11 @@ export type AgentId = 'claude' | 'codex';
 
 export type Language = 'ko' | 'en' | 'ja' | 'zh';
 
+export interface Folder {
+  path: string;
+  kind: 'root' | 'repo';
+}
+
 export interface ModelUsage { model: string; totals: UsageTotals; costEstimate: number | null; }
 export interface ProjectUsage {
   path: string; name: string; sessions: number;

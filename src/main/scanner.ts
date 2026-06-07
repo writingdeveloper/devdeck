@@ -1,5 +1,6 @@
 import { readdir, access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, basename, resolve } from 'node:path';
+import type { Folder } from '../shared/types';
 
 const IGNORE = new Set(['__pycache__', '.pytest_cache', '.claude', '.playwright-mcp', 'node_modules']);
 
@@ -8,7 +9,7 @@ export interface RawProject {
   name: string;
 }
 
-async function isRepo(dir: string): Promise<boolean> {
+export async function isRepo(dir: string): Promise<boolean> {
   try {
     await access(join(dir, '.git'));
     return true;
@@ -43,4 +44,28 @@ export async function scanRepos(baseDir: string, maxDepth = 2): Promise<RawProje
   const out: RawProject[] = [];
   await walk(baseDir, 1, maxDepth, out);
   return out;
+}
+
+function dedupeByResolvedPath(items: RawProject[]): RawProject[] {
+  const seen = new Set<string>();
+  const out: RawProject[] = [];
+  for (const it of items) {
+    const key = resolve(it.path);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(it);
+  }
+  return out;
+}
+
+/** Scan every configured folder: roots walked depth-2, repos included directly; deduped by resolved path. */
+export async function scanFolders(folders: Folder[]): Promise<RawProject[]> {
+  const chunks = await Promise.all(
+    folders.map((f) =>
+      f.kind === 'repo'
+        ? isRepo(f.path).then((ok) => (ok ? [{ path: f.path, name: basename(f.path) }] : []))
+        : scanRepos(f.path),
+    ),
+  );
+  return dedupeByResolvedPath(chunks.flat());
 }

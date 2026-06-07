@@ -17,6 +17,9 @@ declare global {
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
       getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string }>;
       setBaseDir(dir: string): Promise<void>;
+      getFolders(): Promise<import('../shared/types').Folder[]>;
+      addFolder(path: string): Promise<import('../shared/types').Folder[]>;
+      removeFolder(path: string): Promise<import('../shared/types').Folder[]>;
       setThresholds(t: { freshDays: number; warnDays: number; neglectedDays: number }): Promise<void>;
       pickFolder(): Promise<string | null>;
       openFolder(path: string): Promise<void>;
