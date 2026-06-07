@@ -1,6 +1,6 @@
 {
   "name": "devdeck",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Project command deck — at-a-glance state + claude -c resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
@@ -42,7 +42,11 @@
       "output": "release"
     },
     "publish": [
-      { "provider": "github", "owner": "writingdeveloper", "repo": "devdeck" }
+      {
+        "provider": "github",
+        "owner": "writingdeveloper",
+        "repo": "devdeck"
+      }
     ],
     "win": {
       "target": [
