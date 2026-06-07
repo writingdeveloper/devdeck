@@ -45,6 +45,20 @@ describe('lastUserMessageForCodexSession', () => {
   it('returns null for an unknown id', () => {
     expect(lastUserMessageForCodexSession('C:\\g\\app', 'a0b1c2d3-e4f5-6789-abcd-ef0123450099', root)).toBeNull();
   });
+  it('finds the last user message past a multi-MB trailing agent turn', () => {
+    // Real rollouts can be multi-MB and the last user message sits hundreds of KB
+    // before EOF (a long autonomous agent turn follows it) — a small fixed tail misses it.
+    const id = 'a0b1c2d3-e4f5-6789-abcd-ef0123450010';
+    const huge = 'x'.repeat(700 * 1024);
+    const lines = [
+      JSON.stringify({ type: 'session_meta', payload: { id, cwd: 'C:\\g\\app', timestamp: '2026-06-06T00:00:00Z' } }),
+      JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'resume from here' } }),
+      JSON.stringify({ type: 'event_msg', payload: { type: 'agent_message', message: huge } }),
+    ].join('\n');
+    const dir = join(root, '2026/06/06'); mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `rollout-${id}.jsonl`), lines);
+    expect(lastUserMessageForCodexSession('C:\\g\\app', id, root)).toBe('resume from here');
+  });
 });
 
 describe('codexAvailable', () => {
