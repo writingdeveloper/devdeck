@@ -19,6 +19,8 @@ function applyStaticLabels(): void {
   refreshBtn.setAttribute('aria-label', tr('app.refresh'));
   const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next'], ['#lang-btn', 'nav.language']];
   for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) { el.title = tr(key); el.setAttribute('aria-label', tr(key)); } }
+  const agentSel = document.getElementById('agent-select');
+  if (agentSel && !agentSel.classList.contains('hidden')) agentSel.setAttribute('aria-label', tr('agent.label'));
   const chk = document.querySelector('#view-projects .chk');
   if (chk?.lastChild) chk.lastChild.textContent = ' ' + tr('proj.neglected_only');
   const showHidden = document.getElementById('show-hidden');
