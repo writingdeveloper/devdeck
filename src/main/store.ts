@@ -1,9 +1,10 @@
 import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
-import type { StoreEntry } from '../shared/types';
+import { resolve } from 'node:path';
+import type { StoreEntry, Folder } from '../shared/types';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string };
 }
 
 const EMPTY: StoreEntry = {
@@ -56,6 +57,27 @@ export class Store {
 
   getBaseDir(): string | null { return this.state.settings?.baseDir ?? null; }
   setBaseDir(baseDir: string): void { this.state.settings = { ...(this.state.settings ?? {}), baseDir }; this.save(); }
+
+  getFolders(): Folder[] {
+    const f = this.state.settings?.folders;
+    if (f && f.length) return f;
+    const b = this.state.settings?.baseDir;
+    return b ? [{ path: b, kind: 'root' }] : [];
+  }
+  addFolder(folder: Folder): void {
+    const cur = this.state.settings?.folders ?? this.getFolders();
+    const exists = cur.some((x) => resolve(x.path) === resolve(folder.path));
+    const folders = exists ? cur : [...cur, folder];
+    this.state.settings = { ...(this.state.settings ?? {}), folders };
+    this.save();
+  }
+  removeFolder(path: string): void {
+    const cur = this.state.settings?.folders ?? this.getFolders();
+    const folders = cur.filter((x) => resolve(x.path) !== resolve(path));
+    this.state.settings = { ...(this.state.settings ?? {}), folders };
+    this.save();
+  }
+
   getThresholds(): { freshDays: number; warnDays: number; neglectedDays: number } | null { return this.state.settings?.thresholds ?? null; }
   setThresholds(thresholds: { freshDays: number; warnDays: number; neglectedDays: number }): void { this.state.settings = { ...(this.state.settings ?? {}), thresholds }; this.save(); }
 
