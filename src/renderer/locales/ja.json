@@ -59,5 +59,10 @@
   "proj.sort_activity": "アクティビティ",
   "proj.sort_uncommitted": "未コミット",
   "proj.sort_name": "名前",
-  "proj.sort_opened": "最終開覧"
+  "proj.sort_opened": "最終開覧",
+  "update.available": "アップデートあり: v{version}",
+  "update.download": "ダウンロード",
+  "update.downloading": "アップデートをダウンロード中… {percent}%",
+  "update.ready": "アップデート準備完了: v{version}",
+  "update.restart": "再起動して更新"
 }

@@ -59,5 +59,10 @@
   "proj.sort_activity": "Activity",
   "proj.sort_uncommitted": "Uncommitted",
   "proj.sort_name": "Name",
-  "proj.sort_opened": "Last opened"
+  "proj.sort_opened": "Last opened",
+  "update.available": "Update available: v{version}",
+  "update.download": "Download",
+  "update.downloading": "Downloading update… {percent}%",
+  "update.ready": "Update ready: v{version}",
+  "update.restart": "Restart to update"
 }

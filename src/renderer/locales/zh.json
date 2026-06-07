@@ -59,5 +59,10 @@
   "proj.sort_activity": "活动",
   "proj.sort_uncommitted": "未提交",
   "proj.sort_name": "名称",
-  "proj.sort_opened": "最近打开"
+  "proj.sort_opened": "最近打开",
+  "update.available": "有可用更新: v{version}",
+  "update.download": "下载",
+  "update.downloading": "正在下载更新… {percent}%",
+  "update.ready": "更新已就绪: v{version}",
+  "update.restart": "重启以更新"
 }

@@ -59,5 +59,10 @@
   "proj.sort_activity": "활동",
   "proj.sort_uncommitted": "미커밋",
   "proj.sort_name": "이름",
-  "proj.sort_opened": "최근 열람"
+  "proj.sort_opened": "최근 열람",
+  "update.available": "업데이트 있음: v{version}",
+  "update.download": "다운로드",
+  "update.downloading": "업데이트 다운로드 중… {percent}%",
+  "update.ready": "업데이트 준비됨: v{version}",
+  "update.restart": "재시작하여 업데이트"
 }
