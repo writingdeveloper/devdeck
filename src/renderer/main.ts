@@ -12,7 +12,9 @@ window.devdeck.onError((msg) => {
 });
 
 const updateBanner = document.getElementById('update-banner')!;
+let lastUpdatePayload: import('../shared/update').UpdatePayload | null = null;
 function renderUpdate(p: import('../shared/update').UpdatePayload): void {
+  lastUpdatePayload = p;
   updateBanner.classList.remove('hidden');
   updateBanner.replaceChildren();
   const text = document.createElement('span');
@@ -91,6 +93,7 @@ async function boot(): Promise<void> {
     await window.devdeck.setLanguage(next);
     setLanguage(next);
     applyStaticLabels();
+    if (lastUpdatePayload) renderUpdate(lastUpdatePayload);
     renderProjects();
     if (document.getElementById('view-usage')!.classList.contains('active')) showUsage();
     if (document.getElementById('view-settings')!.classList.contains('active')) showSettings();
