@@ -47,6 +47,21 @@ async function boot(): Promise<void> {
   mountNext();
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); });
 
+  const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
+  const agents = await window.devdeck.availableAgents();
+  const active = await window.devdeck.getAgent();
+  if (agents.length > 1) {
+    agentSel.classList.remove('hidden');
+    agentSel.replaceChildren(...agents.map((a) => {
+      const o = document.createElement('option'); o.value = a; o.textContent = tr('agent.' + a); o.selected = a === active; return o;
+    }));
+    agentSel.setAttribute('aria-label', tr('agent.label'));
+    agentSel.addEventListener('change', async () => {
+      await window.devdeck.setAgent(agentSel.value);
+      reloadProjects();
+    });
+  }
+
   document.getElementById('lang-btn')!.addEventListener('click', async () => {
     const i = SUPPORTED.indexOf(currentLang());
     const next = SUPPORTED[(i + 1) % SUPPORTED.length];
