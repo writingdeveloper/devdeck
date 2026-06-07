@@ -65,4 +65,38 @@ describe('Store', () => {
     const re = new Store(file);
     expect(re.getAgent()).toBe('codex');
   });
+
+  it('round-trips folders: add, dedupe, remove', () => {
+    const s = new Store(file);
+    expect(s.getFolders()).toEqual([]);
+    s.addFolder({ path: 'C:\\work', kind: 'root' });
+    s.addFolder({ path: 'C:\\work', kind: 'root' }); // duplicate -> ignored
+    s.addFolder({ path: 'E:\\spike', kind: 'repo' });
+    const re = new Store(file);
+    expect(re.getFolders()).toEqual([
+      { path: 'C:\\work', kind: 'root' },
+      { path: 'E:\\spike', kind: 'repo' },
+    ]);
+    re.removeFolder('C:\\work');
+    expect(new Store(file).getFolders()).toEqual([{ path: 'E:\\spike', kind: 'repo' }]);
+  });
+
+  it('migrates a legacy baseDir into a single root folder', () => {
+    const s = new Store(file);
+    s.setBaseDir('C:\\repos');
+    expect(s.getFolders()).toEqual([{ path: 'C:\\repos', kind: 'root' }]);
+    // first explicit add persists the migrated entry plus the new one
+    s.addFolder({ path: 'D:\\more', kind: 'root' });
+    expect(new Store(file).getFolders()).toEqual([
+      { path: 'C:\\repos', kind: 'root' },
+      { path: 'D:\\more', kind: 'root' },
+    ]);
+  });
+
+  it('keeps a migrated baseDir folder removed after reload', () => {
+    const s = new Store(file);
+    s.setBaseDir('C:\\repos');                 // legacy single base, no explicit folders
+    s.removeFolder('C:\\repos');               // remove the migrated entry
+    expect(new Store(file).getFolders()).toEqual([]); // must stay empty after reload
+  });
 });
