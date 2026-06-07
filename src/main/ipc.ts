@@ -4,7 +4,8 @@ import { join, resolve, sep } from 'node:path';
 import type { Store } from './store';
 import { scanRepos } from './scanner';
 import { getGitInfo } from './gitInfo';
-import { listSessions, isValidSessionId, lastUserMessageForSession } from './sessions';
+import { getProvider, availableAgents } from './agents';
+import type { AgentId } from '../shared/types';
 import { buildProjectList } from './projects';
 import { openProjects, openInEditor } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
@@ -31,6 +32,12 @@ export function registerIpc(cfg: IpcConfig): void {
   const effBaseDir = () => cfg.store.getBaseDir() ?? cfg.defaultBaseDir;
   const effThresholds = () => cfg.store.getThresholds() ?? DEFAULT_THRESHOLDS;
 
+  const activeAgent = (): AgentId => {
+    const a = cfg.store.getAgent();
+    return a === 'codex' || a === 'claude' ? a : 'claude';
+  };
+  const agent = () => getProvider(activeAgent());
+
   ipcMain.handle('projects:list', async () => {
     return buildProjectList({
       baseDir: effBaseDir(),
@@ -38,8 +45,8 @@ export function registerIpc(cfg: IpcConfig): void {
       thresholds: effThresholds(),
       scan: (base) => scanRepos(base),
       git: (dir) => getGitInfo(dir),
-      sessions: (p) => listSessions(p, CLAUDE_PROJECTS),
-      resumeCue: (p, sessionId) => lastUserMessageForSession(p, sessionId, CLAUDE_PROJECTS),
+      sessions: (p) => agent().listSessions(p),
+      resumeCue: (p, sessionId) => agent().lastUserMessage(p, sessionId),
       getEntry: (p) => cfg.store.get(p),
     });
   });
@@ -61,6 +68,11 @@ export function registerIpc(cfg: IpcConfig): void {
   });
   ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
   ipcMain.handle('settings:setLanguage', (_e, lang: string) => cfg.store.setLanguage(lang));
+  ipcMain.handle('settings:getAgent', () => activeAgent());
+  ipcMain.handle('settings:availableAgents', () => availableAgents());
+  ipcMain.handle('settings:setAgent', (_e, id: string) => {
+    if (id === 'claude' || id === 'codex') cfg.store.setAgent(id);
+  });
 
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
@@ -89,17 +101,11 @@ export function registerIpc(cfg: IpcConfig): void {
         cfg.sendError(`Path outside base dir: ${it.path}`);
         continue;
       }
+      const a = agent();
       let command: string;
-      // Only interpolate a session id into the shell command if it is a valid
-      // (UUID-ish) id; otherwise fall back to continue/new so a crafted id cannot
-      // inject into `claude -r <id>` at this trust boundary.
-      if (typeof it.sessionId === 'string' && isValidSessionId(it.sessionId)) {
-        command = `claude -r ${it.sessionId}`;
-      } else if (listSessions(it.path, CLAUDE_PROJECTS).length > 0) {
-        command = 'claude -c';
-      } else {
-        command = 'claude';
-      }
+      if (typeof it.sessionId === 'string') command = a.buildCommand('resume', it.sessionId);
+      else if (a.listSessions(it.path).length > 0) command = a.buildCommand('continue');
+      else command = a.buildCommand('new');
       tabs.push({
         name: it.path.split(/[\\/]/).pop() ?? it.path,
         dir: it.path,

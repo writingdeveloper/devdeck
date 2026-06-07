@@ -8,6 +8,7 @@ type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[n
 const selected = new Set<string>();
 const expanded = new Set<string>();
 let projects: ProjectViewModel[] = [];
+let agentLabel = 'claude';
 let showHidden = false;
 // Per-project estimated cost, filled asynchronously after the list renders so a
 // (potentially slow) full token scan never blocks the project list.
@@ -96,7 +97,7 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
   const head = document.createElement('div');
   head.className = 'sessions-head' + (expanded.has(p.path) ? ' open' : '');
   const label = document.createElement('span');
-  label.textContent = `claude ${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} ${tr('proj.sessions')}` : ''}${usdShort(costByPath.get(p.path))}`;
+  label.textContent = `${agentLabel} ${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} ${tr('proj.sessions')}` : ''}${usdShort(costByPath.get(p.path))}`;
   head.appendChild(label);
   if (p.sessionCount > 1) {
     const caret = document.createElement('span'); caret.className = 'caret'; caret.textContent = '⌄';
@@ -308,7 +309,7 @@ function showSkeleton(): void {
 async function reload(): Promise<void> {
   lastLoadMs = Date.now();
   showSkeleton();
-  projects = await window.devdeck.listProjects();
+  [projects, agentLabel] = await Promise.all([window.devdeck.listProjects(), window.devdeck.getAgent()]);
   render();
   // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch).
   void window.devdeck.usageReport(0).then((r) => {
