@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { Store } from './store';
 import { registerIpc } from './ipc';
 import { setupTray } from './tray';
+import { registerUpdater } from './updater';
 
 let win: BrowserWindow | null = null;
 
@@ -52,6 +53,7 @@ if (!gotLock) {
       defaultLanguage: app.getLocale().split('-')[0] || 'en',
     });
     setupTray(w);
+    registerUpdater(w);
     globalShortcut.register('Control+Alt+D', showWindow);
     app.on('activate', () => { if (!win) win = createWindow(); });
   });
