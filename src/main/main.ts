@@ -42,6 +42,11 @@ if (!gotLock) {
   app.on('second-instance', showWindow);
 
   app.whenReady().then(() => {
+    // Match the installer shortcut's AppUserModelID (electron-builder sets it to
+    // the appId) so Windows shows the DevDeck taskbar icon and groups windows
+    // correctly. Without this the running process uses Electron's default ID and
+    // the taskbar falls back to the generic Electron icon.
+    if (process.platform === 'win32') app.setAppUserModelId('com.soursea.devdeck');
     const store = new Store(path.join(app.getPath('userData'), 'state.json'));
     const w = createWindow();
     win = w;
