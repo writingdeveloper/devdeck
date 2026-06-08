@@ -67,5 +67,14 @@
   "update.download": "ダウンロード",
   "update.downloading": "アップデートをダウンロード中… {percent}%",
   "update.ready": "アップデート準備完了: v{version}",
-  "update.restart": "再起動して更新"
+  "update.restart": "再起動して更新",
+  "about.title": "情報",
+  "about.github": "GitHub",
+  "about.releases": "リリース",
+  "about.license": "ライセンス",
+  "about.report_issue": "問題を報告",
+  "about.check_updates": "アップデートを確認",
+  "about.checking": "確認中…",
+  "about.up_to_date": "最新版です ✓",
+  "about.updates_dev": "アップデートはインストール版でのみ適用されます"
 }

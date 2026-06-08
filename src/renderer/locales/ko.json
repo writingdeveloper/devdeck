@@ -67,5 +67,14 @@
   "update.download": "다운로드",
   "update.downloading": "업데이트 다운로드 중… {percent}%",
   "update.ready": "업데이트 준비됨: v{version}",
-  "update.restart": "재시작하여 업데이트"
+  "update.restart": "재시작하여 업데이트",
+  "about.title": "정보",
+  "about.github": "GitHub",
+  "about.releases": "릴리스",
+  "about.license": "라이선스",
+  "about.report_issue": "이슈 신고",
+  "about.check_updates": "업데이트 확인",
+  "about.checking": "확인 중…",
+  "about.up_to_date": "최신 버전입니다 ✓",
+  "about.updates_dev": "업데이트는 설치본에서만 적용됩니다"
 }
