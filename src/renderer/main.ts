@@ -15,9 +15,19 @@ const updateBanner = document.getElementById('update-banner')!;
 let lastUpdatePayload: import('../shared/update').UpdatePayload | null = null;
 function renderUpdate(p: import('../shared/update').UpdatePayload): void {
   lastUpdatePayload = p;
-  if (p.status === 'checking' || p.status === 'none') {
-    const s = document.getElementById('about-update-status');
-    if (s) s.textContent = p.status === 'checking' ? tr('about.checking') : tr('about.up_to_date');
+  // Keep the About status span in sync for EVERY state so a click on
+  // "check for updates" always gets feedback right next to the button —
+  // it must never stay stuck on "checking".
+  const s = document.getElementById('about-update-status');
+  if (s) {
+    if (p.status === 'checking') s.textContent = tr('about.checking');
+    else if (p.status === 'none') s.textContent = tr('about.up_to_date');
+    else if (p.status === 'error') s.textContent = tr('about.check_failed');
+    else if (p.status === 'available') s.textContent = tr('about.update_available', { version: p.version });
+    else s.textContent = ''; // downloading/downloaded — the banner carries the action
+  }
+  if (p.status !== 'available' && p.status !== 'downloading' && p.status !== 'downloaded') {
+    updateBanner.classList.add('hidden');
     return;
   }
   updateBanner.classList.remove('hidden');
