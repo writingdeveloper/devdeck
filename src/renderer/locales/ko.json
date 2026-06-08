@@ -76,5 +76,7 @@
   "about.check_updates": "업데이트 확인",
   "about.checking": "확인 중…",
   "about.up_to_date": "최신 버전입니다 ✓",
+  "about.update_available": "새 버전 v{version} 사용 가능",
+  "about.check_failed": "업데이트 확인 실패",
   "about.updates_dev": "업데이트는 설치본에서만 적용됩니다"
 }

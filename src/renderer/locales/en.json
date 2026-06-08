@@ -76,5 +76,7 @@
   "about.check_updates": "Check for updates",
   "about.checking": "Checking…",
   "about.up_to_date": "You're up to date ✓",
+  "about.update_available": "New version v{version} available",
+  "about.check_failed": "Update check failed",
   "about.updates_dev": "Updates apply to the installed app only"
 }

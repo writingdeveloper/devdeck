@@ -50,7 +50,7 @@ describe('wireUpdater', () => {
     ]);
   });
 
-  it('routes the error event to log, not send', () => {
+  it('routes the error event to both log and an error payload', () => {
     const sent: UpdatePayload[] = [];
     const log = vi.fn();
     const { u, emit } = fakeUpdater();
@@ -58,7 +58,7 @@ describe('wireUpdater', () => {
     const err = new Error('boom');
     emit('error', err);
     expect(log).toHaveBeenCalledWith(err);
-    expect(sent).toEqual([]);
+    expect(sent).toEqual([{ status: 'error' }]);
   });
 
   it('swallows a rejected checkForUpdates/downloadUpdate via log', async () => {

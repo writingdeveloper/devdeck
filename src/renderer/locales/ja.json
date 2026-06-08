@@ -76,5 +76,7 @@
   "about.check_updates": "アップデートを確認",
   "about.checking": "確認中…",
   "about.up_to_date": "最新版です ✓",
+  "about.update_available": "新しいバージョン v{version} が利用可能",
+  "about.check_failed": "アップデートの確認に失敗しました",
   "about.updates_dev": "アップデートはインストール版でのみ適用されます"
 }
