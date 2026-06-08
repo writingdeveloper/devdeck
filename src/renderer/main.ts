@@ -15,13 +15,17 @@ const updateBanner = document.getElementById('update-banner')!;
 let lastUpdatePayload: import('../shared/update').UpdatePayload | null = null;
 function renderUpdate(p: import('../shared/update').UpdatePayload): void {
   lastUpdatePayload = p;
+  if (p.status === 'checking' || p.status === 'none') {
+    const s = document.getElementById('about-update-status');
+    if (s) s.textContent = p.status === 'checking' ? tr('about.checking') : tr('about.up_to_date');
+    return;
+  }
   updateBanner.classList.remove('hidden');
   updateBanner.replaceChildren();
   const text = document.createElement('span');
   if (p.status === 'available') text.textContent = tr('update.available', { version: p.version });
   else if (p.status === 'downloading') text.textContent = tr('update.downloading', { percent: p.percent });
-  else if (p.status === 'downloaded') text.textContent = tr('update.ready', { version: p.version });
-  else { updateBanner.classList.add('hidden'); return; }
+  else text.textContent = tr('update.ready', { version: p.version });
   updateBanner.appendChild(text);
   if (p.status === 'available') {
     const btn = document.createElement('button'); btn.className = 'chip'; btn.textContent = tr('update.download');

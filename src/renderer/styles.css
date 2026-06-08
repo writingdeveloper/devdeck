@@ -200,3 +200,11 @@ button.primary:hover { background: var(--accent-hover); }
 .folder-rm:hover { opacity: 1; }
 #update-banner { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; background: #14223a; border: 1px solid #2d4a7a; color: #d6e4ff; padding: 10px 16px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.4); z-index: 60; }
 #update-banner.hidden { display: none; }
+.about { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.about-title { margin: 0 0 8px; font-size: 13px; color: var(--text); }
+.about-ver { font-size: 13px; color: var(--text); }
+.about-rt { color: var(--text-faint); font-size: 12px; }
+.about-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.about-upd { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.about-status { font-size: 12px; color: var(--text-dim); }
+.about-meta { font-size: 12px; color: var(--text-faint); margin-top: 8px; }
