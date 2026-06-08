@@ -67,5 +67,14 @@
   "update.download": "下载",
   "update.downloading": "正在下载更新… {percent}%",
   "update.ready": "更新已就绪: v{version}",
-  "update.restart": "重启以更新"
+  "update.restart": "重启以更新",
+  "about.title": "关于",
+  "about.github": "GitHub",
+  "about.releases": "发布版本",
+  "about.license": "许可证",
+  "about.report_issue": "报告问题",
+  "about.check_updates": "检查更新",
+  "about.checking": "检查中…",
+  "about.up_to_date": "已是最新版本 ✓",
+  "about.updates_dev": "更新仅适用于已安装的应用"
 }

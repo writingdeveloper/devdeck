@@ -80,4 +80,12 @@ describe('wireUpdater', () => {
     api.install();
     expect(u.quitAndInstall).toHaveBeenCalledOnce();
   });
+
+  it('maps update-not-available to a none payload', () => {
+    const sent: UpdatePayload[] = [];
+    const { u, emit } = fakeUpdater();
+    wireUpdater(u, (p) => sent.push(p), () => {});
+    emit('update-not-available', { version: '1.2.3' });
+    expect(sent).toEqual([{ status: 'none' }]);
+  });
 });

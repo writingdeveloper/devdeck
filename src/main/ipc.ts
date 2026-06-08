@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
+import { ipcMain, dialog, shell, app, type BrowserWindow } from 'electron';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
@@ -8,6 +8,7 @@ import { getGitInfo } from './gitInfo';
 import { getProvider, availableAgents } from './agents';
 import type { AgentId, Folder } from '../shared/types';
 import { isAllowedPath } from '../shared/pathGuard';
+import { isAllowedExternalUrl } from '../shared/externalUrl';
 import { buildProjectList } from './projects';
 import { openProjects, openInEditor } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
@@ -15,6 +16,7 @@ import { scanUsage } from './usageScan';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
+const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
 
 export interface IpcConfig {
   win: BrowserWindow;
@@ -105,6 +107,17 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:pickFolder', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] });
     return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+  });
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    repoUrl: REPO_URL,
+    packaged: app.isPackaged,
+  }));
+  ipcMain.handle('shell:openExternal', async (_e, url: string) => {
+    const u = String(url);
+    if (isAllowedExternalUrl(u)) await shell.openExternal(u);
+    else cfg.sendError(`Blocked external URL: ${u}`);
   });
 
   ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {

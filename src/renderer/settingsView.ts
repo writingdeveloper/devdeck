@@ -56,6 +56,37 @@ async function render(): Promise<void> {
   for (const lng of SUPPORTED) { const o = document.createElement('option'); o.value = lng; o.textContent = lng.toUpperCase(); if (lng === s.language) o.selected = true; sel.appendChild(o); }
   sel.addEventListener('change', async () => { await window.devdeck.setLanguage(sel.value); setRuntimeLang(sel.value); render(); onChangedCb(); });
   host.appendChild(field('nav.language', sel, sel));
+
+  const info = await window.devdeck.getAppInfo();
+  const about = document.createElement('div'); about.className = 'about';
+  const aTitle = document.createElement('h3'); aTitle.className = 'about-title'; aTitle.textContent = tr('about.title');
+  const ver = document.createElement('div'); ver.className = 'about-ver'; ver.textContent = `DevDeck v${info.version}`;
+  const rt = document.createElement('span'); rt.className = 'about-rt'; rt.textContent = ` (Electron ${info.electron})`;
+  ver.appendChild(rt);
+  const links = document.createElement('div'); links.className = 'about-links';
+  const link = (labelKey: string, url: string) => {
+    const b = document.createElement('button'); b.className = 'chip'; b.textContent = tr(labelKey);
+    b.addEventListener('click', () => void window.devdeck.openExternal(url));
+    return b;
+  };
+  links.append(
+    link('about.github', info.repoUrl),
+    link('about.releases', info.repoUrl + '/releases/latest'),
+    link('about.license', info.repoUrl + '/blob/main/LICENSE'),
+    link('about.report_issue', info.repoUrl + '/issues'),
+  );
+  const upd = document.createElement('div'); upd.className = 'about-upd';
+  const chk = document.createElement('button'); chk.className = 'chip'; chk.textContent = tr('about.check_updates');
+  const status = document.createElement('span'); status.id = 'about-update-status'; status.className = 'about-status'; status.setAttribute('aria-live', 'polite');
+  if (info.packaged) {
+    chk.addEventListener('click', () => void window.devdeck.checkForUpdates());
+  } else {
+    chk.disabled = true; status.textContent = tr('about.updates_dev');
+  }
+  upd.append(chk, status);
+  const meta = document.createElement('div'); meta.className = 'about-meta'; meta.textContent = 'MIT · © Si Hyeong Lee';
+  about.append(aTitle, ver, links, upd, meta);
+  host.appendChild(about);
 }
 
 export function mountSettings(onChanged: () => void): void { host = document.getElementById('settings-form')!; onChangedCb = onChanged; }

@@ -27,6 +27,9 @@ declare global {
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
       downloadUpdate(): Promise<void>;
       installUpdate(): Promise<void>;
+      getAppInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean }>;
+      openExternal(url: string): Promise<void>;
+      checkForUpdates(): Promise<void>;
       windowControls: {
         minimize(): Promise<void>;
         toggleMaximize(): Promise<void>;

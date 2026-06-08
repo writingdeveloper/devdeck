@@ -67,5 +67,14 @@
   "update.download": "Download",
   "update.downloading": "Downloading update… {percent}%",
   "update.ready": "Update ready: v{version}",
-  "update.restart": "Restart to update"
+  "update.restart": "Restart to update",
+  "about.title": "About",
+  "about.github": "GitHub",
+  "about.releases": "Releases",
+  "about.license": "License",
+  "about.report_issue": "Report an issue",
+  "about.check_updates": "Check for updates",
+  "about.checking": "Checking…",
+  "about.up_to_date": "You're up to date ✓",
+  "about.updates_dev": "Updates apply to the installed app only"
 }
