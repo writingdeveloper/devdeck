@@ -15,5 +15,11 @@ describe('isAllowedExternalUrl', () => {
     expect(isAllowedExternalUrl('javascript:alert(1)')).toBe(false);
     expect(isAllowedExternalUrl('https://github.com/writingdeveloper/devdeck-evil')).toBe(false);
     expect(isAllowedExternalUrl('not a url')).toBe(false);
+    // canonical URL-injection vectors — all must be rejected
+    expect(isAllowedExternalUrl('https://github.com@evil.com/writingdeveloper/devdeck')).toBe(false); // userinfo injection
+    expect(isAllowedExternalUrl('https://github.com./writingdeveloper/devdeck')).toBe(false);          // trailing-dot FQDN
+    expect(isAllowedExternalUrl('https://github.com/writingdeveloper/devdeck/../../../passwd')).toBe(false); // path traversal (normalised away)
+    expect(isAllowedExternalUrl('file:///etc/passwd')).toBe(false);
+    expect(isAllowedExternalUrl('data:text/html,<script>alert(1)</script>')).toBe(false);
   });
 });
