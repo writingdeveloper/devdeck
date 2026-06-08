@@ -77,7 +77,7 @@ async function render(): Promise<void> {
   );
   const upd = document.createElement('div'); upd.className = 'about-upd';
   const chk = document.createElement('button'); chk.className = 'chip'; chk.textContent = tr('about.check_updates');
-  const status = document.createElement('span'); status.id = 'about-update-status'; status.className = 'about-status';
+  const status = document.createElement('span'); status.id = 'about-update-status'; status.className = 'about-status'; status.setAttribute('aria-live', 'polite');
   if (info.packaged) {
     chk.addEventListener('click', () => void window.devdeck.checkForUpdates());
   } else {
