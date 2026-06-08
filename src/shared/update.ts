@@ -1,7 +1,9 @@
 export type UpdatePayload =
   | { status: 'available'; version: string }
   | { status: 'downloading'; percent: number }
-  | { status: 'downloaded'; version: string };
+  | { status: 'downloaded'; version: string }
+  | { status: 'checking' }
+  | { status: 'none' };
 
 /** Minimal surface of electron-updater's autoUpdater that we use — lets us unit-test wiring without electron. */
 export interface UpdaterLike {
@@ -24,6 +26,7 @@ export function wireUpdater(
   u.on('update-available', (info: any) => send({ status: 'available', version: String(info?.version ?? '') }));
   u.on('download-progress', (p: any) => send({ status: 'downloading', percent: Math.max(0, Math.min(100, Math.round(p?.percent ?? 0))) }));
   u.on('update-downloaded', (info: any) => send({ status: 'downloaded', version: String(info?.version ?? '') }));
+  u.on('update-not-available', () => send({ status: 'none' }));
   u.on('error', (e: unknown) => log(e));
   return {
     check: () => { u.checkForUpdates().catch(log); },

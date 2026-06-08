@@ -20,7 +20,8 @@ function renderUpdate(p: import('../shared/update').UpdatePayload): void {
   const text = document.createElement('span');
   if (p.status === 'available') text.textContent = tr('update.available', { version: p.version });
   else if (p.status === 'downloading') text.textContent = tr('update.downloading', { percent: p.percent });
-  else text.textContent = tr('update.ready', { version: p.version });
+  else if (p.status === 'downloaded') text.textContent = tr('update.ready', { version: p.version });
+  else { updateBanner.classList.add('hidden'); return; }
   updateBanner.appendChild(text);
   if (p.status === 'available') {
     const btn = document.createElement('button'); btn.className = 'chip'; btn.textContent = tr('update.download');
