@@ -17,5 +17,9 @@ export function registerUpdater(win: BrowserWindow): void {
   );
   ipcMain.handle('update:download', () => api.download());
   ipcMain.handle('update:install', () => api.install());
+  ipcMain.handle('update:check', () => {
+    win.webContents.send('devdeck:update', { status: 'checking' });
+    api.check();
+  });
   win.webContents.once('did-finish-load', () => api.check());
 }
