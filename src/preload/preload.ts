@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   addFolder: (path: string) => ipcRenderer.invoke('settings:addFolder', path),
   removeFolder: (path: string) => ipcRenderer.invoke('settings:removeFolder', path),
   setThresholds: (t: { freshDays: number; warnDays: number; neglectedDays: number }) => ipcRenderer.invoke('settings:setThresholds', t),
+  setOpenAtLogin: (enabled: boolean) => ipcRenderer.invoke('settings:setOpenAtLogin', enabled),
   pickFolder: () => ipcRenderer.invoke('settings:pickFolder'),
   openFolder: (path: string) => ipcRenderer.invoke('project:openFolder', path),
   openEditor: (path: string) => ipcRenderer.invoke('project:openEditor', path),

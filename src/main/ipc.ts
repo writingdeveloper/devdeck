@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
 import type { Store } from './store';
+import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
 import { getGitInfo } from './gitInfo';
 import { getProvider, availableAgents } from './agents';
@@ -78,7 +79,13 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
+    openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform,
   }));
+  ipcMain.handle('settings:setOpenAtLogin', (_e, enabled: boolean) => {
+    const on = !!enabled;
+    cfg.store.setOpenAtLogin(on);
+    applyOpenAtLogin(on);
+  });
   ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
   ipcMain.handle('settings:getFolders', () => effFolders());
   ipcMain.handle('settings:addFolder', async (_e, p: string) => {

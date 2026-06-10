@@ -4,6 +4,7 @@ import { Store } from './store';
 import { registerIpc } from './ipc';
 import { setupTray } from './tray';
 import { registerUpdater } from './updater';
+import { applyOpenAtLogin } from './autostart';
 
 let win: BrowserWindow | null = null;
 
@@ -48,6 +49,9 @@ if (!gotLock) {
     // the taskbar falls back to the generic Electron icon.
     if (process.platform === 'win32') app.setAppUserModelId('com.soursea.devdeck');
     const store = new Store(path.join(app.getPath('userData'), 'state.json'));
+    // Reconcile the OS login item with the saved preference (e.g. after a
+    // reinstall/update the registered exe path may be stale). No-op in dev / off Windows.
+    applyOpenAtLogin(store.getOpenAtLogin());
     const w = createWindow();
     win = w;
     registerIpc({

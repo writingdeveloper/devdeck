@@ -66,6 +66,15 @@ describe('Store', () => {
     expect(re.getAgent()).toBe('codex');
   });
 
+  it('persists openAtLogin and defaults to false', () => {
+    const s = new Store(file);
+    expect(s.getOpenAtLogin()).toBe(false);
+    s.setOpenAtLogin(true);
+    expect(new Store(file).getOpenAtLogin()).toBe(true);
+    s.setOpenAtLogin(false);
+    expect(new Store(file).getOpenAtLogin()).toBe(false);
+  });
+
   it('round-trips folders: add, dedupe, remove', () => {
     const s = new Store(file);
     expect(s.getFolders()).toEqual([]);
