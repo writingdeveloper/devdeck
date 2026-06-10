@@ -13,10 +13,14 @@ export interface ModelUsage { model: string; totals: UsageTotals; costEstimate: 
 export interface ProjectUsage {
   path: string; name: string; sessions: number;
   totals: UsageTotals; costEstimate: number | null; hasUnknownModel: boolean;
+  /** Active working time (sum of message gaps within the idle cap), in ms. */
+  activeMs: number;
 }
 export interface UsageReport {
   global: UsageTotals; globalCost: number | null; hasUnknownModel: boolean;
   webSearch: number; webFetch: number; sessions: number;
+  /** Total active working time across all scanned sessions, in ms. */
+  activeMs: number;
   byModel: ModelUsage[];
   byProject: ProjectUsage[];
   daily: { day: string; cost: number | null; tokens: number }[];
