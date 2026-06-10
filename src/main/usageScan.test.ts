@@ -47,4 +47,19 @@ describe('scanUsage', () => {
     expect(r.global.input).toBe(0);
     expect(r.byProject[0].sessions).toBe(0);
   });
+
+  it('sums active time from message gaps, capping idle stretches', () => {
+    const d = join(root, 'C--g-time');
+    mkdirSync(d, { recursive: true });
+    // 0m → 3m (active 3m) → 120m idle (skipped) → 121m (active 1m). Total active = 4m.
+    writeFileSync(join(d, 's.jsonl'), [
+      asst('claude-opus-4-8', { input_tokens: 1 }, '2026-06-01T10:00:00.000Z'),
+      asst('claude-opus-4-8', { input_tokens: 1 }, '2026-06-01T10:03:00.000Z'),
+      asst('claude-opus-4-8', { input_tokens: 1 }, '2026-06-01T12:00:00.000Z'),
+      asst('claude-opus-4-8', { input_tokens: 1 }, '2026-06-01T12:01:00.000Z'),
+    ].join('\n'));
+    const r = scanUsage([{ path: 'C:\\g\\time', name: 'time' }], root, Infinity);
+    expect(r.activeMs).toBe(4 * 60_000);
+    expect(r.byProject[0].activeMs).toBe(4 * 60_000);
+  });
 });

@@ -1,4 +1,5 @@
 import { barChart, shareBar } from './charts';
+import { formatDuration } from '../shared/usage';
 import { tr, localeTag } from './i18n-runtime';
 
 type UsageReport = Awaited<ReturnType<Window['devdeck']['usageReport']>>;
@@ -13,7 +14,7 @@ const COLORS = ['#6366f1', '#3b82f6', '#d98a1f', '#e0623f', '#9aa1ad'];
 
 let viewEl: HTMLElement;
 let activeRange = '30d';
-let sortKey: 'cost' | 'input' | 'output' | 'sessions' = 'cost';
+let sortKey: 'cost' | 'input' | 'output' | 'sessions' | 'active' = 'cost';
 let sortDir: 'desc' | 'asc' = 'desc';
 
 function fmt(n: number): string { return new Intl.NumberFormat(localeTag()).format(n); }
@@ -52,6 +53,7 @@ function render(r: UsageReport): void {
     [tr('usage.input'), fmt(r.global.input)], [tr('usage.output'), fmt(r.global.output)],
     [tr('usage.cache_w'), fmt(r.global.cacheWrite)], [tr('usage.cache_r'), fmt(r.global.cacheRead)],
     [tr('usage.web'), `${r.webSearch + r.webFetch}`], [tr('usage.sessions'), `${r.sessions}`],
+    [tr('usage.active_time'), formatDuration(r.activeMs)],
   ] as [string, string][]).map(([k, v]) => { const d = document.createElement('div'); d.className = 'stat'; d.innerHTML = `<b></b><span></span>`; d.querySelector('b')!.textContent = v; d.querySelector('span')!.textContent = k; return d; }));
   sum.appendChild(stats);
   sum.appendChild(shareBar(r.byModel.map((m, i) => ({ label: m.model, value: m.totals.input + m.totals.output, color: COLORS[i % COLORS.length] }))));
@@ -75,13 +77,14 @@ function render(r: UsageReport): void {
   }
 
   const rows = [...r.byProject].filter((p) => p.sessions > 0).sort((a, b) => {
-    const av = sortKey === 'cost' ? (a.costEstimate ?? -1) : sortKey === 'sessions' ? a.sessions : a.totals[sortKey];
-    const bv = sortKey === 'cost' ? (b.costEstimate ?? -1) : sortKey === 'sessions' ? b.sessions : b.totals[sortKey];
+    const val = (p: typeof a): number =>
+      sortKey === 'cost' ? (p.costEstimate ?? -1) : sortKey === 'sessions' ? p.sessions : sortKey === 'active' ? p.activeMs : p.totals[sortKey];
+    const av = val(a), bv = val(b);
     return sortDir === 'desc' ? bv - av : av - bv;
   });
   const table = document.createElement('table'); table.className = 'usage-table';
   const head = document.createElement('tr');
-  for (const [key, label] of [['name', tr('usage.col_project')], ['sessions', tr('proj.sessions')], ['input', tr('usage.input')], ['output', tr('usage.output')], ['cost', tr('usage.col_cost')]] as const) {
+  for (const [key, label] of [['name', tr('usage.col_project')], ['sessions', tr('proj.sessions')], ['active', tr('usage.col_time')], ['input', tr('usage.input')], ['output', tr('usage.output')], ['cost', tr('usage.col_cost')]] as const) {
     const th = document.createElement('th');
     const isSortable = key !== 'name';
     const isActive = isSortable && key === sortKey;
@@ -110,7 +113,7 @@ function render(r: UsageReport): void {
   table.appendChild(head);
   for (const p of rows) {
     const tr2 = document.createElement('tr');
-    const cells = [p.name, String(p.sessions), fmt(p.totals.input), fmt(p.totals.output), usd(p.costEstimate)];
+    const cells = [p.name, String(p.sessions), formatDuration(p.activeMs), fmt(p.totals.input), fmt(p.totals.output), usd(p.costEstimate)];
     for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr2.appendChild(td); }
     table.appendChild(tr2);
   }

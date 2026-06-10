@@ -44,6 +44,8 @@
   "usage.cache_r": "Cache R",
   "usage.web": "web",
   "usage.sessions": "sessions",
+  "usage.active_time": "Active time",
+  "usage.col_time": "Time",
   "usage.daily_tokens": "Daily tokens",
   "usage.col_project": "Project",
   "usage.col_cost": "Est. cost",

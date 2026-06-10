@@ -44,6 +44,8 @@
   "usage.cache_r": "캐시 R",
   "usage.web": "web",
   "usage.sessions": "세션",
+  "usage.active_time": "작업 시간",
+  "usage.col_time": "시간",
   "usage.daily_tokens": "일별 토큰",
   "usage.col_project": "프로젝트",
   "usage.col_cost": "추정비용",

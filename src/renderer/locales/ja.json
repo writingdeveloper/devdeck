@@ -44,6 +44,8 @@
   "usage.cache_r": "キャッシュ R",
   "usage.web": "web",
   "usage.sessions": "セッション",
+  "usage.active_time": "作業時間",
+  "usage.col_time": "時間",
   "usage.daily_tokens": "日別トークン",
   "usage.col_project": "プロジェクト",
   "usage.col_cost": "推定コスト",

@@ -44,6 +44,8 @@
   "usage.cache_r": "缓存 R",
   "usage.web": "web",
   "usage.sessions": "会话",
+  "usage.active_time": "工作时间",
+  "usage.col_time": "时间",
   "usage.daily_tokens": "每日令牌",
   "usage.col_project": "项目",
   "usage.col_cost": "预估费用",

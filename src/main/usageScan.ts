@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
-import { emptyTotals, addUsage, estimateCost, MODEL_PRICING, type UsageTotals, type RawUsage } from '../shared/usage';
+import { emptyTotals, addUsage, estimateCost, activeMsFromTimestamps, MODEL_PRICING, type UsageTotals, type RawUsage } from '../shared/usage';
 import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 
 // Cache: key = filepath + ':' + mtimeMs → parsed lines
@@ -31,13 +31,13 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
   const perModelGlobal = new Map<string, UsageTotals>();
   const perDay = new Map<string, UsageTotals>();
   const byProject: ProjectUsage[] = [];
-  let webSearch = 0, webFetch = 0, sessions = 0, hasUnknownModel = false;
+  let webSearch = 0, webFetch = 0, sessions = 0, hasUnknownModel = false, globalActiveMs = 0;
 
   for (const repo of repos) {
     const dir = join(claudeProjectsDir, encodeProjectPath(repo.path));
     const projTotals = emptyTotals();
     const projByModel = new Map<string, UsageTotals>();
-    let projSessions = 0, projUnknown = false;
+    let projSessions = 0, projUnknown = false, projActiveMs = 0;
 
     if (existsSync(dir)) {
       let files: string[] = [];
@@ -57,14 +57,17 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
           _fileCache.set(cacheKey, lines);
         }
         projSessions++;
+        const stamps: number[] = []; // in-range message timestamps, for active-time gaps
         for (const line of lines) {
           if (!line.trim()) continue;
           let o: { type?: string; timestamp?: string; message?: { model?: string; usage?: RawUsage & { server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } } } };
           try { o = JSON.parse(line); } catch { continue; }
-          const u = o.message?.usage;
-          if (o.type !== 'assistant' || !u) continue;
           const day = dayKey(o.timestamp, fileMs);
           if (sinceMs !== Infinity && new Date(day + 'T00:00:00.000Z').getTime() < sinceMs) continue;
+          // Collect every line's timestamp (user + assistant + tool) so gaps reflect real wall-clock activity.
+          if (o.timestamp) { const ms = new Date(o.timestamp).getTime(); if (!Number.isNaN(ms)) stamps.push(ms); }
+          const u = o.message?.usage;
+          if (o.type !== 'assistant' || !u) continue;
           const model = o.message?.model ?? 'unknown';
           if (!MODEL_PRICING[model]) { hasUnknownModel = true; projUnknown = true; }
           Object.assign(global, addUsage(global, u));
@@ -75,13 +78,16 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
           webSearch += u.server_tool_use?.web_search_requests ?? 0;
           webFetch += u.server_tool_use?.web_fetch_requests ?? 0;
         }
+        projActiveMs += activeMsFromTimestamps(stamps);
       }
     }
 
     sessions += projSessions;
+    globalActiveMs += projActiveMs;
     byProject.push({
       path: repo.path, name: repo.name, sessions: projSessions,
       totals: projTotals, costEstimate: sumModelCost(projByModel), hasUnknownModel: projUnknown,
+      activeMs: projActiveMs,
     });
   }
 
@@ -92,5 +98,5 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
     day, tokens: tokensOf(t), cost: null as number | null,
   }));
 
-  return { global, globalCost: sumModelCost(perModelGlobal), hasUnknownModel, webSearch, webFetch, sessions, byModel, byProject, daily };
+  return { global, globalCost: sumModelCost(perModelGlobal), hasUnknownModel, webSearch, webFetch, sessions, activeMs: globalActiveMs, byModel, byProject, daily };
 }
