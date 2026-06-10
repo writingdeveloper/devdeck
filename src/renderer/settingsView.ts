@@ -57,6 +57,13 @@ async function render(): Promise<void> {
   sel.addEventListener('change', async () => { await window.devdeck.setLanguage(sel.value); setRuntimeLang(sel.value); render(); onChangedCb(); });
   host.appendChild(field('nav.language', sel, sel));
 
+  if (s.platform === 'win32') {
+    const chk = document.createElement('input'); chk.type = 'checkbox'; chk.className = 'set-check';
+    chk.checked = s.openAtLogin;
+    chk.addEventListener('change', () => void window.devdeck.setOpenAtLogin(chk.checked));
+    host.appendChild(field('set.open_at_login', chk, chk));
+  }
+
   const info = await window.devdeck.getAppInfo();
   const about = document.createElement('div'); about.className = 'about';
   const aTitle = document.createElement('h3'); aTitle.className = 'about-title'; aTitle.textContent = tr('about.title');

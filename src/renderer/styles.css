@@ -178,6 +178,7 @@ button.primary:hover { background: var(--accent-hover); }
 .set-input { flex: 1; min-width: 200px; background: #0f1115; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; font: inherit; }
 .set-num { width: 64px; background: #0f1115; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px; font: inherit; }
 .set-thr { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 12px; }
+.set-check { align-self: flex-start; width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer; }
 
 #proj-search, #proj-sort {
   background: #0f1115;

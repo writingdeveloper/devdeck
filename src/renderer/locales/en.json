@@ -50,6 +50,7 @@
   "usage.col_project": "Project",
   "usage.col_cost": "Est. cost",
   "usage.disclaimer": "* Some models have no price card — excluded from cost. Cost is a public-rate API-equivalent estimate and may differ from your (subscription) bill.",
+  "set.open_at_login": "Start on Windows login",
   "set.scan_locations": "Scan locations",
   "set.kind_root": "scans for repos",
   "set.kind_repo": "single repo",
