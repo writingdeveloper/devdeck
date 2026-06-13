@@ -75,6 +75,15 @@ describe('Store', () => {
     expect(new Store(file).getOpenAtLogin()).toBe(false);
   });
 
+  it('persists viewMode and defaults to cards', () => {
+    const s = new Store(file);
+    expect(s.getViewMode()).toBe('cards');
+    s.setViewMode('list');
+    expect(new Store(file).getViewMode()).toBe('list');
+    s.setViewMode('cards');
+    expect(new Store(file).getViewMode()).toBe('cards');
+  });
+
   it('round-trips folders: add, dedupe, remove', () => {
     const s = new Store(file);
     expect(s.getFolders()).toEqual([]);

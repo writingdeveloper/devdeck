@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isAllowedExternalUrl } from './externalUrl';
+import { isAllowedExternalUrl, isSafeRepoUrl } from './externalUrl';
 
 describe('isAllowedExternalUrl', () => {
   it('allows the repo root and sub-paths', () => {
@@ -21,5 +21,20 @@ describe('isAllowedExternalUrl', () => {
     expect(isAllowedExternalUrl('https://github.com/writingdeveloper/devdeck/../../../passwd')).toBe(false); // path traversal (normalised away)
     expect(isAllowedExternalUrl('file:///etc/passwd')).toBe(false);
     expect(isAllowedExternalUrl('data:text/html,<script>alert(1)</script>')).toBe(false);
+  });
+});
+
+describe('isSafeRepoUrl', () => {
+  it('allows any https github.com URL', () => {
+    expect(isSafeRepoUrl('https://github.com/someone/their-repo')).toBe(true);
+    expect(isSafeRepoUrl('https://github.com/writingdeveloper/devdeck')).toBe(true);
+  });
+  it('rejects non-https, other hosts, look-alikes, and junk', () => {
+    expect(isSafeRepoUrl('http://github.com/someone/repo')).toBe(false);
+    expect(isSafeRepoUrl('https://gitlab.com/someone/repo')).toBe(false);
+    expect(isSafeRepoUrl('https://github.com.evil.com/someone/repo')).toBe(false);
+    expect(isSafeRepoUrl('https://github.com@evil.com/someone/repo')).toBe(false);
+    expect(isSafeRepoUrl('javascript:alert(1)')).toBe(false);
+    expect(isSafeRepoUrl('not a url')).toBe(false);
   });
 });

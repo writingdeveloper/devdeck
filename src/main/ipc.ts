@@ -5,11 +5,11 @@ import { stat } from 'node:fs/promises';
 import type { Store } from './store';
 import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
-import { getGitInfo } from './gitInfo';
+import { getGitInfo, getRepoUrl } from './gitInfo';
 import { getProvider, availableAgents } from './agents';
 import type { AgentId, Folder } from '../shared/types';
 import { isAllowedPath } from '../shared/pathGuard';
-import { isAllowedExternalUrl } from '../shared/externalUrl';
+import { isAllowedExternalUrl, isSafeRepoUrl } from '../shared/externalUrl';
 import { buildProjectList } from './projects';
 import { createProject } from './createProject';
 import { openProjects, openInEditor } from './launcher';
@@ -81,11 +81,15 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
     openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform,
+    viewMode: cfg.store.getViewMode(),
   }));
   ipcMain.handle('settings:setOpenAtLogin', (_e, enabled: boolean) => {
     const on = !!enabled;
     cfg.store.setOpenAtLogin(on);
     applyOpenAtLogin(on);
+  });
+  ipcMain.handle('settings:setViewMode', (_e, mode: string) => {
+    cfg.store.setViewMode(mode === 'list' ? 'list' : 'cards');
   });
   ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
   ipcMain.handle('settings:getFolders', () => effFolders());
@@ -176,6 +180,19 @@ export function registerIpc(cfg: IpcConfig): void {
   // (git init is what lets the scanner discover the new folder).
   ipcMain.handle('project:create', (_e, parent: string, name: string) => {
     return createProject(effFolders(), String(parent), String(name));
+  });
+
+  // Open the project's GitHub page. The renderer passes only the path (never a URL);
+  // main re-reads the repo URL from git and validates it, so a compromised renderer
+  // can't open an arbitrary external URL.
+  ipcMain.handle('project:openRepo', async (_e, p: string) => {
+    if (!isAllowedPath(effFolders(), p)) {
+      cfg.sendError(`Path outside allowed folders: ${p}`);
+      return;
+    }
+    const url = await getRepoUrl(p);
+    if (url && isSafeRepoUrl(url)) await shell.openExternal(url);
+    else cfg.sendError(`No GitHub remote found for: ${p}`);
   });
 
   // Frameless-window controls (the title bar draws its own buttons).

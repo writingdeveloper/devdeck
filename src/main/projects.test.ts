@@ -20,6 +20,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
       lastSubject: 'x',
       uncommitted: 0,
       ahead: null,
+      repoUrl: null,
     }),
     sessions: () => [],
     resumeCue: () => null,
@@ -59,7 +60,7 @@ describe('buildProjectList', () => {
   it('wires sessions + sessionCount and uses the latest session for activity', async () => {
     const NOW2 = NOW;
     const list = await buildProjectList(deps({
-      git: async (): Promise<GitInfo> => ({ branch: 'main', lastCommitMs: null, lastSubject: null, uncommitted: 0, ahead: 4 }),
+      git: async (): Promise<GitInfo> => ({ branch: 'main', lastCommitMs: null, lastSubject: null, uncommitted: 0, ahead: 4, repoUrl: 'https://github.com/acme/proj' }),
       sessions: (p) => p.endsWith('fresh')
         ? [{ id: 'x', mtimeMs: NOW2 - 3_600_000, firstMessage: 'hi' }]
         : [],
@@ -70,6 +71,7 @@ describe('buildProjectList', () => {
     expect(fresh.lastSessionMs).toBe(NOW2 - 3_600_000);
     expect(fresh.stale.level).toBe('fresh');
     expect(fresh.ahead).toBe(4); // unpushed count threaded through
+    expect(fresh.repoUrl).toBe('https://github.com/acme/proj'); // github remote threaded through
   });
 
   it('derives resumeCue from the newest session via the dep', async () => {

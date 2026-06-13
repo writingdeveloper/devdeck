@@ -19,6 +19,7 @@ let lastLoadMs = 0;
 type SortMode = 'activity' | 'uncommitted' | 'name' | 'opened';
 let searchQuery = '';
 let sortMode: SortMode = 'activity';
+let viewMode: 'cards' | 'list' = 'cards';
 
 let cardsEl: HTMLElement;
 let neglectedOnly: HTMLInputElement;
@@ -27,6 +28,8 @@ let hiddenCountEl: HTMLElement;
 let openBtn: HTMLButtonElement;
 let searchEl: HTMLInputElement | null = null;
 let sortEl: HTMLSelectElement | null = null;
+let viewCardsBtn: HTMLButtonElement | null = null;
+let viewListBtn: HTMLButtonElement | null = null;
 
 function fmtTime(ms: number | null): string {
   if (ms == null) return '—';
@@ -128,6 +131,66 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
   return wrap;
 }
 
+// The GitHub "mark" (octocat) as an inline SVG so it inherits the icon button color.
+function octocatIcon(): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('width', '14'); svg.setAttribute('height', '14'); svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('fill', 'currentColor');
+  path.setAttribute('d', 'M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z');
+  svg.appendChild(path);
+  return svg;
+}
+
+// Octocat icon button shown only when the project has a github.com remote; opens the
+// repo page. Passes the path (not a URL) so main re-derives + validates the URL.
+function githubBtn(p: ProjectViewModel): HTMLButtonElement {
+  const b = document.createElement('button'); b.className = 'iconbtn gh-btn';
+  b.appendChild(octocatIcon());
+  b.title = `GitHub: ${p.repoUrl!.replace('https://github.com/', '')}`;
+  b.setAttribute('aria-label', tr('proj.open_github'));
+  b.addEventListener('click', (e) => { e.stopPropagation(); window.devdeck.openRepo(p.path); });
+  return b;
+}
+
+// Pin/hide "⋯" menu, shared by card and list-row so the management actions match.
+function makeMenuWrap(p: ProjectViewModel): HTMLElement {
+  const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
+  const menuBtn = document.createElement('button');
+  menuBtn.className = 'iconbtn'; menuBtn.textContent = '⋯';
+  menuBtn.setAttribute('aria-label', 'more options');
+  menuBtn.setAttribute('aria-haspopup', 'menu');
+  menuBtn.setAttribute('aria-expanded', 'false');
+
+  const menu = document.createElement('div');
+  menu.className = 'menu hidden'; menu.setAttribute('role', 'menu');
+
+  const pinItem = document.createElement('button');
+  pinItem.className = 'menu-item'; pinItem.setAttribute('role', 'menuitem');
+  pinItem.textContent = p.pinned ? tr('proj.unpin') : tr('proj.pin');
+  pinItem.addEventListener('click', () => { window.devdeck.setPinned(p.path, !p.pinned); reload(); });
+
+  const hideItem = document.createElement('button');
+  hideItem.className = 'menu-item'; hideItem.setAttribute('role', 'menuitem');
+  hideItem.textContent = tr('proj.hide');
+  hideItem.addEventListener('click', () => { window.devdeck.setHidden(p.path, true); reload(); });
+
+  menu.append(pinItem, hideItem);
+
+  const openMenu = (): void => { menu.classList.remove('hidden'); menuBtn.setAttribute('aria-expanded', 'true'); pinItem.focus(); };
+  const closeMenu = (): void => { menu.classList.add('hidden'); menuBtn.setAttribute('aria-expanded', 'false'); };
+  menuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (menu.classList.contains('hidden')) openMenu();
+    else { closeMenu(); menuBtn.focus(); }
+  });
+  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); menuBtn.focus(); } });
+
+  menuWrap.append(menuBtn, menu);
+  return menuWrap;
+}
+
 function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   const card = document.createElement('div');
   const noRecord = isNoRecord(p);
@@ -140,53 +203,7 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   badge.className = 'badge ' + (noRecord ? 'norecord' : 'lvl-' + p.stale.level);
   badge.textContent = badgeText(p);
 
-  const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
-  const menuBtn = document.createElement('button');
-  menuBtn.className = 'iconbtn';
-  menuBtn.textContent = '⋯';
-  menuBtn.setAttribute('aria-label', 'more options');
-  menuBtn.setAttribute('aria-haspopup', 'menu');
-  menuBtn.setAttribute('aria-expanded', 'false');
-
-  const menu = document.createElement('div');
-  menu.className = 'menu hidden';
-  menu.setAttribute('role', 'menu');
-
-  const pinItem = document.createElement('button');
-  pinItem.className = 'menu-item';
-  pinItem.setAttribute('role', 'menuitem');
-  pinItem.textContent = p.pinned ? tr('proj.unpin') : tr('proj.pin');
-  pinItem.addEventListener('click', () => { window.devdeck.setPinned(p.path, !p.pinned); reload(); });
-
-  const hideItem = document.createElement('button');
-  hideItem.className = 'menu-item';
-  hideItem.setAttribute('role', 'menuitem');
-  hideItem.textContent = tr('proj.hide');
-  hideItem.addEventListener('click', () => { window.devdeck.setHidden(p.path, true); reload(); });
-
-  menu.append(pinItem, hideItem);
-
-  const openMenu = (): void => {
-    menu.classList.remove('hidden');
-    menuBtn.setAttribute('aria-expanded', 'true');
-    pinItem.focus();
-  };
-  const closeMenu = (): void => {
-    menu.classList.add('hidden');
-    menuBtn.setAttribute('aria-expanded', 'false');
-  };
-
-  menuBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    if (menu.classList.contains('hidden')) openMenu();
-    else { closeMenu(); menuBtn.focus(); }
-  });
-
-  menu.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeMenu(); menuBtn.focus(); }
-  });
-
-  menuWrap.append(menuBtn, menu);
+  const menuWrap = makeMenuWrap(p);
 
   headRow.append(title, badge, menuWrap);
 
@@ -228,13 +245,61 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
   const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
   open.addEventListener('click', () => openItems([{ path: p.path, sessionId: null }]));
-  foot.append(check, spacer, editorBtn, folderBtn, open);
+  foot.append(check, spacer, editorBtn, folderBtn);
+  if (p.repoUrl) foot.append(githubBtn(p));
+  foot.append(open);
 
   card.append(headRow, meta, makeSessions(p, render), makeNote(p), foot);
   return card;
 }
 
+// One dense line per project for the "list" view — name + git state + last activity
+// + GitHub + open + the shared ⋯ menu, tuned for scanning many projects fast.
+function makeRow(p: ProjectViewModel): HTMLElement {
+  const row = document.createElement('div');
+  const noRecord = isNoRecord(p);
+  row.className = 'prow lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '');
+  row.setAttribute('role', 'listitem');
+
+  const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
+  check.addEventListener('change', () => {
+    check.checked ? selected.add(p.path) : selected.delete(p.path);
+    row.classList.toggle('selected', check.checked);
+    syncOpenBtn();
+  });
+
+  const dot = document.createElement('span'); dot.className = 'prow-dot'; dot.textContent = LEVEL_EMOJI[p.stale.level] ?? '';
+  const name = document.createElement('span'); name.className = 'prow-name'; name.textContent = p.name; name.title = p.name;
+
+  const meta = document.createElement('span'); meta.className = 'prow-meta';
+  let metaText = p.branch ?? tr('proj.no_branch');
+  if (p.uncommitted > 0) metaText += ` · ✎${p.uncommitted}`;
+  if (p.ahead && p.ahead > 0) metaText += ` · ↑${p.ahead}`;
+  meta.textContent = metaText;
+
+  const time = document.createElement('span'); time.className = 'prow-time'; time.textContent = fmtTime(p.activityMs);
+
+  const open = document.createElement('button'); open.className = 'iconbtn prow-open'; open.textContent = '▶'; open.title = tr('proj.open'); open.setAttribute('aria-label', tr('proj.open'));
+  open.addEventListener('click', () => openItems([{ path: p.path, sessionId: null }]));
+
+  row.append(check, dot, name, meta, time);
+  if (p.repoUrl) row.append(githubBtn(p));
+  row.append(open, makeMenuWrap(p));
+  return row;
+}
+
 function syncOpenBtn(): void { openBtn.disabled = selected.size === 0; }
+function syncViewToggle(): void {
+  viewCardsBtn?.classList.toggle('active', viewMode === 'cards');
+  viewListBtn?.classList.toggle('active', viewMode === 'list');
+}
+function setView(mode: 'cards' | 'list'): void {
+  if (viewMode === mode) return;
+  viewMode = mode;
+  void window.devdeck.setViewMode(mode);
+  syncViewToggle();
+  render();
+}
 
 function render(): void {
   hiddenCountEl.textContent = String(projects.filter((p) => p.hidden).length);
@@ -275,6 +340,7 @@ function render(): void {
   visible = sorted;
 
   cardsEl.replaceChildren();
+  cardsEl.classList.toggle('as-list', viewMode === 'list');
   cardsEl.setAttribute('role', 'list');
   if (visible.length === 0) {
     const e = document.createElement('div'); e.className = 'empty';
@@ -292,13 +358,13 @@ function render(): void {
     return;
   }
   for (const p of visible) {
+    const el = viewMode === 'list' ? makeRow(p) : makeCard(p, render);
     if (showHidden) {
-      const card = makeCard(p, render);
       const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = tr('proj.restore');
       restore.addEventListener('click', () => { window.devdeck.setHidden(p.path, false); reload(); });
-      card.appendChild(restore);
-      cardsEl.appendChild(card);
-    } else cardsEl.appendChild(makeCard(p, render));
+      el.appendChild(restore);
+    }
+    cardsEl.appendChild(el);
   }
 }
 
@@ -310,7 +376,12 @@ function showSkeleton(): void {
 async function reload(): Promise<void> {
   lastLoadMs = Date.now();
   showSkeleton();
-  [projects, agentLabel] = await Promise.all([window.devdeck.listProjects(), window.devdeck.getAgent()]);
+  const [proj, agent, settings] = await Promise.all([
+    window.devdeck.listProjects(), window.devdeck.getAgent(), window.devdeck.getSettings(),
+  ]);
+  projects = proj; agentLabel = agent;
+  viewMode = settings.viewMode === 'list' ? 'list' : 'cards';
+  syncViewToggle();
   render();
   // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch).
   void window.devdeck.usageReport(0).then((r) => {
@@ -330,6 +401,8 @@ function applyProjectLabels(): void {
   sortEl.options[1].text = tr('proj.sort_uncommitted');
   sortEl.options[2].text = tr('proj.sort_name');
   sortEl.options[3].text = tr('proj.sort_opened');
+  if (viewCardsBtn) { viewCardsBtn.title = tr('proj.view_cards'); viewCardsBtn.setAttribute('aria-label', tr('proj.view_cards')); }
+  if (viewListBtn) { viewListBtn.title = tr('proj.view_list'); viewListBtn.setAttribute('aria-label', tr('proj.view_list')); }
 }
 
 export function mountProjects(): void {
@@ -340,8 +413,12 @@ export function mountProjects(): void {
   openBtn = document.getElementById('open-selected') as HTMLButtonElement;
   searchEl = document.getElementById('proj-search') as HTMLInputElement;
   sortEl = document.getElementById('proj-sort') as HTMLSelectElement;
+  viewCardsBtn = document.getElementById('view-cards') as HTMLButtonElement;
+  viewListBtn = document.getElementById('view-list') as HTMLButtonElement;
 
   document.getElementById('refresh')!.addEventListener('click', reload);
+  viewCardsBtn.addEventListener('click', () => setView('cards'));
+  viewListBtn.addEventListener('click', () => setView('list'));
   neglectedOnly.addEventListener('change', render);
   showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); });
   openBtn.addEventListener('click', () => {

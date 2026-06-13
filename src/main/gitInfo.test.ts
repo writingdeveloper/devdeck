@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getGitInfo } from './gitInfo';
+import { getGitInfo, getRepoUrl } from './gitInfo';
 
 // Fake runner keyed by the git subcommand.
 function fakeRunner(map: Record<string, string>) {
@@ -8,6 +8,7 @@ function fakeRunner(map: Record<string, string>) {
     if (args.includes('rev-list')) return map.ahead ?? '';
     if (args.includes('log')) return map.log ?? '';
     if (args.includes('status')) return map.status ?? '';
+    if (args.includes('config')) return map.remote ?? '';
     return '';
   };
 }
@@ -19,6 +20,7 @@ describe('getGitInfo', () => {
       log: '1717287840|scaffold\n',
       status: ' M a.ts\n?? b.ts\n',
       ahead: '2\n',
+      remote: 'git@github.com:writingdeveloper/devdeck.git\n',
     });
     expect(await getGitInfo('C:\\g\\x', run)).toEqual({
       branch: 'main',
@@ -26,7 +28,20 @@ describe('getGitInfo', () => {
       lastSubject: 'scaffold',
       uncommitted: 2,
       ahead: 2,
+      repoUrl: 'https://github.com/writingdeveloper/devdeck',
     });
+  });
+
+  it('reports null repoUrl when there is no github remote', async () => {
+    const run = fakeRunner({ branch: 'main\n', remote: 'git@gitlab.com:o/r.git\n' });
+    expect((await getGitInfo('C:\\g\\x', run)).repoUrl).toBeNull();
+  });
+
+  it('getRepoUrl returns the normalized URL, or null when the config call throws', async () => {
+    const run = fakeRunner({ remote: 'https://github.com/o/r.git\n' });
+    expect(await getRepoUrl('C:\\g\\x', run)).toBe('https://github.com/o/r');
+    const throwing = async (args: string[]): Promise<string> => { if (args.includes('config')) throw new Error('x'); return ''; };
+    expect(await getRepoUrl('C:\\g\\x', throwing)).toBeNull();
   });
 
   it('reports null ahead when there is no upstream (rev-list throws)', async () => {
