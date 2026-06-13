@@ -25,6 +25,7 @@ declare global {
       pickFolder(): Promise<string | null>;
       openFolder(path: string): Promise<void>;
       openEditor(path: string): Promise<void>;
+      createProject(parent: string, name: string): Promise<import('../main/createProject').CreateProjectResult>;
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
       downloadUpdate(): Promise<void>;
       installUpdate(): Promise<void>;

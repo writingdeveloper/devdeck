@@ -1,5 +1,6 @@
 import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
+import { openNewProjectModal } from './newProjectModal';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -346,6 +347,12 @@ export function mountProjects(): void {
   openBtn.addEventListener('click', () => {
     if (selected.size === 0) return;
     openItems(projects.filter((p) => selected.has(p.path)).map((p) => ({ path: p.path, sessionId: null })));
+  });
+  document.getElementById('new-project')!.addEventListener('click', () => {
+    openNewProjectModal((path) => {
+      openItems([{ path, sessionId: null }]); // open the new project in a terminal with the active agent
+      reload();
+    });
   });
   searchEl.addEventListener('input', () => { searchQuery = searchEl!.value; render(); });
   sortEl.addEventListener('change', () => { sortMode = sortEl!.value as SortMode; render(); });
