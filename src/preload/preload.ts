@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   pickFolder: () => ipcRenderer.invoke('settings:pickFolder'),
   openFolder: (path: string) => ipcRenderer.invoke('project:openFolder', path),
   openEditor: (path: string) => ipcRenderer.invoke('project:openEditor', path),
+  createProject: (parent: string, name: string) => ipcRenderer.invoke('project:create', parent, name),
   onUpdate: (cb: (p: import('../shared/update').UpdatePayload) => void) =>
     ipcRenderer.on('devdeck:update', (_e, p) => cb(p as import('../shared/update').UpdatePayload)),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),

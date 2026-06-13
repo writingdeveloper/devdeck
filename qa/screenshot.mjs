@@ -66,6 +66,16 @@ await win.click('#neglected-only').catch(() => {});
 await shot('projects-neglected-filter');
 await win.click('#neglected-only').catch(() => {});
 
+// New-project modal: open, capture default + a validation-error state, then close
+await win.click('#new-project').catch(() => {});
+await win.waitForSelector('.np-overlay .np-panel', { timeout: 5000 }).catch(() => {});
+await shot('new-project-modal');
+await win.fill('#np-name', 'bad/name').catch(() => {});
+await win.waitForTimeout(200);
+await shot('new-project-modal-error');
+await win.keyboard.press('Escape').catch(() => {});
+await win.waitForTimeout(200);
+
 // Narrow window to check responsive card grid
 await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
 await shot('projects-narrow');

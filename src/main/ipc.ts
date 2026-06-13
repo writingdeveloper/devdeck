@@ -11,6 +11,7 @@ import type { AgentId, Folder } from '../shared/types';
 import { isAllowedPath } from '../shared/pathGuard';
 import { isAllowedExternalUrl } from '../shared/externalUrl';
 import { buildProjectList } from './projects';
+import { createProject } from './createProject';
 import { openProjects, openInEditor } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
@@ -169,6 +170,12 @@ export function registerIpc(cfg: IpcConfig): void {
       return;
     }
     openInEditor(p, { onError: cfg.sendError });
+  });
+
+  // Create a new project folder under an allowed scan root and `git init` it
+  // (git init is what lets the scanner discover the new folder).
+  ipcMain.handle('project:create', (_e, parent: string, name: string) => {
+    return createProject(effFolders(), String(parent), String(name));
   });
 
   // Frameless-window controls (the title bar draws its own buttons).

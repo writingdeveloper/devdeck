@@ -52,6 +52,7 @@ window.devdeck.onUpdate(renderUpdate);
 function applyStaticLabels(): void {
   document.documentElement.lang = currentLang();
   document.querySelector<HTMLButtonElement>('#open-selected')!.textContent = '▶ ' + tr('app.open_selected');
+  document.querySelector<HTMLButtonElement>('#new-project')!.textContent = '+ ' + tr('proj.new');
   const refreshBtn = document.querySelector<HTMLButtonElement>('#refresh')!;
   refreshBtn.title = tr('app.refresh');
   refreshBtn.setAttribute('aria-label', tr('app.refresh'));
