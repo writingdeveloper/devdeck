@@ -11,7 +11,7 @@ See every repo's state at a glance — git status, how long it's been neglected,
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-31-47848F)
-![Tests](https://img.shields.io/badge/tests-132%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-162%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 <img src="docs/demo/demo.gif" width="820" alt="DevDeck demo" />
@@ -25,6 +25,7 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 ## Features
 
 - **🗂 Project deck** — every git repo under your scan locations as a card: branch, uncommitted count, last commit, AI session count.
+- **➕ New project** — spin up a project without leaving the deck: pick a scan location, name it, and DevDeck creates the folder, runs `git init`, and opens it in a terminal with your active agent.
 - **🤖 Multi-agent (Claude Code & Codex)** — choose your active agent; the deck shows that agent's sessions and **Open** launches it (`claude -c` / `codex resume`). A toolbar switcher appears when both CLIs are installed.
 - **📂 Multiple scan locations** — point DevDeck at several folders to scan for repos, or add individual repos that live anywhere; each is auto-detected.
 - **🚦 Staleness traffic-light** — fresh / warning / neglected, so dirty or abandoned repos surface themselves.
@@ -34,10 +35,11 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 - **↑ Unpushed signal** — commits ahead of your remote, flagged on the card so unprotected work stands out.
 - **{ } Open in editor** (VS Code) and **📁 open folder** straight from a card; the deck **auto-refreshes** while it's open.
 - **📝 Per-project notes** — jot your next todo; it sticks with the card.
-- **📊 Usage analytics** — tokens, cache-hit rate, and an API-equivalent cost estimate, parsed locally from `~/.claude`.
+- **📊 Usage analytics** — tokens, cache-hit rate, an API-equivalent cost estimate, and **active working-time** per project (real focused time, idle gaps excluded), parsed locally from `~/.claude`.
 - **📌 Pin / 🙈 hide / 🔎 search / sort** — keep the deck focused.
 - **🌐 4 languages** — English, 한국어, 日本語, 中文.
 - **⬆ Auto-update** — checks GitHub Releases on launch and offers an in-app, user-confirmed download + restart (Windows/Linux; macOS pending code-signing).
+- **🚀 Start on Windows login** — optionally launch DevDeck when you sign in (Windows only; opt-in in Settings).
 - **🔒 Fully local & offline** — reads your local agent data and git, sends nothing anywhere (`connect-src 'none'`); the only network call is the update check. No account, no telemetry.
 - System tray + global shortcut (`Ctrl+Alt+D`), frameless Discord-style title bar.
 
@@ -51,10 +53,10 @@ Grab the latest from [**Releases**](https://github.com/writingdeveloper/devdeck/
 
 | OS | Download | First run (unsigned build) |
 |----|----------|----------------------------|
-| **Windows** | `DevDeck-0.5.0-Setup.exe` — or `DevDeck-0.5.0-win.zip` (portable, no installer) | SmartScreen → **More info → Run anyway** |
-| **macOS** — Apple Silicon | `DevDeck-0.5.0-arm64.dmg` | Right-click the app → **Open** (Gatekeeper) |
-| **macOS** — Intel | `DevDeck-0.5.0-x64.dmg` | Right-click the app → **Open** |
-| **Linux** | `DevDeck-0.5.0-x86_64.AppImage` (portable) or `…-amd64.deb` | `chmod +x` the AppImage, then run |
+| **Windows** | `DevDeck-…-Setup.exe` — or `DevDeck-…-win.zip` (portable, no installer) | SmartScreen → **More info → Run anyway** |
+| **macOS** — Apple Silicon | `DevDeck-…-arm64.dmg` | Right-click the app → **Open** (Gatekeeper) |
+| **macOS** — Intel | `DevDeck-…-x64.dmg` | Right-click the app → **Open** |
+| **Linux** | `DevDeck-…-x86_64.AppImage` (portable) or `…-amd64.deb` | `chmod +x` the AppImage, then run |
 
 Builds are **unsigned** (no code-signing certificate yet), so the first launch needs the bypass above. On Windows, if `Setup.exe` won't launch, use the **portable `…-win.zip`** instead — extract it anywhere and run `DevDeck.exe` (no installer involved). Then open **Settings** and add the folders that hold your git repos (defaults to `~/Documents/GitHub`); you can add several scan locations or pin individual repos.
 
