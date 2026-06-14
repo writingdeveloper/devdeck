@@ -55,6 +55,8 @@ export interface GitInfo {
   uncommitted: number;
   /** Commits ahead of the upstream branch (unpushed); null when there is no upstream. */
   ahead: number | null;
+  /** Browsable GitHub URL from `remote.origin.url`, or null when not a github.com repo. */
+  repoUrl: string | null;
 }
 
 export interface StoreEntry {
@@ -87,4 +89,6 @@ export interface ProjectViewModel {
   hidden: boolean;
   lastOpened: string | null;
   resumeCue: ResumeCue | null;
+  /** Browsable GitHub URL, or null when the repo has no github.com remote. */
+  repoUrl: string | null;
 }

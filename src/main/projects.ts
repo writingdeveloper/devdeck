@@ -46,6 +46,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
         hidden: entry.hidden,
         lastOpened: entry.lastOpened,
         resumeCue: cueText ? ({ kind: 'lastMessage', text: cueText } satisfies ResumeCue) : null,
+        repoUrl: git.repoUrl,
       };
     }),
   );

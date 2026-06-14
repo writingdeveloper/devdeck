@@ -76,6 +76,13 @@ await shot('new-project-modal-error');
 await win.keyboard.press('Escape').catch(() => {});
 await win.waitForTimeout(200);
 
+// Compact list view toggle (+ GitHub octocat on rows for repos with a github remote)
+await win.click('#view-list').catch(() => {});
+await win.waitForSelector('#cards.as-list .prow', { timeout: 5000 }).catch(() => {});
+await shot('projects-list-view');
+await win.click('#view-cards').catch(() => {});
+await win.waitForTimeout(300);
+
 // Narrow window to check responsive card grid
 await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
 await shot('projects-narrow');

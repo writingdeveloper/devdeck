@@ -215,6 +215,33 @@ button.primary:hover { background: var(--accent-hover); }
 .np-preview { font-family: var(--mono); font-size: 11px; color: var(--text-faint); word-break: break-all; min-height: 15px; }
 .np-preview.err { font-family: inherit; color: var(--bad); }
 .np-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* Projects view-mode toggle (cards / list) */
+.view-toggle { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; }
+.vtbtn { background: var(--surface); border: 0; border-radius: 0; color: var(--text-dim); padding: 3px 8px; font-size: 13px; line-height: 1; cursor: pointer; }
+.vtbtn:hover { background: var(--surface-hover); color: var(--text); }
+.vtbtn.active { background: #1b1e3a; color: var(--accent-hover); }
+
+/* GitHub (octocat) icon button on cards/rows */
+.gh-btn { display: inline-flex; align-items: center; }
+.gh-btn svg { display: block; }
+
+/* Compact list view */
+#cards.as-list { display: flex; flex-direction: column; gap: 2px; padding: 8px 14px; }
+.prow { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 6px; background: var(--surface); }
+.prow:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.prow.selected { box-shadow: inset 0 0 0 1px var(--accent); }
+.prow.lvl-fresh { border-left-color: var(--ok); }
+.prow.lvl-neutral { border-left-color: var(--neutral); }
+.prow.lvl-warn { border-left-color: var(--warn); }
+.prow.lvl-neglected { border-left-color: var(--bad); }
+.prow.norecord { border-left-style: dashed; border-left-color: var(--border-strong); }
+.prow-check { flex: 0 0 auto; margin: 0; }
+.prow-dot { flex: 0 0 auto; font-size: 10px; }
+.prow-name { flex: 0 1 auto; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38%; }
+.prow-meta { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow-time { flex: 0 0 auto; font-family: var(--mono); font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.prow-open { flex: 0 0 auto; color: var(--accent-hover); }
 .about { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .about-title { margin: 0 0 8px; font-size: 13px; color: var(--text); }
 .about-ver { font-size: 13px; color: var(--text); }
