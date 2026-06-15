@@ -1,5 +1,6 @@
 import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
+import { projectSignature, diffCards, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
 
 const AUTO_REFRESH_MS = 45_000;
@@ -15,6 +16,12 @@ let showHidden = false;
 // (potentially slow) full token scan never blocks the project list.
 const costByPath = new Map<string, number | null>();
 let lastLoadMs = 0;
+// Path-keyed cache of rendered card/row nodes. Background refreshes reconcile against this
+// (see shared/deckReconcile) so the deck reuses the exact DOM node for any project whose
+// displayed values are unchanged — no flicker, scroll/focus/hover preserved — and only
+// rebuilds the cards that actually changed.
+const cardCache = new Map<string, { el: HTMLElement; sig: string }>();
+let hasRenderedOnce = false;
 
 type SortMode = 'activity' | 'uncommitted' | 'name' | 'opened';
 let searchQuery = '';
@@ -298,6 +305,7 @@ function setView(mode: 'cards' | 'list'): void {
   viewMode = mode;
   void window.devdeck.setViewMode(mode);
   syncViewToggle();
+  cardCache.clear(); // cards and rows are different element types — rebuild for the new view
   render();
 }
 
@@ -339,10 +347,11 @@ function render(): void {
   }
   visible = sorted;
 
-  cardsEl.replaceChildren();
   cardsEl.classList.toggle('as-list', viewMode === 'list');
   cardsEl.setAttribute('role', 'list');
   if (visible.length === 0) {
+    cardCache.clear();
+    cardsEl.replaceChildren();
     const e = document.createElement('div'); e.className = 'empty';
     e.textContent = neglectedOnly.checked ? tr('proj.empty_neglected') : (showHidden ? tr('proj.empty_hidden') : tr('proj.empty_none'));
     cardsEl.appendChild(e);
@@ -357,15 +366,54 @@ function render(): void {
     }
     return;
   }
-  for (const p of visible) {
+
+  // In-place reconcile: reuse the DOM node of every project whose displayed values are
+  // unchanged, rebuild only changed/new cards, drop removed ones, and move nodes to match
+  // order. This keeps the always-open deck from flickering on the periodic refresh.
+  const desired = visible.map((p) => ({ key: p.path, sig: projectSignature(p, uiStateFor(p)) }));
+  const prevSigs = new Map<string, string>();
+  for (const [key, entry] of cardCache) prevSigs.set(key, entry.sig);
+  const { reuse, remove } = diffCards(prevSigs, desired);
+
+  const orderedEls: HTMLElement[] = [];
+  visible.forEach((p, i) => {
+    const cached = cardCache.get(p.path);
+    // Reuse the existing node when nothing visible changed, or when the user is mid-interaction
+    // inside this card (e.g. editing a note) — never yank focus out from under them.
+    if (cached && (reuse.has(p.path) || cached.el.contains(document.activeElement))) {
+      orderedEls.push(cached.el);
+      return;
+    }
     const el = viewMode === 'list' ? makeRow(p) : makeCard(p, render);
     if (showHidden) {
       const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = tr('proj.restore');
       restore.addEventListener('click', () => { window.devdeck.setHidden(p.path, false); reload(); });
       el.appendChild(restore);
     }
-    cardsEl.appendChild(el);
+    cardCache.set(p.path, { el, sig: desired[i].sig });
+    orderedEls.push(el);
+  });
+  for (const key of remove) cardCache.delete(key);
+
+  reconcileChildren(cardsEl, orderedEls);
+}
+
+function uiStateFor(p: ProjectViewModel): SignatureUiState {
+  return { expanded: expanded.has(p.path), cost: costByPath.get(p.path), showHidden, viewMode };
+}
+
+// Make `container`'s children exactly `ordered`, in order, touching only what is out of
+// place: drop any stray child (first-load skeletons, removed cards), then insert/move the
+// nodes that aren't already at their target index. Nodes already in place are never
+// detached, so unchanged cards don't flicker and keep scroll/focus/hover.
+function reconcileChildren(container: HTMLElement, ordered: HTMLElement[]): void {
+  const keep = new Set<HTMLElement>(ordered);
+  for (const child of Array.from(container.children)) {
+    if (!keep.has(child as HTMLElement)) child.remove();
   }
+  ordered.forEach((el, i) => {
+    if (container.children[i] !== el) container.insertBefore(el, container.children[i] ?? null);
+  });
 }
 
 function showSkeleton(): void {
@@ -375,7 +423,9 @@ function showSkeleton(): void {
 
 async function reload(): Promise<void> {
   lastLoadMs = Date.now();
-  showSkeleton();
+  // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
+  // so they never wipe the deck to gray placeholders.
+  if (!hasRenderedOnce) showSkeleton();
   const [proj, agent, settings] = await Promise.all([
     window.devdeck.listProjects(), window.devdeck.getAgent(), window.devdeck.getSettings(),
   ]);
@@ -383,6 +433,7 @@ async function reload(): Promise<void> {
   viewMode = settings.viewMode === 'list' ? 'list' : 'cards';
   syncViewToggle();
   render();
+  hasRenderedOnce = true;
   // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch).
   void window.devdeck.usageReport(0).then((r) => {
     for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);
@@ -390,7 +441,9 @@ async function reload(): Promise<void> {
   }).catch(() => { /* cost is best-effort; ignore failures */ });
 }
 
-export function reloadProjects(): void { reload(); }
+// External triggers (agent switch, settings change) should rebuild from scratch: the agent
+// label and locale-baked card text aren't in the signature, so drop the cache to force it.
+export function reloadProjects(): void { cardCache.clear(); reload(); }
 
 function applyProjectLabels(): void {
   if (!searchEl || !sortEl) return;
@@ -459,5 +512,6 @@ export function mountProjects(): void {
 
 export function renderProjects(): void {
   applyProjectLabels();
+  cardCache.clear(); // locale changed — card text is baked at build time, so rebuild every card
   render();
 }

@@ -83,6 +83,24 @@ await shot('projects-list-view');
 await win.click('#view-cards').catch(() => {});
 await win.waitForTimeout(300);
 
+// Smooth refresh: a manual refresh must reconcile in place (reuse unchanged card nodes),
+// not wipe + rebuild the whole deck. Tag every card, refresh, and confirm the nodes survive.
+// The old full-replaceChildren behavior would leave 0 survivors.
+const reuse = await win.evaluate(async () => {
+  const before = Array.from(document.querySelectorAll('#cards .card'));
+  before.forEach((el, i) => { el.dataset.qaMark = String(i); });
+  document.getElementById('refresh').click();
+  await new Promise((r) => setTimeout(r, 2500)); // wait out the reload + background cost re-render
+  const survived = Array.from(document.querySelectorAll('#cards .card')).filter((el) => el.dataset.qaMark !== undefined).length;
+  return { total: before.length, survived };
+});
+console.log(`refresh reuse: ${reuse.survived}/${reuse.total} card nodes reused`);
+if (reuse.total > 0 && reuse.survived === 0) {
+  console.error(`QA FAILED — deck refresh wiped all ${reuse.total} cards instead of reconciling in place`);
+  await app.close();
+  process.exit(1);
+}
+
 // Narrow window to check responsive card grid
 await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
 await shot('projects-narrow');
