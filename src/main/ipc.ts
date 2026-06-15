@@ -2,6 +2,7 @@ import { ipcMain, dialog, shell, app, clipboard, type BrowserWindow } from 'elec
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
+import { readFileSync, writeFileSync } from 'node:fs';
 import type { Store } from './store';
 import type { PtyHost } from './ptyHost';
 import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
@@ -16,6 +17,7 @@ import { createProject } from './createProject';
 import { openProjects, openInEditor, resolveShellPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
+import { getUsageWindows, readClaudeCredentials, fetchUsageApi, type CacheEntry } from './claudeUsage';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
@@ -83,7 +85,7 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
     openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform,
-    viewMode: cfg.store.getViewMode(),
+    viewMode: cfg.store.getViewMode(), usageMonitor: cfg.store.getUsageMonitor(),
   }));
   ipcMain.handle('settings:setOpenAtLogin', (_e, enabled: boolean) => {
     const on = !!enabled;
@@ -92,6 +94,9 @@ export function registerIpc(cfg: IpcConfig): void {
   });
   ipcMain.handle('settings:setViewMode', (_e, mode: string) => {
     cfg.store.setViewMode(mode === 'list' ? 'list' : 'cards');
+  });
+  ipcMain.handle('settings:setUsageMonitor', (_e, enabled: boolean) => {
+    cfg.store.setUsageMonitor(!!enabled);
   });
   ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
   ipcMain.handle('settings:getFolders', () => effFolders());
@@ -223,6 +228,27 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.on('cockpit:input', (_e, id: string, data: string) => cfg.ptyHost.write(String(id), String(data)));
   ipcMain.on('cockpit:resize', (_e, id: string, cols: number, rows: number) => cfg.ptyHost.resize(String(id), Math.max(1, cols | 0), Math.max(1, rows | 0)));
   ipcMain.on('cockpit:close', (_e, id: string) => cfg.ptyHost.kill(String(id)));
+
+  // Opt-in usage monitor. Token is read + used ONLY in the main process (claudeUsage);
+  // only computed percentages/plan/reset cross IPC.
+  const usageCachePath = () => join(app.getPath('userData'), 'usage-cache.json');
+  ipcMain.handle('usage:windows', async () => {
+    if (!cfg.store.getUsageMonitor()) return { enabled: false };
+    return getUsageWindows({
+      now: () => Date.now(),
+      env: process.env,
+      readCredentials: () => readClaudeCredentials(),
+      fetchUsage: (token) => fetchUsageApi(token),
+      cacheRead: () => {
+        // Validate shape so an externally-corrupted cache file can't yield {data: undefined} (which would crash the renderer).
+        try {
+          const c = JSON.parse(readFileSync(usageCachePath(), 'utf8'));
+          return (c && typeof c.timestamp === 'number' && c.data && typeof c.data === 'object') ? (c as CacheEntry) : null;
+        } catch { return null; }
+      },
+      cacheWrite: (e) => { try { writeFileSync(usageCachePath(), JSON.stringify(e), 'utf8'); } catch { /* ignore */ } },
+    });
+  });
 
   // Clipboard bridge for the embedded terminal (the sandboxed file:// renderer can't reach
   // navigator.clipboard reliably). Used so Ctrl+C copies a selection instead of sending SIGINT.

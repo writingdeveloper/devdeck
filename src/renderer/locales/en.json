@@ -114,5 +114,15 @@
   "cockpit.st_exited": "Exited",
   "cockpit.grp_attention": "Needs you",
   "cockpit.grp_working": "Working",
-  "cockpit.grp_idle": "Idle / exited"
+  "cockpit.grp_idle": "Idle / exited",
+  "set.usage_monitor": "Show live usage (5h · weekly)",
+  "set.usage_monitor_note": "Calls api.anthropic.com using your existing Claude Code login. Off by default.",
+  "usage.bar_5h": "5h",
+  "usage.bar_week": "Weekly",
+  "usage.bar_reset": "until reset",
+  "usage.bar_unavailable": "Usage unavailable",
+  "usage.bar_need_login": "Claude Code login required",
+  "usage.reset_soon": "soon",
+  "usage.reset_h": "Xh Ym",
+  "usage.reset_m": "Ym"
 }

@@ -114,5 +114,15 @@
   "cockpit.st_exited": "終了",
   "cockpit.grp_attention": "要対応",
   "cockpit.grp_working": "実行中",
-  "cockpit.grp_idle": "アイドル / 終了"
+  "cockpit.grp_idle": "アイドル / 終了",
+  "set.usage_monitor": "使用量をリアルタイム表示 (5時間 · 週間)",
+  "set.usage_monitor_note": "既存の Claude Code ログインで api.anthropic.com を呼び出します。既定はオフ。",
+  "usage.bar_5h": "5時間",
+  "usage.bar_week": "週間",
+  "usage.bar_reset": "後にリセット",
+  "usage.bar_unavailable": "使用量を表示できません",
+  "usage.bar_need_login": "Claude Code のログインが必要",
+  "usage.reset_soon": "まもなく",
+  "usage.reset_h": "X時間Y分",
+  "usage.reset_m": "Y分"
 }

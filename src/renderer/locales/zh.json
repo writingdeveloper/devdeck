@@ -114,5 +114,15 @@
   "cockpit.st_exited": "已退出",
   "cockpit.grp_attention": "需要关注",
   "cockpit.grp_working": "工作中",
-  "cockpit.grp_idle": "空闲 / 已退出"
+  "cockpit.grp_idle": "空闲 / 已退出",
+  "set.usage_monitor": "实时显示用量 (5小时 · 每周)",
+  "set.usage_monitor_note": "使用现有 Claude Code 登录调用 api.anthropic.com。默认关闭。",
+  "usage.bar_5h": "5小时",
+  "usage.bar_week": "每周",
+  "usage.bar_reset": "后重置",
+  "usage.bar_unavailable": "无法显示用量",
+  "usage.bar_need_login": "需要 Claude Code 登录",
+  "usage.reset_soon": "即将",
+  "usage.reset_h": "X小时Y分",
+  "usage.reset_m": "Y分"
 }

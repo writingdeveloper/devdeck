@@ -6,6 +6,7 @@ import { mountNext, showNext } from './nextView';
 import { mountCockpit, showCockpit } from './cockpitView';
 import { isCockpitPlatform } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, SUPPORTED } from './i18n-runtime';
+import { mountUsageBar, refreshUsageBar } from './usageBar';
 
 const toastHost = document.getElementById('toast-host')!;
 window.devdeck.onError((msg) => {
@@ -92,8 +93,9 @@ async function boot(): Promise<void> {
   applyStaticLabels();
   mountProjects();
   mountUsage();
-  mountSettings(() => { applyStaticLabels(); reloadProjects(); });
+  mountSettings(() => { applyStaticLabels(); reloadProjects(); void refreshUsageBar(); });
   mountNext();
+  mountUsageBar();
   if (cockpitOn) mountCockpit();
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit(); });
 

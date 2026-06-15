@@ -43,7 +43,7 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 - **🌐 4 languages** — English, 한국어, 日本語, 中文.
 - **⬆ Auto-update** — checks GitHub Releases on launch and offers an in-app, user-confirmed download + restart (Windows/Linux; macOS pending code-signing).
 - **🚀 Start on Windows login** — optionally launch DevDeck when you sign in (Windows only; opt-in in Settings).
-- **🔒 Fully local & offline** — reads your local agent data and git, sends nothing anywhere (`connect-src 'none'`); the only network call is the update check. No account, no telemetry.
+- **🔒 Local by default** — reads your local agent data and git, sends nothing anywhere (`connect-src 'none'`); the only always-on network call is the update check. An **optional, off-by-default** usage monitor (Settings) calls `api.anthropic.com` using your existing Claude Code login to show your 5-hour / weekly limits — the same endpoint Claude Code itself uses. No account, no telemetry.
 - System tray + global shortcut (`Ctrl+Alt+D`), frameless Discord-style title bar.
 
 <div align="center">
