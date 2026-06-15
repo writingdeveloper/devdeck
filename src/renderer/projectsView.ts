@@ -49,6 +49,15 @@ function toOpenReq(p: ProjectViewModel, sessionId: string | null = null): OpenRe
   return { path: p.path, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted, sessionId };
 }
 
+let cockpitEnabled = false;
+/** Set by boot() once the platform is known — the cockpit is Windows-only (see isCockpitPlatform). */
+export function setCockpitEnabled(enabled: boolean): void { cockpitEnabled = enabled; }
+/** Route "open" to the embedded cockpit (Windows) or the external terminal (other OSes). */
+function openInTerminal(reqs: OpenReq[]): void {
+  if (cockpitEnabled) { void openProjectsInCockpit(reqs); return; }
+  void window.devdeck.open(reqs.map((r) => ({ path: r.path, sessionId: r.sessionId ?? null })));
+}
+
 const LEVEL_EMOJI: Record<string, string> = { fresh: '🟢', neutral: '⚪', warn: '🟡', neglected: '🔴' };
 function badgeText(p: ProjectViewModel): string {
   if (isNoRecord(p) || p.stale.ageDays == null) return tr('proj.no_record');
@@ -132,7 +141,7 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
         const when = document.createElement('span'); when.className = 'when'; when.textContent = fmtTime(s.mtimeMs);
         const msg = document.createElement('span'); msg.className = 'msg'; msg.textContent = s.firstMessage ?? tr('proj.no_message');
         const open = document.createElement('button'); open.className = 'chip'; open.textContent = tr('proj.open'); open.setAttribute('aria-label', 'open session');
-        open.addEventListener('click', () => void openProjectsInCockpit([toOpenReq(p, s.id)]));
+        open.addEventListener('click', () => openInTerminal([toOpenReq(p, s.id)]));
         row.append(when, msg, open); list.appendChild(row);
       }
       wrap.appendChild(list);
@@ -254,7 +263,7 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   folderBtn.setAttribute('aria-label', tr('proj.open_folder'));
   folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
   const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
-  open.addEventListener('click', () => void openProjectsInCockpit([toOpenReq(p)]));
+  open.addEventListener('click', () => openInTerminal([toOpenReq(p)]));
   foot.append(check, spacer, editorBtn, folderBtn);
   if (p.repoUrl) foot.append(githubBtn(p));
   foot.append(open);
@@ -290,7 +299,7 @@ function makeRow(p: ProjectViewModel): HTMLElement {
   const time = document.createElement('span'); time.className = 'prow-time'; time.textContent = fmtTime(p.activityMs);
 
   const open = document.createElement('button'); open.className = 'iconbtn prow-open'; open.textContent = '▶'; open.title = tr('proj.open'); open.setAttribute('aria-label', tr('proj.open'));
-  open.addEventListener('click', () => void openProjectsInCockpit([toOpenReq(p)]));
+  open.addEventListener('click', () => openInTerminal([toOpenReq(p)]));
 
   row.append(check, dot, name, meta, time);
   if (p.repoUrl) row.append(githubBtn(p));
@@ -479,11 +488,11 @@ export function mountProjects(): void {
   showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); });
   openBtn.addEventListener('click', () => {
     if (selected.size === 0) return;
-    void openProjectsInCockpit(projects.filter((p) => selected.has(p.path)).map((p) => toOpenReq(p)));
+    openInTerminal(projects.filter((p) => selected.has(p.path)).map((p) => toOpenReq(p)));
   });
   document.getElementById('new-project')!.addEventListener('click', () => {
     openNewProjectModal((path) => {
-      void openProjectsInCockpit([{ path, name: path.split(/[\\/]/).pop() ?? path, staleLevel: 'neutral', branch: null, dirty: 0 }]); // open the new project in the cockpit
+      openInTerminal([{ path, name: path.split(/[\\/]/).pop() ?? path, staleLevel: 'neutral', branch: null, dirty: 0 }]); // open the new project (cockpit on Windows, external terminal otherwise)
       reload();
     });
   });

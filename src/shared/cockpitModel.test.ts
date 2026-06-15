@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, sortSessions, groupSessions, type CockpitSession } from './cockpitModel';
+import { filterSessions, sortSessions, groupSessions, isCockpitPlatform, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -35,5 +35,13 @@ describe('groupSessions', () => {
     expect(groupSessions(list).map((g) => g.items.map((i) => i.id))).toEqual([['a'], ['b']]);
     const onlyRunning = [s({ id: 'a', status: 'running' })];
     expect(groupSessions(onlyRunning).map((g) => g.status)).toEqual(['running']);
+  });
+});
+
+describe('isCockpitPlatform', () => {
+  it('is true only on win32', () => {
+    expect(isCockpitPlatform('win32')).toBe(true);
+    expect(isCockpitPlatform('darwin')).toBe(false);
+    expect(isCockpitPlatform('linux')).toBe(false);
   });
 });

@@ -33,3 +33,8 @@ export function groupSessions(list: CockpitSession[]): { status: SessionStatus; 
     .map((status) => ({ status, items: sorted.filter((s) => s.status === status) }))
     .filter((g) => g.items.length > 0);
 }
+
+/** The cockpit (embedded node-pty terminals) is Windows-only for now; other OSes keep the external terminal. */
+export function isCockpitPlatform(platform: string): boolean {
+  return platform === 'win32';
+}
