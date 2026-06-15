@@ -7,8 +7,7 @@ import type { PtyHost } from './ptyHost';
 import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
 import { getGitInfo, getRepoUrl } from './gitInfo';
-import { getProvider, availableAgents } from './agents';
-import type { AgentProvider } from './agents';
+import { getProvider, availableAgents, resolveOpenCommand } from './agents';
 import type { AgentId, Folder } from '../shared/types';
 import { isAllowedPath } from '../shared/pathGuard';
 import { isAllowedExternalUrl, isSafeRepoUrl } from '../shared/externalUrl';
@@ -21,14 +20,6 @@ import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
-
-/** Pick the agent command for a cockpit open: resume > continue > new. */
-export function resolveOpenCommand(
-  a: AgentProvider, sessionId: string | null, sessionCount: (p?: string) => number,
-): string {
-  if (typeof sessionId === 'string') return a.buildCommand('resume', sessionId);
-  return a.buildCommand(sessionCount() > 0 ? 'continue' : 'new');
-}
 
 export interface IpcConfig {
   win: BrowserWindow;

@@ -56,3 +56,11 @@ export function availableAgents(probe?: (id: AgentId) => boolean): AgentId[] {
   const isAvail = probe ?? ((id) => PROVIDERS[id].isAvailable());
   return ids.filter(isAvail);
 }
+
+/** Pick the agent command for a cockpit/terminal open: resume > continue > new. (Pure — no electron, so it's unit-testable in CI where the electron binary is skipped.) */
+export function resolveOpenCommand(
+  a: AgentProvider, sessionId: string | null, sessionCount: (p?: string) => number,
+): string {
+  if (typeof sessionId === 'string') return a.buildCommand('resume', sessionId);
+  return a.buildCommand(sessionCount() > 0 ? 'continue' : 'new');
+}

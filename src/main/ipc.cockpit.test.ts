@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveOpenCommand } from './ipc';
-import { getProvider } from './agents';
+import { getProvider, resolveOpenCommand } from './agents';
 
 describe('resolveOpenCommand', () => {
   const claude = getProvider('claude');
