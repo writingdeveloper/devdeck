@@ -42,6 +42,10 @@ contextBridge.exposeInMainWorld('devdeck', {
     onMaximizeChange: (cb: (maximized: boolean) => void) =>
       ipcRenderer.on('win:maximize-changed', (_e, m: boolean) => cb(m)),
   },
+  clipboard: {
+    writeText: (text: string) => ipcRenderer.send('clipboard:writeText', text),
+    readText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
+  },
   cockpit: {
     open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number }) =>
       ipcRenderer.invoke('cockpit:open', req),

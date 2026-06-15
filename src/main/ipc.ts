@@ -1,4 +1,4 @@
-import { ipcMain, dialog, shell, app, type BrowserWindow } from 'electron';
+import { ipcMain, dialog, shell, app, clipboard, type BrowserWindow } from 'electron';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
@@ -223,6 +223,11 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.on('cockpit:input', (_e, id: string, data: string) => cfg.ptyHost.write(String(id), String(data)));
   ipcMain.on('cockpit:resize', (_e, id: string, cols: number, rows: number) => cfg.ptyHost.resize(String(id), Math.max(1, cols | 0), Math.max(1, rows | 0)));
   ipcMain.on('cockpit:close', (_e, id: string) => cfg.ptyHost.kill(String(id)));
+
+  // Clipboard bridge for the embedded terminal (the sandboxed file:// renderer can't reach
+  // navigator.clipboard reliably). Used so Ctrl+C copies a selection instead of sending SIGINT.
+  ipcMain.on('clipboard:writeText', (_e, text: string) => clipboard.writeText(String(text ?? '')));
+  ipcMain.handle('clipboard:readText', () => clipboard.readText());
 
   // Frameless-window controls (the title bar draws its own buttons).
   ipcMain.handle('win:minimize', () => cfg.win.minimize());

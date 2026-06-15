@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { filterSessions, groupByActivity, needsAttentionCount, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
+import { decideKeyAction } from '../shared/terminalKeys';
 import type { StaleLevel } from '../shared/types';
 import { tr } from './i18n-runtime';
 
@@ -59,6 +60,17 @@ async function createSession(p: OpenReq): Promise<void> {
   el.classList.add('show');
   const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: true });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
+  // Resolve the Ctrl+C copy-vs-SIGINT conflict (and Ctrl+V paste) before xterm forwards the key.
+  // Returning false stops xterm processing it, so 'copy'/'paste' never reach the PTY as keystrokes.
+  term.attachCustomKeyEventHandler((e) => {
+    const action = decideKeyAction(e, term.hasSelection());
+    if (action === 'copy') { window.devdeck.clipboard.writeText(term.getSelection()); return false; }
+    if (action === 'paste') {
+      window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
+      return false;
+    }
+    return true;
+  });
   const { cols, rows } = term;
   const res = await window.devdeck.cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows });
   if (!res.id) { el.remove(); term.dispose(); if (selectedId) select(selectedId); return; } // refused — restore prior selection

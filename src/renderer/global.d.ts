@@ -41,6 +41,10 @@ declare global {
         isMaximized(): Promise<boolean>;
         onMaximizeChange(cb: (maximized: boolean) => void): void;
       };
+      clipboard: {
+        writeText(text: string): void;
+        readText(): Promise<string>;
+      };
       cockpit: {
         open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number }): Promise<{ id: string; agentId: import('../shared/types').AgentId }>;
         input(id: string, data: string): void;
