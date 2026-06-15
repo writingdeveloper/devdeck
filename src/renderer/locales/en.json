@@ -106,5 +106,13 @@
   "cockpit.empty": "No open sessions. Open one from Projects.",
   "cockpit.restart": "Restart",
   "cockpit.close": "Close",
-  "cockpit.open_folder": "Open folder"
+  "cockpit.open_folder": "Open folder",
+  "cockpit.st_working": "Working",
+  "cockpit.st_attention": "Awaiting you",
+  "cockpit.st_turn": "Your turn",
+  "cockpit.st_idle": "Idle",
+  "cockpit.st_exited": "Exited",
+  "cockpit.grp_attention": "Needs you",
+  "cockpit.grp_working": "Working",
+  "cockpit.grp_idle": "Idle / exited"
 }

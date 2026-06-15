@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, sortSessions, groupSessions, isCockpitPlatform, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
-  status: 'running', staleLevel: 'fresh', branch: 'main', dirty: 0, ...over,
+  status: 'running', staleLevel: 'fresh', branch: 'main', dirty: 0, activity: 'working', ...over,
 });
 
 describe('filterSessions', () => {
@@ -20,21 +20,30 @@ describe('filterSessions', () => {
   });
 });
 
-describe('sortSessions', () => {
-  it('running before exited, then by name', () => {
-    // 'mid' is listed before 'alpha' so a rank-only sort would leave them out of order.
-    const list = [s({ id: 'z', name: 'zeta', status: 'exited' }), s({ id: 'm', name: 'mid', status: 'running' }), s({ id: 'a', name: 'alpha', status: 'running' })];
-    expect(sortSessions(list).map((x) => x.id)).toEqual(['a', 'm', 'z']);
+describe('groupByActivity', () => {
+  it('buckets + orders: attention/turn => attention bucket, working => working, idle/exited => idle; attention before turn', () => {
+    const list = [
+      s({ id: 'w', name: 'w', activity: 'working' }),
+      s({ id: 'e', name: 'e', activity: 'exited' }),
+      s({ id: 't', name: 't', activity: 'turn' }),
+      s({ id: 'a', name: 'a', activity: 'attention' }),
+      s({ id: 'i', name: 'i', activity: 'idle' }),
+    ];
+    const g = groupByActivity(list);
+    expect(g.map((x) => x.bucket)).toEqual(['attention', 'working', 'idle']);
+    expect(g[0].items.map((x) => x.id)).toEqual(['a', 't']); // attention before turn
+    expect(g[1].items.map((x) => x.id)).toEqual(['w']);
+    expect(g[2].items.map((x) => x.id)).toEqual(['i', 'e']); // idle before exited
+  });
+  it('omits empty buckets', () => {
+    expect(groupByActivity([s({ activity: 'working' })]).map((x) => x.bucket)).toEqual(['working']);
   });
 });
 
-describe('groupSessions', () => {
-  it('orders running then exited and omits empty groups', () => {
-    const list = [s({ id: 'a', status: 'running' }), s({ id: 'b', status: 'exited' })];
-    expect(groupSessions(list).map((g) => g.status)).toEqual(['running', 'exited']);
-    expect(groupSessions(list).map((g) => g.items.map((i) => i.id))).toEqual([['a'], ['b']]);
-    const onlyRunning = [s({ id: 'a', status: 'running' })];
-    expect(groupSessions(onlyRunning).map((g) => g.status)).toEqual(['running']);
+describe('needsAttentionCount', () => {
+  it('counts attention + turn', () => {
+    const list = [s({ activity: 'attention' }), s({ activity: 'turn' }), s({ activity: 'working' }), s({ activity: 'idle' })];
+    expect(needsAttentionCount(list)).toBe(2);
   });
 });
 

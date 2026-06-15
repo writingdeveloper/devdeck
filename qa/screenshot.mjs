@@ -131,6 +131,17 @@ if (ckFill.ratio < 0.8) {
   process.exit(1);
 }
 
+const badgeHidden = await win.evaluate(() => {
+  const b = document.getElementById('ck-badge');
+  return !b || b.classList.contains('hidden');
+});
+console.log(`cockpit badge hidden at zero needs-you: ${badgeHidden}`);
+if (!badgeHidden) {
+  console.error('QA FAILED — rail badge visible with no needs-you sessions');
+  await app.close();
+  process.exit(1);
+}
+
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));
 console.log(`\nconsole errors: ${consoleErrors.length}, page errors: ${pageErrors.length}`);
 

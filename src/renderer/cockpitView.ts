@@ -1,10 +1,11 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { filterSessions, groupSessions, type CockpitSession } from '../shared/cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, type CockpitSession } from '../shared/cockpitModel';
+import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import type { StaleLevel } from '../shared/types';
 import { tr } from './i18n-runtime';
 
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; }
+interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; recentOutput: string; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; }
 
 const live = new Map<string, Live>();
@@ -23,12 +24,19 @@ export function mountCockpit(): void {
   mainEl = document.querySelector('#view-cockpit .ck-main')!;
   searchEl.addEventListener('input', renderList);
 
-  window.devdeck.cockpit.onData(({ id, chunk }) => live.get(id)?.term.write(chunk));
+  window.devdeck.cockpit.onData(({ id, chunk }) => {
+    const l = live.get(id); if (!l) return;
+    l.term.write(chunk);
+    l.lastDataAt = Date.now();
+    l.recentOutput = (l.recentOutput + stripAnsi(chunk)).slice(-4096);
+  });
   window.devdeck.cockpit.onExit(({ id }) => {
     const l = live.get(id); if (!l) return;
-    l.session.status = 'exited'; renderList(); renderHeader();
+    l.session.status = 'exited'; l.session.activity = 'exited';
+    renderList(); renderHeader(); updateRailBadge();
   });
   window.addEventListener('resize', () => { if (selectedId) fitSelected(); });
+  setInterval(tickActivity, 1000);
   renderAll();
 }
 
@@ -54,10 +62,15 @@ async function createSession(p: OpenReq): Promise<void> {
   const { cols, rows } = term;
   const res = await window.devdeck.cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows });
   if (!res.id) { el.remove(); term.dispose(); if (selectedId) select(selectedId); return; } // refused — restore prior selection
-  const session: CockpitSession = { id: res.id, projectPath: p.path, name: p.name, agentId: res.agentId, status: 'running', staleLevel: p.staleLevel, branch: p.branch, dirty: p.dirty };
-  term.onData((d) => window.devdeck.cockpit.input(res.id, d));
-  live.set(res.id, { session, term, fit, el });
+  const session: CockpitSession = { id: res.id, projectPath: p.path, name: p.name, agentId: res.agentId, status: 'running', staleLevel: p.staleLevel, branch: p.branch, dirty: p.dirty, activity: 'working' };
+  term.onData((d) => {
+    window.devdeck.cockpit.input(res.id, d);
+    const l = live.get(res.id); // typing answers any pending prompt → clear the buffer so 'attention' doesn't stick
+    if (l) l.recentOutput = '';
+  });
+  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), recentOutput: '' });
   select(res.id);
+  updateRailBadge();
 }
 
 function select(id: string): void {
@@ -73,6 +86,16 @@ function fitSelected(): void {
   l.fit.fit(); window.devdeck.cockpit.resize(l.session.id, l.term.cols, l.term.rows);
 }
 
+function tickActivity(): void {
+  const now = Date.now();
+  let changed = false;
+  for (const l of live.values()) {
+    const next = computeActivity({ exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, now, recentOutput: l.recentOutput });
+    if (next !== l.session.activity) { l.session.activity = next; changed = true; }
+  }
+  if (changed) { renderList(); updateRailBadge(); }
+}
+
 function renderAll(): void { renderList(); renderHeader(); }
 
 function renderList(): void {
@@ -81,23 +104,36 @@ function renderList(): void {
   groupsEl.replaceChildren();
   if (all.length === 0) { emptyEl.textContent = tr('cockpit.empty'); return; }
   emptyEl.textContent = '';
-  for (const g of groupSessions(filtered)) {
+  for (const g of groupByActivity(filtered)) {
     const h = document.createElement('div'); h.className = 'ck-grp';
-    h.textContent = `${tr(g.status === 'running' ? 'cockpit.running' : 'cockpit.exited')} · ${g.items.length}`;
+    h.textContent = `${tr('cockpit.grp_' + g.bucket)} · ${g.items.length}`;
     groupsEl.appendChild(h);
     for (const s of g.items) groupsEl.appendChild(row(s));
   }
 }
 
 function row(s: CockpitSession): HTMLElement {
+  const a: ActivityState = s.activity;
   const el = document.createElement('div');
-  el.className = `ck-row lvl-${s.staleLevel}${s.status === 'exited' ? ' exited' : ''}${s.id === selectedId ? ' sel' : ''}`;
+  el.className = `ck-row act-${a}${s.id === selectedId ? ' sel' : ''}`;
   const dirty = s.dirty > 0 ? ` ✎${s.dirty}` : '';
-  el.innerHTML = `<div><div class="nm"></div><div class="mt"></div></div><span class="stat"></span>`;
+  el.innerHTML = `<span class="ck-ind"></span><div><div class="nm"></div><div class="mt"></div></div>`;
+  const ind = el.querySelector('.ck-ind')!;
+  if (a === 'working') ind.innerHTML = '<span class="ck-spin"></span>';
+  else if (a === 'attention') ind.textContent = '❓';
+  else ind.innerHTML = '<span class="ck-dot"></span>';
   el.querySelector('.nm')!.textContent = s.name;
   el.querySelector('.mt')!.textContent = `${s.branch ?? '-'}${dirty} · ${s.agentId}`;
+  el.title = tr('cockpit.st_' + a);
   el.addEventListener('click', () => select(s.id));
   return el;
+}
+
+function updateRailBadge(): void {
+  const badge = document.getElementById('ck-badge'); if (!badge) return;
+  const n = needsAttentionCount([...live.values()].map((l) => l.session));
+  badge.textContent = String(n);
+  badge.classList.toggle('hidden', n === 0);
 }
 
 function renderHeader(): void {
@@ -128,7 +164,7 @@ async function restartSession(id: string): Promise<void> {
 function closeSession(id: string): void {
   const l = live.get(id); if (!l) return;
   window.devdeck.cockpit.close(id);
-  l.term.dispose(); l.el.remove(); live.delete(id);
+  l.term.dispose(); l.el.remove(); live.delete(id); updateRailBadge();
   if (selectedId === id) {
     const next = [...live.keys()][0] ?? null;
     selectedId = null;

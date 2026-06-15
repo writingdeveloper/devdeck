@@ -106,5 +106,13 @@
   "cockpit.empty": "没有打开的会话。请从「项目」中打开。",
   "cockpit.restart": "重启",
   "cockpit.close": "关闭",
-  "cockpit.open_folder": "打开文件夹"
+  "cockpit.open_folder": "打开文件夹",
+  "cockpit.st_working": "工作中",
+  "cockpit.st_attention": "等待确认",
+  "cockpit.st_turn": "轮到你",
+  "cockpit.st_idle": "空闲",
+  "cockpit.st_exited": "已退出",
+  "cockpit.grp_attention": "需要关注",
+  "cockpit.grp_working": "工作中",
+  "cockpit.grp_idle": "空闲 / 已退出"
 }

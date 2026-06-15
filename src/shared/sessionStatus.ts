@@ -1,0 +1,56 @@
+export type ActivityState = 'working' | 'attention' | 'turn' | 'idle' | 'exited';
+
+export const WORKING_MS = 1500;
+export const IDLE_MS = 180_000; // 3 min of silence => idle (vs a fresh "your turn")
+
+/**
+ * Strip ANSI/VT escape sequences (CSI and OSC) so prompt patterns match on plain text.
+ * Char-code based (ESC = 0x1b) — never touches ordinary printable text (incl. brackets/uppercase).
+ */
+export function stripAnsi(s: string): string {
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s.charCodeAt(i) === 0x1b) { // ESC — consume the escape sequence
+      const next = s[i + 1];
+      if (next === '[') { // CSI: ESC [ params/intermediates final(0x40–0x7e)
+        i += 2;
+        while (i < s.length && (s.charCodeAt(i) < 0x40 || s.charCodeAt(i) > 0x7e)) i++;
+      } else if (next === ']') { // OSC: ESC ] … terminated by BEL (0x07) or ST (ESC \)
+        i += 2;
+        while (i < s.length && s.charCodeAt(i) !== 0x07 && s.charCodeAt(i) !== 0x1b) i++;
+        if (s.charCodeAt(i) === 0x1b) i++; // skip the ESC of an ST terminator
+      } else {
+        i++; // other two-char escape
+      }
+    } else {
+      out += s[i];
+    }
+  }
+  return out;
+}
+
+/**
+ * Best-effort signatures of an agent waiting on a confirmation/question (Claude's UI mainly).
+ * Best-effort: a prompt-like line in ordinary output can false-positively flag 'attention' until it
+ * scrolls out of the recentOutput window — or until the user types (cockpitView clears the buffer on input).
+ */
+export const PROMPT_PATTERNS: RegExp[] = [
+  /❯\s*\d+\.\s/,                 // ❯ 1. Yes
+  /\bdo you want to\b/i,
+  /\(y\/n\)/i,
+  /\[y\/n\]/i,
+  /press enter to continue/i,
+  /\bproceed\?/i,
+];
+
+export function hasPromptPattern(recentOutput: string): boolean {
+  return PROMPT_PATTERNS.some((re) => re.test(recentOutput));
+}
+
+export function computeActivity(i: { exited: boolean; lastDataAt: number; now: number; recentOutput: string }): ActivityState {
+  if (i.exited) return 'exited';
+  if (i.now - i.lastDataAt <= WORKING_MS) return 'working';
+  if (hasPromptPattern(i.recentOutput)) return 'attention';
+  if (i.now - i.lastDataAt < IDLE_MS) return 'turn';
+  return 'idle';
+}

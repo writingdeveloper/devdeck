@@ -266,9 +266,6 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row.sel { background: #16182b; border-left-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(85,88,239,.35); }
 .ck-row .nm { font-weight: 600; font-size: 12.5px; }
 .ck-row .mt { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
-.ck-row .stat { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: var(--neutral); }
-.ck-row.lvl-fresh .stat { background: var(--ok); } .ck-row.lvl-warn .stat { background: var(--warn); } .ck-row.lvl-neglected .stat { background: var(--bad); }
-.ck-row.exited .stat { background: var(--neutral); opacity: .5; }
 .ck-main { flex: 1; display: flex; flex-direction: column; background: #0a0b0e; min-width: 0; }
 .ck-header { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), #0e1015); min-height: 42px; }
 .ck-header .title { font-weight: 700; font-size: 13.5px; }
@@ -281,3 +278,15 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-term.show { display: block; }
 .ck-empty { padding: 24px; color: var(--text-faint); }
 .ck-main.has-session .ck-empty { display: none; }
+.rail-item { position: relative; }
+.rail-badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--bad); color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #101218; }
+.rail-badge.hidden { display: none; }
+.ck-ind { width: 16px; flex: 0 0 16px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.ck-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
+.ck-spin { width: 10px; height: 10px; border: 1.6px solid #3fb950; border-right-color: transparent; border-radius: 50%; animation: ck-spin .7s linear infinite; }
+@keyframes ck-spin { to { transform: rotate(360deg); } }
+.ck-row.act-turn .ck-dot { background: var(--warn); }
+.ck-row.act-idle .ck-dot { background: var(--neutral); opacity: .55; }
+.ck-row.act-exited .ck-dot { background: transparent; border: 1.5px solid var(--text-faint); }
+.ck-row.act-attention { background: #241512; border-left-color: var(--bad); }
+.ck-row.act-attention .ck-ind { color: var(--bad); font-weight: 700; }

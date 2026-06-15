@@ -106,5 +106,13 @@
   "cockpit.empty": "열린 세션이 없습니다. 프로젝트에서 \"열기\"를 누르세요.",
   "cockpit.restart": "재시작",
   "cockpit.close": "닫기",
-  "cockpit.open_folder": "폴더 열기"
+  "cockpit.open_folder": "폴더 열기",
+  "cockpit.st_working": "작업 중",
+  "cockpit.st_attention": "질문 대기",
+  "cockpit.st_turn": "내 차례",
+  "cockpit.st_idle": "유휴",
+  "cockpit.st_exited": "종료",
+  "cockpit.grp_attention": "주목 필요",
+  "cockpit.grp_working": "작업 중",
+  "cockpit.grp_idle": "유휴 / 종료"
 }

@@ -106,5 +106,13 @@
   "cockpit.empty": "開いているセッションがありません。プロジェクトから「開く」を押してください。",
   "cockpit.restart": "再起動",
   "cockpit.close": "閉じる",
-  "cockpit.open_folder": "フォルダを開く"
+  "cockpit.open_folder": "フォルダを開く",
+  "cockpit.st_working": "実行中",
+  "cockpit.st_attention": "確認待ち",
+  "cockpit.st_turn": "あなたの番",
+  "cockpit.st_idle": "アイドル",
+  "cockpit.st_exited": "終了",
+  "cockpit.grp_attention": "要対応",
+  "cockpit.grp_working": "実行中",
+  "cockpit.grp_idle": "アイドル / 終了"
 }
