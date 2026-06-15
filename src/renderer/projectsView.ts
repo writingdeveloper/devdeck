@@ -2,6 +2,7 @@ import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
 import { projectSignature, diffCards, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
+import { openProjectsInCockpit, type OpenReq } from './cockpitView';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -44,7 +45,9 @@ function fmtTime(ms: number | null): string {
 }
 function usdShort(n: number | null | undefined): string { return n == null ? '' : ` · ~$${n.toFixed(2)}`; }
 function isNoRecord(p: ProjectViewModel): boolean { return p.sessionCount === 0 && p.lastCommitMs == null; }
-function openItems(items: { path: string; sessionId: string | null }[]): void { window.devdeck.open(items); }
+function toOpenReq(p: ProjectViewModel, sessionId: string | null = null): OpenReq {
+  return { path: p.path, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted, sessionId };
+}
 
 const LEVEL_EMOJI: Record<string, string> = { fresh: '🟢', neutral: '⚪', warn: '🟡', neglected: '🔴' };
 function badgeText(p: ProjectViewModel): string {
@@ -129,7 +132,7 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
         const when = document.createElement('span'); when.className = 'when'; when.textContent = fmtTime(s.mtimeMs);
         const msg = document.createElement('span'); msg.className = 'msg'; msg.textContent = s.firstMessage ?? tr('proj.no_message');
         const open = document.createElement('button'); open.className = 'chip'; open.textContent = tr('proj.open'); open.setAttribute('aria-label', 'open session');
-        open.addEventListener('click', () => openItems([{ path: p.path, sessionId: s.id }]));
+        open.addEventListener('click', () => void openProjectsInCockpit([toOpenReq(p, s.id)]));
         row.append(when, msg, open); list.appendChild(row);
       }
       wrap.appendChild(list);
@@ -251,7 +254,7 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   folderBtn.setAttribute('aria-label', tr('proj.open_folder'));
   folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
   const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
-  open.addEventListener('click', () => openItems([{ path: p.path, sessionId: null }]));
+  open.addEventListener('click', () => void openProjectsInCockpit([toOpenReq(p)]));
   foot.append(check, spacer, editorBtn, folderBtn);
   if (p.repoUrl) foot.append(githubBtn(p));
   foot.append(open);
@@ -287,7 +290,7 @@ function makeRow(p: ProjectViewModel): HTMLElement {
   const time = document.createElement('span'); time.className = 'prow-time'; time.textContent = fmtTime(p.activityMs);
 
   const open = document.createElement('button'); open.className = 'iconbtn prow-open'; open.textContent = '▶'; open.title = tr('proj.open'); open.setAttribute('aria-label', tr('proj.open'));
-  open.addEventListener('click', () => openItems([{ path: p.path, sessionId: null }]));
+  open.addEventListener('click', () => void openProjectsInCockpit([toOpenReq(p)]));
 
   row.append(check, dot, name, meta, time);
   if (p.repoUrl) row.append(githubBtn(p));
@@ -476,11 +479,11 @@ export function mountProjects(): void {
   showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); });
   openBtn.addEventListener('click', () => {
     if (selected.size === 0) return;
-    openItems(projects.filter((p) => selected.has(p.path)).map((p) => ({ path: p.path, sessionId: null })));
+    void openProjectsInCockpit(projects.filter((p) => selected.has(p.path)).map((p) => toOpenReq(p)));
   });
   document.getElementById('new-project')!.addEventListener('click', () => {
     openNewProjectModal((path) => {
-      openItems([{ path, sessionId: null }]); // open the new project in a terminal with the active agent
+      void openProjectsInCockpit([{ path, name: path.split(/[\\/]/).pop() ?? path, staleLevel: 'neutral', branch: null, dirty: 0 }]); // open the new project in the cockpit
       reload();
     });
   });

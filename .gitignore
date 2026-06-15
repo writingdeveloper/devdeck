@@ -4,3 +4,4 @@ dist/
 release/
 qa/shots/
 docs/superpowers/
+.superpowers/

@@ -23,6 +23,7 @@
   "nav.settings": "設定",
   "nav.language": "言語",
   "nav.next": "次に",
+  "nav.cockpit": "コックピット",
   "agent.label": "エージェント",
   "agent.claude": "Claude",
   "agent.codex": "Codex",
@@ -98,5 +99,12 @@
   "about.up_to_date": "最新版です ✓",
   "about.update_available": "新しいバージョン v{version} が利用可能",
   "about.check_failed": "アップデートの確認に失敗しました",
-  "about.updates_dev": "アップデートはインストール版でのみ適用されます"
+  "about.updates_dev": "アップデートはインストール版でのみ適用されます",
+  "cockpit.search": "セッション検索…",
+  "cockpit.running": "実行中",
+  "cockpit.exited": "終了",
+  "cockpit.empty": "開いているセッションがありません。プロジェクトから「開く」を押してください。",
+  "cockpit.restart": "再起動",
+  "cockpit.close": "閉じる",
+  "cockpit.open_folder": "フォルダを開く"
 }

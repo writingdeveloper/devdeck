@@ -112,6 +112,11 @@ await win.waitForTimeout(400);
 await shot('titlebar-maximized');
 await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
 
+// Cockpit view: navigate and capture the empty state (no PTY spawned in the harness)
+await showView('cockpit');
+await win.waitForSelector('#ck-empty', { timeout: 5000 }).catch(() => {});
+await shot('cockpit');
+
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));
 console.log(`\nconsole errors: ${consoleErrors.length}, page errors: ${pageErrors.length}`);
 

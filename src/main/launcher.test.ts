@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { openProjects, resolveShell, resolveWtPath, detectLinuxTerminal, editorSpec, openInEditor } from './launcher';
+import { existsSync } from 'node:fs';
+import { openProjects, resolveShell, resolveWtPath, detectLinuxTerminal, editorSpec, openInEditor, resolveShellPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 
 type Call = { file: string; args: string[] };
@@ -94,5 +95,11 @@ describe('resolveWtPath', () => {
   });
   it('falls back to the bare name when LOCALAPPDATA is empty', () => {
     expect(resolveWtPath('')).toBe('wt.exe');
+  });
+});
+
+describe('resolveShellPath', () => {
+  it.skipIf(process.platform !== 'win32')('returns an existing PowerShell executable on Windows', () => {
+    expect(existsSync(resolveShellPath())).toBe(true);
   });
 });

@@ -3,16 +3,18 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
 import type { Store } from './store';
+import type { PtyHost } from './ptyHost';
 import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
 import { getGitInfo, getRepoUrl } from './gitInfo';
 import { getProvider, availableAgents } from './agents';
+import type { AgentProvider } from './agents';
 import type { AgentId, Folder } from '../shared/types';
 import { isAllowedPath } from '../shared/pathGuard';
 import { isAllowedExternalUrl, isSafeRepoUrl } from '../shared/externalUrl';
 import { buildProjectList } from './projects';
 import { createProject } from './createProject';
-import { openProjects, openInEditor } from './launcher';
+import { openProjects, openInEditor, resolveShellPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
@@ -20,12 +22,21 @@ import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
 
+/** Pick the agent command for a cockpit open: resume > continue > new. */
+export function resolveOpenCommand(
+  a: AgentProvider, sessionId: string | null, sessionCount: (p?: string) => number,
+): string {
+  if (typeof sessionId === 'string') return a.buildCommand('resume', sessionId);
+  return a.buildCommand(sessionCount() > 0 ? 'continue' : 'new');
+}
+
 export interface IpcConfig {
   win: BrowserWindow;
   defaultBaseDir: string;
   store: Store;
   sendError: (msg: string) => void;
   defaultLanguage: string;
+  ptyHost: PtyHost;
 }
 
 export function registerIpc(cfg: IpcConfig): void {
@@ -194,6 +205,33 @@ export function registerIpc(cfg: IpcConfig): void {
     if (url && isSafeRepoUrl(url)) await shell.openExternal(url);
     else cfg.sendError(`No GitHub remote found for: ${p}`);
   });
+
+  // Embedded cockpit: open a pty session running the agent; output streams to the renderer's xterm.
+  let cockpitSeq = 0;
+  ipcMain.handle('cockpit:open', (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number }) => {
+    const folders = effFolders();
+    if (!isAllowedPath(folders, req.projectPath)) {
+      cfg.sendError(`Path outside allowed folders: ${req.projectPath}`);
+      return { id: '', agentId: agent().id };
+    }
+    const a = agent();
+    const command = resolveOpenCommand(a, req.sessionId, () => a.listSessions(req.projectPath).length);
+    const shellPath = resolveShellPath();
+    const id = `${req.projectPath}#${++cockpitSeq}`;
+    // Guard against the window being gone (e.g. reload) when late pty output arrives.
+    const send = (channel: string, payload: unknown) => { if (!cfg.win.isDestroyed()) cfg.win.webContents.send(channel, payload); };
+    cfg.ptyHost.create(
+      id, shellPath, ['-NoExit', '-Command', command], req.projectPath,
+      Math.max(20, req.cols | 0), Math.max(5, req.rows | 0),
+      (chunk) => send('cockpit:data', { id, chunk }),
+      (e) => send('cockpit:exit', { id, exitCode: e.exitCode }),
+    );
+    cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
+    return { id, agentId: a.id };
+  });
+  ipcMain.on('cockpit:input', (_e, id: string, data: string) => cfg.ptyHost.write(String(id), String(data)));
+  ipcMain.on('cockpit:resize', (_e, id: string, cols: number, rows: number) => cfg.ptyHost.resize(String(id), Math.max(1, cols | 0), Math.max(1, rows | 0)));
+  ipcMain.on('cockpit:close', (_e, id: string) => cfg.ptyHost.kill(String(id)));
 
   // Frameless-window controls (the title bar draws its own buttons).
   ipcMain.handle('win:minimize', () => cfg.win.minimize());

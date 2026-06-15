@@ -5,6 +5,7 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./xterm.css" />
     <link rel="icon" href="./assets/icon-256.png" />
     <title>DevDeck</title>
   </head>
@@ -28,6 +29,7 @@
       <nav id="rail" aria-label="Views">
         <button class="rail-item active" data-view="projects" title="Projects" aria-current="page" aria-label="Projects">📁</button>
         <button class="rail-item" data-view="usage" title="Usage" aria-label="Usage">📊</button>
+        <button class="rail-item" data-view="cockpit" title="Cockpit" aria-label="Cockpit">🖥</button>
         <button class="rail-item" data-view="settings" title="Settings" aria-label="Settings">⚙</button>
         <button class="rail-item" data-view="next" title="Next" aria-label="Next">📋</button>
         <span class="rail-spacer"></span>
@@ -57,6 +59,19 @@
           <div id="cards">로딩 중…</div>
         </section>
         <section id="view-usage" class="view"></section>
+        <section id="view-cockpit" class="view">
+          <div class="ck-wrap">
+            <aside class="ck-list">
+              <div class="ck-search"><span>🔎</span><input id="ck-search" type="text" placeholder="세션 검색…" aria-label="Search sessions" /></div>
+              <div id="ck-groups" class="ck-groups"></div>
+            </aside>
+            <section class="ck-main">
+              <div id="ck-header" class="ck-header"></div>
+              <div id="ck-terms" class="ck-terms"></div>
+              <div id="ck-empty" class="ck-empty"></div>
+            </section>
+          </div>
+        </section>
         <section id="view-settings" class="view"><div id="settings-form"></div></section>
         <section id="view-next" class="view"></section>
       </main>

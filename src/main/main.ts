@@ -1,10 +1,25 @@
 import { app, BrowserWindow, globalShortcut } from 'electron';
 import * as path from 'node:path';
+import * as nodePty from '@homebridge/node-pty-prebuilt-multiarch';
 import { Store } from './store';
 import { registerIpc } from './ipc';
+import { PtyHost, type PtySpawn } from './ptyHost';
 import { setupTray } from './tray';
 import { registerUpdater } from './updater';
 import { applyOpenAtLogin } from './autostart';
+
+const realSpawn: PtySpawn = (file, args, opts) => {
+  const p = nodePty.spawn(file, args, { name: 'xterm-256color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows });
+  return {
+    pid: p.pid,
+    onData: (cb) => { p.onData(cb); },
+    onExit: (cb) => { p.onExit((e) => cb({ exitCode: e.exitCode })); },
+    write: (d) => p.write(d),
+    resize: (c, r) => p.resize(c, r),
+    kill: () => p.kill(),
+  };
+};
+const ptyHost = new PtyHost(realSpawn);
 
 let win: BrowserWindow | null = null;
 
@@ -60,6 +75,7 @@ if (!gotLock) {
       store,
       sendError: (msg) => w.webContents.send('devdeck:error', msg),
       defaultLanguage: app.getLocale().split('-')[0] || 'en',
+      ptyHost,
     });
     setupTray(w);
     registerUpdater(w);
@@ -68,5 +84,6 @@ if (!gotLock) {
   });
 
   app.on('window-all-closed', () => { /* stay alive in tray */ });
+  app.on('before-quit', () => ptyHost.killAll());
   app.on('will-quit', () => globalShortcut.unregisterAll());
 }

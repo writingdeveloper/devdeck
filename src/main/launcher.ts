@@ -1,4 +1,5 @@
 import { spawn, execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { win32 as pathWin32 } from 'node:path';
 import { buildWtArgs, type WtTab } from '../shared/wtArgs';
 import { buildMacLaunch, buildLinuxLaunch, type LaunchCmd } from '../shared/posixLaunch';
@@ -33,6 +34,15 @@ function whichProbe(probe: string): ExistsProbe {
   };
 }
 const defaultPwshExists = whichProbe('where');
+
+/** Absolute path to a PowerShell executable for node-pty (which needs a resolvable path, unlike child_process). Windows-targeted. */
+export function resolveShellPath(): string {
+  try {
+    const found = execFileSync('where', ['pwsh'], { windowsHide: true }).toString().trim().split(/\r?\n/)[0];
+    if (found && existsSync(found)) return found;
+  } catch { /* pwsh not on PATH — fall back to Windows PowerShell */ }
+  return pathWin32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
 
 /** Prefer PowerShell 7 (`pwsh`) if it is on PATH, else fall back to Windows PowerShell. */
 export function resolveShell(exists: ExistsProbe = defaultPwshExists): string {

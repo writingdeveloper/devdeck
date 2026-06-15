@@ -42,4 +42,15 @@ contextBridge.exposeInMainWorld('devdeck', {
     onMaximizeChange: (cb: (maximized: boolean) => void) =>
       ipcRenderer.on('win:maximize-changed', (_e, m: boolean) => cb(m)),
   },
+  cockpit: {
+    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number }) =>
+      ipcRenderer.invoke('cockpit:open', req),
+    input: (id: string, data: string) => ipcRenderer.send('cockpit:input', id, data),
+    resize: (id: string, cols: number, rows: number) => ipcRenderer.send('cockpit:resize', id, cols, rows),
+    close: (id: string) => ipcRenderer.send('cockpit:close', id),
+    onData: (cb: (p: { id: string; chunk: string }) => void) =>
+      ipcRenderer.on('cockpit:data', (_e, p) => cb(p)),
+    onExit: (cb: (p: { id: string; exitCode: number }) => void) =>
+      ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
+  },
 });

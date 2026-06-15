@@ -23,6 +23,7 @@
   "nav.settings": "设置",
   "nav.language": "语言",
   "nav.next": "待办",
+  "nav.cockpit": "控制台",
   "agent.label": "代理",
   "agent.claude": "Claude",
   "agent.codex": "Codex",
@@ -98,5 +99,12 @@
   "about.up_to_date": "已是最新版本 ✓",
   "about.update_available": "发现新版本 v{version}",
   "about.check_failed": "检查更新失败",
-  "about.updates_dev": "更新仅适用于已安装的应用"
+  "about.updates_dev": "更新仅适用于已安装的应用",
+  "cockpit.search": "搜索会话…",
+  "cockpit.running": "运行中",
+  "cockpit.exited": "已退出",
+  "cockpit.empty": "没有打开的会话。请从「项目」中打开。",
+  "cockpit.restart": "重启",
+  "cockpit.close": "关闭",
+  "cockpit.open_folder": "打开文件夹"
 }

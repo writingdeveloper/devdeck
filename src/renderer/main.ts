@@ -3,6 +3,7 @@ import { mountNav } from './nav';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
+import { mountCockpit, showCockpit } from './cockpitView';
 import { setLanguage, tr, currentLang, SUPPORTED } from './i18n-runtime';
 
 const toastHost = document.getElementById('toast-host')!;
@@ -56,7 +57,7 @@ function applyStaticLabels(): void {
   const refreshBtn = document.querySelector<HTMLButtonElement>('#refresh')!;
   refreshBtn.title = tr('app.refresh');
   refreshBtn.setAttribute('aria-label', tr('app.refresh'));
-  const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next'], ['#lang-btn', 'nav.language']];
+  const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next'], ['[data-view="cockpit"]', 'nav.cockpit'], ['#lang-btn', 'nav.language']];
   for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) { el.title = tr(key); el.setAttribute('aria-label', tr(key)); } }
   const agentSel = document.getElementById('agent-select');
   if (agentSel && !agentSel.classList.contains('hidden')) agentSel.setAttribute('aria-label', tr('agent.label'));
@@ -64,6 +65,8 @@ function applyStaticLabels(): void {
   if (chk?.lastChild) chk.lastChild.textContent = ' ' + tr('proj.neglected_only');
   const showHidden = document.getElementById('show-hidden');
   if (showHidden?.firstChild) showHidden.firstChild.textContent = '🙈 ' + tr('proj.hidden') + ' ';
+  const ckSearch = document.getElementById('ck-search') as HTMLInputElement | null;
+  if (ckSearch) ckSearch.placeholder = tr('cockpit.search');
 }
 
 function mountTitlebar(): void {
@@ -86,7 +89,8 @@ async function boot(): Promise<void> {
   mountUsage();
   mountSettings(() => { applyStaticLabels(); reloadProjects(); });
   mountNext();
-  mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); });
+  mountCockpit();
+  mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit(); });
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
   const agents = await window.devdeck.availableAgents();

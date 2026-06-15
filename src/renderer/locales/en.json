@@ -23,6 +23,7 @@
   "nav.settings": "Settings",
   "nav.language": "Language",
   "nav.next": "Next",
+  "nav.cockpit": "Cockpit",
   "agent.label": "Agent",
   "agent.claude": "Claude",
   "agent.codex": "Codex",
@@ -98,5 +99,12 @@
   "about.up_to_date": "You're up to date ✓",
   "about.update_available": "New version v{version} available",
   "about.check_failed": "Update check failed",
-  "about.updates_dev": "Updates apply to the installed app only"
+  "about.updates_dev": "Updates apply to the installed app only",
+  "cockpit.search": "Search sessions…",
+  "cockpit.running": "Running",
+  "cockpit.exited": "Exited",
+  "cockpit.empty": "No open sessions. Open one from Projects.",
+  "cockpit.restart": "Restart",
+  "cockpit.close": "Close",
+  "cockpit.open_folder": "Open folder"
 }
