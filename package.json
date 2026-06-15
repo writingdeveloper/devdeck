@@ -41,6 +41,7 @@
     "asarUnpack": [
       "**/node_modules/@homebridge/node-pty-prebuilt-multiarch/**"
     ],
+    "npmRebuild": false,
     "directories": {
       "output": "release"
     },
