@@ -11,7 +11,7 @@ See every repo's state at a glance — git status, how long it's been neglected,
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-31-47848F)
-![Tests](https://img.shields.io/badge/tests-203%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-215%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 <img src="docs/demo/demo.gif" width="820" alt="DevDeck demo" />
@@ -30,6 +30,7 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 - **📂 Multiple scan locations** — point DevDeck at several folders to scan for repos, or add individual repos that live anywhere; each is auto-detected.
 - **🚦 Staleness traffic-light** — fresh / warning / neglected, so dirty or abandoned repos surface themselves.
 - **▶ One-click resume** — opens a terminal in the repo and continues your last session with the active agent (`claude -c` / `codex resume`) — or pick a specific past session.
+- **🖥 Cockpit (embedded terminals · Windows)** — on Windows, **Open** drops you straight into an in-app terminal instead of a pile of external windows: a searchable session list (running / idle, staleness-colored) on the left, the live agent terminal with a branch · agent status bar on the right — so running 10+ projects no longer means a wall of shrinking, unreadable tabs. (macOS/Linux keep opening your external terminal.)
 - **↩ Resume cue** — auto-reads the *last thing you asked* in each project's newest session (Claude or Codex) and shows it in the note slot, so "where was I?" needs no typing. Click to adopt it as your note.
 - **📋 "Next" view** — every project's note (or resume cue) gathered into one cross-project "what's next" list.
 - **↑ Unpushed signal** — commits ahead of your remote, flagged on the card so unprotected work stands out.
