@@ -251,6 +251,11 @@ button.primary:hover { background: var(--accent-hover); }
 .about-status { font-size: 12px; color: var(--text-dim); }
 .about-meta { font-size: 12px; color: var(--text-faint); margin-top: 8px; }
 
+/* The cockpit must fill #content's height. #view-cockpit is a .view (display:block, auto
+   height), so .ck-wrap's height:100% would collapse the whole cockpit to ~content height
+   (the terminal shrank to ~6 rows). #content has a definite (flex-stretched) height, so
+   giving the view height:100% lets the percentage chain resolve and the terminal fill. */
+#view-cockpit { height: 100%; overflow: hidden; }
 .ck-wrap { display: flex; height: 100%; }
 .ck-list { width: 250px; flex: 0 0 250px; border-right: 1px solid var(--border); background: #101218; display: flex; flex-direction: column; overflow-y: auto; }
 .ck-search { margin: 11px; display: flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 9px; color: var(--text-faint); }

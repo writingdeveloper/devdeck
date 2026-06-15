@@ -117,6 +117,20 @@ await showView('cockpit');
 await win.waitForSelector('#ck-empty', { timeout: 5000 }).catch(() => {});
 await shot('cockpit');
 
+// Regression guard: the cockpit must fill #content's height. A CSS height bug once
+// collapsed #view-cockpit to ~content height, shrinking the embedded terminal to a ~6-row strip.
+const ckFill = await win.evaluate(() => {
+  const content = document.getElementById('content').getBoundingClientRect().height;
+  const main = document.querySelector('#view-cockpit .ck-main')?.getBoundingClientRect().height ?? 0;
+  return { content: Math.round(content), main: Math.round(main), ratio: content ? main / content : 0 };
+});
+console.log(`cockpit fill: main=${ckFill.main}px content=${ckFill.content}px ratio=${ckFill.ratio.toFixed(2)}`);
+if (ckFill.ratio < 0.8) {
+  console.error(`QA FAILED — cockpit pane collapsed (main ${ckFill.main}px of content ${ckFill.content}px); the embedded terminal would render tiny.`);
+  await app.close();
+  process.exit(1);
+}
+
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));
 console.log(`\nconsole errors: ${consoleErrors.length}, page errors: ${pageErrors.length}`);
 
