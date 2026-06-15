@@ -11,7 +11,7 @@ See every repo's state at a glance — git status, how long it's been neglected,
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-31-47848F)
-![Tests](https://img.shields.io/badge/tests-172%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-203%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 <img src="docs/demo/demo.gif" width="820" alt="DevDeck demo" />
@@ -33,7 +33,7 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 - **↩ Resume cue** — auto-reads the *last thing you asked* in each project's newest session (Claude or Codex) and shows it in the note slot, so "where was I?" needs no typing. Click to adopt it as your note.
 - **📋 "Next" view** — every project's note (or resume cue) gathered into one cross-project "what's next" list.
 - **↑ Unpushed signal** — commits ahead of your remote, flagged on the card so unprotected work stands out.
-- **{ } Open in editor** (VS Code) and **📁 open folder** straight from a card; the deck **auto-refreshes** while it's open.
+- **{ } Open in editor** (VS Code) and **📁 open folder** straight from a card; the deck **auto-refreshes in place** while it's open — only the cards that changed update, so there's no flicker as you work.
 - **🐙 Jump to GitHub** — projects with a `github.com` remote show a GitHub icon; click it to open the repo page in your browser.
 - **📝 Per-project notes** — jot your next todo; it sticks with the card.
 - **📊 Usage analytics** — tokens, cache-hit rate, an API-equivalent cost estimate, and **active working-time** per project (real focused time, idle gaps excluded), parsed locally from `~/.claude`.
