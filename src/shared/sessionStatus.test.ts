@@ -26,11 +26,16 @@ describe('hasPromptPattern', () => {
 });
 
 describe('computeActivity', () => {
-  const base = { exited: false, lastDataAt: 1000, now: 1000, recentOutput: '' };
+  // lastInputAt far in the past so the "user typing" branch is off unless a test sets it.
+  const base = { exited: false, lastDataAt: 1000, lastInputAt: -1e9, now: 1000, recentOutput: '' };
   it('exited wins', () => {
     expect(computeActivity({ ...base, exited: true })).toBe('exited');
   });
-  it('recent output => working', () => {
+  it('recent user input => turn, NOT working (keystroke echo must not look like agent work)', () => {
+    // data is fresh (would be 'working') but the user just typed → stable 'turn'
+    expect(computeActivity({ ...base, lastDataAt: 1000, lastInputAt: 1000, now: 1500 })).toBe('turn');
+  });
+  it('recent output (no recent input) => working', () => {
     expect(computeActivity({ ...base, now: 1000 + WORKING_MS })).toBe('working');
   });
   it('stopped + prompt => attention', () => {

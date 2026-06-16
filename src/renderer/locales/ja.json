@@ -114,6 +114,7 @@
   "cockpit.st_exited": "終了",
   "cockpit.grp_attention": "要対応",
   "cockpit.grp_working": "実行中",
+  "cockpit.grp_turn": "あなたの番",
   "cockpit.grp_idle": "アイドル / 終了",
   "cockpit.prev_sessions": "前回のセッション",
   "cockpit.restore": "復元",

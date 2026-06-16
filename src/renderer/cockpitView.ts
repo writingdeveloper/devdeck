@@ -7,7 +7,7 @@ import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitP
 import type { StaleLevel } from '../shared/types';
 import { tr } from './i18n-runtime';
 
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; recentOutput: string; openedSessionId: string | null; }
+interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; }
 
 const live = new Map<string, Live>();
@@ -96,10 +96,10 @@ async function createSession(p: OpenReq): Promise<void> {
   const session: CockpitSession = { id: res.id, projectPath: p.path, name: p.name, agentId: res.agentId, status: 'running', staleLevel: p.staleLevel, branch: p.branch, dirty: p.dirty, activity: 'working' };
   term.onData((d) => {
     window.devdeck.cockpit.input(res.id, d);
-    const l = live.get(res.id); // typing answers any pending prompt → clear the buffer so 'attention' doesn't stick
-    if (l) l.recentOutput = '';
+    const l = live.get(res.id); // typing answers any pending prompt → clear the buffer + mark input so it reads as "your turn", not "working"
+    if (l) { l.recentOutput = ''; l.lastInputAt = Date.now(); }
   });
-  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), recentOutput: '', openedSessionId: p.sessionId ?? null });
+  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: p.sessionId ?? null });
   restorable = restorable.filter((r) => r.projectPath !== p.path); // now live → no longer a "previous" entry
   select(res.id);
   updateRailBadge();
@@ -123,7 +123,7 @@ function tickActivity(): void {
   const now = Date.now();
   let changed = false;
   for (const l of live.values()) {
-    const next = computeActivity({ exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, now, recentOutput: l.recentOutput });
+    const next = computeActivity({ exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, lastInputAt: l.lastInputAt, now, recentOutput: l.recentOutput });
     if (next !== l.session.activity) { l.session.activity = next; changed = true; }
   }
   if (changed) { renderList(); updateRailBadge(); }

@@ -30,10 +30,11 @@ describe('groupByActivity', () => {
       s({ id: 'i', name: 'i', activity: 'idle' }),
     ];
     const g = groupByActivity(list);
-    expect(g.map((x) => x.bucket)).toEqual(['attention', 'working', 'idle']);
-    expect(g[0].items.map((x) => x.id)).toEqual(['a', 't']); // attention before turn
+    expect(g.map((x) => x.bucket)).toEqual(['attention', 'working', 'turn', 'idle']);
+    expect(g[0].items.map((x) => x.id)).toEqual(['a']);
     expect(g[1].items.map((x) => x.id)).toEqual(['w']);
-    expect(g[2].items.map((x) => x.id)).toEqual(['i', 'e']); // idle before exited
+    expect(g[2].items.map((x) => x.id)).toEqual(['t']); // 'turn' is its own "Your turn" group
+    expect(g[3].items.map((x) => x.id)).toEqual(['i', 'e']); // idle before exited
   });
   it('omits empty buckets', () => {
     expect(groupByActivity([s({ activity: 'working' })]).map((x) => x.bucket)).toEqual(['working']);
@@ -41,9 +42,9 @@ describe('groupByActivity', () => {
 });
 
 describe('needsAttentionCount', () => {
-  it('counts attention + turn', () => {
+  it('counts only attention (a question) — not turn / typing', () => {
     const list = [s({ activity: 'attention' }), s({ activity: 'turn' }), s({ activity: 'working' }), s({ activity: 'idle' })];
-    expect(needsAttentionCount(list)).toBe(2);
+    expect(needsAttentionCount(list)).toBe(1);
   });
 });
 

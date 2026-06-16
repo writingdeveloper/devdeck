@@ -287,7 +287,7 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
 .ck-spin { width: 10px; height: 10px; border: 1.6px solid #3fb950; border-right-color: transparent; border-radius: 50%; animation: ck-spin .7s linear infinite; }
 @keyframes ck-spin { to { transform: rotate(360deg); } }
-.ck-row.act-turn .ck-dot { background: var(--warn); }
+.ck-row.act-turn .ck-dot { background: var(--accent); }
 .ck-row.act-idle .ck-dot { background: var(--neutral); opacity: .55; }
 .ck-row.act-exited .ck-dot { background: transparent; border: 1.5px solid var(--text-faint); }
 .ck-row.act-attention { background: #241512; border-left-color: var(--bad); }

@@ -114,6 +114,7 @@
   "cockpit.st_exited": "Exited",
   "cockpit.grp_attention": "Needs you",
   "cockpit.grp_working": "Working",
+  "cockpit.grp_turn": "Your turn",
   "cockpit.grp_idle": "Idle / exited",
   "cockpit.prev_sessions": "Previous",
   "cockpit.restore": "Restore",

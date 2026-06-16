@@ -114,6 +114,7 @@
   "cockpit.st_exited": "已退出",
   "cockpit.grp_attention": "需要关注",
   "cockpit.grp_working": "工作中",
+  "cockpit.grp_turn": "轮到你",
   "cockpit.grp_idle": "空闲 / 已退出",
   "cockpit.prev_sessions": "上次会话",
   "cockpit.restore": "恢复",

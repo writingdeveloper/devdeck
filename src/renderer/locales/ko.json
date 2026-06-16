@@ -114,6 +114,7 @@
   "cockpit.st_exited": "종료",
   "cockpit.grp_attention": "주목 필요",
   "cockpit.grp_working": "작업 중",
+  "cockpit.grp_turn": "내 차례",
   "cockpit.grp_idle": "유휴 / 종료",
   "cockpit.prev_sessions": "이전 세션",
   "cockpit.restore": "복원",

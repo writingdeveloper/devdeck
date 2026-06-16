@@ -11,7 +11,7 @@ See every repo's state at a glance — git status, how long it's been neglected,
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-31-47848F)
-![Tests](https://img.shields.io/badge/tests-259%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-260%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 <img src="docs/demo/demo.gif" width="820" alt="DevDeck demo" />

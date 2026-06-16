@@ -2,6 +2,9 @@ export type ActivityState = 'working' | 'attention' | 'turn' | 'idle' | 'exited'
 
 export const WORKING_MS = 1500;
 export const IDLE_MS = 180_000; // 3 min of silence => idle (vs a fresh "your turn")
+// The user typed this recently => "your turn", never "working" (the PTY just echoes keystrokes,
+// which must not be mistaken for agent output). Kept > WORKING_MS so a typing pause can't flip to 'working'.
+export const INPUT_ACTIVE_MS = 2000;
 
 /**
  * Strip ANSI/VT escape sequences (CSI and OSC) so prompt patterns match on plain text.
@@ -47,8 +50,11 @@ export function hasPromptPattern(recentOutput: string): boolean {
   return PROMPT_PATTERNS.some((re) => re.test(recentOutput));
 }
 
-export function computeActivity(i: { exited: boolean; lastDataAt: number; now: number; recentOutput: string }): ActivityState {
+export function computeActivity(i: { exited: boolean; lastDataAt: number; lastInputAt: number; now: number; recentOutput: string }): ActivityState {
   if (i.exited) return 'exited';
+  // The user actively typing is engaged, not the agent working — keep it a stable "your turn"
+  // so the indicator (and the needs-you badge) don't flicker as keystrokes echo back.
+  if (i.now - i.lastInputAt <= INPUT_ACTIVE_MS) return 'turn';
   if (i.now - i.lastDataAt <= WORKING_MS) return 'working';
   if (hasPromptPattern(i.recentOutput)) return 'attention';
   if (i.now - i.lastDataAt < IDLE_MS) return 'turn';

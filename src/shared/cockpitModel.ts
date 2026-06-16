@@ -22,19 +22,23 @@ export function filterSessions(list: CockpitSession[], query: string): CockpitSe
     s.name.toLowerCase().includes(q) || (s.branch ?? '').toLowerCase().includes(q));
 }
 
-const ACTIVITY_RANK: Record<ActivityState, number> = { attention: 0, turn: 1, working: 2, idle: 3, exited: 4 };
-const BUCKET_OF: Record<ActivityState, 'attention' | 'working' | 'idle'> = { attention: 'attention', turn: 'attention', working: 'working', idle: 'idle', exited: 'idle' };
-const BUCKET_ORDER = ['attention', 'working', 'idle'] as const;
+type Bucket = 'attention' | 'working' | 'turn' | 'idle';
+const ACTIVITY_RANK: Record<ActivityState, number> = { attention: 0, working: 1, turn: 2, idle: 3, exited: 4 };
+// 'turn' is its own calm "Your turn" bucket (separate from "Needs you"), so an active/just-finished
+// session isn't lumped with genuine agent questions and doesn't inflate the needs-you badge.
+const BUCKET_OF: Record<ActivityState, Bucket> = { attention: 'attention', working: 'working', turn: 'turn', idle: 'idle', exited: 'idle' };
+const BUCKET_ORDER = ['attention', 'working', 'turn', 'idle'] as const;
 
-export function groupByActivity(list: CockpitSession[]): { bucket: 'attention' | 'working' | 'idle'; items: CockpitSession[] }[] {
+export function groupByActivity(list: CockpitSession[]): { bucket: Bucket; items: CockpitSession[] }[] {
   const sorted = [...list].sort((a, b) => ACTIVITY_RANK[a.activity] - ACTIVITY_RANK[b.activity] || a.name.localeCompare(b.name));
   return BUCKET_ORDER
     .map((bucket) => ({ bucket, items: sorted.filter((s) => BUCKET_OF[s.activity] === bucket) }))
     .filter((g) => g.items.length > 0);
 }
 
+/** The rail badge surfaces only sessions where the AGENT is waiting on you (a question) — not your turn / typing. */
 export function needsAttentionCount(list: CockpitSession[]): number {
-  return list.filter((s) => s.activity === 'attention' || s.activity === 'turn').length;
+  return list.filter((s) => s.activity === 'attention').length;
 }
 
 /** The cockpit (embedded node-pty terminals) is Windows-only for now; other OSes keep the external terminal. */
