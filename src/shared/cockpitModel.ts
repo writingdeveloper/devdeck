@@ -41,16 +41,20 @@ export function needsAttentionCount(list: CockpitSession[]): number {
   return list.filter((s) => s.activity === 'attention').length;
 }
 
-/** Display labels for the session list: a `#N` suffix (by input order) only where a project has >1 session. */
-export function labelByProject(items: { projectPath: string; name: string }[]): string[] {
+/**
+ * Disambiguate the session list: append a `#N` suffix (by input order) only to display names that
+ * appear more than once, so a unique (e.g. custom-renamed) name is shown as-is and any two sessions
+ * that would otherwise read identically become `name #1` / `name #2`.
+ */
+export function numberCollidingNames(names: string[]): string[] {
   const total = new Map<string, number>();
-  for (const it of items) total.set(it.projectPath, (total.get(it.projectPath) ?? 0) + 1);
+  for (const n of names) total.set(n, (total.get(n) ?? 0) + 1);
   const seen = new Map<string, number>();
-  return items.map((it) => {
-    if ((total.get(it.projectPath) ?? 0) <= 1) return it.name;
-    const n = (seen.get(it.projectPath) ?? 0) + 1;
-    seen.set(it.projectPath, n);
-    return `${it.name} #${n}`;
+  return names.map((name) => {
+    if ((total.get(name) ?? 0) <= 1) return name;
+    const k = (seen.get(name) ?? 0) + 1;
+    seen.set(name, k);
+    return `${name} #${k}`;
   });
 }
 

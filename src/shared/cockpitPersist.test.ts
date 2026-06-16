@@ -8,9 +8,16 @@ describe('sanitizePersistedList', () => {
     expect(sanitizePersistedList('x')).toEqual([]);
   });
 
-  it('keeps valid entries verbatim', () => {
+  it('keeps valid entries verbatim (label defaults to null)', () => {
     const r = sanitizePersistedList([{ projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'codex' }]);
-    expect(r).toEqual([{ projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'codex' }]);
+    expect(r).toEqual([{ projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'codex', label: null }]);
+  });
+
+  it('keeps, trims, and caps a custom label; coerces empty/non-string to null', () => {
+    expect(sanitizePersistedList([{ projectPath: 'C:/a', label: '  auth refactor  ' }])[0].label).toBe('auth refactor');
+    expect(sanitizePersistedList([{ projectPath: 'C:/a', label: 'x'.repeat(80) }])[0].label).toHaveLength(60);
+    expect(sanitizePersistedList([{ projectPath: 'C:/a', label: '   ' }])[0].label).toBeNull();
+    expect(sanitizePersistedList([{ projectPath: 'C:/a', label: 42 }])[0].label).toBeNull();
   });
 
   it('drops entries without a string projectPath', () => {

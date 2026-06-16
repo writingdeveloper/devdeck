@@ -121,8 +121,8 @@ describe('Store', () => {
   it('round-trips cockpitSessions (default [])', () => {
     const s = new Store(file);
     expect(s.getCockpitSessions()).toEqual([]);
-    s.setCockpitSessions([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex' }]);
-    expect(new Store(file).getCockpitSessions()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex' }]);
+    s.setCockpitSessions([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex', label: 'auth' }]);
+    expect(new Store(file).getCockpitSessions()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex', label: 'auth' }]);
   });
 
   it('sanitizes corrupted cockpitSessions on read', () => {

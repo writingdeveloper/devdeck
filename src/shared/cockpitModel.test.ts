@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, labelByProject, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, numberCollidingNames, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -48,16 +48,15 @@ describe('needsAttentionCount', () => {
   });
 });
 
-describe('labelByProject', () => {
-  it('no suffix when a project has a single session', () => {
-    expect(labelByProject([{ projectPath: 'a', name: 'devdeck' }])).toEqual(['devdeck']);
+describe('numberCollidingNames', () => {
+  it('leaves unique names unchanged', () => {
+    expect(numberCollidingNames(['auth refactor', 'devdeck', 'api'])).toEqual(['auth refactor', 'devdeck', 'api']);
   });
-  it('appends #N by order when a project has multiple sessions', () => {
-    expect(labelByProject([
-      { projectPath: 'a', name: 'devdeck' },
-      { projectPath: 'b', name: 'api' },
-      { projectPath: 'a', name: 'devdeck' },
-    ])).toEqual(['devdeck #1', 'api', 'devdeck #2']);
+  it('appends #N by order to names that collide', () => {
+    expect(numberCollidingNames(['devdeck', 'api', 'devdeck'])).toEqual(['devdeck #1', 'api', 'devdeck #2']);
+  });
+  it('numbers each colliding name group independently', () => {
+    expect(numberCollidingNames(['x', 'y', 'x', 'y', 'x'])).toEqual(['x #1', 'y #1', 'x #2', 'y #2', 'x #3']);
   });
 });
 

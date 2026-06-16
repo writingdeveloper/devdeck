@@ -4,9 +4,11 @@ export interface PersistedSession {
   name: string;
   sessionId: string | null; // the specific session to resume, or null to continue/new
   agentId: string;          // 'claude' | 'codex' — which agent the session was opened with
+  label?: string | null;    // user-given custom name (overrides the auto label); null/absent = auto
 }
 
 const MAX_PERSISTED = 50;
+const MAX_LABEL = 60;
 
 function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -25,11 +27,13 @@ export function sanitizePersistedList(raw: unknown): PersistedSession[] {
     if (!r || typeof r !== 'object') continue;
     const o = r as Record<string, unknown>;
     if (typeof o.projectPath !== 'string' || !o.projectPath) continue;
+    const label = typeof o.label === 'string' && o.label.trim() ? o.label.trim().slice(0, MAX_LABEL) : null;
     out.push({
       projectPath: o.projectPath,
       name: typeof o.name === 'string' && o.name ? o.name : basename(o.projectPath),
       sessionId: typeof o.sessionId === 'string' ? o.sessionId : null,
       agentId: o.agentId === 'codex' ? 'codex' : 'claude',
+      label,
     });
     if (out.length >= MAX_PERSISTED) break;
   }

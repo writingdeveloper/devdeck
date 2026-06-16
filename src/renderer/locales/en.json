@@ -107,6 +107,7 @@
   "cockpit.restart": "Restart",
   "cockpit.close": "Close",
   "cockpit.new_session": "New session",
+  "cockpit.rename": "Rename",
   "cockpit.open_folder": "Open folder",
   "cockpit.st_working": "Working",
   "cockpit.st_attention": "Awaiting you",

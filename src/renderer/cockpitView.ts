@@ -1,19 +1,20 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { filterSessions, groupByActivity, needsAttentionCount, labelByProject, type CockpitSession } from '../shared/cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { decideKeyAction } from '../shared/terminalKeys';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import type { StaleLevel } from '../shared/types';
 import { tr } from './i18n-runtime';
 
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; }
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; }
+interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; customLabel: string | null; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; }
 
 const live = new Map<string, Live>();
 let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
 let restorableLoaded = false; // guard: don't persist (and clobber the on-disk list) until the initial load resolves
 let liveLabels = new Map<string, string>(); // live session id -> display label (#N when a project has several sessions)
+let editingId: string | null = null; // session being inline-renamed (rendered as an <input> in its row, so re-renders keep it)
 let selectedId: string | null = null;
 let searchEl: HTMLInputElement, groupsEl: HTMLElement, headerEl: HTMLElement, termsEl: HTMLElement, emptyEl: HTMLElement, mainEl: HTMLElement;
 let mounted = false;
@@ -28,6 +29,10 @@ export function mountCockpit(): void {
   emptyEl = document.getElementById('ck-empty')!;
   mainEl = document.querySelector('#view-cockpit .ck-main')!;
   searchEl.addEventListener('input', renderList);
+  const newBtn = document.getElementById('ck-new-session') as HTMLButtonElement;
+  document.getElementById('ck-new-label')!.textContent = tr('cockpit.new_session');
+  newBtn.title = tr('cockpit.new_session');
+  newBtn.addEventListener('click', () => void addSessionToCurrentProject());
 
   window.devdeck.cockpit.onData(({ id, chunk }) => {
     const l = live.get(id); if (!l) return;
@@ -56,7 +61,7 @@ export function mountCockpit(): void {
 function persist(): void {
   if (!restorableLoaded) return; // initial load not done — persisting now would overwrite the unread list
   const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
-  const fromLive: PersistedSession[] = [...live.values()].map((l) => ({ projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId }));
+  const fromLive: PersistedSession[] = [...live.values()].map((l) => ({ projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel }));
   const rest = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId))); // keep siblings + null-id (codex) entries
   window.devdeck.cockpit.saveSessions([...fromLive, ...rest]);
 }
@@ -101,7 +106,7 @@ async function createSession(p: OpenReq): Promise<void> {
     const l = live.get(res.id); // typing answers any pending prompt → clear the buffer + mark input so it reads as "your turn", not "working"
     if (l) { l.recentOutput = ''; l.lastInputAt = Date.now(); }
   });
-  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null });
+  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, customLabel: p.label ?? null });
   if (res.sessionId) restorable = restorable.filter((r) => r.sessionId !== res.sessionId); // dedupe by session id, not path (siblings stay)
   select(res.id);
   updateRailBadge();
@@ -128,7 +133,8 @@ function tickActivity(): void {
     const next = computeActivity({ exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, lastInputAt: l.lastInputAt, now, recentOutput: l.recentOutput });
     if (next !== l.session.activity) { l.session.activity = next; changed = true; }
   }
-  if (changed) { renderList(); updateRailBadge(); }
+  // Don't rebuild the list mid-rename (it would recreate the <input> and clobber what's being typed).
+  if (changed) { if (!editingId) renderList(); updateRailBadge(); }
 }
 
 function renderAll(): void { renderList(); renderHeader(); }
@@ -141,11 +147,12 @@ function renderList(): void {
   // the same project stay — dedupe is per session id, not per path).
   const prev = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId)) && r.name.toLowerCase().includes(search));
 
-  // #N labels across the union (live + visible-restorable) so a project's sessions are numbered consistently.
-  const union = [...liveSessions.map((s) => ({ projectPath: s.projectPath, name: s.name })), ...prev.map((r) => ({ projectPath: r.projectPath, name: r.name }))];
-  const labels = labelByProject(union);
-  liveLabels = new Map(liveSessions.map((s, i) => [s.id, labels[i]]));
-  const prevLabels = prev.map((_r, i) => labels[liveSessions.length + i]);
+  // Display name = custom label (if renamed) else folder name; then #N only where two would read alike.
+  const liveLive = [...live.values()];
+  const union = [...liveLive.map((l) => l.customLabel || l.session.name), ...prev.map((r) => r.label || r.name)];
+  const labels = numberCollidingNames(union);
+  liveLabels = new Map(liveLive.map((l, i) => [l.session.id, labels[i]]));
+  const prevLabels = prev.map((_r, i) => labels[liveLive.length + i]);
 
   const filtered = filterSessions(liveSessions, searchEl?.value ?? '');
   groupsEl.replaceChildren();
@@ -165,6 +172,8 @@ function renderList(): void {
     prev.forEach((r, i) => groupsEl.appendChild(prevRow(r, prevLabels[i])));
   }
   emptyEl.textContent = liveSessions.length > 0 ? '' : (prev.length > 0 ? tr('cockpit.empty_prev') : tr('cockpit.empty'));
+  const newBtn = document.getElementById('ck-new-session') as HTMLButtonElement | null;
+  if (newBtn) newBtn.disabled = live.size === 0; // "+ New session" needs a project context (a live session)
 }
 
 function prevRow(r: PersistedSession, label: string): HTMLElement {
@@ -185,15 +194,24 @@ function row(s: CockpitSession): HTMLElement {
   const el = document.createElement('div');
   el.className = `ck-row act-${a}${s.id === selectedId ? ' sel' : ''}`;
   const dirty = s.dirty > 0 ? ` ✎${s.dirty}` : '';
-  el.innerHTML = `<span class="ck-ind"></span><div><div class="nm"></div><div class="mt"></div></div>`;
+  el.innerHTML = `<span class="ck-ind"></span><div><div class="nm"></div><div class="mt"></div></div><span class="ck-row-acts"></span>`;
   const ind = el.querySelector('.ck-ind')!;
   if (a === 'working') ind.innerHTML = '<span class="ck-spin"></span>';
   else if (a === 'attention') ind.textContent = '❓';
   else ind.innerHTML = '<span class="ck-dot"></span>';
-  el.querySelector('.nm')!.textContent = liveLabels.get(s.id) ?? s.name;
+  const nm = el.querySelector('.nm') as HTMLElement;
+  if (s.id === editingId) {
+    nm.replaceChildren(renameInput(s.id, live.get(s.id)?.customLabel ?? s.name));
+  } else {
+    nm.textContent = liveLabels.get(s.id) ?? s.name;
+    nm.addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(s.id); }); // rename: double-click the name…
+  }
   el.querySelector('.mt')!.textContent = `${s.branch ?? '-'}${dirty} · ${s.agentId}`;
   el.title = tr('cockpit.st_' + a);
-  el.addEventListener('click', () => select(s.id));
+  el.addEventListener('click', () => { if (editingId !== s.id) select(s.id); });
+  const rename = document.createElement('button'); rename.className = 'ck-rename'; rename.textContent = '✎'; rename.title = tr('cockpit.rename'); // …or the ✎ on hover
+  rename.addEventListener('click', (e) => { e.stopPropagation(); beginRename(s.id); });
+  el.querySelector('.ck-row-acts')!.appendChild(rename);
   return el;
 }
 
@@ -210,6 +228,8 @@ function renderHeader(): void {
   if (!l) return;
   const s = l.session;
   const title = document.createElement('span'); title.className = 'title'; title.textContent = liveLabels.get(s.id) ?? s.name;
+  title.title = tr('cockpit.rename');
+  title.addEventListener('dblclick', () => beginRename(s.id)); // edits in the session's list row (single editor, survives re-render)
   const branch = document.createElement('span'); branch.className = 'ck-pill'; branch.textContent = `⎇ ${s.branch ?? '-'}${s.dirty > 0 ? ` ✎${s.dirty}` : ''}`;
   const ag = document.createElement('span'); ag.className = 'ck-pill'; ag.textContent = `✦ ${s.agentId}`;
   const sp = document.createElement('span'); sp.className = 'sp';
@@ -256,7 +276,38 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
   restorable = restorable.filter((r) => r !== entry);
   const active = await window.devdeck.getAgent();
   const sessionId = entry.agentId === active ? entry.sessionId : null;
-  await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId });
+  await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId, label: entry.label ?? null });
+}
+
+/** Set a live session's custom name (empty → revert to the auto label); persist so it survives restart. */
+function renameSession(id: string, label: string): void {
+  const l = live.get(id); if (!l) return;
+  l.customLabel = label.trim() || null;
+  persist(); renderList(); renderHeader();
+}
+
+// Editing is RENDER STATE (editingId), not a mutated DOM node: a list rebuild (e.g. row click → select)
+// would otherwise orphan a captured <input> and the editor would silently never appear.
+function beginRename(id: string): void { editingId = id; renderList(); }
+function cancelRename(): void { editingId = null; renderList(); }
+function commitRename(id: string, value: string): void { editingId = null; renameSession(id, value); }
+
+/** Build the inline rename <input> rendered into the editing row's name slot. */
+function renameInput(id: string, current: string): HTMLInputElement {
+  const input = document.createElement('input');
+  input.type = 'text'; input.className = 'ck-rename-input'; input.value = current; input.maxLength = 60;
+  const stop = (e: Event) => e.stopPropagation(); // don't let editing leak to row-select
+  input.addEventListener('click', stop); input.addEventListener('dblclick', stop);
+  let done = false;
+  const finish = (commit: boolean) => { if (done) return; done = true; if (commit) commitRename(id, input.value); else cancelRename(); };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  requestAnimationFrame(() => { input.focus(); input.select(); }); // focus after it's in the rebuilt DOM
+  return input;
 }
 
 async function restoreAll(): Promise<void> {

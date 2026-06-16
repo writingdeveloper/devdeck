@@ -260,6 +260,11 @@ button.primary:hover { background: var(--accent-hover); }
 #view-cockpit { height: 100%; overflow: hidden; }
 .ck-wrap { display: flex; height: 100%; }
 .ck-list { width: 250px; flex: 0 0 250px; border-right: 1px solid var(--border); background: #101218; display: flex; flex-direction: column; overflow-y: auto; }
+/* Prominent "+ New session" button at the top of the session list (discoverable entry point). */
+.ck-new { margin: 11px 11px 0; display: flex; align-items: center; justify-content: center; gap: 7px; background: #1b1e3a; border: 1px solid var(--accent); color: var(--accent-hover); border-radius: 8px; padding: 8px 10px; font: inherit; font-weight: 600; cursor: pointer; }
+.ck-new:hover:not(:disabled) { background: #232861; }
+.ck-new:disabled { opacity: .4; cursor: default; border-color: var(--border-strong); color: var(--text-faint); }
+.ck-new-plus { font-size: 15px; line-height: 1; }
 .ck-search { margin: 11px; display: flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 9px; color: var(--text-faint); }
 .ck-search input { flex: 1; background: transparent; border: 0; color: var(--text); font: inherit; outline: none; }
 .ck-grp { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--text-faint); padding: 6px 15px 4px; }
@@ -304,6 +309,12 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-prev-acts { margin-left: auto; display: flex; align-items: center; }
 .ck-forget { background: transparent; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 6px; line-height: 1; }
 .ck-forget:hover { background: var(--bad); color: #fff; }
+/* Rename: a ✎ revealed on row hover, plus double-click the name. */
+.ck-row-acts { margin-left: auto; display: flex; align-items: center; }
+.ck-rename { background: transparent; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 6px; line-height: 1; opacity: 0; }
+.ck-row:hover .ck-rename { opacity: 1; }
+.ck-rename:hover { background: var(--surface-hover); color: var(--text); }
+.ck-rename-input { width: 100%; background: var(--bg); border: 1px solid var(--accent); border-radius: 5px; color: var(--text); font: inherit; font-size: 12.5px; padding: 1px 5px; outline: none; }
 
 #usage-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; height: 26px; padding: 0 12px; background: #0d0e12; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; }
 #usage-bar.hidden { display: none; }
