@@ -173,7 +173,14 @@ function renderList(): void {
   }
   emptyEl.textContent = liveSessions.length > 0 ? '' : (prev.length > 0 ? tr('cockpit.empty_prev') : tr('cockpit.empty'));
   const newBtn = document.getElementById('ck-new-session') as HTMLButtonElement | null;
-  if (newBtn) newBtn.disabled = live.size === 0; // "+ New session" needs a project context (a live session)
+  if (newBtn) {
+    newBtn.disabled = live.size === 0; // "+ New session" needs a project context (a live session)
+    // Show WHICH project it targets (the selected session's repo) so it's clearly "another session here".
+    const sel = selectedId ? live.get(selectedId) : null;
+    const text = sel ? `${tr('cockpit.new_session')} · ${sel.session.name}` : tr('cockpit.new_session');
+    const lbl = document.getElementById('ck-new-label'); if (lbl) lbl.textContent = text;
+    newBtn.title = text;
+  }
 }
 
 function prevRow(r: PersistedSession, label: string): HTMLElement {
@@ -211,7 +218,9 @@ function row(s: CockpitSession): HTMLElement {
   el.addEventListener('click', () => { if (editingId !== s.id) select(s.id); });
   const rename = document.createElement('button'); rename.className = 'ck-rename'; rename.textContent = '✎'; rename.title = tr('cockpit.rename'); // …or the ✎ on hover
   rename.addEventListener('click', (e) => { e.stopPropagation(); beginRename(s.id); });
-  el.querySelector('.ck-row-acts')!.appendChild(rename);
+  const close = document.createElement('button'); close.className = 'ck-close'; close.textContent = '✕'; close.title = tr('cockpit.close'); // ✕ closes the session (with confirm)
+  close.addEventListener('click', (e) => { e.stopPropagation(); void requestClose(s.id); });
+  el.querySelector('.ck-row-acts')!.append(rename, close);
   return el;
 }
 
@@ -236,7 +245,7 @@ function renderHeader(): void {
   const newSession = actBtn('+', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
   const folder = actBtn('📁', tr('cockpit.open_folder'), () => window.devdeck.openFolder(s.projectPath));
   const restart = actBtn('⟳', tr('cockpit.restart'), () => restartSession(s.id));
-  const close = actBtn('✕', tr('cockpit.close'), () => closeSession(s.id));
+  const close = actBtn('✕', tr('cockpit.close'), () => void requestClose(s.id));
   headerEl.append(title, branch, ag, sp, newSession, folder, restart, close);
 }
 
@@ -255,6 +264,38 @@ async function restartSession(id: string): Promise<void> {
   const l = live.get(id); if (!l) return;
   const p: OpenReq = { path: l.session.projectPath, name: l.session.name, staleLevel: l.session.staleLevel, branch: l.session.branch, dirty: l.session.dirty };
   closeSession(id); await createSession(p);
+}
+
+/** Small in-app confirmation modal (a DOM overlay, NOT window.confirm). Resolves true on confirm. */
+function confirmDialog(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div'); overlay.className = 'ck-confirm-overlay';
+    const panel = document.createElement('div'); panel.className = 'ck-confirm';
+    const msg = document.createElement('div'); msg.className = 'ck-confirm-msg'; msg.textContent = message;
+    const acts = document.createElement('div'); acts.className = 'ck-confirm-acts';
+    const cancel = document.createElement('button'); cancel.className = 'ck-confirm-cancel'; cancel.textContent = tr('cockpit.cancel');
+    const ok = document.createElement('button'); ok.className = 'ck-confirm-ok'; ok.textContent = tr('cockpit.close');
+    const done = (v: boolean) => { document.removeEventListener('keydown', onKey, true); overlay.remove(); resolve(v); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' && e.key !== 'Enter') return;
+      e.preventDefault(); e.stopPropagation(); // keep Esc/Enter inside the dialog (don't leak to terminal/rename)
+      done(e.key === 'Enter');
+    };
+    cancel.addEventListener('click', () => done(false));
+    ok.addEventListener('click', () => done(true));
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) done(false); });
+    document.addEventListener('keydown', onKey, true);
+    acts.append(cancel, ok); panel.append(msg, acts); overlay.append(panel);
+    document.body.appendChild(overlay);
+    ok.focus();
+  });
+}
+
+/** User-facing close (row ✕ / header ✕): confirm first. restartSession calls closeSession directly (no confirm). */
+async function requestClose(id: string): Promise<void> {
+  const l = live.get(id); if (!l) return;
+  const name = liveLabels.get(id) ?? l.session.name;
+  if (await confirmDialog(tr('cockpit.close_confirm').replace('{name}', name))) closeSession(id);
 }
 
 function closeSession(id: string): void {

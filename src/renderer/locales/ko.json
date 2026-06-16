@@ -108,6 +108,8 @@
   "cockpit.close": "닫기",
   "cockpit.new_session": "새 세션",
   "cockpit.rename": "이름 변경",
+  "cockpit.cancel": "취소",
+  "cockpit.close_confirm": "'{name}' 세션을 닫을까요?",
   "cockpit.open_folder": "폴더 열기",
   "cockpit.st_working": "작업 중",
   "cockpit.st_attention": "질문 대기",

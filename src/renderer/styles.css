@@ -315,6 +315,23 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row:hover .ck-rename { opacity: 1; }
 .ck-rename:hover { background: var(--surface-hover); color: var(--text); }
 .ck-rename-input { width: 100%; background: var(--bg); border: 1px solid var(--accent); border-radius: 5px; color: var(--text); font: inherit; font-size: 12.5px; padding: 1px 5px; outline: none; }
+/* Close a session from the row (✕, hover-revealed, red on hover) — with a confirm. */
+.ck-close { background: transparent; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 6px; line-height: 1; opacity: 0; }
+.ck-row:hover .ck-close { opacity: 1; }
+.ck-close:hover { background: var(--bad); color: #fff; }
+/* + New session: keep the target-project label on one line with ellipsis. */
+#ck-new-session { min-width: 0; }
+#ck-new-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* In-app close confirmation (DOM overlay, not window.confirm). */
+.ck-confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 80; }
+.ck-confirm { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; padding: 18px 20px; width: 320px; max-width: calc(100vw - 32px); box-shadow: 0 12px 40px rgba(0,0,0,.55); }
+.ck-confirm-msg { color: var(--text); font-size: 13px; margin-bottom: 16px; line-height: 1.4; }
+.ck-confirm-acts { display: flex; justify-content: flex-end; gap: 8px; }
+.ck-confirm-cancel, .ck-confirm-ok { font: inherit; border-radius: 7px; padding: 6px 14px; cursor: pointer; border: 1px solid var(--border-strong); }
+.ck-confirm-cancel { background: transparent; color: var(--text-dim); }
+.ck-confirm-cancel:hover { background: var(--surface-hover); color: var(--text); }
+.ck-confirm-ok { background: var(--bad); border-color: var(--bad); color: #fff; }
+.ck-confirm-ok:hover { filter: brightness(1.08); }
 
 #usage-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; height: 26px; padding: 0 12px; background: #0d0e12; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; }
 #usage-bar.hidden { display: none; }

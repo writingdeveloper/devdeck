@@ -108,6 +108,8 @@
   "cockpit.close": "閉じる",
   "cockpit.new_session": "新規セッション",
   "cockpit.rename": "名前を変更",
+  "cockpit.cancel": "キャンセル",
+  "cockpit.close_confirm": "セッション「{name}」を閉じますか？",
   "cockpit.open_folder": "フォルダを開く",
   "cockpit.st_working": "実行中",
   "cockpit.st_attention": "確認待ち",

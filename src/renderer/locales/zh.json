@@ -108,6 +108,8 @@
   "cockpit.close": "关闭",
   "cockpit.new_session": "新会话",
   "cockpit.rename": "重命名",
+  "cockpit.cancel": "取消",
+  "cockpit.close_confirm": "关闭会话 '{name}'？",
   "cockpit.open_folder": "打开文件夹",
   "cockpit.st_working": "工作中",
   "cockpit.st_attention": "等待确认",

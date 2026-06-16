@@ -108,6 +108,8 @@
   "cockpit.close": "Close",
   "cockpit.new_session": "New session",
   "cockpit.rename": "Rename",
+  "cockpit.cancel": "Cancel",
+  "cockpit.close_confirm": "Close session '{name}'?",
   "cockpit.open_folder": "Open folder",
   "cockpit.st_working": "Working",
   "cockpit.st_attention": "Awaiting you",
