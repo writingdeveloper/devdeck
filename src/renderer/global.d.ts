@@ -53,6 +53,8 @@ declare global {
         close(id: string): void;
         onData(cb: (p: { id: string; chunk: string }) => void): void;
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
+        loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
+        saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
       };
     };
   }

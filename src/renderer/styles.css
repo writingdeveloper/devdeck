@@ -293,6 +293,18 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row.act-attention { background: #241512; border-left-color: var(--bad); }
 .ck-row.act-attention .ck-ind { color: var(--bad); font-weight: 700; }
 
+/* Previous (restorable) sessions — muted, with a ↻ "restore all" in the group header and a ✕ to forget. */
+.ck-grp-prev { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ck-restore-all { background: transparent; border: 1px solid var(--border-strong); color: var(--text-dim); font-size: 10px; border-radius: 6px; padding: 2px 7px; cursor: pointer; text-transform: none; letter-spacing: 0; }
+.ck-restore-all:hover { background: var(--surface-hover); color: var(--text); border-color: var(--accent); }
+.ck-row-prev { opacity: .62; }
+.ck-row-prev:hover { opacity: 1; }
+.ck-row-prev .ck-dot { background: transparent; border: 1.5px dashed var(--text-faint); }
+.ck-row-prev .mt { font-family: inherit; }
+.ck-prev-acts { margin-left: auto; display: flex; align-items: center; }
+.ck-forget { background: transparent; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 6px; line-height: 1; }
+.ck-forget:hover { background: var(--bad); color: #fff; }
+
 #usage-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; height: 26px; padding: 0 12px; background: #0d0e12; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); cursor: pointer; user-select: none; }
 #usage-bar.hidden { display: none; }
 .ub-plan { font-weight: 600; color: var(--text); opacity: .85; }

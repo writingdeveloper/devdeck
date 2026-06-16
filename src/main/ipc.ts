@@ -18,6 +18,7 @@ import { openProjects, openInEditor, resolveShellPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
 import { getUsageWindows, readClaudeCredentials, fetchUsageApi, type CacheEntry } from './claudeUsage';
+import type { PersistedSession } from '../shared/cockpitPersist';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
@@ -225,6 +226,11 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.on('cockpit:input', (_e, id: string, data: string) => cfg.ptyHost.write(String(id), String(data)));
   ipcMain.on('cockpit:resize', (_e, id: string, cols: number, rows: number) => cfg.ptyHost.resize(String(id), Math.max(1, cols | 0), Math.max(1, rows | 0)));
   ipcMain.on('cockpit:close', (_e, id: string) => cfg.ptyHost.kill(String(id)));
+
+  // Cockpit session persistence: remember the open sessions so a quit/crash doesn't lose them.
+  // The store sanitizes on read & write, so a corrupted state.json can't inject bad data.
+  ipcMain.handle('cockpit:loadSessions', () => cfg.store.getCockpitSessions());
+  ipcMain.on('cockpit:saveSessions', (_e, list: PersistedSession[]) => cfg.store.setCockpitSessions(Array.isArray(list) ? list : []));
 
   // Opt-in usage monitor. Token is read + used ONLY in the main process (claudeUsage);
   // only computed percentages/plan/reset cross IPC.

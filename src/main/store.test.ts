@@ -117,4 +117,18 @@ describe('Store', () => {
     s.removeFolder('C:\\repos');               // remove the migrated entry
     expect(new Store(file).getFolders()).toEqual([]); // must stay empty after reload
   });
+
+  it('round-trips cockpitSessions (default [])', () => {
+    const s = new Store(file);
+    expect(s.getCockpitSessions()).toEqual([]);
+    s.setCockpitSessions([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex' }]);
+    expect(new Store(file).getCockpitSessions()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex' }]);
+  });
+
+  it('sanitizes corrupted cockpitSessions on read', () => {
+    const s = new Store(file);
+    // bypass the typed setter to simulate a hand-corrupted state.json
+    (s as unknown as { state: { settings: { cockpitSessions: unknown } } }).state.settings = { cockpitSessions: 'garbage' };
+    expect(s.getCockpitSessions()).toEqual([]);
+  });
 });

@@ -1,10 +1,11 @@
 import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { StoreEntry, Folder } from '../shared/types';
+import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list' };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[] };
 }
 
 const EMPTY: StoreEntry = {
@@ -89,6 +90,9 @@ export class Store {
 
   getViewMode(): 'cards' | 'list' { return this.state.settings?.viewMode === 'list' ? 'list' : 'cards'; }
   setViewMode(viewMode: 'cards' | 'list'): void { this.state.settings = { ...(this.state.settings ?? {}), viewMode }; this.save(); }
+
+  getCockpitSessions(): PersistedSession[] { return sanitizePersistedList(this.state.settings?.cockpitSessions); }
+  setCockpitSessions(list: PersistedSession[]): void { this.state.settings = { ...(this.state.settings ?? {}), cockpitSessions: sanitizePersistedList(list) }; this.save(); }
 
 
   setNote(path: string, note: string): void { this.mutate(path, { note }); }

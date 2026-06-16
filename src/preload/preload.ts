@@ -57,5 +57,7 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.on('cockpit:data', (_e, p) => cb(p)),
     onExit: (cb: (p: { id: string; exitCode: number }) => void) =>
       ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
+    loadSessions: () => ipcRenderer.invoke('cockpit:loadSessions'),
+    saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
   },
 });

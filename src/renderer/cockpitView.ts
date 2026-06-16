@@ -3,13 +3,16 @@ import { FitAddon } from '@xterm/addon-fit';
 import { filterSessions, groupByActivity, needsAttentionCount, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { decideKeyAction } from '../shared/terminalKeys';
+import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import type { StaleLevel } from '../shared/types';
 import { tr } from './i18n-runtime';
 
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; recentOutput: string; }
+interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; recentOutput: string; openedSessionId: string | null; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; }
 
 const live = new Map<string, Live>();
+let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
+let restorableLoaded = false; // guard: don't persist (and clobber the on-disk list) until the initial load resolves
 let selectedId: string | null = null;
 let searchEl: HTMLInputElement, groupsEl: HTMLElement, headerEl: HTMLElement, termsEl: HTMLElement, emptyEl: HTMLElement, mainEl: HTMLElement;
 let mounted = false;
@@ -39,6 +42,22 @@ export function mountCockpit(): void {
   window.addEventListener('resize', () => { if (selectedId) fitSelected(); });
   setInterval(tickActivity, 1000);
   renderAll();
+  // Load previously-open sessions (from a prior quit/crash) as restorable entries. Guard persist()
+  // until this resolves so a session opened during the load window can't clobber the on-disk list;
+  // then persist once to capture any such session in the correct union.
+  window.devdeck.cockpit.loadSessions()
+    .then((list) => { restorable = sanitizePersistedList(list); restorableLoaded = true; renderList(); if (live.size > 0) persist(); })
+    .catch(() => { restorableLoaded = true; });
+}
+
+/** Persist the current cockpit membership (live sessions + not-yet-restored entries) eagerly,
+ *  so a crash/power-outage loses nothing. Dedupe by path: a live path is never also restorable. */
+function persist(): void {
+  if (!restorableLoaded) return; // initial load not done — persisting now would overwrite the unread list
+  const livePaths = new Set([...live.values()].map((l) => l.session.projectPath));
+  const fromLive: PersistedSession[] = [...live.values()].map((l) => ({ projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId }));
+  const rest = restorable.filter((r) => !livePaths.has(r.projectPath));
+  window.devdeck.cockpit.saveSessions([...fromLive, ...rest]);
 }
 
 /** Re-fit the active terminal when the cockpit becomes visible (xterm can't size while hidden). */
@@ -80,9 +99,11 @@ async function createSession(p: OpenReq): Promise<void> {
     const l = live.get(res.id); // typing answers any pending prompt → clear the buffer so 'attention' doesn't stick
     if (l) l.recentOutput = '';
   });
-  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), recentOutput: '' });
+  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), recentOutput: '', openedSessionId: p.sessionId ?? null });
+  restorable = restorable.filter((r) => r.projectPath !== p.path); // now live → no longer a "previous" entry
   select(res.id);
   updateRailBadge();
+  persist();
 }
 
 function select(id: string): void {
@@ -111,17 +132,42 @@ function tickActivity(): void {
 function renderAll(): void { renderList(); renderHeader(); }
 
 function renderList(): void {
+  const search = (searchEl?.value ?? '').toLowerCase();
   const all = [...live.values()].map((l) => l.session);
   const filtered = filterSessions(all, searchEl?.value ?? '');
   groupsEl.replaceChildren();
-  if (all.length === 0) { emptyEl.textContent = tr('cockpit.empty'); return; }
-  emptyEl.textContent = '';
   for (const g of groupByActivity(filtered)) {
     const h = document.createElement('div'); h.className = 'ck-grp';
     h.textContent = `${tr('cockpit.grp_' + g.bucket)} · ${g.items.length}`;
     groupsEl.appendChild(h);
     for (const s of g.items) groupsEl.appendChild(row(s));
   }
+  // Previous sessions (from a prior quit/crash), excluding any path that's currently live.
+  const livePaths = new Set(all.map((s) => s.projectPath));
+  const prev = restorable.filter((r) => !livePaths.has(r.projectPath) && r.name.toLowerCase().includes(search));
+  if (prev.length) {
+    const h = document.createElement('div'); h.className = 'ck-grp ck-grp-prev';
+    const label = document.createElement('span'); label.textContent = `${tr('cockpit.prev_sessions')} · ${prev.length}`;
+    const allBtn = document.createElement('button'); allBtn.className = 'ck-restore-all'; allBtn.textContent = `↻ ${tr('cockpit.restore_all')}`; allBtn.title = tr('cockpit.restore_all');
+    allBtn.addEventListener('click', () => void restoreAll());
+    h.append(label, allBtn);
+    groupsEl.appendChild(h);
+    for (const r of prev) groupsEl.appendChild(prevRow(r));
+  }
+  emptyEl.textContent = all.length > 0 ? '' : (prev.length > 0 ? tr('cockpit.empty_prev') : tr('cockpit.empty'));
+}
+
+function prevRow(r: PersistedSession): HTMLElement {
+  const el = document.createElement('div'); el.className = 'ck-row ck-row-prev';
+  el.innerHTML = `<span class="ck-ind"><span class="ck-dot"></span></span><div><div class="nm"></div><div class="mt"></div></div><span class="ck-prev-acts"></span>`;
+  el.querySelector('.nm')!.textContent = r.name;
+  el.querySelector('.mt')!.textContent = `${tr('cockpit.restore')} · ${r.agentId}`;
+  el.title = tr('cockpit.restore');
+  const forget = document.createElement('button'); forget.className = 'ck-forget'; forget.textContent = '✕'; forget.title = tr('cockpit.forget');
+  forget.addEventListener('click', (e) => { e.stopPropagation(); forgetSession(r); });
+  el.querySelector('.ck-prev-acts')!.appendChild(forget);
+  el.addEventListener('click', () => void restoreSession(r));
+  return el;
 }
 
 function row(s: CockpitSession): HTMLElement {
@@ -177,10 +223,30 @@ function closeSession(id: string): void {
   const l = live.get(id); if (!l) return;
   window.devdeck.cockpit.close(id);
   l.term.dispose(); l.el.remove(); live.delete(id); updateRailBadge();
+  persist(); // close = forget (the closed session drops out of persistence)
   if (selectedId === id) {
     const next = [...live.keys()][0] ?? null;
     selectedId = null;
     if (next) select(next);
     else { renderAll(); mainEl.classList.toggle('has-session', false); }
   } else renderList();
+}
+
+/** Bring a previous session back to life via its resume command. If the active agent differs from
+ *  the one it was opened with, drop the saved sessionId (don't resume one agent's id under another). */
+async function restoreSession(entry: PersistedSession): Promise<void> {
+  restorable = restorable.filter((r) => r !== entry);
+  const active = await window.devdeck.getAgent();
+  const sessionId = entry.agentId === active ? entry.sessionId : null;
+  await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId });
+}
+
+async function restoreAll(): Promise<void> {
+  for (const entry of [...restorable]) await restoreSession(entry);
+}
+
+function forgetSession(entry: PersistedSession): void {
+  restorable = restorable.filter((r) => r !== entry);
+  persist();
+  renderList();
 }
