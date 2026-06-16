@@ -117,12 +117,4 @@ describe('Store', () => {
     s.removeFolder('C:\\repos');               // remove the migrated entry
     expect(new Store(file).getFolders()).toEqual([]); // must stay empty after reload
   });
-
-  it('persists usageMonitor (default false)', () => {
-    const p = join(tmpdir(), `devdeck-store-${Date.now()}-um.json`);
-    const s = new Store(p);
-    expect(s.getUsageMonitor()).toBe(false);
-    s.setUsageMonitor(true);
-    expect(new Store(p).getUsageMonitor()).toBe(true);
-  });
 });

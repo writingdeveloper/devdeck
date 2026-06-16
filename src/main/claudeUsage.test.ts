@@ -29,6 +29,15 @@ describe('getUsageWindows', () => {
     expect(JSON.stringify(r)).not.toContain('tok-secret');
   });
 
+  it('surfaces the Max tier from subscriptionType when encoded', async () => {
+    const r20 = await getUsageWindows(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max_20x' }) }));
+    expect((r20 as { data: { planName: string } }).data.planName).toBe('Max 20x');
+    const r5 = await getUsageWindows(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max5x' }) }));
+    expect((r5 as { data: { planName: string } }).data.planName).toBe('Max 5x');
+    const rplain = await getUsageWindows(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max' }) }));
+    expect((rplain as { data: { planName: string } }).data.planName).toBe('Max');
+  });
+
   it('no credentials => error no-credentials', async () => {
     const r = await getUsageWindows(deps({ readCredentials: () => null }));
     expect(r).toEqual({ enabled: true, error: 'no-credentials' });

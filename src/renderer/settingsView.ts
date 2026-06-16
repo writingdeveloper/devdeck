@@ -64,14 +64,6 @@ async function render(): Promise<void> {
     host.appendChild(field('set.open_at_login', chk, chk));
   }
 
-  const um = document.createElement('input'); um.type = 'checkbox'; um.className = 'set-check';
-  um.checked = s.usageMonitor;
-  um.addEventListener('change', async () => { await window.devdeck.setUsageMonitor(um.checked); onChangedCb(); });
-  const umRow = field('set.usage_monitor', um, um);
-  const note = document.createElement('div'); note.className = 'set-note'; note.textContent = tr('set.usage_monitor_note');
-  umRow.appendChild(note);
-  host.appendChild(umRow);
-
   const info = await window.devdeck.getAppInfo();
   const about = document.createElement('div'); about.className = 'about';
   const aTitle = document.createElement('h3'); aTitle.className = 'about-title'; aTitle.textContent = tr('about.title');

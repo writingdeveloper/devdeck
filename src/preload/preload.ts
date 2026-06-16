@@ -27,7 +27,6 @@ contextBridge.exposeInMainWorld('devdeck', {
   openRepo: (path: string) => ipcRenderer.invoke('project:openRepo', path),
   createProject: (parent: string, name: string) => ipcRenderer.invoke('project:create', parent, name),
   setViewMode: (mode: 'cards' | 'list') => ipcRenderer.invoke('settings:setViewMode', mode),
-  setUsageMonitor: (enabled: boolean) => ipcRenderer.invoke('settings:setUsageMonitor', enabled),
   usageWindows: () => ipcRenderer.invoke('usage:windows'),
   onUpdate: (cb: (p: import('../shared/update').UpdatePayload) => void) =>
     ipcRenderer.on('devdeck:update', (_e, p) => cb(p as import('../shared/update').UpdatePayload)),

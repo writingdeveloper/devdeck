@@ -85,7 +85,7 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
     openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform,
-    viewMode: cfg.store.getViewMode(), usageMonitor: cfg.store.getUsageMonitor(),
+    viewMode: cfg.store.getViewMode(),
   }));
   ipcMain.handle('settings:setOpenAtLogin', (_e, enabled: boolean) => {
     const on = !!enabled;
@@ -94,9 +94,6 @@ export function registerIpc(cfg: IpcConfig): void {
   });
   ipcMain.handle('settings:setViewMode', (_e, mode: string) => {
     cfg.store.setViewMode(mode === 'list' ? 'list' : 'cards');
-  });
-  ipcMain.handle('settings:setUsageMonitor', (_e, enabled: boolean) => {
-    cfg.store.setUsageMonitor(!!enabled);
   });
   ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
   ipcMain.handle('settings:getFolders', () => effFolders());
@@ -233,7 +230,7 @@ export function registerIpc(cfg: IpcConfig): void {
   // only computed percentages/plan/reset cross IPC.
   const usageCachePath = () => join(app.getPath('userData'), 'usage-cache.json');
   ipcMain.handle('usage:windows', async () => {
-    if (!cfg.store.getUsageMonitor()) return { enabled: false };
+    // Always-on: the bar self-hides when there are no Claude credentials (no network call made in that case).
     return getUsageWindows({
       now: () => Date.now(),
       env: process.env,

@@ -297,11 +297,14 @@ button.primary:hover { background: var(--accent-hover); }
 #usage-bar.hidden { display: none; }
 .ub-plan { font-weight: 600; color: var(--text); opacity: .85; }
 .ub-meter { display: flex; align-items: center; gap: 6px; }
-.ub-track { width: 80px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
-.ub-fill { height: 100%; width: 0; border-radius: 3px; transition: width .3s ease, background-color .3s ease; }
+.ub-track { display: inline-block; width: 72px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; flex: 0 0 auto; }
+/* The fill MUST be block-level — width/height are ignored on an inline span, which would leave the bar empty. */
+.ub-fill { display: block; height: 100%; width: 0; border-radius: 3px; transition: width .3s ease, background-color .3s ease; }
 .ub-fill.ok { background: #3fb950; }
 .ub-fill.warn { background: #d29922; }
 .ub-fill.crit { background: #f85149; }
-.ub-dot { opacity: .4; }
-.ub-reset { margin-left: auto; opacity: .8; }
+.ub-lab { color: var(--text-dim); }
+.ub-val { color: var(--text); opacity: .9; }
+.ub-rst { opacity: .6; }
+.ub-dot { opacity: .35; }
 .ub-msg { opacity: .8; }

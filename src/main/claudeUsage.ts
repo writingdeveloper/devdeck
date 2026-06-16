@@ -23,7 +23,13 @@ export interface UsageDeps {
 
 function planName(subscriptionType: string): string | null {
   const s = subscriptionType.toLowerCase();
-  if (s.includes('max')) return 'Max';
+  // Surface the Max tier (5x / 20x) when Anthropic encodes it in subscriptionType
+  // (e.g. "max_20x", "max5x"). The usage %s are already relative to the actual tier
+  // limit, so this only refines the label; plain "max" stays "Max".
+  if (s.includes('max')) {
+    const tier = s.match(/(\d+)\s*x/);
+    return tier ? `Max ${tier[1]}x` : 'Max';
+  }
   if (s.includes('pro')) return 'Pro';
   if (s.includes('team')) return 'Team';
   if (!s || s.includes('api')) return null; // API users: feature not applicable

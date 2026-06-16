@@ -25,7 +25,10 @@ describe('clampPct', () => {
 });
 
 describe('formatReset', () => {
-  const t = (k: string) => ({ 'usage.reset_soon': '곧', 'usage.reset_h': 'Xh Ym 후', 'usage.reset_m': 'Ym 후' }[k] ?? k);
+  const t = (k: string) => ({ 'usage.reset_soon': '곧', 'usage.reset_d': 'Xd Yh 후', 'usage.reset_h': 'Xh Ym 후', 'usage.reset_m': 'Ym 후' }[k] ?? k);
+  it('days + hours (weekly window)', () => {
+    expect(formatReset(1000 + (3 * 1440 + 4 * 60) * 60000, 1000, t)).toBe('3d 4h 후');
+  });
   it('hours + minutes', () => {
     expect(formatReset(1000 + (4 * 60 + 12) * 60000, 1000, t)).toBe('4h 12m 후');
   });

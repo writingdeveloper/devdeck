@@ -25,13 +25,19 @@ export function clampPct(v: unknown): number | null {
   return Math.round(Math.max(0, Math.min(100, v)));
 }
 
-/** Format the time until a reset. `t` is the i18n lookup; templates use `Xh`/`Ym` placeholders. */
+/**
+ * Format the time until a reset. `t` is the i18n lookup; templates carry literal `X`/`Y`
+ * placeholders (`reset_d` = X days/Y hours, `reset_h` = X hours/Y min, `reset_m` = Y min).
+ * The weekly window can be days away, so a days tier is included.
+ */
 export function formatReset(resetAtMs: number, nowMs: number, t: (k: string) => string): string {
   const ms = resetAtMs - nowMs;
   if (ms < 60_000) return t('usage.reset_soon');
   const totalMin = Math.floor(ms / 60_000);
-  const h = Math.floor(totalMin / 60);
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
   const m = totalMin % 60;
+  if (d > 0) return t('usage.reset_d').replace('X', String(d)).replace('Y', String(h));
   if (h > 0) return t('usage.reset_h').replace('X', String(h)).replace('Y', String(m));
   return t('usage.reset_m').replace('Y', String(m));
 }

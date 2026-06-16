@@ -4,7 +4,7 @@ import type { StoreEntry, Folder } from '../shared/types';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; usageMonitor?: boolean };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list' };
 }
 
 const EMPTY: StoreEntry = {
@@ -90,8 +90,6 @@ export class Store {
   getViewMode(): 'cards' | 'list' { return this.state.settings?.viewMode === 'list' ? 'list' : 'cards'; }
   setViewMode(viewMode: 'cards' | 'list'): void { this.state.settings = { ...(this.state.settings ?? {}), viewMode }; this.save(); }
 
-  getUsageMonitor(): boolean { return this.state.settings?.usageMonitor ?? false; }
-  setUsageMonitor(usageMonitor: boolean): void { this.state.settings = { ...(this.state.settings ?? {}), usageMonitor }; this.save(); }
 
   setNote(path: string, note: string): void { this.mutate(path, { note }); }
   setPinned(path: string, pinned: boolean): void { this.mutate(path, { pinned }); }

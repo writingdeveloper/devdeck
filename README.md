@@ -11,7 +11,7 @@ See every repo's state at a glance — git status, how long it's been neglected,
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-31-47848F)
-![Tests](https://img.shields.io/badge/tests-250%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-251%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 <img src="docs/demo/demo.gif" width="820" alt="DevDeck demo" />
@@ -43,7 +43,7 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 - **🌐 4 languages** — English, 한국어, 日本語, 中文.
 - **⬆ Auto-update** — checks GitHub Releases on launch and offers an in-app, user-confirmed download + restart (Windows/Linux; macOS pending code-signing).
 - **🚀 Start on Windows login** — optionally launch DevDeck when you sign in (Windows only; opt-in in Settings).
-- **🔒 Local by default** — reads your local agent data and git, sends nothing anywhere (`connect-src 'none'`); the only always-on network call is the update check. An **optional, off-by-default** usage monitor (Settings) calls `api.anthropic.com` using your existing Claude Code login to show your 5-hour / weekly limits — the same endpoint Claude Code itself uses. No account, no telemetry.
+- **🔒 Local-first** — reads your local agent data and git, and the renderer sends nothing anywhere (`connect-src 'none'`). The only outbound calls are to first-party endpoints: the GitHub update check, and — when you're signed into Claude Code — a usage check to `api.anthropic.com` (the same endpoint Claude Code itself uses) for the 5-hour / weekly bar. Your OAuth token stays in the main process and never reaches the renderer; if you're not signed in, no usage call is made. No account, no telemetry.
 - System tray + global shortcut (`Ctrl+Alt+D`), frameless Discord-style title bar.
 
 <div align="center">

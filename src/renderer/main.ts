@@ -120,6 +120,7 @@ async function boot(): Promise<void> {
     await window.devdeck.setLanguage(next);
     setLanguage(next);
     applyStaticLabels();
+    void refreshUsageBar(); // re-render the usage bar's labels in the new language
     if (lastUpdatePayload) renderUpdate(lastUpdatePayload);
     renderProjects();
     if (document.getElementById('view-usage')!.classList.contains('active')) showUsage();

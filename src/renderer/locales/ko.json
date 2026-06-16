@@ -115,14 +115,12 @@
   "cockpit.grp_attention": "주목 필요",
   "cockpit.grp_working": "작업 중",
   "cockpit.grp_idle": "유휴 / 종료",
-  "set.usage_monitor": "실시간 사용량 표시 (5시간 · 주간)",
-  "set.usage_monitor_note": "기존 Claude Code 로그인으로 api.anthropic.com에 요청합니다. 기본 꺼짐.",
   "usage.bar_5h": "5시간",
   "usage.bar_week": "주간",
   "usage.bar_reset": "후 리셋",
   "usage.bar_unavailable": "사용량 표시 불가",
-  "usage.bar_need_login": "Claude Code 로그인 필요",
   "usage.reset_soon": "곧",
+  "usage.reset_d": "X일 Y시간",
   "usage.reset_h": "X시간 Y분",
   "usage.reset_m": "Y분"
 }

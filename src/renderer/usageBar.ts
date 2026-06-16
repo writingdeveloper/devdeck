@@ -18,8 +18,9 @@ export async function refreshUsageBar(): Promise<void> {
   try { res = await window.devdeck.usageWindows(); } catch { res = { enabled: true, error: 'offline' }; }
   if (!res.enabled) { el.classList.add('hidden'); stopTimer(); return; }
   if ('error' in res) {
-    if (res.error === 'not-applicable') { el.classList.add('hidden'); }
-    else { renderMsg(res.error === 'no-credentials' ? 'usage.bar_need_login' : 'usage.bar_unavailable'); }
+    // Don't nag users who aren't Claude Code subscribers / aren't logged in — just hide the bar.
+    if (res.error === 'not-applicable' || res.error === 'no-credentials') { el.classList.add('hidden'); }
+    else { renderMsg('usage.bar_unavailable'); } // expired / offline / rate-limited — transient
     startTimer();
     return;
   }
@@ -37,16 +38,24 @@ function renderMsg(key: string): void {
   el.appendChild(m);
 }
 
-function meter(labelKey: string, pct: number | null): HTMLElement {
+function meter(labelKey: string, pct: number | null, resetAt: number | null): HTMLElement {
   const wrap = document.createElement('span'); wrap.className = 'ub-meter';
-  const lab = document.createElement('span'); lab.textContent = tr(labelKey);
+  const lab = document.createElement('span'); lab.className = 'ub-lab'; lab.textContent = tr(labelKey);
   const track = document.createElement('span'); track.className = 'ub-track';
   const fill = document.createElement('span'); fill.className = 'ub-fill';
-  const val = document.createElement('span');
+  const val = document.createElement('span'); val.className = 'ub-val';
   if (pct == null) { val.textContent = '—'; }
   else { fill.classList.add(severity(pct)); fill.style.width = `${pct}%`; val.textContent = `${pct}%`; }
   track.appendChild(fill);
   wrap.append(lab, track, val);
+  // Each window shows ITS OWN reset (↻ countdown) so 5h vs weekly is never ambiguous;
+  // the tooltip names the window and the exact reset clock time.
+  if (resetAt) {
+    const rst = document.createElement('span'); rst.className = 'ub-rst';
+    rst.textContent = `↻ ${formatReset(resetAt, Date.now(), tr)}`;
+    wrap.appendChild(rst);
+    wrap.title = `${tr(labelKey)} ${pct ?? '—'}% · ${new Date(resetAt).toLocaleString()} ${tr('usage.bar_reset')}`;
+  }
   return wrap;
 }
 
@@ -54,13 +63,7 @@ function renderData(d: UsageWindows): void {
   el.classList.remove('hidden');
   el.replaceChildren();
   if (d.planName) { const p = document.createElement('span'); p.className = 'ub-plan'; p.textContent = `✦ ${d.planName}`; el.appendChild(p); }
-  el.appendChild(meter('usage.bar_5h', d.fiveHour));
+  el.appendChild(meter('usage.bar_5h', d.fiveHour, d.fiveHourResetAt));
   const dot = document.createElement('span'); dot.className = 'ub-dot'; dot.textContent = '·'; el.appendChild(dot);
-  el.appendChild(meter('usage.bar_week', d.sevenDay));
-  const resetAt = d.fiveHourResetAt ?? d.sevenDayResetAt;
-  if (resetAt) {
-    const r = document.createElement('span'); r.className = 'ub-reset';
-    r.textContent = `${formatReset(resetAt, Date.now(), tr)} · ${tr('usage.bar_reset')}`;
-    el.appendChild(r);
-  }
+  el.appendChild(meter('usage.bar_week', d.sevenDay, d.sevenDayResetAt));
 }

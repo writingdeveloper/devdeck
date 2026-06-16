@@ -15,7 +15,7 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list'; usageMonitor: boolean }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list' }>;
       setBaseDir(dir: string): Promise<void>;
       getFolders(): Promise<import('../shared/types').Folder[]>;
       addFolder(path: string): Promise<import('../shared/types').Folder[]>;
@@ -28,7 +28,6 @@ declare global {
       openRepo(path: string): Promise<void>;
       createProject(parent: string, name: string): Promise<import('../main/createProject').CreateProjectResult>;
       setViewMode(mode: 'cards' | 'list'): Promise<void>;
-      setUsageMonitor(enabled: boolean): Promise<void>;
       usageWindows(): Promise<import('../shared/usageWindows').UsageResult>;
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
       downloadUpdate(): Promise<void>;

@@ -142,13 +142,23 @@ if (!badgeHidden) {
   process.exit(1);
 }
 
-const usageBarHidden = await win.evaluate(() => {
-  const b = document.getElementById('usage-bar');
-  return !b || b.classList.contains('hidden');
+// Usage bar fill — regression guard for the inline-span bug where the fill (width/height
+// ignored on an inline box) rendered empty. window.devdeck is a frozen contextBridge object
+// (can't stub the IPC) and CI has no Claude creds, so we test the CSS mechanism directly:
+// inject the real meter markup with a 42% fill and confirm it gets a non-zero, proportional width.
+const usageFill = await win.evaluate(async () => {
+  const bar = document.getElementById('usage-bar');
+  bar.classList.remove('hidden');
+  bar.innerHTML = '<span class="ub-meter"><span class="ub-lab">5h</span><span class="ub-track"><span class="ub-fill ok" style="width:42%"></span></span><span class="ub-val">42%</span><span class="ub-rst">↻ 2h 19m</span></span>';
+  await new Promise((r) => setTimeout(r, 200));
+  const fill = bar.querySelector('.ub-fill');
+  const track = bar.querySelector('.ub-track');
+  return { fillWidth: fill ? Math.round(fill.getBoundingClientRect().width) : 0, trackWidth: track ? Math.round(track.getBoundingClientRect().width) : 0 };
 });
-console.log(`usage bar hidden by default: ${usageBarHidden}`);
-if (!usageBarHidden) {
-  console.error('QA FAILED — usage bar visible while the opt-in toggle is off');
+await shot('usage-bar');
+console.log(`usage bar fill: fillWidth=${usageFill.fillWidth}px of track=${usageFill.trackWidth}px (expect ~42%)`);
+if (usageFill.fillWidth <= 0 || usageFill.trackWidth <= 0) {
+  console.error(`QA FAILED — usage bar fill has no width (fill=${usageFill.fillWidth}px track=${usageFill.trackWidth}px); the meter would look empty (the inline-span bug).`);
   await app.close();
   process.exit(1);
 }
