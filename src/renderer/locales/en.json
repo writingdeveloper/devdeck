@@ -106,6 +106,7 @@
   "cockpit.empty": "No open sessions. Open one from Projects.",
   "cockpit.restart": "Restart",
   "cockpit.close": "Close",
+  "cockpit.new_session": "New session",
   "cockpit.open_folder": "Open folder",
   "cockpit.st_working": "Working",
   "cockpit.st_attention": "Awaiting you",

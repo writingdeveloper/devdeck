@@ -106,6 +106,7 @@
   "cockpit.empty": "열린 세션이 없습니다. 프로젝트에서 \"열기\"를 누르세요.",
   "cockpit.restart": "재시작",
   "cockpit.close": "닫기",
+  "cockpit.new_session": "새 세션",
   "cockpit.open_folder": "폴더 열기",
   "cockpit.st_working": "작업 중",
   "cockpit.st_attention": "질문 대기",

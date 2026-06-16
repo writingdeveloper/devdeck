@@ -29,4 +29,8 @@ describe('decideKeyAction', () => {
   it('only keydown is acted on (keyup/keypress pass)', () => {
     expect(decideKeyAction(key({ type: 'keyup', ctrlKey: true, key: 'c' }), true)).toBe('pass');
   });
+  it('ignores auto-repeat (held key must not copy/paste repeatedly)', () => {
+    expect(decideKeyAction(key({ ctrlKey: true, key: 'v', repeat: true }), false)).toBe('pass');
+    expect(decideKeyAction(key({ ctrlKey: true, key: 'c', repeat: true }), true)).toBe('pass');
+  });
 });

@@ -7,6 +7,7 @@ export interface KeyLike {
   shiftKey: boolean;
   altKey: boolean;
   metaKey?: boolean;
+  repeat?: boolean;
   key: string;
 }
 
@@ -25,6 +26,7 @@ export interface KeyLike {
  */
 export function decideKeyAction(e: KeyLike, hasSelection: boolean): KeyAction {
   if (e.type && e.type !== 'keydown') return 'pass';
+  if (e.repeat) return 'pass'; // ignore OS key auto-repeat — a held Ctrl+V must paste once, not repeatedly
   if (e.altKey || !e.ctrlKey) return 'pass';
   const k = e.key.toLowerCase();
   if (k === 'c' && hasSelection) return 'copy';

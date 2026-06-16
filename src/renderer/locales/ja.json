@@ -106,6 +106,7 @@
   "cockpit.empty": "開いているセッションがありません。プロジェクトから「開く」を押してください。",
   "cockpit.restart": "再起動",
   "cockpit.close": "閉じる",
+  "cockpit.new_session": "新規セッション",
   "cockpit.open_folder": "フォルダを開く",
   "cockpit.st_working": "実行中",
   "cockpit.st_attention": "確認待ち",

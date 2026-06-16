@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, labelByProject, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -45,6 +45,19 @@ describe('needsAttentionCount', () => {
   it('counts only attention (a question) — not turn / typing', () => {
     const list = [s({ activity: 'attention' }), s({ activity: 'turn' }), s({ activity: 'working' }), s({ activity: 'idle' })];
     expect(needsAttentionCount(list)).toBe(1);
+  });
+});
+
+describe('labelByProject', () => {
+  it('no suffix when a project has a single session', () => {
+    expect(labelByProject([{ projectPath: 'a', name: 'devdeck' }])).toEqual(['devdeck']);
+  });
+  it('appends #N by order when a project has multiple sessions', () => {
+    expect(labelByProject([
+      { projectPath: 'a', name: 'devdeck' },
+      { projectPath: 'b', name: 'api' },
+      { projectPath: 'a', name: 'devdeck' },
+    ])).toEqual(['devdeck #1', 'api', 'devdeck #2']);
   });
 });
 

@@ -47,7 +47,7 @@ declare global {
         readText(): Promise<string>;
       };
       cockpit: {
-        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number }): Promise<{ id: string; agentId: import('../shared/types').AgentId }>;
+        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
         input(id: string, data: string): void;
         resize(id: string, cols: number, rows: number): void;
         close(id: string): void;

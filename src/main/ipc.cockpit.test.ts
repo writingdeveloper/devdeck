@@ -1,15 +1,30 @@
 import { describe, it, expect } from 'vitest';
-import { getProvider, resolveOpenCommand } from './agents';
+import { getProvider, resolveOpenSession } from './agents';
 
-describe('resolveOpenCommand', () => {
+describe('resolveOpenSession', () => {
   const claude = getProvider('claude');
-  it('uses resume when a sessionId is given', () => {
-    expect(resolveOpenCommand(claude, 'abc12345', () => 1)).toBe('claude -r abc12345');
+  const codex = getProvider('codex');
+  const UUID = '0a1b2c3d-4e5f-6789-abcd-ef0123456789'; // hex — passes SESSION_ID_RE, like a real randomUUID()
+  const gen = () => UUID;
+
+  it('fresh => claude --session-id <uuid> and pins that id', () => {
+    expect(resolveOpenSession(claude, { fresh: true, sessionId: null, sessionCount: 2, latestId: 'old', genId: gen }))
+      .toEqual({ command: `claude --session-id ${UUID}`, sessionId: UUID });
   });
-  it('uses continue when prior sessions exist', () => {
-    expect(resolveOpenCommand(claude, null, () => 3)).toBe('claude -c');
+  it('resume a specific id', () => {
+    expect(resolveOpenSession(claude, { fresh: false, sessionId: 'abc12345', sessionCount: 1, latestId: 'abc12345', genId: gen }))
+      .toEqual({ command: 'claude --resume abc12345', sessionId: 'abc12345' });
   });
-  it('uses new when there are no prior sessions', () => {
-    expect(resolveOpenCommand(claude, null, () => 0)).toBe('claude');
+  it('continue pins the latest id', () => {
+    expect(resolveOpenSession(claude, { fresh: false, sessionId: null, sessionCount: 3, latestId: 'latest9', genId: gen }))
+      .toEqual({ command: 'claude -c', sessionId: 'latest9' });
+  });
+  it('new (no sessions) => claude --session-id <uuid>', () => {
+    expect(resolveOpenSession(claude, { fresh: false, sessionId: null, sessionCount: 0, latestId: null, genId: gen }))
+      .toEqual({ command: `claude --session-id ${UUID}`, sessionId: UUID });
+  });
+  it('codex fresh: no --session-id support => plain new, id not pinned', () => {
+    expect(resolveOpenSession(codex, { fresh: true, sessionId: null, sessionCount: 0, latestId: null, genId: gen }))
+      .toEqual({ command: 'codex', sessionId: null });
   });
 });

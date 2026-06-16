@@ -41,6 +41,19 @@ export function needsAttentionCount(list: CockpitSession[]): number {
   return list.filter((s) => s.activity === 'attention').length;
 }
 
+/** Display labels for the session list: a `#N` suffix (by input order) only where a project has >1 session. */
+export function labelByProject(items: { projectPath: string; name: string }[]): string[] {
+  const total = new Map<string, number>();
+  for (const it of items) total.set(it.projectPath, (total.get(it.projectPath) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return items.map((it) => {
+    if ((total.get(it.projectPath) ?? 0) <= 1) return it.name;
+    const n = (seen.get(it.projectPath) ?? 0) + 1;
+    seen.set(it.projectPath, n);
+    return `${it.name} #${n}`;
+  });
+}
+
 /** The cockpit (embedded node-pty terminals) is Windows-only for now; other OSes keep the external terminal. */
 export function isCockpitPlatform(platform: string): boolean {
   return platform === 'win32';

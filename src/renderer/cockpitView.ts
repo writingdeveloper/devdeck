@@ -1,6 +1,6 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { filterSessions, groupByActivity, needsAttentionCount, type CockpitSession } from '../shared/cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, labelByProject, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { decideKeyAction } from '../shared/terminalKeys';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
@@ -8,11 +8,12 @@ import type { StaleLevel } from '../shared/types';
 import { tr } from './i18n-runtime';
 
 interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; }
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; }
 
 const live = new Map<string, Live>();
 let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
 let restorableLoaded = false; // guard: don't persist (and clobber the on-disk list) until the initial load resolves
+let liveLabels = new Map<string, string>(); // live session id -> display label (#N when a project has several sessions)
 let selectedId: string | null = null;
 let searchEl: HTMLInputElement, groupsEl: HTMLElement, headerEl: HTMLElement, termsEl: HTMLElement, emptyEl: HTMLElement, mainEl: HTMLElement;
 let mounted = false;
@@ -54,9 +55,9 @@ export function mountCockpit(): void {
  *  so a crash/power-outage loses nothing. Dedupe by path: a live path is never also restorable. */
 function persist(): void {
   if (!restorableLoaded) return; // initial load not done — persisting now would overwrite the unread list
-  const livePaths = new Set([...live.values()].map((l) => l.session.projectPath));
+  const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
   const fromLive: PersistedSession[] = [...live.values()].map((l) => ({ projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId }));
-  const rest = restorable.filter((r) => !livePaths.has(r.projectPath));
+  const rest = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId))); // keep siblings + null-id (codex) entries
   window.devdeck.cockpit.saveSessions([...fromLive, ...rest]);
 }
 
@@ -85,13 +86,14 @@ async function createSession(p: OpenReq): Promise<void> {
     const action = decideKeyAction(e, term.hasSelection());
     if (action === 'copy') { window.devdeck.clipboard.writeText(term.getSelection()); return false; }
     if (action === 'paste') {
+      e.preventDefault(); // cancel the native paste gesture so xterm's own paste can't double with our IPC paste
       window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
       return false;
     }
     return true;
   });
   const { cols, rows } = term;
-  const res = await window.devdeck.cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows });
+  const res = await window.devdeck.cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, fresh: !!p.fresh });
   if (!res.id) { el.remove(); term.dispose(); if (selectedId) select(selectedId); return; } // refused — restore prior selection
   const session: CockpitSession = { id: res.id, projectPath: p.path, name: p.name, agentId: res.agentId, status: 'running', staleLevel: p.staleLevel, branch: p.branch, dirty: p.dirty, activity: 'working' };
   term.onData((d) => {
@@ -99,8 +101,8 @@ async function createSession(p: OpenReq): Promise<void> {
     const l = live.get(res.id); // typing answers any pending prompt → clear the buffer + mark input so it reads as "your turn", not "working"
     if (l) { l.recentOutput = ''; l.lastInputAt = Date.now(); }
   });
-  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: p.sessionId ?? null });
-  restorable = restorable.filter((r) => r.projectPath !== p.path); // now live → no longer a "previous" entry
+  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null });
+  if (res.sessionId) restorable = restorable.filter((r) => r.sessionId !== res.sessionId); // dedupe by session id, not path (siblings stay)
   select(res.id);
   updateRailBadge();
   persist();
@@ -133,8 +135,19 @@ function renderAll(): void { renderList(); renderHeader(); }
 
 function renderList(): void {
   const search = (searchEl?.value ?? '').toLowerCase();
-  const all = [...live.values()].map((l) => l.session);
-  const filtered = filterSessions(all, searchEl?.value ?? '');
+  const liveSessions = [...live.values()].map((l) => l.session);
+  const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
+  // Previous (restorable) sessions, excluding any whose specific session id is currently live (siblings of
+  // the same project stay — dedupe is per session id, not per path).
+  const prev = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId)) && r.name.toLowerCase().includes(search));
+
+  // #N labels across the union (live + visible-restorable) so a project's sessions are numbered consistently.
+  const union = [...liveSessions.map((s) => ({ projectPath: s.projectPath, name: s.name })), ...prev.map((r) => ({ projectPath: r.projectPath, name: r.name }))];
+  const labels = labelByProject(union);
+  liveLabels = new Map(liveSessions.map((s, i) => [s.id, labels[i]]));
+  const prevLabels = prev.map((_r, i) => labels[liveSessions.length + i]);
+
+  const filtered = filterSessions(liveSessions, searchEl?.value ?? '');
   groupsEl.replaceChildren();
   for (const g of groupByActivity(filtered)) {
     const h = document.createElement('div'); h.className = 'ck-grp';
@@ -142,9 +155,6 @@ function renderList(): void {
     groupsEl.appendChild(h);
     for (const s of g.items) groupsEl.appendChild(row(s));
   }
-  // Previous sessions (from a prior quit/crash), excluding any path that's currently live.
-  const livePaths = new Set(all.map((s) => s.projectPath));
-  const prev = restorable.filter((r) => !livePaths.has(r.projectPath) && r.name.toLowerCase().includes(search));
   if (prev.length) {
     const h = document.createElement('div'); h.className = 'ck-grp ck-grp-prev';
     const label = document.createElement('span'); label.textContent = `${tr('cockpit.prev_sessions')} · ${prev.length}`;
@@ -152,15 +162,15 @@ function renderList(): void {
     allBtn.addEventListener('click', () => void restoreAll());
     h.append(label, allBtn);
     groupsEl.appendChild(h);
-    for (const r of prev) groupsEl.appendChild(prevRow(r));
+    prev.forEach((r, i) => groupsEl.appendChild(prevRow(r, prevLabels[i])));
   }
-  emptyEl.textContent = all.length > 0 ? '' : (prev.length > 0 ? tr('cockpit.empty_prev') : tr('cockpit.empty'));
+  emptyEl.textContent = liveSessions.length > 0 ? '' : (prev.length > 0 ? tr('cockpit.empty_prev') : tr('cockpit.empty'));
 }
 
-function prevRow(r: PersistedSession): HTMLElement {
+function prevRow(r: PersistedSession, label: string): HTMLElement {
   const el = document.createElement('div'); el.className = 'ck-row ck-row-prev';
   el.innerHTML = `<span class="ck-ind"><span class="ck-dot"></span></span><div><div class="nm"></div><div class="mt"></div></div><span class="ck-prev-acts"></span>`;
-  el.querySelector('.nm')!.textContent = r.name;
+  el.querySelector('.nm')!.textContent = label;
   el.querySelector('.mt')!.textContent = `${tr('cockpit.restore')} · ${r.agentId}`;
   el.title = tr('cockpit.restore');
   const forget = document.createElement('button'); forget.className = 'ck-forget'; forget.textContent = '✕'; forget.title = tr('cockpit.forget');
@@ -180,7 +190,7 @@ function row(s: CockpitSession): HTMLElement {
   if (a === 'working') ind.innerHTML = '<span class="ck-spin"></span>';
   else if (a === 'attention') ind.textContent = '❓';
   else ind.innerHTML = '<span class="ck-dot"></span>';
-  el.querySelector('.nm')!.textContent = s.name;
+  el.querySelector('.nm')!.textContent = liveLabels.get(s.id) ?? s.name;
   el.querySelector('.mt')!.textContent = `${s.branch ?? '-'}${dirty} · ${s.agentId}`;
   el.title = tr('cockpit.st_' + a);
   el.addEventListener('click', () => select(s.id));
@@ -199,14 +209,22 @@ function renderHeader(): void {
   const l = selectedId ? live.get(selectedId) : null;
   if (!l) return;
   const s = l.session;
-  const title = document.createElement('span'); title.className = 'title'; title.textContent = s.name;
+  const title = document.createElement('span'); title.className = 'title'; title.textContent = liveLabels.get(s.id) ?? s.name;
   const branch = document.createElement('span'); branch.className = 'ck-pill'; branch.textContent = `⎇ ${s.branch ?? '-'}${s.dirty > 0 ? ` ✎${s.dirty}` : ''}`;
   const ag = document.createElement('span'); ag.className = 'ck-pill'; ag.textContent = `✦ ${s.agentId}`;
   const sp = document.createElement('span'); sp.className = 'sp';
+  const newSession = actBtn('+', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
   const folder = actBtn('📁', tr('cockpit.open_folder'), () => window.devdeck.openFolder(s.projectPath));
   const restart = actBtn('⟳', tr('cockpit.restart'), () => restartSession(s.id));
   const close = actBtn('✕', tr('cockpit.close'), () => closeSession(s.id));
-  headerEl.append(title, branch, ag, sp, folder, restart, close);
+  headerEl.append(title, branch, ag, sp, newSession, folder, restart, close);
+}
+
+/** "+ New session": spawn another, fresh conversation in the SAME project as the selected session. */
+async function addSessionToCurrentProject(): Promise<void> {
+  const l = selectedId ? live.get(selectedId) : null; if (!l) return;
+  const s = l.session;
+  await createSession({ path: s.projectPath, name: s.name, staleLevel: s.staleLevel, branch: s.branch, dirty: s.dirty, fresh: true });
 }
 
 function actBtn(glyph: string, title: string, onClick: () => void): HTMLButtonElement {

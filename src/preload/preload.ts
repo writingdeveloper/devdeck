@@ -48,7 +48,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     readText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
   },
   cockpit: {
-    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number }) =>
+    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }) =>
       ipcRenderer.invoke('cockpit:open', req),
     input: (id: string, data: string) => ipcRenderer.send('cockpit:input', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('cockpit:resize', id, cols, rows),

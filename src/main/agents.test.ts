@@ -5,8 +5,9 @@ describe('agent providers', () => {
   it('claude buildCommand maps kinds correctly', () => {
     const c = getProvider('claude');
     expect(c.buildCommand('new')).toBe('claude');
+    expect(c.buildCommand('new', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789')).toBe('claude --session-id a0b1c2d3-e4f5-6789-abcd-ef0123456789');
     expect(c.buildCommand('continue')).toBe('claude -c');
-    expect(c.buildCommand('resume', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789')).toBe('claude -r a0b1c2d3-e4f5-6789-abcd-ef0123456789');
+    expect(c.buildCommand('resume', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789')).toBe('claude --resume a0b1c2d3-e4f5-6789-abcd-ef0123456789');
   });
   it('codex buildCommand maps kinds correctly', () => {
     const x = getProvider('codex');

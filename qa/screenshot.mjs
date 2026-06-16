@@ -142,6 +142,12 @@ if (!badgeHidden) {
   process.exit(1);
 }
 
+// Cockpit structure intact after the multi-session changes (the + New session button only appears
+// with a live session, which the harness can't spawn — so just confirm the view renders cleanly).
+const ckOk = await win.evaluate(() => !!document.getElementById('ck-groups') && !!document.querySelector('#view-cockpit .ck-main'));
+console.log(`cockpit structure present: ${ckOk}`);
+if (!ckOk) { console.error('QA FAILED — cockpit structure missing'); await app.close(); process.exit(1); }
+
 // Usage bar fill — regression guard for the inline-span bug where the fill (width/height
 // ignored on an inline box) rendered empty. window.devdeck is a frozen contextBridge object
 // (can't stub the IPC) and CI has no Claude creds, so we test the CSS mechanism directly:
