@@ -44,6 +44,18 @@ describe('computeActivity', () => {
   it('stopped, no prompt, < idle => turn', () => {
     expect(computeActivity({ ...base, now: 1000 + WORKING_MS + 1 })).toBe('turn');
   });
+  it('hysteresis: was working + brief output gap (no prompt) => stays working', () => {
+    // 5s since data: past WORKING_MS but the agent was working and only briefly went quiet
+    expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'working' })).toBe('working');
+    // without the prior 'working' it would be your turn
+    expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'turn' })).toBe('turn');
+  });
+  it('hysteresis: a prompt appears => done, not sticky-working', () => {
+    expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'working', recentOutput: '❯ 1. Yes' })).toBe('attention');
+  });
+  it('hysteresis: long silence (>= sticky) => turn even if it was working', () => {
+    expect(computeActivity({ ...base, now: 1000 + 11_000, prev: 'working' })).toBe('turn');
+  });
   it('stopped >= idle => idle', () => {
     expect(computeActivity({ ...base, now: 1000 + IDLE_MS })).toBe('idle');
   });

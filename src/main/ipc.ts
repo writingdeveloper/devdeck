@@ -20,6 +20,8 @@ import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
 import { getUsageWindows, readClaudeCredentials, fetchUsageApi, type CacheEntry } from './claudeUsage';
 import type { PersistedSession } from '../shared/cockpitPersist';
+import { readClaudeSessionMeta } from './sessionMeta';
+import type { TrayController } from './tray';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
@@ -32,9 +34,11 @@ export interface IpcConfig {
   sendError: (msg: string) => void;
   defaultLanguage: string;
   ptyHost: PtyHost;
+  tray: TrayController;
 }
 
 export function registerIpc(cfg: IpcConfig): void {
+  let lastTrayCounts = { attention: 0, turn: 0 }; // remember the latest needs-you counts so a tray-alert setting change re-applies at once
   // Legacy single-base value, retained only for the settings:get response (back-compat); not used for scanning or the security guard.
   const effBaseDir = () => cfg.store.getBaseDir() ?? cfg.defaultBaseDir;
   const effThresholds = () => cfg.store.getThresholds() ?? DEFAULT_THRESHOLDS;
@@ -87,8 +91,12 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
     openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform,
-    viewMode: cfg.store.getViewMode(),
+    viewMode: cfg.store.getViewMode(), trayAlert: cfg.store.getTrayAlert(),
   }));
+  ipcMain.handle('settings:setTrayAlert', (_e, mode: string) => {
+    cfg.store.setTrayAlert(mode === 'off' || mode === 'all' ? mode : 'attention');
+    cfg.tray.applyCounts(lastTrayCounts, cfg.store.getTrayAlert()); // re-apply immediately with the latest counts
+  });
   ipcMain.handle('settings:setOpenAtLogin', (_e, enabled: boolean) => {
     const on = !!enabled;
     cfg.store.setOpenAtLogin(on);
@@ -240,6 +248,19 @@ export function registerIpc(cfg: IpcConfig): void {
   // The store sanitizes on read & write, so a corrupted state.json can't inject bad data.
   ipcMain.handle('cockpit:loadSessions', () => cfg.store.getCockpitSessions());
   ipcMain.on('cockpit:saveSessions', (_e, list: PersistedSession[]) => cfg.store.setCockpitSessions(Array.isArray(list) ? list : []));
+
+  // Per-session model + active working time (read from the Claude session log) for the cockpit header/list.
+  ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string) => {
+    if (agent().id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0 };
+    return readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
+  });
+
+  // Tray attention indicator (Discord-style): the renderer supplies the red-dotted icon once + live needs-you counts.
+  ipcMain.on('tray:alertImage', (_e, dataUrl: string) => cfg.tray.setAlertImage(String(dataUrl)));
+  ipcMain.on('tray:counts', (_e, counts: { attention?: number; turn?: number }) => {
+    lastTrayCounts = { attention: Math.max(0, Number(counts?.attention) | 0), turn: Math.max(0, Number(counts?.turn) | 0) };
+    cfg.tray.applyCounts(lastTrayCounts, cfg.store.getTrayAlert());
+  });
 
   // Opt-in usage monitor. Token is read + used ONLY in the main process (claudeUsage);
   // only computed percentages/plan/reset cross IPC.

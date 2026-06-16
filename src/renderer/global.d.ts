@@ -15,7 +15,10 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list' }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all' }>;
+      setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
+      setTrayCounts(counts: { attention: number; turn: number }): void;
+      setTrayAlertImage(dataUrl: string): void;
       setBaseDir(dir: string): Promise<void>;
       getFolders(): Promise<import('../shared/types').Folder[]>;
       addFolder(path: string): Promise<import('../shared/types').Folder[]>;
@@ -55,6 +58,7 @@ declare global {
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
+        sessionMeta(projectPath: string, sessionId: string): Promise<{ model: string | null; activeMs: number }>;
       };
     };
   }

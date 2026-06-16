@@ -5,7 +5,7 @@ import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitP
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[] };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all' };
 }
 
 const EMPTY: StoreEntry = {
@@ -93,6 +93,9 @@ export class Store {
 
   getCockpitSessions(): PersistedSession[] { return sanitizePersistedList(this.state.settings?.cockpitSessions); }
   setCockpitSessions(list: PersistedSession[]): void { this.state.settings = { ...(this.state.settings ?? {}), cockpitSessions: sanitizePersistedList(list) }; this.save(); }
+
+  getTrayAlert(): 'off' | 'attention' | 'all' { const t = this.state.settings?.trayAlert; return t === 'off' || t === 'all' ? t : 'attention'; }
+  setTrayAlert(t: 'off' | 'attention' | 'all'): void { this.state.settings = { ...(this.state.settings ?? {}), trayAlert: t === 'off' || t === 'all' ? t : 'attention' }; this.save(); }
 
 
   setNote(path: string, note: string): void { this.mutate(path, { note }); }

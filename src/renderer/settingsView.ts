@@ -62,6 +62,14 @@ async function render(): Promise<void> {
     chk.checked = s.openAtLogin;
     chk.addEventListener('change', () => void window.devdeck.setOpenAtLogin(chk.checked));
     host.appendChild(field('set.open_at_login', chk, chk));
+
+    // Tray attention alert: redden the tray icon when a cockpit session needs you.
+    const tray = document.createElement('select'); tray.className = 'set-input';
+    for (const [val, key] of [['attention', 'set.tray_alert_attention'], ['all', 'set.tray_alert_all'], ['off', 'set.tray_alert_off']] as [string, string][]) {
+      const o = document.createElement('option'); o.value = val; o.textContent = tr(key); if (val === s.trayAlert) o.selected = true; tray.appendChild(o);
+    }
+    tray.addEventListener('change', () => void window.devdeck.setTrayAlert(tray.value as 'off' | 'attention' | 'all'));
+    host.appendChild(field('set.tray_alert', tray, tray));
   }
 
   const info = await window.devdeck.getAppInfo();

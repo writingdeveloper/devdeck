@@ -125,6 +125,15 @@ describe('Store', () => {
     expect(new Store(file).getCockpitSessions()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex', label: 'auth' }]);
   });
 
+  it('round-trips trayAlert (default attention; bad value coerced)', () => {
+    const s = new Store(file);
+    expect(s.getTrayAlert()).toBe('attention');
+    s.setTrayAlert('all');
+    expect(new Store(file).getTrayAlert()).toBe('all');
+    s.setTrayAlert('garbage' as 'off');
+    expect(s.getTrayAlert()).toBe('attention');
+  });
+
   it('sanitizes corrupted cockpitSessions on read', () => {
     const s = new Store(file);
     // bypass the typed setter to simulate a hand-corrupted state.json

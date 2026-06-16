@@ -2,12 +2,14 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
+import { friendlyModel } from '../shared/sessionMeta';
+import { formatDuration } from '../shared/usage';
 import { decideKeyAction } from '../shared/terminalKeys';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import type { StaleLevel } from '../shared/types';
 import { tr } from './i18n-runtime';
 
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; customLabel: string | null; }
+interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; customLabel: string | null; meta: { model: string | null; activeMs: number } | null; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; }
 
 const live = new Map<string, Live>();
@@ -47,6 +49,8 @@ export function mountCockpit(): void {
   });
   window.addEventListener('resize', () => { if (selectedId) fitSelected(); });
   setInterval(tickActivity, 1000);
+  setInterval(refreshAllMeta, 30_000); // model/active-time change slowly — refresh on a slow tick (+ on open/select)
+  sendTrayAlertImage(); // hand the main process a red-dotted tray icon for the attention alert
   renderAll();
   // Load previously-open sessions (from a prior quit/crash) as restorable entries. Guard persist()
   // until this resolves so a session opened during the load window can't clobber the on-disk list;
@@ -106,18 +110,29 @@ async function createSession(p: OpenReq): Promise<void> {
     const l = live.get(res.id); // typing answers any pending prompt → clear the buffer + mark input so it reads as "your turn", not "working"
     if (l) { l.recentOutput = ''; l.lastInputAt = Date.now(); }
   });
-  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, customLabel: p.label ?? null });
+  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, customLabel: p.label ?? null, meta: null });
   if (res.sessionId) restorable = restorable.filter((r) => r.sessionId !== res.sessionId); // dedupe by session id, not path (siblings stay)
   select(res.id);
   updateRailBadge();
   persist();
+  void refreshMeta(res.id);
 }
+
+/** Pull a session's model + active-time from its log (for the header/list). Cheap; called on open/select + a slow tick. */
+async function refreshMeta(id: string): Promise<void> {
+  const l = live.get(id); if (!l || !l.openedSessionId) return;
+  try { l.meta = await window.devdeck.cockpit.sessionMeta(l.session.projectPath, l.openedSessionId); } catch { return; }
+  if (!editingId) renderList();
+  renderHeader();
+}
+function refreshAllMeta(): void { if (editingId) return; for (const id of live.keys()) void refreshMeta(id); }
 
 function select(id: string): void {
   selectedId = id;
   for (const [lid, l] of live) l.el.classList.toggle('show', lid === id);
   mainEl.classList.toggle('has-session', live.size > 0);
   renderList(); renderHeader();
+  void refreshMeta(id);
   requestAnimationFrame(() => { fitSelected(); live.get(id)?.term.focus(); });
 }
 
@@ -130,7 +145,7 @@ function tickActivity(): void {
   const now = Date.now();
   let changed = false;
   for (const l of live.values()) {
-    const next = computeActivity({ exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, lastInputAt: l.lastInputAt, now, recentOutput: l.recentOutput });
+    const next = computeActivity({ exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, lastInputAt: l.lastInputAt, now, recentOutput: l.recentOutput, prev: l.session.activity });
     if (next !== l.session.activity) { l.session.activity = next; changed = true; }
   }
   // Don't rebuild the list mid-rename (it would recreate the <input> and clobber what's being typed).
@@ -213,7 +228,8 @@ function row(s: CockpitSession): HTMLElement {
     nm.textContent = liveLabels.get(s.id) ?? s.name;
     nm.addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(s.id); }); // rename: double-click the name…
   }
-  el.querySelector('.mt')!.textContent = `${s.branch ?? '-'}${dirty} · ${s.agentId}`;
+  const rowModel = friendlyModel(live.get(s.id)?.meta?.model ?? null);
+  el.querySelector('.mt')!.textContent = `${s.branch ?? '-'}${dirty} · ${s.agentId}${rowModel ? ` · ${rowModel}` : ''}`;
   el.title = tr('cockpit.st_' + a);
   el.addEventListener('click', () => { if (editingId !== s.id) select(s.id); });
   const rename = document.createElement('button'); rename.className = 'ck-rename'; rename.textContent = '✎'; rename.title = tr('cockpit.rename'); // …or the ✎ on hover
@@ -225,10 +241,30 @@ function row(s: CockpitSession): HTMLElement {
 }
 
 function updateRailBadge(): void {
-  const badge = document.getElementById('ck-badge'); if (!badge) return;
-  const n = needsAttentionCount([...live.values()].map((l) => l.session));
-  badge.textContent = String(n);
-  badge.classList.toggle('hidden', n === 0);
+  const sessions = [...live.values()].map((l) => l.session);
+  const attention = needsAttentionCount(sessions); // genuine agent questions only
+  const badge = document.getElementById('ck-badge');
+  if (badge) { badge.textContent = String(attention); badge.classList.toggle('hidden', attention === 0); }
+  // Tray attention indicator: send both counts; the main process reddens the tray per the user's setting.
+  const turn = sessions.filter((s) => s.activity === 'turn').length;
+  window.devdeck.setTrayCounts({ attention, turn });
+}
+
+/** Draw the tray icon + a red dot on a canvas and hand it to main for the attention alert (no extra asset/dep). */
+function sendTrayAlertImage(): void {
+  const img = new Image();
+  img.onload = () => {
+    const size = Math.max(img.width || 0, img.height || 0, 16);
+    const c = document.createElement('canvas'); c.width = size; c.height = size;
+    const ctx = c.getContext('2d'); if (!ctx) return;
+    ctx.drawImage(img, 0, 0, size, size);
+    const r = Math.round(size * 0.32);
+    ctx.beginPath(); ctx.arc(size - r, size - r, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#f5453a'; ctx.fill();
+    ctx.lineWidth = Math.max(1, size * 0.07); ctx.strokeStyle = '#0d0e12'; ctx.stroke();
+    try { window.devdeck.setTrayAlertImage(c.toDataURL('image/png')); } catch { /* ignore */ }
+  };
+  img.src = './assets/tray.png';
 }
 
 function renderHeader(): void {
@@ -241,12 +277,16 @@ function renderHeader(): void {
   title.addEventListener('dblclick', () => beginRename(s.id)); // edits in the session's list row (single editor, survives re-render)
   const branch = document.createElement('span'); branch.className = 'ck-pill'; branch.textContent = `⎇ ${s.branch ?? '-'}${s.dirty > 0 ? ` ✎${s.dirty}` : ''}`;
   const ag = document.createElement('span'); ag.className = 'ck-pill'; ag.textContent = `✦ ${s.agentId}`;
+  const pills: HTMLElement[] = [title, branch, ag];
+  const model = friendlyModel(l.meta?.model ?? null);
+  if (model) { const mp = document.createElement('span'); mp.className = 'ck-pill'; mp.textContent = model; pills.push(mp); }
+  if (l.meta && l.meta.activeMs > 0) { const tp = document.createElement('span'); tp.className = 'ck-pill'; tp.textContent = `⏱️ ${formatDuration(l.meta.activeMs)}`; pills.push(tp); }
   const sp = document.createElement('span'); sp.className = 'sp';
   const newSession = actBtn('+', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
   const folder = actBtn('📁', tr('cockpit.open_folder'), () => window.devdeck.openFolder(s.projectPath));
   const restart = actBtn('⟳', tr('cockpit.restart'), () => restartSession(s.id));
   const close = actBtn('✕', tr('cockpit.close'), () => void requestClose(s.id));
-  headerEl.append(title, branch, ag, sp, newSession, folder, restart, close);
+  headerEl.append(...pills, sp, newSession, folder, restart, close);
 }
 
 /** "+ New session": spawn another, fresh conversation in the SAME project as the selected session. */

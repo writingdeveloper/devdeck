@@ -59,5 +59,9 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
     loadSessions: () => ipcRenderer.invoke('cockpit:loadSessions'),
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
+    sessionMeta: (projectPath: string, sessionId: string) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId),
   },
+  setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),
+  setTrayCounts: (counts: { attention: number; turn: number }) => ipcRenderer.send('tray:counts', counts),
+  setTrayAlertImage: (dataUrl: string) => ipcRenderer.send('tray:alertImage', dataUrl),
 });

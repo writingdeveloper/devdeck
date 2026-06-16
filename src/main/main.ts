@@ -69,6 +69,7 @@ if (!gotLock) {
     applyOpenAtLogin(store.getOpenAtLogin());
     const w = createWindow();
     win = w;
+    const tray = setupTray(w);
     registerIpc({
       win: w,
       defaultBaseDir: path.join(app.getPath('home'), 'Documents', 'GitHub'),
@@ -76,8 +77,8 @@ if (!gotLock) {
       sendError: (msg) => w.webContents.send('devdeck:error', msg),
       defaultLanguage: app.getLocale().split('-')[0] || 'en',
       ptyHost,
+      tray,
     });
-    setupTray(w);
     registerUpdater(w);
     globalShortcut.register('Control+Alt+D', showWindow);
     app.on('activate', () => { if (!win) win = createWindow(); });
