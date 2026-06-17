@@ -53,6 +53,20 @@ export function hasPromptPattern(recentOutput: string): boolean {
   return PROMPT_PATTERNS.some((re) => re.test(recentOutput));
 }
 
+// Claude Code's "working" status line animates a star/asterisk dingbat spinner (✶ ✻ ✢ ✳ ✽ …)
+// that is ABSENT at the idle ❯ prompt. (Captured from claude v2.1.179 — note that version shows NO
+// "esc to interrupt" text, so the glyph is the reliable signal.) We only scan the TAIL of the recent
+// output: the spinner frame is the LAST thing drawn while working — and it STAYS there during a long
+// silent tool/think/API gap (a frozen spinner) — whereas the idle frame ends with the star-free status
+// bar (~250 chars), so a short tail window cleanly separates "working" from "your turn".
+// Excludes ASCII '*' (git "main*"), '·' (00B7) and '●' (25CF), which appear in the idle status bar.
+export const SPINNER_TAIL = 200;
+// U+2722–U+2727 and U+2731–U+273D: the asterisk/star dingbat block Claude cycles through.
+export const WORKING_SPINNER_RE = /[✢-✧✱-✽]/;
+export function hasWorkingSpinner(recentOutput: string): boolean {
+  return WORKING_SPINNER_RE.test(recentOutput.slice(-SPINNER_TAIL));
+}
+
 export function computeActivity(i: { exited: boolean; lastDataAt: number; lastInputAt: number; now: number; recentOutput: string; prev?: ActivityState }): ActivityState {
   if (i.exited) return 'exited';
   // The user actively typing is engaged, not the agent working — keep it a stable "your turn"
@@ -60,9 +74,14 @@ export function computeActivity(i: { exited: boolean; lastDataAt: number; lastIn
   if (i.now - i.lastInputAt <= INPUT_ACTIVE_MS) return 'turn';
   const sinceData = i.now - i.lastDataAt;
   if (sinceData <= WORKING_MS) return 'working';
-  // Hysteresis: it WAS working and only briefly went quiet (no input-prompt yet) — still working.
-  if (i.prev === 'working' && sinceData < WORKING_STICKY_MS && !hasPromptPattern(i.recentOutput)) return 'working';
+  // A real confirmation prompt outranks the working signals below — never mask a question as 'working'.
   if (hasPromptPattern(i.recentOutput)) return 'attention';
+  // Content signal: the agent's spinner frame is still the last thing on screen, so it's working even
+  // through a long silent tool/think/API gap (survives a frozen spinner — which the timer alone can't).
+  if (hasWorkingSpinner(i.recentOutput)) return 'working';
+  // Timing hysteresis fallback: it WAS working and only briefly went quiet — covers agents/versions
+  // whose spinner glyph we don't match (e.g. Codex).
+  if (i.prev === 'working' && sinceData < WORKING_STICKY_MS) return 'working';
   if (sinceData < IDLE_MS) return 'turn';
   return 'idle';
 }

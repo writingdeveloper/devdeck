@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripAnsi, hasPromptPattern, computeActivity, WORKING_MS, IDLE_MS } from './sessionStatus';
+import { stripAnsi, hasPromptPattern, hasWorkingSpinner, computeActivity, WORKING_MS, IDLE_MS } from './sessionStatus';
 
 describe('stripAnsi', () => {
   const ESC = String.fromCharCode(27);
@@ -22,6 +22,23 @@ describe('hasPromptPattern', () => {
   });
   it('does not match ordinary output', () => {
     expect(hasPromptPattern('building project... done in 2.3s')).toBe(false);
+  });
+});
+
+describe('hasWorkingSpinner', () => {
+  // Real frames captured from claude v2.1.179: the working status line animates a star-spinner
+  // glyph (✻/✶/✢/✽ …) that is absent at the idle ❯ prompt. (This version shows NO "esc to interrupt".)
+  const workingTail = '4 MCPs ⏵⏵ auto mode on (shift+tab to cycle) /rc active ✢Gesticulating…9 *Gesticulating…716';
+  const idleTail = '[Opus 4.8 (1M context)] │ devdeck +devdeck git:(main*) Context ░░░░░░░░░░ 0% 4 MCPs ⏵⏵ auto mode on · ← for agents /rc active ❯ ';
+  it('detects the claude star-spinner glyph (agent working)', () => {
+    expect(hasWorkingSpinner(workingTail)).toBe(true);
+  });
+  it('is false at the idle prompt (ASCII * in git status / · middot are not spinner glyphs)', () => {
+    expect(hasWorkingSpinner(idleTail)).toBe(false);
+  });
+  it('only inspects the recent tail — a spinner that scrolled far back does not count', () => {
+    const scrolledBack = '✻ Gesticulating…' + ' '.repeat(400) + idleTail;
+    expect(hasWorkingSpinner(scrolledBack)).toBe(false);
   });
 });
 
@@ -58,5 +75,24 @@ describe('computeActivity', () => {
   });
   it('stopped >= idle => idle', () => {
     expect(computeActivity({ ...base, now: 1000 + IDLE_MS })).toBe('idle');
+  });
+
+  // Content-based detection (real captured claude v2.1.179 frames). The working spinner is the LAST
+  // thing rendered during a long silent tool/think/API gap → must read 'working', not flip to your-turn.
+  const spinnerTail = '⏵⏵ auto mode on (shift+tab to cycle) /rc active ✢Gesticulating…9 *Gesticulating…716';
+  const idleTail = '[Opus 4.8 (1M context)] │ devdeck +devdeck git:(main*) Context ░░░░░░░░░░ 0% 4 MCPs · ← for agents /rc active ❯ ';
+  it('content-based: long silence but the working spinner is still on screen => working (freeze-proof)', () => {
+    // 20s since the last byte (past WORKING_STICKY_MS) — timing alone says "your turn", but the
+    // agent's frozen spinner frame is still on screen, so it is genuinely still working.
+    expect(computeActivity({ ...base, now: 1000 + 20_000, prev: 'working', recentOutput: spinnerTail })).toBe('working');
+  });
+  it('content-based: a frozen spinner reads as working even if prev was not working', () => {
+    expect(computeActivity({ ...base, now: 1000 + 20_000, prev: 'idle', recentOutput: spinnerTail })).toBe('working');
+  });
+  it('content-based: idle prompt + long silence => turn (no false working)', () => {
+    expect(computeActivity({ ...base, now: 1000 + 20_000, prev: 'working', recentOutput: idleTail })).toBe('turn');
+  });
+  it('a confirmation prompt outranks a lingering spinner => attention', () => {
+    expect(computeActivity({ ...base, now: 1000 + 20_000, prev: 'working', recentOutput: '✻ Gesticulating… ❯ 1. Yes' })).toBe('attention');
   });
 });
