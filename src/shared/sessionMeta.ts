@@ -1,9 +1,9 @@
-import { activeMsFromTimestamps } from './usage';
+import { activeMsFromTimestamps, SYNTHETIC_MODEL } from './usage';
 
 /** Map a raw model id to a short friendly name: claude-opus-4-8 → "Opus 4.8", bare "sonnet" → "Sonnet".
  *  Returns null for synthetic/empty (so callers can hide it). Unknown ids pass through unchanged. */
 export function friendlyModel(raw: string | null | undefined): string | null {
-  if (!raw || raw === '<synthetic>') return null;
+  if (!raw || raw === SYNTHETIC_MODEL) return null;
   const m = raw.toLowerCase().match(/(opus|sonnet|haiku|fable)(?:-(\d+))?(?:-(\d+))?/);
   if (!m) return raw;
   const fam = m[1].charAt(0).toUpperCase() + m[1].slice(1);
@@ -27,7 +27,7 @@ export function parseSessionMeta(raw: string): { model: string | null; activeMs:
     const ts = typeof o.timestamp === 'string' ? Date.parse(o.timestamp) : NaN;
     if (Number.isFinite(ts)) timestamps.push(ts);
     const mdl = o.message?.model;
-    if (!o.isSidechain && typeof mdl === 'string' && mdl !== '<synthetic>') model = mdl;
+    if (!o.isSidechain && typeof mdl === 'string' && mdl !== SYNTHETIC_MODEL) model = mdl;
   }
   return { model, activeMs: activeMsFromTimestamps(timestamps) };
 }

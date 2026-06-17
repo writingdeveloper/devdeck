@@ -7,6 +7,14 @@ export interface RawUsage {
   cache_read_input_tokens?: number;
 }
 
+/**
+ * Claude Code's sentinel model id for assistant lines it generated WITHOUT a real model call —
+ * API-error placeholders (e.g. a 401 during a token-refresh gap), interrupts, injected notices.
+ * They carry an all-zero usage block, so they are not real usage and must be excluded from the
+ * per-model breakdown and the unknown-model flag (the cockpit's session meta already skips them).
+ */
+export const SYNTHETIC_MODEL = '<synthetic>';
+
 /** Price per MILLION tokens (USD). cacheWrite ≈ 1.25× input (5m), cacheRead ≈ 0.1× input. */
 export interface PriceCard { input: number; output: number; cacheWrite: number; cacheRead: number; }
 

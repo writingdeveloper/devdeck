@@ -42,6 +42,23 @@ describe('scanUsage', () => {
     expect(r.daily.some((b) => b.day === '2026-05-30')).toBe(true);
   });
 
+  it('ignores Claude Code <synthetic> placeholder lines (no phantom model row, no false unknown-model flag)', () => {
+    const d = join(root, 'C--g-syn');
+    mkdirSync(d, { recursive: true });
+    // Claude Code tags API-error / interrupt placeholders as model "<synthetic>" with an all-zero usage block.
+    writeFileSync(join(d, 's.jsonl'), [
+      asst('claude-opus-4-8', { input_tokens: 100, output_tokens: 50 }),
+      asst('<synthetic>', { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }),
+    ].join('\n'));
+    const r = scanUsage([{ path: 'C:\\g\\syn', name: 'syn' }], root, Infinity);
+    expect(r.byModel.find((m) => m.model === '<synthetic>')).toBeUndefined();    // no phantom "<synthetic>" model
+    expect(r.hasUnknownModel).toBe(false);                                        // synthetic must NOT trip the unknown-model warning
+    expect(r.byProject[0].hasUnknownModel).toBe(false);
+    expect(r.byModel.find((m) => m.model === 'claude-opus-4-8')).toBeTruthy();    // the real model is still reported
+    expect(r.global.input).toBe(100);                                             // real totals unaffected (synthetic = 0 tokens)
+    expect(r.globalCost).toBeCloseTo((100 * 15 + 50 * 75) / 1_000_000, 6);        // cost still computed, no false "*"
+  });
+
   it('returns zeros for a project with no session dir', () => {
     const r = scanUsage([{ path: 'C:\\g\\missing', name: 'missing' }], root, Infinity);
     expect(r.global.input).toBe(0);

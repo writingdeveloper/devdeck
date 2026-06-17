@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
-import { emptyTotals, addUsage, estimateCost, activeMsFromTimestamps, MODEL_PRICING, type UsageTotals, type RawUsage } from '../shared/usage';
+import { emptyTotals, addUsage, estimateCost, activeMsFromTimestamps, MODEL_PRICING, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
 import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 
 // Cache: key = filepath + ':' + mtimeMs → parsed lines
@@ -69,6 +69,10 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
           const u = o.message?.usage;
           if (o.type !== 'assistant' || !u) continue;
           const model = o.message?.model ?? 'unknown';
+          // Claude Code emits <synthetic> assistant lines (API errors, interrupts) with a zero usage
+          // block — not a real model. Skip them so they don't show as a phantom 0% model row or wrongly
+          // trip the unknown-model cost warning (the cockpit's session meta skips them the same way).
+          if (model === SYNTHETIC_MODEL) continue;
           if (!MODEL_PRICING[model]) { hasUnknownModel = true; projUnknown = true; }
           Object.assign(global, addUsage(global, u));
           Object.assign(projTotals, addUsage(projTotals, u));
