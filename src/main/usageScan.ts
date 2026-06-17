@@ -7,7 +7,7 @@ import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 // Cache: key = filepath + ':' + mtimeMs → parsed lines
 const _fileCache = new Map<string, string[]>();
 
-interface RepoRef { path: string; name: string; }
+interface RepoRef { path: string; name: string; status?: 'active' | 'deleted'; }
 
 function dayKey(ts: string | undefined, fallbackMs: number): string {
   const d = ts ? new Date(ts) : new Date(fallbackMs);
@@ -87,7 +87,7 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
     byProject.push({
       path: repo.path, name: repo.name, sessions: projSessions,
       totals: projTotals, costEstimate: sumModelCost(projByModel), hasUnknownModel: projUnknown,
-      activeMs: projActiveMs,
+      activeMs: projActiveMs, status: repo.status ?? 'active',
     });
   }
 

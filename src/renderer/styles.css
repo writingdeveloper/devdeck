@@ -176,6 +176,11 @@ button.primary:hover { background: var(--accent-hover); }
 .usage-table th:first-child, .usage-table td:first-child { text-align: left; }
 .usage-table td { text-align: right; padding: 6px 8px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
 .usage-note { padding: 0 16px 16px; color: var(--text-faint); font-size: 11px; }
+.usage-show-deleted { display: flex; align-items: center; gap: 6px; margin: 0 16px 4px; color: var(--text-dim); font-size: 11px; cursor: pointer; user-select: none; }
+.usage-show-deleted input { cursor: pointer; }
+.usage-table tr.pu-deleted td { opacity: 0.5; }
+.pu-badge { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 6px; font-size: 10px; color: var(--text-faint); border: 1px solid var(--border); font-family: system-ui, sans-serif; }
+.usage-deleted-hint { padding: 0 16px 12px; color: var(--text-faint); font-size: 11px; }
 
 #settings-form { padding: 18px 20px; max-width: 640px; }
 .set-title { font-size: 16px; margin: 0 0 16px; }

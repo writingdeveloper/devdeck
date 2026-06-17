@@ -16,6 +16,7 @@ let viewEl: HTMLElement;
 let activeRange = '30d';
 let sortKey: 'cost' | 'input' | 'output' | 'sessions' | 'active' = 'cost';
 let sortDir: 'desc' | 'asc' = 'desc';
+let showDeleted = true; // deleted projects (folder gone, usage remains) shown by default; totals always include them
 
 function fmt(n: number): string { return new Intl.NumberFormat(localeTag()).format(n); }
 function usd(n: number | null): string { return n == null ? '—' : `~$${n.toFixed(2)}`; }
@@ -76,12 +77,23 @@ function render(r: UsageReport): void {
     viewEl.appendChild(chartBox);
   }
 
-  const rows = [...r.byProject].filter((p) => p.sessions > 0).sort((a, b) => {
+  const allRows = [...r.byProject].filter((p) => p.sessions > 0);
+  const deletedTotal = allRows.filter((p) => p.status === 'deleted').length;
+  const rows = allRows.filter((p) => showDeleted || p.status !== 'deleted').sort((a, b) => {
+    // Active projects first, deleted (🗑) grouped below; then by the chosen sort key within each group.
+    if ((a.status === 'deleted') !== (b.status === 'deleted')) return a.status === 'deleted' ? 1 : -1;
     const val = (p: typeof a): number =>
       sortKey === 'cost' ? (p.costEstimate ?? -1) : sortKey === 'sessions' ? p.sessions : sortKey === 'active' ? p.activeMs : p.totals[sortKey];
     const av = val(a), bv = val(b);
     return sortDir === 'desc' ? bv - av : av - bv;
   });
+  if (deletedTotal > 0) {
+    const ctl = document.createElement('label'); ctl.className = 'usage-show-deleted';
+    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = showDeleted;
+    cb.addEventListener('change', () => { showDeleted = cb.checked; render(r); });
+    const sp = document.createElement('span'); sp.textContent = tr('usage.show_deleted');
+    ctl.append(cb, sp); viewEl.appendChild(ctl);
+  }
   const table = document.createElement('table'); table.className = 'usage-table';
   const head = document.createElement('tr');
   for (const [key, label] of [['name', tr('usage.col_project')], ['sessions', tr('proj.sessions')], ['active', tr('usage.col_time')], ['input', tr('usage.input')], ['output', tr('usage.output')], ['cost', tr('usage.col_cost')]] as const) {
@@ -113,11 +125,25 @@ function render(r: UsageReport): void {
   table.appendChild(head);
   for (const p of rows) {
     const tr2 = document.createElement('tr');
-    const cells = [p.name, String(p.sessions), formatDuration(p.activeMs), fmt(p.totals.input), fmt(p.totals.output), usd(p.costEstimate)];
-    for (const c of cells) { const td = document.createElement('td'); td.textContent = c; tr2.appendChild(td); }
+    if (p.status === 'deleted') tr2.className = 'pu-deleted';
+    const nameTd = document.createElement('td');
+    if (p.status === 'deleted') {
+      nameTd.append(`🗑 ${p.name} `);
+      const badge = document.createElement('span'); badge.className = 'pu-badge'; badge.textContent = tr('usage.deleted_badge');
+      nameTd.appendChild(badge);
+    } else { nameTd.textContent = p.name; }
+    tr2.appendChild(nameTd);
+    for (const c of [String(p.sessions), formatDuration(p.activeMs), fmt(p.totals.input), fmt(p.totals.output), usd(p.costEstimate)]) {
+      const td = document.createElement('td'); td.textContent = c; tr2.appendChild(td);
+    }
     table.appendChild(tr2);
   }
   viewEl.appendChild(table);
+  if (deletedTotal > 0 && !showDeleted) {
+    const hint = document.createElement('div'); hint.className = 'usage-deleted-hint';
+    hint.textContent = tr('usage.deleted_hidden').replace('{n}', String(deletedTotal));
+    viewEl.appendChild(hint);
+  }
 
   if (r.hasUnknownModel) {
     const note = document.createElement('div'); note.className = 'usage-note';

@@ -48,6 +48,19 @@ describe('scanUsage', () => {
     expect(r.byProject[0].sessions).toBe(0);
   });
 
+  it('passes status through to byProject (default active; deleted tagged) and totals include deleted', () => {
+    const d = join(root, 'C--g-del');
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, 's.jsonl'), asst('claude-opus-4-8', { input_tokens: 10 }));
+    const r = scanUsage([
+      { path: 'C:\\g\\proj', name: 'proj' },                       // no status → active
+      { path: 'C:\\g\\del', name: 'del', status: 'deleted' },     // a deleted project still has ~/.claude usage
+    ], root, Infinity);
+    expect(r.byProject.find((p) => p.name === 'proj')!.status).toBe('active');
+    expect(r.byProject.find((p) => p.name === 'del')!.status).toBe('deleted');
+    expect(r.global.input).toBe(10); // deleted project's tokens included in the honest total
+  });
+
   it('sums active time from message gaps, capping idle stretches', () => {
     const d = join(root, 'C--g-time');
     mkdirSync(d, { recursive: true });

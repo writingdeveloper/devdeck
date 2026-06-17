@@ -2,7 +2,7 @@ import { ipcMain, dialog, shell, app, clipboard, type BrowserWindow } from 'elec
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { stat } from 'node:fs/promises';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Store } from './store';
 import type { PtyHost } from './ptyHost';
@@ -18,6 +18,8 @@ import { createProject } from './createProject';
 import { openProjects, openInEditor, resolveShellPath } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
+import { listClaudeProjectDirs } from './usageProjectsScan';
+import { classifyUsageProjects } from '../shared/usageProjects';
 import { getUsageWindows, readClaudeCredentials, fetchUsageApi, type CacheEntry } from './claudeUsage';
 import type { PersistedSession } from '../shared/cockpitPersist';
 import { readClaudeSessionMeta } from './sessionMeta';
@@ -77,8 +79,12 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('usage:report', async (_e, sinceMs: number) => {
     const ms = (Number.isFinite(sinceMs) || sinceMs === Infinity) ? sinceMs : 0;
-    const repos = await scanFolders(effFolders());
-    return scanUsage(repos, CLAUDE_PROJECTS, ms);
+    const scanned = await scanFolders(effFolders());
+    // Reconcile the live deck with ~/.claude so DELETED projects (folder gone, usage still on disk)
+    // remain visible and counted in the totals — honest "where did my tokens go" accounting.
+    const claudeProjects = listClaudeProjectDirs(CLAUDE_PROJECTS);
+    const all = classifyUsageProjects({ scanned, claudeProjects, exists: existsSync });
+    return scanUsage(all, CLAUDE_PROJECTS, ms);
   });
   ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
   ipcMain.handle('settings:setLanguage', (_e, lang: string) => cfg.store.setLanguage(lang));

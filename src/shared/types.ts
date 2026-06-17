@@ -15,6 +15,8 @@ export interface ProjectUsage {
   totals: UsageTotals; costEstimate: number | null; hasUnknownModel: boolean;
   /** Active working time (sum of message gaps within the idle cap), in ms. */
   activeMs: number;
+  /** 'deleted' = the project folder is gone, but its Claude usage still lives in ~/.claude. */
+  status: 'active' | 'deleted';
 }
 export interface UsageReport {
   global: UsageTotals; globalCost: number | null; hasUnknownModel: boolean;
