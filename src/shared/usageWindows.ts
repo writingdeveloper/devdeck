@@ -14,6 +14,21 @@ export type UsageResult =
   | { enabled: true; data: UsageWindows }
   | { enabled: true; error: 'no-credentials' | 'expired' | 'offline' | 'rate-limited' | 'not-applicable' };
 
+/**
+ * Map a usage error to its i18n message key — or null to HIDE the bar (not a Claude subscriber /
+ * not logged in: don't nag). 'expired' (incl. a 401-rejected token) points the user at re-login;
+ * the other transients get their own specific, actionable text instead of one vague "unavailable".
+ */
+export function usageErrorKey(error: 'no-credentials' | 'expired' | 'offline' | 'rate-limited' | 'not-applicable'): string | null {
+  switch (error) {
+    case 'no-credentials':
+    case 'not-applicable': return null;
+    case 'expired': return 'usage.bar_expired';
+    case 'rate-limited': return 'usage.bar_ratelimited';
+    case 'offline': return 'usage.bar_unavailable';
+  }
+}
+
 export function severity(pct: number): Severity {
   if (pct >= 90) return 'crit';
   if (pct >= 70) return 'warn';

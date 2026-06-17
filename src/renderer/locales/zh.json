@@ -133,6 +133,8 @@
   "usage.bar_week": "每周",
   "usage.bar_reset": "后重置",
   "usage.bar_unavailable": "无法显示用量",
+  "usage.bar_expired": "登录已过期 · 重新登录",
+  "usage.bar_ratelimited": "用量API繁忙 · 稍后重试",
   "usage.reset_soon": "即将",
   "usage.reset_d": "X天Y小时",
   "usage.reset_h": "X小时Y分",

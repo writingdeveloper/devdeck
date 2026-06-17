@@ -1,5 +1,5 @@
 import { tr } from './i18n-runtime';
-import { severity, formatReset, type UsageResult, type UsageWindows } from '../shared/usageWindows';
+import { severity, formatReset, usageErrorKey, type UsageResult, type UsageWindows } from '../shared/usageWindows';
 
 const POLL_MS = 5 * 60_000;
 let el: HTMLElement;
@@ -18,9 +18,10 @@ export async function refreshUsageBar(): Promise<void> {
   try { res = await window.devdeck.usageWindows(); } catch { res = { enabled: true, error: 'offline' }; }
   if (!res.enabled) { el.classList.add('hidden'); stopTimer(); return; }
   if ('error' in res) {
-    // Don't nag users who aren't Claude Code subscribers / aren't logged in — just hide the bar.
-    if (res.error === 'not-applicable' || res.error === 'no-credentials') { el.classList.add('hidden'); }
-    else { renderMsg('usage.bar_unavailable'); } // expired / offline / rate-limited — transient
+    // null = not a Claude subscriber / not logged in → hide (no nagging); otherwise a specific,
+    // actionable message (expired→re-login / rate-limited / offline).
+    const key = usageErrorKey(res.error);
+    if (key) renderMsg(key); else el.classList.add('hidden');
     startTimer();
     return;
   }

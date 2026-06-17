@@ -78,4 +78,23 @@ describe('getUsageWindows', () => {
     const r = await getUsageWindows(deps({ fetchUsage: async () => ({ ok: false, status: 0 }) }));
     expect(r).toEqual({ enabled: true, error: 'offline' });
   });
+
+  it('expired token but last-good cache present => serves last-good (no blank "unavailable")', async () => {
+    // token expired AND the cache is stale (>5min) so the fresh-TTL path doesn't fire — must still
+    // keep showing the recent numbers through the brief Claude-Code token-refresh gap, not blank out.
+    const cached = { timestamp: 1000, data: { planName: 'Max', fiveHour: 12, sevenDay: 20, fiveHourResetAt: 1, sevenDayResetAt: 1 } };
+    const r = await getUsageWindows(deps({ now: () => 1000 + 10 * 60_000, cacheRead: () => cached, readCredentials: () => ({ ...baseCreds, expiresAt: 500 }) }));
+    expect(r).toEqual({ enabled: true, data: cached.data });
+  });
+
+  it('401 from the usage API => error expired (token rejected → re-login), not offline', async () => {
+    const r = await getUsageWindows(deps({ fetchUsage: async () => ({ ok: false, status: 401 }) }));
+    expect(r).toEqual({ enabled: true, error: 'expired' });
+  });
+
+  it('401 but last-good cache present => serves last-good', async () => {
+    const cached = { timestamp: 1000, data: { planName: 'Max', fiveHour: 4, sevenDay: 6, fiveHourResetAt: 1, sevenDayResetAt: 1 } };
+    const r = await getUsageWindows(deps({ now: () => 1000 + 10 * 60_000, cacheRead: () => cached, fetchUsage: async () => ({ ok: false, status: 401 }) }));
+    expect(r).toEqual({ enabled: true, data: cached.data });
+  });
 });

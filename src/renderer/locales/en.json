@@ -133,6 +133,8 @@
   "usage.bar_week": "Weekly",
   "usage.bar_reset": "until reset",
   "usage.bar_unavailable": "Usage unavailable",
+  "usage.bar_expired": "Login expired · re-login",
+  "usage.bar_ratelimited": "Usage API busy · retry soon",
   "usage.reset_soon": "soon",
   "usage.reset_d": "Xd Yh",
   "usage.reset_h": "Xh Ym",

@@ -1,6 +1,6 @@
 // src/shared/usageWindows.test.ts
 import { describe, it, expect } from 'vitest';
-import { severity, clampPct, formatReset, parseUsageResponse } from './usageWindows';
+import { severity, clampPct, formatReset, parseUsageResponse, usageErrorKey } from './usageWindows';
 
 describe('severity', () => {
   it('ok < 70, warn 70..89, crit >= 90', () => {
@@ -38,6 +38,18 @@ describe('formatReset', () => {
   it('past or <1m => soon', () => {
     expect(formatReset(1000, 1000, t)).toBe('곧');
     expect(formatReset(500, 1000, t)).toBe('곧');
+  });
+});
+
+describe('usageErrorKey', () => {
+  it('hides (null) when not logged in or not applicable — no nagging', () => {
+    expect(usageErrorKey('no-credentials')).toBeNull();
+    expect(usageErrorKey('not-applicable')).toBeNull();
+  });
+  it('maps each transient failure to a specific, actionable message key', () => {
+    expect(usageErrorKey('expired')).toBe('usage.bar_expired');
+    expect(usageErrorKey('rate-limited')).toBe('usage.bar_ratelimited');
+    expect(usageErrorKey('offline')).toBe('usage.bar_unavailable');
   });
 });
 

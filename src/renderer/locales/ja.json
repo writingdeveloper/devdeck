@@ -133,6 +133,8 @@
   "usage.bar_week": "週間",
   "usage.bar_reset": "後にリセット",
   "usage.bar_unavailable": "使用量を表示できません",
+  "usage.bar_expired": "ログイン期限切れ · 再ログイン",
+  "usage.bar_ratelimited": "使用量API混雑 · 後で",
   "usage.reset_soon": "まもなく",
   "usage.reset_d": "X日Y時間",
   "usage.reset_h": "X時間Y分",

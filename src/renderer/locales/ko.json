@@ -133,6 +133,8 @@
   "usage.bar_week": "주간",
   "usage.bar_reset": "후 리셋",
   "usage.bar_unavailable": "사용량 표시 불가",
+  "usage.bar_expired": "로그인 만료 · 재로그인",
+  "usage.bar_ratelimited": "사용량 API 혼잡 · 잠시 후",
   "usage.reset_soon": "곧",
   "usage.reset_d": "X일 Y시간",
   "usage.reset_h": "X시간 Y분",

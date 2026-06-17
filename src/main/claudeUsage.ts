@@ -51,7 +51,12 @@ export async function getUsageWindows(deps: UsageDeps): Promise<UsageResult> {
 
   const creds = deps.readCredentials();
   if (!creds) return { enabled: true, error: 'no-credentials' };
-  if (creds.expiresAt != null && creds.expiresAt <= now) return { enabled: true, error: 'expired' };
+  // Token expired locally: Claude Code refreshes the file on its own, but there's a brief gap. Keep
+  // showing the last-good numbers through it (they don't change) instead of blanking the bar; only
+  // report 'expired' if we have nothing cached at all.
+  if (creds.expiresAt != null && creds.expiresAt <= now) {
+    return fresh ? { enabled: true, data: fresh.data } : { enabled: true, error: 'expired' };
+  }
 
   const plan = planName(creds.subscriptionType);
   if (!plan) return { enabled: true, error: 'not-applicable' };
@@ -60,7 +65,10 @@ export async function getUsageWindows(deps: UsageDeps): Promise<UsageResult> {
   if (!res.ok) {
     // On any failure, fall back to last-good cache (even if stale) so the bar stays useful.
     if (fresh) return { enabled: true, data: fresh.data };
-    return { enabled: true, error: res.status === 429 ? 'rate-limited' : 'offline' };
+    // 401 = the token was rejected server-side (expired/invalid) → tell the user to re-login, same as
+    // a locally-expired token; 429 = usage-API rate limit; everything else = offline/transient.
+    const error = res.status === 401 ? 'expired' : res.status === 429 ? 'rate-limited' : 'offline';
+    return { enabled: true, error };
   }
   const parsed = parseUsageResponse(res.body);
   if (!parsed) {
