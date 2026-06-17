@@ -149,6 +149,12 @@ button.primary:hover { background: var(--accent-hover); }
 .menu-item { background: transparent; border: 0; color: var(--text); text-align: left; padding: 6px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; }
 .menu-item:hover { background: var(--surface-hover); }
 
+/* Language picker: a popup hanging to the right of the rail, bottom-aligned to the 🌐 button. */
+.lang-menu { right: auto; left: calc(100% + 6px); top: auto; bottom: 0; min-width: 132px; }
+.lang-menu .menu-item { display: flex; align-items: center; gap: 6px; }
+.lang-menu .menu-item.active { color: var(--accent-hover); }
+.mi-mark { display: inline-block; flex: 0 0 1em; width: 1em; text-align: center; color: var(--accent-hover); }
+
 .vt-spacer { flex: 1; }
 .usage-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }

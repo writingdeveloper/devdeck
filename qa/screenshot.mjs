@@ -49,8 +49,10 @@ for (let i = 0; i < LANGS.length; i++) {
   // Settings view
   await showView('settings');
   await shot(`settings-${l}`);
-  // cycle language for next iteration
+  // advance language for the next iteration: open the 🌐 popup and pick the next one
+  const next = LANGS[(i + 1) % LANGS.length];
   await win.click('#lang-btn');
+  await win.click(`.lang-menu .menu-item[data-lang="${next}"]`);
   await win.waitForTimeout(300);
 }
 

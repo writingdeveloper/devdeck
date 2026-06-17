@@ -1,4 +1,5 @@
-import { makeTranslator, type Translate } from '../shared/i18n';
+import { makeTranslator, SUPPORTED_LANGS, type Translate } from '../shared/i18n';
+export { languageName, LANGUAGE_NAMES } from '../shared/i18n';
 import ko from './locales/ko.json';
 import en from './locales/en.json';
 import ja from './locales/ja.json';
@@ -17,4 +18,4 @@ export function setLanguage(lang: string): void {
 export function tr(key: string, vars?: Record<string, string | number>): string { return t(key, vars); }
 export function currentLang(): string { return current; }
 export function localeTag(): string { return LOCALE_TAG[current] ?? 'en-US'; }
-export const SUPPORTED = ['ko', 'en', 'ja', 'zh'];
+export const SUPPORTED: readonly string[] = SUPPORTED_LANGS;

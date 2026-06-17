@@ -1,4 +1,4 @@
-import { tr, SUPPORTED, setLanguage as setRuntimeLang } from './i18n-runtime';
+import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i18n-runtime';
 import type { Folder } from '../shared/types';
 
 let host: HTMLElement;
@@ -53,7 +53,7 @@ async function render(): Promise<void> {
   host.appendChild(field('set.thresholds', tWrap));
 
   const sel = document.createElement('select'); sel.className = 'set-input';
-  for (const lng of SUPPORTED) { const o = document.createElement('option'); o.value = lng; o.textContent = lng.toUpperCase(); if (lng === s.language) o.selected = true; sel.appendChild(o); }
+  for (const lng of SUPPORTED) { const o = document.createElement('option'); o.value = lng; o.textContent = languageName(lng); if (lng === s.language) o.selected = true; sel.appendChild(o); }
   sel.addEventListener('change', async () => { await window.devdeck.setLanguage(sel.value); setRuntimeLang(sel.value); render(); onChangedCb(); });
   host.appendChild(field('nav.language', sel, sel));
 

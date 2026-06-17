@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { makeTranslator } from './i18n';
+import { makeTranslator, SUPPORTED_LANGS, LANGUAGE_NAMES, languageName } from './i18n';
 
 describe('makeTranslator', () => {
   const dict = { 'a.b': 'Hello {name}', 'only.ko': '한국어' };
@@ -15,5 +15,23 @@ describe('makeTranslator', () => {
   });
   it('leaves unmatched placeholders intact', () => {
     expect(makeTranslator({ k: 'Hi {x}' }, {})('k')).toBe('Hi {x}');
+  });
+});
+
+describe('languageName', () => {
+  it('gives every supported language a non-empty display name', () => {
+    for (const code of SUPPORTED_LANGS) {
+      expect(LANGUAGE_NAMES[code], `missing name for ${code}`).toBeTruthy();
+      expect(languageName(code)).toBe(LANGUAGE_NAMES[code]);
+    }
+  });
+  it('shows each language as its own-script endonym', () => {
+    expect(languageName('ko')).toBe('한국어');
+    expect(languageName('en')).toBe('English');
+    expect(languageName('ja')).toBe('日本語');
+    expect(languageName('zh')).toBe('中文');
+  });
+  it('falls back to the uppercased code for an unknown language', () => {
+    expect(languageName('fr')).toBe('FR');
   });
 });

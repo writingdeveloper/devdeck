@@ -5,7 +5,7 @@ import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
 import { mountCockpit, showCockpit } from './cockpitView';
 import { isCockpitPlatform } from '../shared/cockpitModel';
-import { setLanguage, tr, currentLang, SUPPORTED } from './i18n-runtime';
+import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { mountUsageBar, refreshUsageBar } from './usageBar';
 
 const toastHost = document.getElementById('toast-host')!;
@@ -83,6 +83,75 @@ function mountTitlebar(): void {
   void wc.isMaximized().then(setGlyph);
 }
 
+// Switch the whole UI to `lang`: persist it, swap the active dictionary, then re-render
+// every surface that shows translated text (labels, usage bar, update banner, active view).
+async function applyLanguage(lang: string): Promise<void> {
+  await window.devdeck.setLanguage(lang);
+  setLanguage(lang);
+  applyStaticLabels();
+  void refreshUsageBar();
+  if (lastUpdatePayload) renderUpdate(lastUpdatePayload);
+  renderProjects();
+  if (document.getElementById('view-usage')!.classList.contains('active')) showUsage();
+  if (document.getElementById('view-settings')!.classList.contains('active')) showSettings();
+  if (document.getElementById('view-next')!.classList.contains('active')) showNext();
+}
+
+// The 🌐 rail button opens a popup listing every language by its own-script name, so a
+// language is one click to open + one to pick — no more blind cycling. Reuses the app's
+// shared .menu component (the same one behind the project ⋯ menu).
+function mountLangMenu(): void {
+  const btn = document.getElementById('lang-btn')!;
+  const wrap = btn.parentElement!; // .menu-wrap.lang-wrap — positions the popup beside the rail
+  const menu = document.createElement('div');
+  menu.className = 'menu lang-menu hidden';
+  menu.setAttribute('role', 'menu');
+
+  const items = SUPPORTED.map((lng) => {
+    const item = document.createElement('button');
+    item.className = 'menu-item'; item.setAttribute('role', 'menuitemradio');
+    item.dataset.lang = lng;
+    const mark = document.createElement('span'); mark.className = 'mi-mark';
+    const label = document.createElement('span'); label.textContent = languageName(lng);
+    item.append(mark, label);
+    item.addEventListener('click', async () => {
+      close(); btn.focus();
+      if (lng !== currentLang()) await applyLanguage(lng);
+    });
+    menu.appendChild(item);
+    return item;
+  });
+
+  const syncMarks = (): void => {
+    for (const item of items) {
+      const on = item.dataset.lang === currentLang();
+      item.classList.toggle('active', on);
+      item.setAttribute('aria-checked', on ? 'true' : 'false');
+      item.querySelector<HTMLElement>('.mi-mark')!.textContent = on ? '✓' : '';
+    }
+  };
+  const open = (): void => {
+    syncMarks();
+    menu.classList.remove('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+    (items.find((it) => it.dataset.lang === currentLang()) ?? items[0]).focus();
+  };
+  const close = (): void => {
+    menu.classList.add('hidden');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't let the document handler immediately re-close it
+    if (menu.classList.contains('hidden')) open();
+    else { close(); btn.focus(); }
+  });
+  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { close(); btn.focus(); } });
+  document.addEventListener('click', () => { if (!menu.classList.contains('hidden')) close(); });
+
+  wrap.appendChild(menu);
+}
+
 async function boot(): Promise<void> {
   mountTitlebar();
   setLanguage(await window.devdeck.getLanguage());
@@ -114,19 +183,7 @@ async function boot(): Promise<void> {
     });
   }
 
-  document.getElementById('lang-btn')!.addEventListener('click', async () => {
-    const i = SUPPORTED.indexOf(currentLang());
-    const next = SUPPORTED[(i + 1) % SUPPORTED.length];
-    await window.devdeck.setLanguage(next);
-    setLanguage(next);
-    applyStaticLabels();
-    void refreshUsageBar(); // re-render the usage bar's labels in the new language
-    if (lastUpdatePayload) renderUpdate(lastUpdatePayload);
-    renderProjects();
-    if (document.getElementById('view-usage')!.classList.contains('active')) showUsage();
-    if (document.getElementById('view-settings')!.classList.contains('active')) showSettings();
-    if (document.getElementById('view-next')!.classList.contains('active')) showNext();
-  });
+  mountLangMenu();
 }
 
 boot();
