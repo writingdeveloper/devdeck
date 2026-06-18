@@ -59,6 +59,7 @@ declare global {
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
         sessionMeta(projectPath: string, sessionId: string): Promise<{ model: string | null; activeMs: number }>;
+        gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number }>;
       };
     };
   }

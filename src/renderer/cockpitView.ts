@@ -116,6 +116,7 @@ async function createSession(p: OpenReq): Promise<void> {
   updateRailBadge();
   persist();
   void refreshMeta(res.id);
+  void refreshGit(res.id);
 }
 
 /** Pull a session's model + active-time from its log (for the header/list). Cheap; called on open/select + a slow tick. */
@@ -125,7 +126,19 @@ async function refreshMeta(id: string): Promise<void> {
   if (!editingId) renderList();
   renderHeader();
 }
-function refreshAllMeta(): void { if (editingId) return; for (const id of live.keys()) void refreshMeta(id); }
+/** Pull a session's CURRENT git branch + dirty count by project path, so a RESTORED session — which is
+ *  re-created with no branch — and in-terminal branch switches both show the live branch instead of "-". */
+async function refreshGit(id: string): Promise<void> {
+  const l = live.get(id); if (!l) return;
+  let info: { branch: string | null; dirty: number };
+  try { info = await window.devdeck.cockpit.gitInfo(l.session.projectPath); } catch { return; }
+  if (l.session.branch === info.branch && l.session.dirty === info.dirty) return; // unchanged → no re-render
+  l.session.branch = info.branch;
+  l.session.dirty = info.dirty;
+  if (!editingId) renderList();
+  renderHeader();
+}
+function refreshAllMeta(): void { if (editingId) return; for (const id of live.keys()) { void refreshMeta(id); void refreshGit(id); } }
 
 function select(id: string): void {
   selectedId = id;
@@ -133,6 +146,7 @@ function select(id: string): void {
   mainEl.classList.toggle('has-session', live.size > 0);
   renderList(); renderHeader();
   void refreshMeta(id);
+  void refreshGit(id);
   requestAnimationFrame(() => { fitSelected(); live.get(id)?.term.focus(); });
 }
 

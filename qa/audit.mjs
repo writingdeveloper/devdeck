@@ -29,6 +29,12 @@ ipc.langRoundTrip = await win.evaluate(async () => {
   await window.devdeck.setLanguage(before);
   return after === 'en';
 });
+// cockpit.gitInfo must resolve the real branch by project path — the fix for restored cockpit
+// sessions (and in-terminal branch switches) showing "-" instead of the live branch.
+ipc.cockpitGitInfo = await win.evaluate(async (p) => {
+  const info = await window.devdeck.cockpit.gitInfo(p);
+  return typeof info?.branch === 'string' && info.branch.length > 0;
+}, root);
 ipc.usageShape = await win.evaluate(async () => {
   const r = await window.devdeck.usageReport(0);
   return { hasGlobal: !!r.global, hasByProject: Array.isArray(r.byProject), hasByModel: Array.isArray(r.byModel) };
@@ -79,12 +85,14 @@ const criticalViolations = Object.entries(a11y).flatMap(([view, viols]) =>
 );
 const surfaceFails = Object.entries(ipc.surface).filter(([, v]) => v === false);
 const titlebarFails = Object.entries(ipc.titlebar).filter(([, v]) => v === false);
+const gitInfoFail = ipc.cockpitGitInfo !== true;
 
-if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0) {
+if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail) {
   console.error('QA FAILED:');
   if (criticalViolations.length > 0) console.error('  a11y critical/serious:', JSON.stringify(criticalViolations, null, 2));
   if (surfaceFails.length > 0) console.error('  ipc.surface checks failed:', surfaceFails.map(([k]) => k).join(', '));
   if (titlebarFails.length > 0) console.error('  ipc.titlebar checks failed:', titlebarFails.map(([k]) => k).join(', '));
+  if (gitInfoFail) console.error('  cockpit.gitInfo did not resolve a branch for the repo root:', ipc.cockpitGitInfo);
   process.exit(1);
 }
 console.log('done');

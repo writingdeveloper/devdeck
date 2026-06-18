@@ -261,6 +261,14 @@ export function registerIpc(cfg: IpcConfig): void {
     return readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
   });
 
+  // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a
+  // RESTORED session (re-created with no branch) and in-terminal branch switches both show the
+  // real branch instead of a stale snapshot or "-". Read-only git, same reader the deck uses.
+  ipcMain.handle('cockpit:gitInfo', async (_e, projectPath: string) => {
+    const info = await getGitInfo(String(projectPath));
+    return { branch: info.branch, dirty: info.uncommitted };
+  });
+
   // Tray attention indicator (Discord-style): the renderer supplies the red-dotted icon once + live needs-you counts.
   ipcMain.on('tray:alertImage', (_e, dataUrl: string) => cfg.tray.setAlertImage(String(dataUrl)));
   ipcMain.on('tray:counts', (_e, counts: { attention?: number; turn?: number }) => {
