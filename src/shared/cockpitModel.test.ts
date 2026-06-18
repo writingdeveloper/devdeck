@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, numberCollidingNames, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, numberCollidingNames, cockpitListSignature, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -65,5 +65,34 @@ describe('isCockpitPlatform', () => {
     expect(isCockpitPlatform('win32')).toBe(true);
     expect(isCockpitPlatform('darwin')).toBe(false);
     expect(isCockpitPlatform('linux')).toBe(false);
+  });
+});
+
+describe('cockpitListSignature', () => {
+  const row = (over: Partial<Parameters<typeof cockpitListSignature>[0][number]> = {}) =>
+    ({ id: 'a', activity: 'working', label: 'devdeck', dirty: 0, branch: 'main', model: 'Opus 4.8', agentId: 'claude', selected: false, ...over });
+
+  it('is stable for identical inputs', () => {
+    expect(cockpitListSignature([row()], [], 'ko', '')).toBe(cockpitListSignature([row()], [], 'ko', ''));
+  });
+
+  it('changes when any rendered field changes', () => {
+    const base = cockpitListSignature([row()], [], 'ko', '');
+    expect(cockpitListSignature([row({ activity: 'attention' })], [], 'ko', '')).not.toBe(base); // moves group
+    expect(cockpitListSignature([row({ branch: 'dev' })], [], 'ko', '')).not.toBe(base);
+    expect(cockpitListSignature([row({ dirty: 1 })], [], 'ko', '')).not.toBe(base);
+    expect(cockpitListSignature([row({ model: null })], [], 'ko', '')).not.toBe(base);
+    expect(cockpitListSignature([row({ label: 'renamed' })], [], 'ko', '')).not.toBe(base);
+    expect(cockpitListSignature([row({ selected: true })], [], 'ko', '')).not.toBe(base);
+    expect(cockpitListSignature([row()], [], 'en', '')).not.toBe(base);  // language → tr() text differs
+    expect(cockpitListSignature([row()], [], 'ko', 'q')).not.toBe(base); // search filter
+    expect(cockpitListSignature([row(), row({ id: 'b' })], [], 'ko', '')).not.toBe(base); // row added
+    expect(cockpitListSignature([row()], [{ key: 'p', label: 'old', agentId: 'claude' }], 'ko', '')).not.toBe(base); // prev added
+  });
+
+  it('does not collide when fields shift across the delimiter', () => {
+    // "a|b" vs "ab|" must differ — guards against a naive join with no separator.
+    expect(cockpitListSignature([row({ id: 'a', label: 'b' })], [], 'ko', ''))
+      .not.toBe(cockpitListSignature([row({ id: 'ab', label: '' })], [], 'ko', ''));
   });
 });

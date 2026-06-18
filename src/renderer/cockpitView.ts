@@ -1,13 +1,13 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, type CockpitSession } from '../shared/cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
 import { decideKeyAction } from '../shared/terminalKeys';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import type { StaleLevel } from '../shared/types';
-import { tr } from './i18n-runtime';
+import { tr, currentLang } from './i18n-runtime';
 
 interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; customLabel: string | null; meta: { model: string | null; activeMs: number } | null; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; }
@@ -16,6 +16,7 @@ const live = new Map<string, Live>();
 let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
 let restorableLoaded = false; // guard: don't persist (and clobber the on-disk list) until the initial load resolves
 let liveLabels = new Map<string, string>(); // live session id -> display label (#N when a project has several sessions)
+let lastListSig = ''; // signature of the last-rendered session list — renderList() skips a rebuild when nothing visible changed
 let editingId: string | null = null; // session being inline-renamed (rendered as an <input> in its row, so re-renders keep it)
 let selectedId: string | null = null;
 let searchEl: HTMLInputElement, groupsEl: HTMLElement, headerEl: HTMLElement, termsEl: HTMLElement, emptyEl: HTMLElement, mainEl: HTMLElement;
@@ -122,7 +123,10 @@ async function createSession(p: OpenReq): Promise<void> {
 /** Pull a session's model + active-time from its log (for the header/list). Cheap; called on open/select + a slow tick. */
 async function refreshMeta(id: string): Promise<void> {
   const l = live.get(id); if (!l || !l.openedSessionId) return;
-  try { l.meta = await window.devdeck.cockpit.sessionMeta(l.session.projectPath, l.openedSessionId); } catch { return; }
+  let meta: { model: string | null; activeMs: number };
+  try { meta = await window.devdeck.cockpit.sessionMeta(l.session.projectPath, l.openedSessionId); } catch { return; }
+  if (l.meta?.model === meta.model && l.meta?.activeMs === meta.activeMs) return; // unchanged → no re-render
+  l.meta = meta;
   if (!editingId) renderList();
   renderHeader();
 }
@@ -182,6 +186,19 @@ function renderList(): void {
   const labels = numberCollidingNames(union);
   liveLabels = new Map(liveLive.map((l, i) => [l.session.id, labels[i]]));
   const prevLabels = prev.map((_r, i) => labels[liveLive.length + i]);
+
+  // Skip the full DOM rebuild when nothing the list shows has changed (this runs on every 1s activity
+  // tick + per-session meta/git refresh, so most calls become no-ops once the deck settles).
+  const sig = cockpitListSignature(
+    liveLive.map((l) => ({
+      id: l.session.id, activity: l.session.activity, label: liveLabels.get(l.session.id) ?? '', dirty: l.session.dirty,
+      branch: l.session.branch, model: friendlyModel(l.meta?.model ?? null), agentId: l.session.agentId, selected: l.session.id === selectedId,
+    })),
+    prev.map((r, i) => ({ key: r.sessionId ?? r.projectPath, label: prevLabels[i], agentId: r.agentId })),
+    currentLang(), search,
+  ) + `\nedit:${editingId ?? ''}`; // a row being renamed becomes an <input> — also part of what the list renders
+  if (sig === lastListSig) return;
+  lastListSig = sig;
 
   const filtered = filterSessions(liveSessions, searchEl?.value ?? '');
   groupsEl.replaceChildren();

@@ -62,3 +62,29 @@ export function numberCollidingNames(names: string[]): string[] {
 export function isCockpitPlatform(platform: string): boolean {
   return platform === 'win32';
 }
+
+export interface CockpitRowSig {
+  id: string; activity: string; label: string; dirty: number;
+  branch: string | null; model: string | null; agentId: string; selected: boolean;
+}
+
+/**
+ * A compact signature of everything the cockpit session list renders. renderList() compares it to the
+ * previous signature and skips the full DOM rebuild when nothing visible changed — otherwise it rebuilds
+ * every row on each 1s activity tick / 30s meta tick even when the result is identical. Includes the
+ * language so a tr()-driven text change (group headers, buttons) still forces a rebuild. JSON encoding
+ * keeps it collision-safe (values can't blur across a delimiter).
+ */
+export function cockpitListSignature(
+  rows: CockpitRowSig[],
+  prev: { key: string; label: string; agentId: string }[],
+  lang: string,
+  search: string,
+): string {
+  return JSON.stringify([
+    rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected]),
+    prev.map((x) => [x.key, x.label, x.agentId]),
+    lang,
+    search,
+  ]);
+}

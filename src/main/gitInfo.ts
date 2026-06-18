@@ -44,3 +44,19 @@ export async function getRepoUrl(dir: string, run: GitRunner = defaultRunner): P
   const out = await safe(run, ['-C', dir, 'config', '--get', 'remote.origin.url']);
   return parseRemoteUrl(out ?? '');
 }
+
+/**
+ * Just the branch + uncommitted count (2 git calls). The cockpit re-reads this per session on a slow
+ * tick, so it skips the deck's heavier 5-call getGitInfo (which also fetches log/upstream/remote) —
+ * with many open sessions that trims the periodic git-subprocess burst by 60%.
+ */
+export async function getGitBranchDirty(dir: string, run: GitRunner = defaultRunner): Promise<{ branch: string | null; dirty: number }> {
+  const [branchOut, statusOut] = await Promise.all([
+    safe(run, ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD']),
+    safe(run, ['-C', dir, 'status', '--porcelain']),
+  ]);
+  return {
+    branch: branchOut == null ? null : parseBranch(branchOut),
+    dirty: parsePorcelainCount(statusOut ?? ''),
+  };
+}

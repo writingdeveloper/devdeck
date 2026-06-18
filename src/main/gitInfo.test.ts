@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getGitInfo, getRepoUrl } from './gitInfo';
+import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 
 // Fake runner keyed by the git subcommand.
 function fakeRunner(map: Record<string, string>) {
@@ -67,5 +67,26 @@ describe('getGitInfo', () => {
     };
     const info = await getGitInfo('C:\\g\\x', run);
     expect(info.branch).toBeNull();
+  });
+});
+
+describe('getGitBranchDirty', () => {
+  const SUBCMDS = ['rev-parse', 'status', 'log', 'rev-list', 'config'];
+  it('returns just branch + dirty, running ONLY rev-parse and status (not the deck-heavy log/rev-list/config)', async () => {
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      if (args.includes('rev-parse')) return 'feat/x\n';
+      if (args.includes('status')) return ' M a.ts\n?? b.ts\n';
+      return '';
+    };
+    expect(await getGitBranchDirty('C:\\g\\x', run)).toEqual({ branch: 'feat/x', dirty: 2 });
+    const used = calls.map((a) => a.find((x) => SUBCMDS.includes(x))).sort();
+    expect(used).toEqual(['rev-parse', 'status']); // exactly two git invocations
+  });
+
+  it('returns null branch when rev-parse throws', async () => {
+    const run = async (args: string[]): Promise<string> => { if (args.includes('rev-parse')) throw new Error('x'); return ''; };
+    expect((await getGitBranchDirty('C:\\g\\x', run)).branch).toBeNull();
   });
 });

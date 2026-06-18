@@ -6,9 +6,10 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Store } from './store';
 import type { PtyHost } from './ptyHost';
+import { PtyBatcher } from './ptyBatch';
 import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
-import { getGitInfo, getRepoUrl } from './gitInfo';
+import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession } from './agents';
 import type { AgentId, Folder } from '../shared/types';
 import { isAllowedPath } from '../shared/pathGuard';
@@ -217,6 +218,11 @@ export function registerIpc(cfg: IpcConfig): void {
 
   // Embedded cockpit: open a pty session running the agent; output streams to the renderer's xterm.
   let cockpitSeq = 0;
+  // Guard against the window being gone (e.g. reload) when late pty output arrives.
+  const sendToWin = (channel: string, payload: unknown): void => { if (!cfg.win.isDestroyed()) cfg.win.webContents.send(channel, payload); };
+  // Coalesce pty output (~one frame) before it crosses IPC so many streaming sessions don't flood the
+  // renderer's single UI thread; input is never batched, and a big burst flushes immediately via the cap.
+  const ptyBatch = new PtyBatcher((id, chunk) => sendToWin('cockpit:data', { id, chunk }), (flush) => { setTimeout(flush, 16); });
   ipcMain.handle('cockpit:open', (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }) => {
     const folders = effFolders();
     if (!isAllowedPath(folders, req.projectPath)) {
@@ -235,20 +241,18 @@ export function registerIpc(cfg: IpcConfig): void {
     });
     const shellPath = resolveShellPath();
     const id = `${req.projectPath}#${++cockpitSeq}`;
-    // Guard against the window being gone (e.g. reload) when late pty output arrives.
-    const send = (channel: string, payload: unknown) => { if (!cfg.win.isDestroyed()) cfg.win.webContents.send(channel, payload); };
     cfg.ptyHost.create(
       id, shellPath, ['-NoExit', '-Command', resolved.command], req.projectPath,
       Math.max(20, req.cols | 0), Math.max(5, req.rows | 0),
-      (chunk) => send('cockpit:data', { id, chunk }),
-      (e) => send('cockpit:exit', { id, exitCode: e.exitCode }),
+      (chunk) => ptyBatch.push(id, chunk),
+      (e) => { ptyBatch.flush(); sendToWin('cockpit:exit', { id, exitCode: e.exitCode }); }, // flush buffered output before the exit notice
     );
     cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
     return { id, agentId: a.id, sessionId: resolved.sessionId };
   });
   ipcMain.on('cockpit:input', (_e, id: string, data: string) => cfg.ptyHost.write(String(id), String(data)));
   ipcMain.on('cockpit:resize', (_e, id: string, cols: number, rows: number) => cfg.ptyHost.resize(String(id), Math.max(1, cols | 0), Math.max(1, rows | 0)));
-  ipcMain.on('cockpit:close', (_e, id: string) => cfg.ptyHost.kill(String(id)));
+  ipcMain.on('cockpit:close', (_e, id: string) => { ptyBatch.drop(String(id)); cfg.ptyHost.kill(String(id)); });
 
   // Cockpit session persistence: remember the open sessions so a quit/crash doesn't lose them.
   // The store sanitizes on read & write, so a corrupted state.json can't inject bad data.
@@ -262,12 +266,10 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a
-  // RESTORED session (re-created with no branch) and in-terminal branch switches both show the
-  // real branch instead of a stale snapshot or "-". Read-only git, same reader the deck uses.
-  ipcMain.handle('cockpit:gitInfo', async (_e, projectPath: string) => {
-    const info = await getGitInfo(String(projectPath));
-    return { branch: info.branch, dirty: info.uncommitted };
-  });
+  // RESTORED session (re-created with no branch) and in-terminal branch switches both show the real
+  // branch instead of a stale snapshot or "-". Uses the 2-call branch+dirty reader (not the deck's
+  // 5-call getGitInfo) since the cockpit refreshes this per session.
+  ipcMain.handle('cockpit:gitInfo', (_e, projectPath: string) => getGitBranchDirty(String(projectPath)));
 
   // Tray attention indicator (Discord-style): the renderer supplies the red-dotted icon once + live needs-you counts.
   ipcMain.on('tray:alertImage', (_e, dataUrl: string) => cfg.tray.setAlertImage(String(dataUrl)));
