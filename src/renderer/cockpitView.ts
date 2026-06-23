@@ -1,10 +1,12 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
 import { decideKeyAction } from '../shared/terminalKeys';
+import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import type { StaleLevel } from '../shared/types';
 import { tr, currentLang } from './i18n-runtime';
@@ -90,11 +92,14 @@ async function createSession(p: OpenReq): Promise<void> {
   el.classList.add('show');
   const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: true });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
+  // Make http(s) links in terminal output clickable → open via a scheme-guarded IPC.
+  // (shell:openExternal is locked to DevDeck's own repo, so terminal links need their own path.)
+  term.loadAddon(new WebLinksAddon((_e, uri) => { void window.devdeck.cockpit.openLink(uri); }));
   // Resolve the Ctrl+C copy-vs-SIGINT conflict (and Ctrl+V paste) before xterm forwards the key.
   // Returning false stops xterm processing it, so 'copy'/'paste' never reach the PTY as keystrokes.
   term.attachCustomKeyEventHandler((e) => {
     const action = decideKeyAction(e, term.hasSelection());
-    if (action === 'copy') { window.devdeck.clipboard.writeText(term.getSelection()); return false; }
+    if (action === 'copy') { window.devdeck.clipboard.writeText(unwrapCopiedUrl(term.getSelection())); return false; }
     if (action === 'paste') {
       e.preventDefault(); // cancel the native paste gesture so xterm's own paste can't double with our IPC paste
       window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });

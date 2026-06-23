@@ -61,6 +61,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
     sessionMeta: (projectPath: string, sessionId: string) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId),
     gitInfo: (projectPath: string) => ipcRenderer.invoke('cockpit:gitInfo', projectPath),
+    openLink: (url: string) => ipcRenderer.invoke('cockpit:openLink', url),
   },
   setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),
   setTrayCounts: (counts: { attention: number; turn: number }) => ipcRenderer.send('tray:counts', counts),

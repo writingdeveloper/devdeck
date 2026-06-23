@@ -13,7 +13,7 @@ import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession } from './agents';
 import type { AgentId, Folder } from '../shared/types';
 import { isAllowedPath } from '../shared/pathGuard';
-import { isAllowedExternalUrl, isSafeRepoUrl } from '../shared/externalUrl';
+import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
 import { buildProjectList } from './projects';
 import { createProject } from './createProject';
 import { openProjects, openInEditor, resolveShellPath } from './launcher';
@@ -303,6 +303,14 @@ export function registerIpc(cfg: IpcConfig): void {
   // navigator.clipboard reliably). Used so Ctrl+C copies a selection instead of sending SIGINT.
   ipcMain.on('clipboard:writeText', (_e, text: string) => clipboard.writeText(String(text ?? '')));
   ipcMain.handle('clipboard:readText', () => clipboard.readText());
+
+  // Open a clicked terminal link. Terminal output is arbitrary, so (unlike shell:openExternal, which is
+  // locked to DevDeck's own repo) any host is allowed — but only the http/https scheme, never file:/etc.
+  ipcMain.handle('cockpit:openLink', async (_e, url: string) => {
+    const u = String(url);
+    if (isOpenableTerminalLink(u)) await shell.openExternal(u);
+    else cfg.sendError(`Blocked terminal link: ${u}`);
+  });
 
   // Frameless-window controls (the title bar draws its own buttons).
   ipcMain.handle('win:minimize', () => cfg.win.minimize());
