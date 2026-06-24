@@ -26,8 +26,8 @@ describe('scanUsage', () => {
     expect(r.global.output).toBe(1_000_000);
     expect(r.byProject[0].name).toBe('proj');
     expect(r.byProject[0].sessions).toBe(1);
-    expect(r.globalCost).toBeCloseTo(15 + 75, 3);
-    expect(r.byProject[0].costEstimate).toBeCloseTo(15 + 75, 3);
+    expect(r.globalCost).toBeCloseTo(5 + 25, 3);          // 1M input @ $5 + 1M output @ $25
+    expect(r.byProject[0].costEstimate).toBeCloseTo(5 + 25, 3);
     expect(r.byModel.find((m) => m.model === 'claude-opus-4-8')).toBeTruthy();
   });
 
@@ -56,7 +56,7 @@ describe('scanUsage', () => {
     expect(r.byProject[0].hasUnknownModel).toBe(false);
     expect(r.byModel.find((m) => m.model === 'claude-opus-4-8')).toBeTruthy();    // the real model is still reported
     expect(r.global.input).toBe(100);                                             // real totals unaffected (synthetic = 0 tokens)
-    expect(r.globalCost).toBeCloseTo((100 * 15 + 50 * 75) / 1_000_000, 6);        // cost still computed, no false "*"
+    expect(r.globalCost).toBeCloseTo((100 * 5 + 50 * 25) / 1_000_000, 6);         // cost still computed, no false "*"
   });
 
   it('returns zeros for a project with no session dir', () => {

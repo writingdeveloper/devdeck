@@ -19,8 +19,13 @@ export const SYNTHETIC_MODEL = '<synthetic>';
 export interface PriceCard { input: number; output: number; cacheWrite: number; cacheRead: number; }
 
 // Approximate published Anthropic prices ($/MTok). EDIT when prices change — cost is an ESTIMATE.
+// Opus dropped from $15/$75 to $5/$25 starting at 4.6 (1M context at standard pricing, no long-context
+// premium). The old $15/$75 card on 4.8 3x-inflated every Opus 4.8 cost estimate. Opus 4.1 keeps the
+// legacy $15/$75. cacheWrite ~= 1.25x input (5m), cacheRead ~= 0.1x input.
 export const MODEL_PRICING: Record<string, PriceCard> = {
-  'claude-opus-4-8': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
+  'claude-opus-4-8': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
+  'claude-opus-4-7': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
+  'claude-opus-4-6': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
   'claude-opus-4-1': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
   'claude-sonnet-4-5': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
   'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },

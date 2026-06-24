@@ -25,6 +25,10 @@ describe('estimateCost', () => {
   it('has a price card for the current Opus model id', () => {
     expect(MODEL_PRICING['claude-opus-4-8']).toBeDefined();
   });
+  it('prices Opus 4.8 at the current $5/$25 per Mtok (not the retired $15/$75)', () => {
+    // Opus dropped to $5/$25 at 4.6; the old $15/$75 card 3x-inflated every Opus 4.8 cost estimate.
+    expect(MODEL_PRICING['claude-opus-4-8']).toEqual({ input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 });
+  });
 });
 
 describe('activeMsFromTimestamps', () => {
