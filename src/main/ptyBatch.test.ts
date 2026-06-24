@@ -52,4 +52,22 @@ describe('PtyBatcher', () => {
     h.fire();
     expect(h.emits).toEqual([{ id: 'b', chunk: 'keep' }]);
   });
+
+  it('isolates a throwing emit: siblings still flush, the buffer clears, and flush never throws', () => {
+    const emitted: { id: string; chunk: string }[] = [];
+    let scheduled: (() => void) | null = null;
+    const b = new PtyBatcher(
+      (id, chunk) => { if (id === 'bad') throw new Error('webContents gone'); emitted.push({ id, chunk }); },
+      (cb) => { scheduled = cb; },
+    );
+    b.push('good1', 'a'); b.push('bad', 'b'); b.push('good2', 'c');
+    // A destroyed/reloading webContents throwing from emit must NOT escape the timer callback —
+    // an unhandled throw there takes down Electron's whole main process, killing every terminal.
+    expect(() => scheduled!()).not.toThrow();
+    expect(emitted).toEqual([{ id: 'good1', chunk: 'a' }, { id: 'good2', chunk: 'c' }]); // bad's throw didn't skip good2
+    // The buffer was cleared despite the throw — the next flush must not re-emit the survivors.
+    b.push('good1', 'd');
+    scheduled!();
+    expect(emitted).toEqual([{ id: 'good1', chunk: 'a' }, { id: 'good2', chunk: 'c' }, { id: 'good1', chunk: 'd' }]);
+  });
 });

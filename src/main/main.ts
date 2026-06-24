@@ -1,5 +1,6 @@
 import { app, BrowserWindow, globalShortcut } from 'electron';
 import * as path from 'node:path';
+import { appendFileSync } from 'node:fs';
 import * as nodePty from '@homebridge/node-pty-prebuilt-multiarch';
 import { Store } from './store';
 import { registerIpc } from './ipc';
@@ -7,6 +8,7 @@ import { PtyHost, type PtySpawn } from './ptyHost';
 import { setupTray } from './tray';
 import { registerUpdater } from './updater';
 import { applyOpenAtLogin } from './autostart';
+import { installGlobalErrorHandlers } from './errorGuard';
 
 const realSpawn: PtySpawn = (file, args, opts) => {
   const p = nodePty.spawn(file, args, { name: 'xterm-256color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows });
@@ -58,12 +60,22 @@ if (!gotLock) {
   app.on('second-instance', showWindow);
 
   app.whenReady().then(() => {
+    const userData = app.getPath('userData');
+    // Last-resort trap: keep the main process alive when an async callback (pty data/exit, the
+    // PtyBatcher flush timer, a git spawn, a stray IPC reject) throws. Before this, such a throw
+    // closed DevDeck "out of nowhere" and took every cockpit terminal with it. We also append the
+    // stack to a log file so a future occurrence is diagnosable (console output is lost when packaged).
+    installGlobalErrorHandlers((kind, err) => {
+      const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      console.error(`DevDeck main ${kind}:`, detail);
+      try { appendFileSync(path.join(userData, 'devdeck-errors.log'), `${new Date().toISOString()} [${kind}] ${detail}\n`); } catch { /* logging is best-effort */ }
+    });
     // Match the installer shortcut's AppUserModelID (electron-builder sets it to
     // the appId) so Windows shows the DevDeck taskbar icon and groups windows
     // correctly. Without this the running process uses Electron's default ID and
     // the taskbar falls back to the generic Electron icon.
     if (process.platform === 'win32') app.setAppUserModelId('com.soursea.devdeck');
-    const store = new Store(path.join(app.getPath('userData'), 'state.json'));
+    const store = new Store(path.join(userData, 'state.json'));
     // Reconcile the OS login item with the saved preference (e.g. after a
     // reinstall/update the registered exe path may be stale). No-op in dev / off Windows.
     applyOpenAtLogin(store.getOpenAtLogin());

@@ -219,7 +219,12 @@ export function registerIpc(cfg: IpcConfig): void {
   // Embedded cockpit: open a pty session running the agent; output streams to the renderer's xterm.
   let cockpitSeq = 0;
   // Guard against the window being gone (e.g. reload) when late pty output arrives.
-  const sendToWin = (channel: string, payload: unknown): void => { if (!cfg.win.isDestroyed()) cfg.win.webContents.send(channel, payload); };
+  const sendToWin = (channel: string, payload: unknown): void => {
+    // webContents.send can throw if the renderer is torn down mid-send (reload/quit). The global
+    // error trap is the backstop, but isolating here stops a stray send from unwinding a pty
+    // data/exit callback — which would otherwise escape as an uncaughtException.
+    try { if (!cfg.win.isDestroyed()) cfg.win.webContents.send(channel, payload); } catch { /* renderer gone */ }
+  };
   // Coalesce pty output (~one frame) before it crosses IPC so many streaming sessions don't flood the
   // renderer's single UI thread; input is never batched, and a big burst flushes immediately via the cap.
   const ptyBatch = new PtyBatcher((id, chunk) => sendToWin('cockpit:data', { id, chunk }), (flush) => { setTimeout(flush, 16); });

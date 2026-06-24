@@ -26,7 +26,13 @@ export class PtyBatcher {
 
   flush(): void {
     this.scheduled = false;
-    for (const [id, chunk] of this.pending) this.emit(id, chunk);
+    // Isolate each emit: a destroyed/reloading webContents can throw from send. The scheduler runs
+    // flush in a setTimeout callback, so an escaping throw becomes an uncaughtException that kills
+    // the whole main process (and every terminal with it). One dead session must not do that, and
+    // the survivors must still flush — so swallow per-id and always clear the buffer below.
+    for (const [id, chunk] of this.pending) {
+      try { this.emit(id, chunk); } catch { /* dead webContents — drop this chunk, keep the batcher (and the process) alive */ }
+    }
     this.pending.clear();
   }
 
