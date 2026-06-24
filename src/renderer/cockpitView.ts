@@ -147,7 +147,9 @@ async function refreshGit(id: string): Promise<void> {
   if (!editingId) renderList();
   renderHeader();
 }
-function refreshAllMeta(): void { if (editingId) return; for (const id of live.keys()) { void refreshMeta(id); void refreshGit(id); } }
+// The 30s tick: skip exited sessions — their model/branch can't change, so re-reading their log +
+// re-spawning git every tick is pure waste (matters most with many concurrent sessions).
+function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshMeta(id); void refreshGit(id); } }
 
 function select(id: string): void {
   selectedId = id;

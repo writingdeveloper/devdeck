@@ -14,6 +14,7 @@ import { getProvider, availableAgents, resolveOpenSession } from './agents';
 import type { AgentId, Folder } from '../shared/types';
 import { isAllowedPath } from '../shared/pathGuard';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
+import { makeTtlCache } from '../shared/ttlCache';
 import { buildProjectList } from './projects';
 import { createProject } from './createProject';
 import { openProjects, openInEditor, resolveShellPath } from './launcher';
@@ -49,6 +50,20 @@ export function registerIpc(cfg: IpcConfig): void {
     const f = cfg.store.getFolders();
     return f.length ? f : [{ path: cfg.defaultBaseDir, kind: 'root' }];
   };
+  // One deck reload() calls both projects:list and usage:report; each used to run scanFolders
+  // independently (double disk walk + .git probes). Share one in-flight scan for ~8s (well under the
+  // ~45s auto-refresh) keyed by the folder set, so the two handlers await the same Promise.
+  const scanCache = makeTtlCache<ReturnType<typeof scanFolders>>(8_000);
+  const memoScan = (): ReturnType<typeof scanFolders> => {
+    const folders = effFolders();
+    const key = JSON.stringify(folders);
+    const now = Date.now();
+    const hit = scanCache.get(key, now);
+    if (hit) return hit;
+    const p = scanFolders(folders);
+    scanCache.set(key, now, p);
+    return p;
+  };
 
   const activeAgent = (): AgentId => {
     const a = cfg.store.getAgent();
@@ -60,7 +75,7 @@ export function registerIpc(cfg: IpcConfig): void {
     return buildProjectList({
       nowMs: Date.now(),
       thresholds: effThresholds(),
-      scan: () => scanFolders(effFolders()),
+      scan: memoScan,
       git: (dir) => getGitInfo(dir),
       sessions: (p) => agent().listSessions(p),
       resumeCue: (p, sessionId) => agent().lastUserMessage(p, sessionId),
@@ -80,7 +95,7 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('usage:report', async (_e, sinceMs: number) => {
     const ms = (Number.isFinite(sinceMs) || sinceMs === Infinity) ? sinceMs : 0;
-    const scanned = await scanFolders(effFolders());
+    const scanned = await memoScan();
     // Reconcile the live deck with ~/.claude so DELETED projects (folder gone, usage still on disk)
     // remain visible and counted in the totals — honest "where did my tokens go" accounting.
     const claudeProjects = listClaudeProjectDirs(CLAUDE_PROJECTS);

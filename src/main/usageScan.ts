@@ -4,8 +4,10 @@ import { encodeProjectPath } from '../shared/paths';
 import { emptyTotals, addUsage, estimateCost, activeMsFromTimestamps, MODEL_PRICING, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
 import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 
-// Cache: key = filepath + ':' + mtimeMs → parsed lines
-const _fileCache = new Map<string, string[]>();
+// Cache: filepath -> { mtime, parsed lines }. Keyed by PATH (not path+mtime), with the mtime stored
+// in the value, so a modified file REPLACES its entry instead of leaking a new key per modification
+// in this long-lived process. One entry per session file; bounded by the number of distinct files.
+const _fileCache = new Map<string, { mtimeMs: number; lines: string[] }>();
 
 interface RepoRef { path: string; name: string; status?: 'active' | 'deleted'; }
 
@@ -46,15 +48,15 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
         const full = join(dir, f);
         let fileMs = Date.now();
         try { fileMs = statSync(full).mtimeMs; } catch { /* keep now */ }
-        const cacheKey = full + ':' + fileMs;
+        const cached = _fileCache.get(full);
         let lines: string[];
-        if (_fileCache.has(cacheKey)) {
-          lines = _fileCache.get(cacheKey)!;
+        if (cached && cached.mtimeMs === fileMs) {
+          lines = cached.lines;
         } else {
           let text = '';
           try { text = readFileSync(full, 'utf8'); } catch { continue; }
           lines = text.split('\n');
-          _fileCache.set(cacheKey, lines);
+          _fileCache.set(full, { mtimeMs: fileMs, lines }); // replaces any stale entry for this path
         }
         projSessions++;
         const stamps: number[] = []; // in-range message timestamps, for active-time gaps
