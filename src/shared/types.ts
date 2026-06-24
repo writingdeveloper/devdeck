@@ -1,6 +1,6 @@
 import type { UsageTotals } from './usage';
 
-export type AgentId = 'claude' | 'codex';
+export type AgentId = 'claude' | 'antigravity';
 
 export type Language = 'ko' | 'en' | 'ja' | 'zh';
 

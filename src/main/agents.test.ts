@@ -9,18 +9,18 @@ describe('agent providers', () => {
     expect(c.buildCommand('continue')).toBe('claude -c');
     expect(c.buildCommand('resume', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789')).toBe('claude --resume a0b1c2d3-e4f5-6789-abcd-ef0123456789');
   });
-  it('codex buildCommand maps kinds correctly', () => {
-    const x = getProvider('codex');
-    expect(x.buildCommand('new')).toBe('codex');
-    expect(x.buildCommand('continue')).toBe('codex resume --last');
-    expect(x.buildCommand('resume', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789')).toBe('codex resume a0b1c2d3-e4f5-6789-abcd-ef0123456789');
+  it('antigravity buildCommand maps kinds correctly', () => {
+    const x = getProvider('antigravity');
+    expect(x.buildCommand('new')).toBe('agy');
+    expect(x.buildCommand('continue')).toBe('agy -c');
+    expect(x.buildCommand('resume', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789')).toBe('agy --conversation a0b1c2d3-e4f5-6789-abcd-ef0123456789');
   });
   it('resume with an invalid id falls back to continue (no injection)', () => {
     expect(getProvider('claude').buildCommand('resume', '$(evil)')).toBe('claude -c');
-    expect(getProvider('codex').buildCommand('resume', '$(evil)')).toBe('codex resume --last');
+    expect(getProvider('antigravity').buildCommand('resume', '$(evil)')).toBe('agy -c');
   });
   it('availableAgents filters by isAvailable', () => {
     expect(availableAgents(() => false)).toEqual([]);
-    expect(availableAgents(() => true).sort()).toEqual(['claude', 'codex']);
+    expect(availableAgents(() => true).sort()).toEqual(['antigravity', 'claude']);
   });
 });

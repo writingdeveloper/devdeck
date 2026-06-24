@@ -9,8 +9,8 @@ describe('sanitizePersistedList', () => {
   });
 
   it('keeps valid entries verbatim (label defaults to null)', () => {
-    const r = sanitizePersistedList([{ projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'codex' }]);
-    expect(r).toEqual([{ projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'codex', label: null }]);
+    const r = sanitizePersistedList([{ projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'antigravity' }]);
+    expect(r).toEqual([{ projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'antigravity', label: null }]);
   });
 
   it('keeps, trims, and caps a custom label; coerces empty/non-string to null', () => {
@@ -30,14 +30,14 @@ describe('sanitizePersistedList', () => {
     expect(sanitizePersistedList([{ projectPath: 'C:/Users/me/devdeck/' }])[0].name).toBe('devdeck');
   });
 
-  it('coerces sessionId to string|null and agentId to claude/codex', () => {
+  it('coerces sessionId to string|null and agentId to claude/antigravity', () => {
     const r = sanitizePersistedList([
       { projectPath: 'C:/a', sessionId: 123 },
-      { projectPath: 'C:/b', sessionId: 'sid', agentId: 'codex' },
+      { projectPath: 'C:/b', sessionId: 'sid', agentId: 'antigravity' },
       { projectPath: 'C:/c', agentId: 'weird' },
     ]);
     expect(r[0]).toMatchObject({ sessionId: null, agentId: 'claude' });
-    expect(r[1]).toMatchObject({ sessionId: 'sid', agentId: 'codex' });
+    expect(r[1]).toMatchObject({ sessionId: 'sid', agentId: 'antigravity' });
     expect(r[2]).toMatchObject({ agentId: 'claude' });
   });
 

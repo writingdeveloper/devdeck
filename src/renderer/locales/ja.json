@@ -26,7 +26,7 @@
   "nav.cockpit": "コックピット",
   "agent.label": "エージェント",
   "agent.claude": "Claude",
-  "agent.codex": "Codex",
+  "agent.antigravity": "Antigravity",
   "next.title": "次にやること（全プロジェクト）",
   "next.empty": "次のタスクはありません — ノートを追加するかセッションを開いてください。",
   "proj.neglected_only": "放置のみ",

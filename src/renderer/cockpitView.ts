@@ -69,7 +69,7 @@ function persist(): void {
   if (!restorableLoaded) return; // initial load not done — persisting now would overwrite the unread list
   const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
   const fromLive: PersistedSession[] = [...live.values()].map((l) => ({ projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel }));
-  const rest = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId))); // keep siblings + null-id (codex) entries
+  const rest = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId))); // keep siblings + null-id (antigravity) entries
   window.devdeck.cockpit.saveSessions([...fromLive, ...rest]);
 }
 

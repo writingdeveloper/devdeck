@@ -80,7 +80,7 @@ export function computeActivity(i: { exited: boolean; lastDataAt: number; lastIn
   // through a long silent tool/think/API gap (survives a frozen spinner — which the timer alone can't).
   if (hasWorkingSpinner(i.recentOutput)) return 'working';
   // Timing hysteresis fallback: it WAS working and only briefly went quiet — covers agents/versions
-  // whose spinner glyph we don't match (e.g. Codex).
+  // whose spinner glyph we don't match (e.g. Antigravity / Codex-style TUIs).
   if (i.prev === 'working' && sinceData < WORKING_STICKY_MS) return 'working';
   if (sinceData < IDLE_MS) return 'turn';
   return 'idle';

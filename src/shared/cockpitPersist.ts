@@ -3,7 +3,7 @@ export interface PersistedSession {
   projectPath: string;
   name: string;
   sessionId: string | null; // the specific session to resume, or null to continue/new
-  agentId: string;          // 'claude' | 'codex' — which agent the session was opened with
+  agentId: string;          // 'claude' | 'antigravity' — which agent the session was opened with
   label?: string | null;    // user-given custom name (overrides the auto label); null/absent = auto
 }
 
@@ -18,7 +18,7 @@ function basename(p: string): string {
 /**
  * Validate/normalize a persisted-session list loaded from disk (defends against a corrupted
  * state.json): drops entries without a string projectPath, defaults the name to the path
- * basename, coerces sessionId to string|null and agentId to 'claude'/'codex', caps the count.
+ * basename, coerces sessionId to string|null and agentId to 'claude'/'antigravity', caps the count.
  */
 export function sanitizePersistedList(raw: unknown): PersistedSession[] {
   if (!Array.isArray(raw)) return [];
@@ -32,7 +32,7 @@ export function sanitizePersistedList(raw: unknown): PersistedSession[] {
       projectPath: o.projectPath,
       name: typeof o.name === 'string' && o.name ? o.name : basename(o.projectPath),
       sessionId: typeof o.sessionId === 'string' ? o.sessionId : null,
-      agentId: o.agentId === 'codex' ? 'codex' : 'claude',
+      agentId: o.agentId === 'antigravity' ? 'antigravity' : 'claude',
       label,
     });
     if (out.length >= MAX_PERSISTED) break;

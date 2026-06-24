@@ -3,11 +3,11 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import type { AgentId, SessionMeta } from '../shared/types';
 import { listSessions, lastUserMessageForSession } from './sessions';
-import { listCodexSessions, lastUserMessageForCodexSession, codexAvailable } from './codexSessions';
+import { listAntigravitySessions, lastUserMessageForAntigravitySession, antigravityAvailable } from './antigravitySessions';
 
 const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
-const CODEX_SESSIONS = join(homedir(), '.codex', 'sessions');
+const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
 
 export type LaunchKind = 'new' | 'continue' | 'resume';
 
@@ -35,28 +35,28 @@ const claudeProvider: AgentProvider = {
   },
 };
 
-const codexProvider: AgentProvider = {
-  id: 'codex',
-  label: 'Codex',
-  supportsSessionId: false,
-  isAvailable: () => codexAvailable(CODEX_SESSIONS),
-  listSessions: (p, limit) => listCodexSessions(p, CODEX_SESSIONS, limit),
-  lastUserMessage: (p, id) => lastUserMessageForCodexSession(p, id, CODEX_SESSIONS),
+const antigravityProvider: AgentProvider = {
+  id: 'antigravity',
+  label: 'Antigravity',
+  supportsSessionId: false, // agy has no --session-id pin; --conversation resumes by id only
+  isAvailable: () => antigravityAvailable(ANTIGRAVITY_DIR),
+  listSessions: (p, limit) => listAntigravitySessions(p, ANTIGRAVITY_DIR, limit),
+  lastUserMessage: (p, id) => lastUserMessageForAntigravitySession(p, id, ANTIGRAVITY_DIR),
   buildCommand: (kind, id) => {
-    if (kind === 'resume' && id && SESSION_ID_RE.test(id)) return `codex resume ${id}`;
-    return kind === 'new' ? 'codex' : 'codex resume --last';
+    if (kind === 'resume' && id && SESSION_ID_RE.test(id)) return `agy --conversation ${id}`;
+    return kind === 'new' ? 'agy' : 'agy -c';
   },
 };
 
-const PROVIDERS: Record<AgentId, AgentProvider> = { claude: claudeProvider, codex: codexProvider };
+const PROVIDERS: Record<AgentId, AgentProvider> = { claude: claudeProvider, antigravity: antigravityProvider };
 
 export function getProvider(id: AgentId): AgentProvider {
   return PROVIDERS[id] ?? claudeProvider;
 }
 
-/** Installed agents (claude always; codex if ~/.codex/sessions exists). `probe` overridable for tests. */
+/** Installed agents (claude always; antigravity if ~/.gemini/antigravity exists). `probe` overridable for tests. */
 export function availableAgents(probe?: (id: AgentId) => boolean): AgentId[] {
-  const ids: AgentId[] = ['claude', 'codex'];
+  const ids: AgentId[] = ['claude', 'antigravity'];
   const isAvail = probe ?? ((id) => PROVIDERS[id].isAvailable());
   return ids.filter(isAvail);
 }

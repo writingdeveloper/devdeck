@@ -3,7 +3,7 @@ import { getProvider, resolveOpenSession } from './agents';
 
 describe('resolveOpenSession', () => {
   const claude = getProvider('claude');
-  const codex = getProvider('codex');
+  const antigravity = getProvider('antigravity');
   const UUID = '0a1b2c3d-4e5f-6789-abcd-ef0123456789'; // hex — passes SESSION_ID_RE, like a real randomUUID()
   const gen = () => UUID;
 
@@ -23,8 +23,8 @@ describe('resolveOpenSession', () => {
     expect(resolveOpenSession(claude, { fresh: false, sessionId: null, sessionCount: 0, latestId: null, genId: gen }))
       .toEqual({ command: `claude --session-id ${UUID}`, sessionId: UUID });
   });
-  it('codex fresh: no --session-id support => plain new, id not pinned', () => {
-    expect(resolveOpenSession(codex, { fresh: true, sessionId: null, sessionCount: 0, latestId: null, genId: gen }))
-      .toEqual({ command: 'codex', sessionId: null });
+  it('antigravity fresh: no --session-id support => plain new, id not pinned', () => {
+    expect(resolveOpenSession(antigravity, { fresh: true, sessionId: null, sessionCount: 0, latestId: null, genId: gen }))
+      .toEqual({ command: 'agy', sessionId: null });
   });
 });

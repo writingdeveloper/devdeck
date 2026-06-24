@@ -61,9 +61,9 @@ describe('Store', () => {
   it('persists the active agent and defaults to null', () => {
     const s = new Store(file);
     expect(s.getAgent()).toBeNull();
-    s.setAgent('codex');
+    s.setAgent('antigravity');
     const re = new Store(file);
-    expect(re.getAgent()).toBe('codex');
+    expect(re.getAgent()).toBe('antigravity');
   });
 
   it('persists openAtLogin and defaults to false', () => {
@@ -121,8 +121,8 @@ describe('Store', () => {
   it('round-trips cockpitSessions (default [])', () => {
     const s = new Store(file);
     expect(s.getCockpitSessions()).toEqual([]);
-    s.setCockpitSessions([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex', label: 'auth' }]);
-    expect(new Store(file).getCockpitSessions()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'codex', label: 'auth' }]);
+    s.setCockpitSessions([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'antigravity', label: 'auth' }]);
+    expect(new Store(file).getCockpitSessions()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'antigravity', label: 'auth' }]);
   });
 
   it('round-trips trayAlert (default attention; bad value coerced)', () => {

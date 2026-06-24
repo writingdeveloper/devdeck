@@ -52,7 +52,7 @@ export function registerIpc(cfg: IpcConfig): void {
 
   const activeAgent = (): AgentId => {
     const a = cfg.store.getAgent();
-    return a === 'codex' || a === 'claude' ? a : 'claude';
+    return a === 'antigravity' || a === 'claude' ? a : 'claude';
   };
   const agent = () => getProvider(activeAgent());
 
@@ -92,7 +92,7 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:getAgent', () => activeAgent());
   ipcMain.handle('settings:availableAgents', () => availableAgents());
   ipcMain.handle('settings:setAgent', (_e, id: string) => {
-    if (id === 'claude' || id === 'codex') cfg.store.setAgent(id);
+    if (id === 'claude' || id === 'antigravity') cfg.store.setAgent(id);
   });
 
   ipcMain.handle('settings:get', () => ({
