@@ -139,8 +139,9 @@ async function refreshMeta(id: string): Promise<void> {
  *  re-created with no branch — and in-terminal branch switches both show the live branch instead of "-". */
 async function refreshGit(id: string): Promise<void> {
   const l = live.get(id); if (!l) return;
-  let info: { branch: string | null; dirty: number };
+  let info: { branch: string | null; dirty: number } | null;
   try { info = await window.devdeck.cockpit.gitInfo(l.session.projectPath); } catch { return; }
+  if (!info) return; // main refused the path (allowlist guard)
   if (l.session.branch === info.branch && l.session.dirty === info.dirty) return; // unchanged → no re-render
   l.session.branch = info.branch;
   l.session.dirty = info.dirty;

@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
 import { emptyTotals, addUsage, estimateCost, activeMsFromTimestamps, MODEL_PRICING, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
@@ -14,12 +15,40 @@ import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 // load) and crashed it with a V8 "out of memory" abort that bypasses every JS exception handler.
 // Files over MAX_CACHED_FILE_BYTES are still read and aggregated correctly — just never RETAINED.
 export const MAX_CACHED_FILE_BYTES = 5 * 1024 * 1024; // 5MB — generous for the vast majority of sessions
-const _fileCache = new Map<string, { mtimeMs: number; lines: string[] }>();
+// The per-file cap alone still allows unbounded AGGREGATE growth (thousands of just-under-cap
+// sessions = multiple GB over this long-lived process), so the cache is also bounded as a whole:
+// least-recently-used files are evicted once the on-disk-bytes total passes the budget. Sized so
+// the hot working set (recently active sessions) stays cached while cold history is re-read on demand.
+export const MAX_CACHE_TOTAL_BYTES = 200 * 1024 * 1024; // 200MB of on-disk bytes (in-memory strings cost ~2-3x)
+let _cacheBudget = MAX_CACHE_TOTAL_BYTES;
+let _cacheBytes = 0;
+const _fileCache = new Map<string, { mtimeMs: number; lines: string[]; bytes: number }>(); // Map iteration order = insertion order = LRU order
+
+function cacheDelete(path: string): void {
+  const e = _fileCache.get(path);
+  if (e) { _cacheBytes -= e.bytes; _fileCache.delete(path); }
+}
+function cacheSet(path: string, entry: { mtimeMs: number; lines: string[]; bytes: number }): void {
+  cacheDelete(path); // replace = remove old bytes first
+  _fileCache.set(path, entry);
+  _cacheBytes += entry.bytes;
+  for (const oldest of _fileCache.keys()) {
+    if (_cacheBytes <= _cacheBudget) break;
+    cacheDelete(oldest); // evicts the just-inserted entry too if it alone exceeds the budget
+  }
+}
+/** Re-insert a hit so Map order stays LRU (a scan that keeps re-reading the same hot files must not evict them). */
+function cacheTouch(path: string): void {
+  const e = _fileCache.get(path);
+  if (e) { _fileCache.delete(path); _fileCache.set(path, e); }
+}
 
 /** Test-only introspection: does the cache currently hold an entry for this file path? */
 export function _cacheHasFile(path: string): boolean { return _fileCache.has(path); }
 /** Test-only: reset cache state between tests so assertions aren't affected by cross-test leakage. */
-export function _clearFileCache(): void { _fileCache.clear(); }
+export function _clearFileCache(): void { _fileCache.clear(); _cacheBytes = 0; _cacheBudget = MAX_CACHE_TOTAL_BYTES; }
+/** Test-only: shrink the total-bytes budget so eviction is exercisable without writing 200MB. */
+export function _setCacheBudget(bytes: number): void { _cacheBudget = bytes; }
 
 interface RepoRef { path: string; name: string; status?: 'active' | 'deleted'; }
 
@@ -39,8 +68,16 @@ function sumModelCost(byModel: Map<string, UsageTotals>): number | null {
   return any ? sum : null;
 }
 
+// The scan is ASYNC on purpose: usage:report(0) runs on every deck load, and a synchronous pass
+// over ~/.claude (2.5GB across 5,000+ files in the real dataset) froze all IPC and live cockpit
+// PTY output for its whole duration. Async fs I/O lets other main-process work interleave between
+// files, and the parse loop yields every YIELD_EVERY_LINES lines so even a cached multi-hundred-MB
+// transcript can't monopolize the event loop.
+const YIELD_EVERY_LINES = 20_000;
+const yieldLoop = (): Promise<void> => new Promise((r) => setImmediate(r));
+
 /** Aggregate token usage across the given repos' Claude sessions. sinceMs filters by day (Infinity = all). */
-export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: number): UsageReport {
+export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: number): Promise<UsageReport> {
   const global = emptyTotals();
   const perModelGlobal = new Map<string, UsageTotals>();
   const perDay = new Map<string, UsageTotals>();
@@ -55,25 +92,28 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
 
     if (existsSync(dir)) {
       let files: string[] = [];
-      try { files = readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { files = []; }
+      try { files = (await readdir(dir)).filter((f) => f.endsWith('.jsonl')); } catch { files = []; }
       for (const f of files) {
         const full = join(dir, f);
         let fileMs = Date.now(), fileSize = 0;
-        try { const st = statSync(full); fileMs = st.mtimeMs; fileSize = st.size; } catch { /* keep defaults */ }
+        try { const st = await stat(full); fileMs = st.mtimeMs; fileSize = st.size; } catch { /* keep defaults */ }
         const cached = _fileCache.get(full);
         let lines: string[];
         if (cached && cached.mtimeMs === fileMs) {
           lines = cached.lines;
+          cacheTouch(full); // keep the hot file at the recent end of the LRU order
         } else {
           let text = '';
-          try { text = readFileSync(full, 'utf8'); } catch { continue; }
+          try { text = await readFile(full, 'utf8'); } catch { continue; }
           lines = text.split('\n');
-          if (fileSize <= MAX_CACHED_FILE_BYTES) _fileCache.set(full, { mtimeMs: fileMs, lines }); // replaces any stale entry
-          else _fileCache.delete(full); // a previously-small, now-grown file must not linger in the cache
+          if (fileSize <= MAX_CACHED_FILE_BYTES) cacheSet(full, { mtimeMs: fileMs, lines, bytes: fileSize }); // replaces any stale entry
+          else cacheDelete(full); // a previously-small, now-grown file must not linger in the cache
         }
         projSessions++;
         const stamps: number[] = []; // in-range message timestamps, for active-time gaps
+        let lineNo = 0;
         for (const line of lines) {
+          if (++lineNo % YIELD_EVERY_LINES === 0) await yieldLoop(); // cached files skip fs awaits, but their parse loop must breathe too
           if (!line.trim()) continue;
           let o: { type?: string; timestamp?: string; message?: { model?: string; usage?: RawUsage & { server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } } } };
           try { o = JSON.parse(line); } catch { continue; }

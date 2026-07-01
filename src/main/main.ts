@@ -8,7 +8,7 @@ import { PtyHost, type PtySpawn } from './ptyHost';
 import { setupTray } from './tray';
 import { registerUpdater } from './updater';
 import { applyOpenAtLogin } from './autostart';
-import { installGlobalErrorHandlers, installAppCrashHandlers } from './errorGuard';
+import { installGlobalErrorHandlers, installAppCrashHandlers, makeCrashRecovery } from './errorGuard';
 
 // Local-only crash capture (no upload — nothing is ever sent anywhere) so a NATIVE crash (a fault
 // inside node-pty/conpty or Chromium itself) writes an inspectable minidump instead of vanishing —
@@ -87,9 +87,13 @@ if (!gotLock) {
     // render-process-gone / child-process-gone fire on `app`, not `process` — a renderer or GPU
     // crash previously left zero trace anywhere (no log entry, no Windows crash event either,
     // since Crashpad intercepts it before the OS's own crash reporting sees it).
-    installAppCrashHandlers(app, (kind, detail) => {
-      logLine(`[${kind}] ${JSON.stringify(detail)}`);
-    });
+    // On a renderer crash the recovery also reaps the now-ownerless ptys and reloads the window,
+    // which restores the sessions from the persisted list (fresh ptys) instead of leaking the old ones.
+    installAppCrashHandlers(app, makeCrashRecovery({
+      log: (kind, detail) => logLine(`[${kind}] ${JSON.stringify(detail)}`),
+      reapPtys: () => ptyHost.killAll(),
+      reloadWindow: () => { if (win && !win.isDestroyed()) win.webContents.reload(); },
+    }));
     // Match the installer shortcut's AppUserModelID (electron-builder sets it to
     // the appId) so Windows shows the DevDeck taskbar icon and groups windows
     // correctly. Without this the running process uses Electron's default ID and

@@ -294,7 +294,12 @@ export function registerIpc(cfg: IpcConfig): void {
   // RESTORED session (re-created with no branch) and in-terminal branch switches both show the real
   // branch instead of a stale snapshot or "-". Uses the 2-call branch+dirty reader (not the deck's
   // 5-call getGitInfo) since the cockpit refreshes this per session.
-  ipcMain.handle('cockpit:gitInfo', (_e, projectPath: string) => getGitBranchDirty(String(projectPath)));
+  ipcMain.handle('cockpit:gitInfo', (_e, projectPath: string) => {
+    // Same allowlist as every other path-taking handler — a compromised renderer must not be able
+    // to point git at arbitrary filesystem locations.
+    if (!isAllowedPath(effFolders(), String(projectPath))) return null;
+    return getGitBranchDirty(String(projectPath));
+  });
 
   // Tray attention indicator (Discord-style): the renderer supplies the red-dotted icon once + live needs-you counts.
   ipcMain.on('tray:alertImage', (_e, dataUrl: string) => cfg.tray.setAlertImage(String(dataUrl)));
