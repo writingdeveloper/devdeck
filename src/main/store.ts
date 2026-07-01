@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { StoreEntry, Folder } from '../shared/types';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
+import { sanitizeTodos, type Todo } from '../shared/tasks';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
@@ -9,7 +10,7 @@ interface StateFile {
 }
 
 const EMPTY: StoreEntry = {
-  note: '', pinned: false, hidden: false, lastOpened: null,
+  note: '', pinned: false, hidden: false, lastOpened: null, todos: [],
 };
 
 export class Store {
@@ -40,7 +41,8 @@ export class Store {
   }
 
   get(path: string): StoreEntry {
-    return { ...EMPTY, ...this.state.projects[path] };
+    const e = { ...EMPTY, ...this.state.projects[path] };
+    return { ...e, todos: sanitizeTodos(e.todos) }; // never hand out unvalidated on-disk todos
   }
 
   private mutate(path: string, patch: Partial<StoreEntry>): void {
@@ -99,6 +101,8 @@ export class Store {
 
 
   setNote(path: string, note: string): void { this.mutate(path, { note }); }
+  getTodos(path: string): Todo[] { return this.get(path).todos; }
+  setTodos(path: string, todos: Todo[]): void { this.mutate(path, { todos: sanitizeTodos(todos) }); }
   setPinned(path: string, pinned: boolean): void { this.mutate(path, { pinned }); }
   setHidden(path: string, hidden: boolean): void { this.mutate(path, { hidden }); }
   setLastOpened(path: string, iso: string): void { this.mutate(path, { lastOpened: iso }); }

@@ -24,7 +24,7 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
     }),
     sessions: () => [],
     resumeCue: () => null,
-    getEntry: () => ({ note: '', pinned: false, hidden: false, lastOpened: null }),
+    getEntry: () => ({ note: '', pinned: false, hidden: false, lastOpened: null, todos: [] }),
     ...over,
   };
 }
@@ -40,7 +40,7 @@ describe('buildProjectList', () => {
   it('includes hidden projects in output (renderer filters them)', async () => {
     const list = await buildProjectList(deps({
       getEntry: (path) => ({
-        note: '', pinned: false, hidden: path.endsWith('old'), lastOpened: null,
+        note: '', pinned: false, hidden: path.endsWith('old'), lastOpened: null, todos: [],
       }),
     }));
     expect(list.map((p) => p.name)).toEqual(['fresh', 'old']);
@@ -51,7 +51,7 @@ describe('buildProjectList', () => {
   it('floats pinned projects to the top regardless of activity', async () => {
     const list = await buildProjectList(deps({
       getEntry: (path) => ({
-        note: '', pinned: path.endsWith('old'), hidden: false, lastOpened: null,
+        note: '', pinned: path.endsWith('old'), hidden: false, lastOpened: null, todos: [],
       }),
     }));
     expect(list[0].name).toBe('old');

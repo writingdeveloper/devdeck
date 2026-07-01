@@ -22,6 +22,7 @@ import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
 import { listClaudeProjectDirs } from './usageProjectsScan';
 import { classifyUsageProjects } from '../shared/usageProjects';
+import { sanitizeTodos } from '../shared/tasks';
 import { getUsageWindows, readClaudeCredentials, fetchUsageApi, type CacheEntry } from './claudeUsage';
 import type { PersistedSession } from '../shared/cockpitPersist';
 import { readClaudeSessionMeta } from './sessionMeta';
@@ -85,6 +86,10 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('project:setNote', (_e, path: string, note: string) => {
     cfg.store.setNote(path, String(note).slice(0, 10000));
+  });
+  ipcMain.handle('project:setTodos', (_e, path: string, todos: unknown) => {
+    // store.setTodos sanitizes (drops junk, caps text + list length), so an untrusted array is safe.
+    cfg.store.setTodos(path, sanitizeTodos(todos));
   });
   ipcMain.handle('project:setPinned', (_e, path: string, pinned: boolean) => {
     cfg.store.setPinned(path, pinned);

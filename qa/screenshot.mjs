@@ -114,6 +114,14 @@ await win.waitForTimeout(400);
 await shot('titlebar-maximized');
 await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
 
+// Next task board: navigate + capture (empty-state render path — add form + no open tasks in the
+// isolated QA profile). Guards the tasks.ts wiring renders without console/page errors.
+await showView('next');
+await win.waitForSelector('#view-next .tk-add, #view-next .empty', { timeout: 5000 }).catch(() => {});
+await shot('next-tasks');
+const nextAdd = await win.evaluate(() => !!document.querySelector('#view-next .tk-add'));
+console.log('next task-board add form present:', nextAdd);
+
 // Cockpit view: navigate and capture the empty state (no PTY spawned in the harness)
 await showView('cockpit');
 await win.waitForSelector('#ck-empty', { timeout: 5000 }).catch(() => {});

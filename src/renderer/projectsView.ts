@@ -3,6 +3,7 @@ import { shouldAutoRefresh } from '../shared/autoRefresh';
 import { projectSignature, diffCards, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
 import { openProjectsInCockpit, type OpenReq } from './cockpitView';
+import { taskCounts } from '../shared/tasks';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -45,6 +46,19 @@ function fmtTime(ms: number | null): string {
 }
 function usdShort(n: number | null | undefined): string { return n == null ? '' : ` · ~$${n.toFixed(2)}`; }
 function isNoRecord(p: ProjectViewModel): boolean { return p.sessionCount === 0 && p.lastCommitMs == null; }
+
+/** Compact task badge for a card/row (`☑ done/total · 🔴overdue`); null when the project has no tasks.
+ *  Click jumps to the Next task board. */
+function taskBadge(p: ProjectViewModel): HTMLElement | null {
+  if (!p.todos.length) return null;
+  const c = taskCounts(p.todos, Date.now());
+  const b = document.createElement('button');
+  b.className = 'task-badge' + (c.overdue ? ' has-overdue' : '');
+  b.textContent = `☑ ${c.done}/${c.total}` + (c.overdue ? ` · 🔴${c.overdue}` : '');
+  b.title = tr('tasks.badge_tip').replace('{done}', String(c.done)).replace('{total}', String(c.total)).replace('{overdue}', String(c.overdue));
+  b.addEventListener('click', (e) => { e.stopPropagation(); document.querySelector<HTMLButtonElement>('.rail-item[data-view="next"]')?.click(); });
+  return b;
+}
 function toOpenReq(p: ProjectViewModel, sessionId: string | null = null): OpenReq {
   return { path: p.path, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted, sessionId };
 }
@@ -245,6 +259,8 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   commitLine.textContent = `git ${fmtTime(p.lastCommitMs)} ${subjectText}`;
   if (p.lastSubject) commitLine.title = p.lastSubject;
   meta.appendChild(commitLine);
+  const tb = taskBadge(p);
+  if (tb) { meta.appendChild(document.createElement('br')); meta.appendChild(tb); }
 
   const foot = document.createElement('div'); foot.className = 'cardfoot';
   const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
@@ -302,6 +318,8 @@ function makeRow(p: ProjectViewModel): HTMLElement {
   open.addEventListener('click', () => openInTerminal([toOpenReq(p)]));
 
   row.append(check, dot, name, meta, time);
+  const tb = taskBadge(p);
+  if (tb) row.append(tb);
   if (p.repoUrl) row.append(githubBtn(p));
   row.append(open, makeMenuWrap(p));
   return row;

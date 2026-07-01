@@ -21,6 +21,7 @@ export interface SignatureInput {
   repoUrl: string | null;
   pinned: boolean;
   hidden: boolean;
+  todos: { id: string; done: boolean; due: string | null }[];
 }
 
 export interface SignatureUiState {
@@ -61,6 +62,10 @@ export function projectSignature(p: SignatureInput, ui: SignatureUiState): strin
     p.repoUrl ?? '',
     p.pinned ? 1 : 0,
     p.hidden ? 1 : 0,
+    // Task badge: rebuild the card when a todo is added/checked/re-dated/removed (done/total + due drive
+    // the badge). Overdue is time-derived and read at render — a midnight rollover on an otherwise-
+    // unchanged project may lag one edit, which is acceptable for a count badge.
+    p.todos.map((t) => `${t.id}:${t.done ? 1 : 0}:${t.due ?? ''}`).join('|'),
     ui.expanded ? 1 : 0,
     ui.showHidden ? 1 : 0,
     ui.viewMode,

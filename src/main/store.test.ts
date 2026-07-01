@@ -17,8 +17,17 @@ describe('Store', () => {
   it('returns a default entry for an unknown project', () => {
     const s = new Store(file);
     expect(s.get('C:\\g\\x')).toEqual({
-      note: '', pinned: false, hidden: false, lastOpened: null,
+      note: '', pinned: false, hidden: false, lastOpened: null, todos: [],
     });
+  });
+
+  it('persists todos across instances and sanitizes junk on read', () => {
+    const s1 = new Store(file);
+    const good = { id: 'a', text: 'ship v2', done: false, due: '2026-07-04', createdAt: '2026-07-01T00:00:00Z' };
+    s1.setTodos('C:\\g\\x', [good, { id: '', text: 'bad' } as never]); // bad entry dropped on write
+    const s2 = new Store(file);
+    expect(s2.getTodos('C:\\g\\x')).toEqual([good]);
+    expect(s2.get('C:\\g\\x').todos).toEqual([good]); // also exposed on the full entry
   });
 
   it('persists a note across instances', () => {

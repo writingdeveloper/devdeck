@@ -17,6 +17,7 @@ const baseInput: SignatureInput = {
   repoUrl: 'https://github.com/o/r',
   pinned: false,
   hidden: false,
+  todos: [],
 };
 const baseUi: SignatureUiState = { expanded: false, cost: null, showHidden: false, viewMode: 'cards' };
 
@@ -44,6 +45,9 @@ describe('projectSignature', () => {
     ['hidden', (i) => ({ ...i, hidden: true })],
     ['stale.level', (i) => ({ ...i, stale: { ...i.stale, level: 'neglected' } })],
     ['stale.ageDays', (i) => ({ ...i, stale: { ...i.stale, ageDays: 5 } })],
+    ['todos add', (i) => ({ ...i, todos: [{ id: 'a', done: false, due: null }] })],
+    ['todos done', (i) => ({ ...i, todos: [{ id: 'a', done: true, due: null }] })],
+    ['todos due', (i) => ({ ...i, todos: [{ id: 'a', done: false, due: '2026-07-04' }] })],
   ];
   for (const [label, mut] of dataMutations) {
     it(`changes when ${label} changes`, () => {

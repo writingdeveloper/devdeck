@@ -126,13 +126,36 @@ button.primary:hover { background: var(--accent-hover); }
 .cardfoot .spacer { flex: 1; }
 
 .next-head { padding: 14px 16px 8px; font-size: 14px; font-weight: 600; color: var(--text); }
-.next-list { display: flex; flex-direction: column; gap: 6px; padding: 0 16px 16px; }
-.next-row { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
-.next-row:hover { background: var(--surface-hover); border-color: var(--border-strong); }
-.next-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.next-name { font-size: 13px; font-weight: 600; color: var(--text); }
-.next-text { font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.next-text--cue { color: var(--text-faint); }
+/* Task board (Next view) */
+.tk-add { display: flex; gap: 8px; padding: 0 16px 12px; align-items: center; }
+.tk-add-proj { flex: 0 0 auto; max-width: 170px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.tk-add-text { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.tk-add-due { flex: 0 0 auto; background: var(--surface); color: var(--text-dim); border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 8px; font-size: 12px; }
+.tk-group { padding: 10px 16px 4px; margin-left: 13px; border-left: 3px solid var(--border); font-size: 12px; font-weight: 600; color: var(--text-dim); }
+.tk-group.tk-over { color: #e0623f; border-left-color: #e0623f; }
+.tk-group.tk-today { color: #d98a1f; border-left-color: #d98a1f; }
+.tk-group.tk-week { color: #3fb950; border-left-color: #3fb950; }
+.tk-group.tk-later, .tk-group.tk-none { color: var(--text-faint); border-left-color: var(--border-strong); }
+.tk-list { display: flex; flex-direction: column; gap: 4px; padding: 0 16px 6px; }
+.tk-row { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+.tk-row:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.tk-check { flex: 0 0 auto; cursor: pointer; }
+.tk-proj { flex: 0 0 auto; font-size: 11px; font-weight: 600; color: var(--text-faint); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-text { flex: 1; min-width: 0; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+.tk-edit { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+.tk-due { flex: 0 0 auto; background: transparent; border: 1px solid var(--border-strong); border-radius: 12px; color: var(--text-dim); font-size: 11px; padding: 2px 8px; cursor: pointer; }
+.tk-due.tk-over { color: #e0623f; border-color: #e0623f; }
+.tk-due.tk-today { color: #d98a1f; border-color: #d98a1f; }
+.tk-due.tk-week { color: #3fb950; border-color: #3fb950; }
+.tk-due-empty { color: var(--text-faint); border-style: dashed; }
+.tk-due-input { flex: 0 0 auto; background: var(--surface); color: var(--text); border: 1px solid var(--accent); border-radius: 8px; padding: 3px 6px; font-size: 12px; }
+.tk-del { flex: 0 0 auto; background: transparent; border: 0; color: var(--text-faint); cursor: pointer; font-size: 13px; }
+.tk-del:hover { color: #e0623f; }
+.tk-open { flex: 0 0 auto; padding: 3px 9px; font-size: 12px; }
+/* Compact task badge on deck cards / list rows */
+.task-badge { display: inline-flex; align-items: center; gap: 3px; background: transparent; border: 1px solid var(--border-strong); border-radius: 10px; color: var(--text-dim); font-size: 11px; padding: 1px 7px; cursor: pointer; font-family: inherit; }
+.task-badge:hover { border-color: var(--accent); color: var(--text); }
+.task-badge.has-overdue { color: #e0623f; border-color: #e0623f; }
 
 #toast-host { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
 .toast { background: #2a1416; border: 1px solid #5c1a1a; color: #f3d6d6; padding: 10px 14px; border-radius: 8px; font-size: 13px; max-width: 360px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }

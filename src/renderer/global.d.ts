@@ -5,6 +5,7 @@ declare global {
     devdeck: {
       listProjects(): Promise<ProjectViewModel[]>;
       setNote(path: string, note: string): Promise<void>;
+      setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
       setPinned(path: string, pinned: boolean): Promise<void>;
       setHidden(path: string, hidden: boolean): Promise<void>;
       open(items: { path: string; sessionId: string | null }[]): Promise<void>;

@@ -1,4 +1,5 @@
 import type { UsageTotals } from './usage';
+import type { Todo } from './tasks';
 
 export type AgentId = 'claude' | 'antigravity';
 
@@ -66,6 +67,7 @@ export interface StoreEntry {
   pinned: boolean;
   hidden: boolean;
   lastOpened: string | null; // ISO timestamp
+  todos: Todo[];
 }
 
 export interface ResumeCue {
@@ -93,4 +95,5 @@ export interface ProjectViewModel {
   resumeCue: ResumeCue | null;
   /** Browsable GitHub URL, or null when the repo has no github.com remote. */
   repoUrl: string | null;
+  todos: Todo[];
 }
