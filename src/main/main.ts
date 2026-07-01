@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut } from 'electron';
+import { app, BrowserWindow, globalShortcut, crashReporter } from 'electron';
 import * as path from 'node:path';
 import { appendFileSync } from 'node:fs';
 import * as nodePty from '@homebridge/node-pty-prebuilt-multiarch';
@@ -8,7 +8,13 @@ import { PtyHost, type PtySpawn } from './ptyHost';
 import { setupTray } from './tray';
 import { registerUpdater } from './updater';
 import { applyOpenAtLogin } from './autostart';
-import { installGlobalErrorHandlers } from './errorGuard';
+import { installGlobalErrorHandlers, installAppCrashHandlers } from './errorGuard';
+
+// Local-only crash capture (no upload — nothing is ever sent anywhere) so a NATIVE crash (a fault
+// inside node-pty/conpty or Chromium itself) writes an inspectable minidump instead of vanishing —
+// by default Electron's bundled Crashpad handler swallows unconfigured native crashes silently,
+// leaving no Windows Event Log entry and no trace in our own JS-level error guard below.
+crashReporter.start({ uploadToServer: false, compress: true });
 
 const realSpawn: PtySpawn = (file, args, opts) => {
   const p = nodePty.spawn(file, args, { name: 'xterm-256color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows });
@@ -61,14 +67,28 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     const userData = app.getPath('userData');
+    // Every diagnostic line includes a memory snapshot: if DevDeck is dying to a V8
+    // "JavaScript heap out of memory" abort (long cockpit sessions accumulating buffered output),
+    // that abort itself bypasses uncaughtException — but a rising rss/heapUsed trend across
+    // whatever DID get logged before it is the only way to notice the pattern after the fact.
+    const logLine = (line: string): void => {
+      const m = process.memoryUsage();
+      const withMem = `${line} | rss=${Math.round(m.rss / 1048576)}MB heapUsed=${Math.round(m.heapUsed / 1048576)}MB`;
+      console.error('DevDeck', withMem);
+      try { appendFileSync(path.join(userData, 'devdeck-errors.log'), `${new Date().toISOString()} ${withMem}\n`); } catch { /* logging is best-effort */ }
+    };
     // Last-resort trap: keep the main process alive when an async callback (pty data/exit, the
     // PtyBatcher flush timer, a git spawn, a stray IPC reject) throws. Before this, such a throw
-    // closed DevDeck "out of nowhere" and took every cockpit terminal with it. We also append the
-    // stack to a log file so a future occurrence is diagnosable (console output is lost when packaged).
+    // closed DevDeck "out of nowhere" and took every cockpit terminal with it.
     installGlobalErrorHandlers((kind, err) => {
       const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
-      console.error(`DevDeck main ${kind}:`, detail);
-      try { appendFileSync(path.join(userData, 'devdeck-errors.log'), `${new Date().toISOString()} [${kind}] ${detail}\n`); } catch { /* logging is best-effort */ }
+      logLine(`[${kind}] ${detail}`);
+    });
+    // render-process-gone / child-process-gone fire on `app`, not `process` — a renderer or GPU
+    // crash previously left zero trace anywhere (no log entry, no Windows crash event either,
+    // since Crashpad intercepts it before the OS's own crash reporting sees it).
+    installAppCrashHandlers(app, (kind, detail) => {
+      logLine(`[${kind}] ${JSON.stringify(detail)}`);
     });
     // Match the installer shortcut's AppUserModelID (electron-builder sets it to
     // the appId) so Windows shows the DevDeck taskbar icon and groups windows
