@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { scanUsage } from './usageScan';
+import { scanUsage, _cacheHasFile, _clearFileCache, MAX_CACHED_FILE_BYTES } from './usageScan';
 
 let root: string;
-beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'devdeck-usage-')); });
+beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'devdeck-usage-')); _clearFileCache(); });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 function asst(model: string, u: Record<string, number>, ts = '2026-06-01T10:00:00.000Z') {
@@ -76,6 +76,31 @@ describe('scanUsage', () => {
     expect(r.byProject.find((p) => p.name === 'proj')!.status).toBe('active');
     expect(r.byProject.find((p) => p.name === 'del')!.status).toBe('deleted');
     expect(r.global.input).toBe(10); // deleted project's tokens included in the honest total
+  });
+
+  it('caches a small session file (memory-bounded perf cache still works for the common case)', () => {
+    const d = join(root, 'C--g-small');
+    mkdirSync(d, { recursive: true });
+    const f = join(d, 's.jsonl');
+    writeFileSync(f, asst('claude-opus-4-8', { input_tokens: 1 }));
+    scanUsage([{ path: 'C:\\g\\small', name: 'small' }], root, Infinity);
+    expect(_cacheHasFile(f)).toBe(true);
+  });
+
+  it('does NOT cache a session file over MAX_CACHED_FILE_BYTES — a huge transcript must never be held in memory forever', () => {
+    // Real-world trigger: a multi-hundred-MB Claude session file, held forever in a module-level Map,
+    // ballooned the main process to multiple GB within ~1 minute of a cold start (the eager,
+    // unfiltered projectsView.ts per-project cost fill calls usage:report(0) = every file, all time)
+    // and crashed it with no catchable exception. Oversized files must be processed but NOT retained.
+    const d = join(root, 'C--g-huge');
+    mkdirSync(d, { recursive: true });
+    const f = join(d, 's.jsonl');
+    const line = asst('claude-opus-4-8', { input_tokens: 1 });
+    const pad = 'x'.repeat(MAX_CACHED_FILE_BYTES); // one line alone already exceeds the cap
+    writeFileSync(f, line + '\n// ' + pad);
+    const r = scanUsage([{ path: 'C:\\g\\huge', name: 'huge' }], root, Infinity);
+    expect(_cacheHasFile(f)).toBe(false);
+    expect(r.global.input).toBe(1); // still processed correctly even though not cached
   });
 
   it('sums active time from message gaps, capping idle stretches', () => {

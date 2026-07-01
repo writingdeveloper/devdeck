@@ -6,8 +6,20 @@ import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 
 // Cache: filepath -> { mtime, parsed lines }. Keyed by PATH (not path+mtime), with the mtime stored
 // in the value, so a modified file REPLACES its entry instead of leaking a new key per modification
-// in this long-lived process. One entry per session file; bounded by the number of distinct files.
+// in this long-lived process. Bounded by the number of distinct files — BUT that bound is only on
+// entry COUNT, not total bytes: a power user's ~/.claude/projects can hold thousands of session
+// files, some hundreds of MB (one real transcript was 347MB). Caching every one's full text forever
+// ballooned the main process to several GB within ~1 minute of a cold start (projectsView.ts's
+// per-project cost fill calls usage:report(0) = every file, all time, unconditionally on every deck
+// load) and crashed it with a V8 "out of memory" abort that bypasses every JS exception handler.
+// Files over MAX_CACHED_FILE_BYTES are still read and aggregated correctly — just never RETAINED.
+export const MAX_CACHED_FILE_BYTES = 5 * 1024 * 1024; // 5MB — generous for the vast majority of sessions
 const _fileCache = new Map<string, { mtimeMs: number; lines: string[] }>();
+
+/** Test-only introspection: does the cache currently hold an entry for this file path? */
+export function _cacheHasFile(path: string): boolean { return _fileCache.has(path); }
+/** Test-only: reset cache state between tests so assertions aren't affected by cross-test leakage. */
+export function _clearFileCache(): void { _fileCache.clear(); }
 
 interface RepoRef { path: string; name: string; status?: 'active' | 'deleted'; }
 
@@ -46,8 +58,8 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
       try { files = readdirSync(dir).filter((f) => f.endsWith('.jsonl')); } catch { files = []; }
       for (const f of files) {
         const full = join(dir, f);
-        let fileMs = Date.now();
-        try { fileMs = statSync(full).mtimeMs; } catch { /* keep now */ }
+        let fileMs = Date.now(), fileSize = 0;
+        try { const st = statSync(full); fileMs = st.mtimeMs; fileSize = st.size; } catch { /* keep defaults */ }
         const cached = _fileCache.get(full);
         let lines: string[];
         if (cached && cached.mtimeMs === fileMs) {
@@ -56,7 +68,8 @@ export function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: 
           let text = '';
           try { text = readFileSync(full, 'utf8'); } catch { continue; }
           lines = text.split('\n');
-          _fileCache.set(full, { mtimeMs: fileMs, lines }); // replaces any stale entry for this path
+          if (fileSize <= MAX_CACHED_FILE_BYTES) _fileCache.set(full, { mtimeMs: fileMs, lines }); // replaces any stale entry
+          else _fileCache.delete(full); // a previously-small, now-grown file must not linger in the cache
         }
         projSessions++;
         const stamps: number[] = []; // in-range message timestamps, for active-time gaps
