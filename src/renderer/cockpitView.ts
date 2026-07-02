@@ -8,7 +8,7 @@ import { friendlyModel } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
 import { decideKeyAction } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
-import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
+import { sanitizePersistedList, pickRestoreSessionId, type PersistedSession } from '../shared/cockpitPersist';
 import type { StaleLevel } from '../shared/types';
 import { tr, currentLang } from './i18n-runtime';
 
@@ -440,7 +440,17 @@ function closeSession(id: string): void {
 async function restoreSession(entry: PersistedSession): Promise<void> {
   restorable = restorable.filter((r) => r !== entry);
   const active = await window.devdeck.getAgent();
-  const sessionId = entry.agentId === active ? entry.sessionId : null;
+  // Resume the project's NEWEST conversation, not the frozen pinned id (which goes stale the moment a
+  // newer session exists → the "restart sends me to the past" bug). Skip ids already open in another
+  // tile so multiple tiles of one project each land on a distinct recent conversation. A null result
+  // (no sessions, or all already live) falls through to the main process's continue/new resolution.
+  let sessionId: string | null = null;
+  if (entry.agentId === active) {
+    const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
+    let ids: string[] = [];
+    try { ids = await window.devdeck.cockpit.sessionIds(entry.projectPath); } catch { ids = []; }
+    sessionId = pickRestoreSessionId(ids, liveIds);
+  }
   await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId, label: entry.label ?? null });
 }
 

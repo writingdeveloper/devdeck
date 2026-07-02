@@ -16,6 +16,19 @@ function basename(p: string): string {
 }
 
 /**
+ * Choose which session a restored cockpit tile should actually resume. Claude Code appends in place
+ * (--resume/-c/compaction never fork), so a frozen open-time id goes stale the moment a newer
+ * conversation exists for the project — restoring it lands the user in the PAST. Instead resume the
+ * NEWEST session (`newestFirstIds` is mtime-desc from listSessions) that isn't already open in another
+ * tile, so a stale pin self-heals and multiple tiles of one project each get a distinct recent
+ * conversation. null → nothing to resume (caller falls back to continue/new).
+ */
+export function pickRestoreSessionId(newestFirstIds: string[], liveIds: Set<string>): string | null {
+  for (const id of newestFirstIds) if (!liveIds.has(id)) return id;
+  return null;
+}
+
+/**
  * Validate/normalize a persisted-session list loaded from disk (defends against a corrupted
  * state.json): drops entries without a string projectPath, defaults the name to the path
  * basename, coerces sessionId to string|null and agentId to 'claude'/'antigravity', caps the count.

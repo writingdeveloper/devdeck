@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePersistedList } from './cockpitPersist';
+import { sanitizePersistedList, pickRestoreSessionId } from './cockpitPersist';
 
 describe('sanitizePersistedList', () => {
   it('returns [] for non-arrays', () => {
@@ -44,5 +44,21 @@ describe('sanitizePersistedList', () => {
   it('caps at 50 entries', () => {
     const big = Array.from({ length: 80 }, (_v, i) => ({ projectPath: `C:/p${i}` }));
     expect(sanitizePersistedList(big).length).toBe(50);
+  });
+});
+
+describe('pickRestoreSessionId', () => {
+  // Restore must land on the project's NEWEST conversation, not a stale pinned id — and when a
+  // project has several tiles, each must get a DISTINCT recent session (dedup vs already-live ids).
+  it('picks the newest session id (list is newest-first)', () => {
+    expect(pickRestoreSessionId(['new', 'mid', 'old'], new Set())).toBe('new');
+  });
+  it('skips ids already live in another tile → the next-newest, so same-project tiles stay distinct', () => {
+    expect(pickRestoreSessionId(['new', 'mid', 'old'], new Set(['new']))).toBe('mid');
+    expect(pickRestoreSessionId(['new', 'mid', 'old'], new Set(['new', 'mid']))).toBe('old');
+  });
+  it('returns null when there are no sessions, or all are already live (caller falls back to continue/new)', () => {
+    expect(pickRestoreSessionId([], new Set())).toBeNull();
+    expect(pickRestoreSessionId(['a'], new Set(['a']))).toBeNull();
   });
 });

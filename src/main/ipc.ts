@@ -289,6 +289,9 @@ export function registerIpc(cfg: IpcConfig): void {
     if (agent().id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0 };
     return readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
   });
+  // Newest-first session ids for a project (mtime-desc) — restore resumes the LATEST conversation,
+  // not a frozen pinned id that has since gone stale.
+  ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string) => agent().listSessions(String(projectPath)).map((s) => s.id));
 
   // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a
   // RESTORED session (re-created with no branch) and in-terminal branch switches both show the real
