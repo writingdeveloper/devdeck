@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   classifyDue, groupTasksByDue, taskCounts,
   addTodo, toggleTodo, editTodoText, setTodoDue, removeTodo, sanitizeTodos,
+  clearDone, filterTaskItems,
   type Todo, type TaskWithProject,
 } from './tasks';
 
@@ -101,6 +102,33 @@ describe('reducers (pure/immutable)', () => {
     expect(editTodoText(list, 'z', 'x')).toEqual(list);
     expect(setTodoDue(list, 'z', '2026-07-01')).toEqual(list);
     expect(removeTodo(list, 'z')).toEqual(list);
+  });
+  it('clearDone drops completed todos only, without mutating the input', () => {
+    const list = [todo({ id: 'a', done: true }), todo({ id: 'b' }), todo({ id: 'c', done: true })];
+    expect(clearDone(list).map((t) => t.id)).toEqual(['b']);
+    expect(list.length).toBe(3);
+  });
+});
+
+describe('filterTaskItems (board filters)', () => {
+  const item = (id: string, name: string, text: string, done = false): TaskWithProject =>
+    ({ todo: todo({ id, text, done }), projectPath: 'C:\\g\\' + name, projectName: name });
+  const items = [
+    item('1', 'alpha', 'ship the release'),
+    item('2', 'alpha', 'fix login', true),
+    item('3', 'beta', 'Ship docs'),
+  ];
+  it('project filter keeps only that projectPath', () => {
+    expect(filterTaskItems(items, { project: 'C:\\g\\beta' }).map((i) => i.todo.id)).toEqual(['3']);
+  });
+  it('text filter is case-insensitive over the task text', () => {
+    expect(filterTaskItems(items, { q: 'ship' }).map((i) => i.todo.id)).toEqual(['1', '3']);
+  });
+  it('empty filters return everything (done included — done-visibility is the view\'s concern)', () => {
+    expect(filterTaskItems(items, {})).toEqual(items);
+  });
+  it('filters compose (project AND text)', () => {
+    expect(filterTaskItems(items, { project: 'C:\\g\\alpha', q: 'ship' }).map((i) => i.todo.id)).toEqual(['1']);
   });
 });
 

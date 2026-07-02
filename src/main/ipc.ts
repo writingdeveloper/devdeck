@@ -43,7 +43,7 @@ export interface IpcConfig {
 }
 
 export function registerIpc(cfg: IpcConfig): void {
-  let lastTrayCounts = { attention: 0, turn: 0 }; // remember the latest needs-you counts so a tray-alert setting change re-applies at once
+  let lastTrayCounts = { attention: 0, turn: 0, overdue: 0 }; // remember the latest counts so a tray-alert setting change re-applies at once
   // Legacy single-base value, retained only for the settings:get response (back-compat); not used for scanning or the security guard.
   const effBaseDir = () => cfg.store.getBaseDir() ?? cfg.defaultBaseDir;
   const effThresholds = () => cfg.store.getThresholds() ?? DEFAULT_THRESHOLDS;
@@ -303,8 +303,15 @@ export function registerIpc(cfg: IpcConfig): void {
 
   // Tray attention indicator (Discord-style): the renderer supplies the red-dotted icon once + live needs-you counts.
   ipcMain.on('tray:alertImage', (_e, dataUrl: string) => cfg.tray.setAlertImage(String(dataUrl)));
-  ipcMain.on('tray:counts', (_e, counts: { attention?: number; turn?: number }) => {
-    lastTrayCounts = { attention: Math.max(0, Number(counts?.attention) | 0), turn: Math.max(0, Number(counts?.turn) | 0) };
+  // Partial merge: the cockpit sends {attention, turn} and the deck sends {overdue} independently —
+  // each sender updates only the fields it owns, so one can't zero the other's counts.
+  ipcMain.on('tray:counts', (_e, counts: { attention?: number; turn?: number; overdue?: number }) => {
+    const norm = (v: unknown): number => Math.max(0, Number(v) | 0);
+    lastTrayCounts = {
+      attention: counts?.attention === undefined ? lastTrayCounts.attention : norm(counts.attention),
+      turn: counts?.turn === undefined ? lastTrayCounts.turn : norm(counts.turn),
+      overdue: counts?.overdue === undefined ? lastTrayCounts.overdue : norm(counts.overdue),
+    };
     cfg.tray.applyCounts(lastTrayCounts, cfg.store.getTrayAlert());
   });
 

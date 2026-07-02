@@ -1,12 +1,13 @@
 import { app, Tray, Menu, nativeImage, type BrowserWindow, type NativeImage } from 'electron';
 import { join } from 'node:path';
+import { trayState, type TrayAlertMode, type TrayCounts } from '../shared/trayState';
 
-export type TrayAlertMode = 'off' | 'attention' | 'all';
+export type { TrayAlertMode } from '../shared/trayState';
 export interface TrayController {
   /** Receive the renderer-rendered red-dotted alert icon (a PNG data URL). */
   setAlertImage(dataUrl: string): void;
-  /** Apply needs-you counts: redden the tray icon when the mode says there's something for you. */
-  applyCounts(counts: { attention: number; turn: number }, mode: TrayAlertMode): void;
+  /** Apply needs-you + overdue-task counts: redden the icon / word the tooltip per trayState. */
+  applyCounts(counts: TrayCounts, mode: TrayAlertMode): void;
 }
 
 /** Build a tray icon with Open/Quit, make close hide to tray, and return a controller for the alert state. */
@@ -35,9 +36,9 @@ export function setupTray(win: BrowserWindow): TrayController {
       try { const img = nativeImage.createFromDataURL(dataUrl); if (!img.isEmpty()) alertIcon = img; } catch { /* ignore */ }
     },
     applyCounts(counts, mode): void {
-      const red = mode === 'off' ? 0 : mode === 'all' ? counts.attention + counts.turn : counts.attention;
-      tray.setImage(red > 0 && alertIcon ? alertIcon : normalIcon);
-      tray.setToolTip(red > 0 ? `DevDeck — ${red}` : 'DevDeck');
+      const s = trayState(counts, mode);
+      tray.setImage(s.red > 0 && alertIcon ? alertIcon : normalIcon);
+      tray.setToolTip(s.tooltip);
     },
   };
 }

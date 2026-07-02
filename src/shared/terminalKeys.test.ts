@@ -33,4 +33,12 @@ describe('decideKeyAction', () => {
     expect(decideKeyAction(key({ ctrlKey: true, key: 'v', repeat: true }), false)).toBe('pass');
     expect(decideKeyAction(key({ ctrlKey: true, key: 'c', repeat: true }), true)).toBe('pass');
   });
+  it('Ctrl+F => find (open in-terminal search instead of sending \\x06 to the PTY)', () => {
+    expect(decideKeyAction(key({ ctrlKey: true, key: 'f' }), false)).toBe('find');
+    expect(decideKeyAction(key({ ctrlKey: true, key: 'F' }), true)).toBe('find');
+  });
+  it('Alt+F / plain f still pass through', () => {
+    expect(decideKeyAction(key({ ctrlKey: true, altKey: true, key: 'f' }), false)).toBe('pass');
+    expect(decideKeyAction(key({ key: 'f' }), false)).toBe('pass');
+  });
 });

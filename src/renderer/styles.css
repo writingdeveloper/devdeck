@@ -131,6 +131,14 @@ button.primary:hover { background: var(--accent-hover); }
 .tk-add-proj { flex: 0 0 auto; max-width: 170px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
 .tk-add-text { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .tk-add-due { flex: 0 0 auto; background: var(--surface); color: var(--text-dim); border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 8px; font-size: 12px; }
+.tk-filter { display: flex; gap: 8px; padding: 0 16px 12px; align-items: center; }
+.tk-filter-proj { flex: 0 0 auto; max-width: 170px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+.tk-filter-text { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+.tk-show-done { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
+.tk-clear-done { flex: 0 0 auto; background: transparent; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-dim); font-size: 12px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.tk-clear-done:hover { border-color: var(--bad); color: var(--bad); }
+.tk-clear-done.armed { border-color: var(--bad); color: #fff; background: var(--bad); }
+.tk-row.tk-done .tk-text { text-decoration: line-through; color: var(--text-dim); }
 .tk-group { padding: 10px 16px 4px; margin-left: 13px; border-left: 3px solid var(--border); font-size: 12px; font-weight: 600; color: var(--text-dim); }
 .tk-group.tk-over { color: #e0623f; border-left-color: #e0623f; }
 .tk-group.tk-today { color: #d98a1f; border-left-color: #d98a1f; }
@@ -201,8 +209,10 @@ button.primary:hover { background: var(--accent-hover); }
 .usage-note { padding: 0 16px 16px; color: var(--text-faint); font-size: 11px; }
 .usage-show-deleted { display: flex; align-items: center; gap: 6px; margin: 0 16px 4px; color: var(--text-dim); font-size: 11px; cursor: pointer; user-select: none; }
 .usage-show-deleted input { cursor: pointer; }
-.usage-table tr.pu-deleted td { opacity: 0.5; }
-.pu-badge { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 6px; font-size: 10px; color: var(--text-faint); border: 1px solid var(--border); font-family: system-ui, sans-serif; }
+/* Muted via COLOR, not opacity — a half-opacity row drove the 10px .pu-badge below WCAG AA
+   contrast (axe color-contrast, serious). #8f96a3 keeps the greyed-out look at ~6.5:1. */
+.usage-table tr.pu-deleted td { color: #8f96a3; }
+.pu-badge { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 6px; font-size: 10px; color: #8f96a3; border: 1px solid var(--border-strong); font-family: system-ui, sans-serif; }
 .usage-deleted-hint { padding: 0 16px 12px; color: var(--text-faint); font-size: 11px; }
 
 #settings-form { padding: 18px 20px; max-width: 640px; }
@@ -315,6 +325,12 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-act { background: transparent; border: 0; color: var(--text-faint); font-size: 13px; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
 .ck-act:hover { color: var(--text); background: var(--surface-hover); }
 .ck-terms { flex: 1; position: relative; min-height: 0; }
+/* In-terminal find bar (Ctrl+F): floats over the top-right of the terminal pane. */
+.ck-find { position: absolute; top: 8px; right: 16px; z-index: 5; display: flex; gap: 4px; align-items: center; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 4px 6px; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+.ck-find.hidden { display: none; }
+.ck-find-input { width: 200px; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
+.ck-find-btn { background: transparent; border: 0; color: var(--text-dim); font-size: 13px; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
+.ck-find-btn:hover { background: var(--surface-hover); color: var(--text); }
 .ck-term { position: absolute; inset: 0; padding: 8px 10px; display: none; }
 .ck-term.show { display: block; }
 .ck-empty { padding: 24px; color: var(--text-faint); }
@@ -379,6 +395,6 @@ button.primary:hover { background: var(--accent-hover); }
 .ub-fill.crit { background: #f85149; }
 .ub-lab { color: var(--text-dim); }
 .ub-val { color: var(--text); opacity: .9; }
-.ub-rst { opacity: .6; }
+.ub-rst { color: #7d828c; } /* muted but still ~5:1 on #0d0e12 — text-dim at opacity .6 failed WCAG AA (axe color-contrast, serious) */
 .ub-dot { opacity: .35; }
 .ub-msg { opacity: .8; }

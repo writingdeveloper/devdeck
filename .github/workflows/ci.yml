@@ -31,3 +31,19 @@ jobs:
       - name: Validate generated AppleScript compiles
         if: runner.os == 'macOS'
         run: node scripts/check-applescript.mjs
+
+  qa:
+    # The Playwright/axe audit (a11y per view + the IPC surface round-trips) was previously
+    # manual-only — its gates never ran on a PR. One Linux leg under xvfb keeps it cheap.
+    name: qa audit (a11y + ipc, linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run the audit under a virtual display
+        run: xvfb-run -a node qa/audit.mjs

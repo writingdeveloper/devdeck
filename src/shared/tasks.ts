@@ -98,6 +98,22 @@ export function setTodoDue(todos: Todo[], id: string, due: string | null): Todo[
 export function removeTodo(todos: Todo[], id: string): Todo[] {
   return todos.filter((t) => t.id !== id);
 }
+/** Drop every completed todo — done items otherwise accumulate silently toward the 200 cap. */
+export function clearDone(todos: Todo[]): Todo[] {
+  return todos.filter((t) => !t.done);
+}
+
+/** Board filters: narrow cross-project task items by project and/or case-insensitive text.
+ *  Done-visibility is intentionally NOT handled here — grouping/done-sections are the view's concern. */
+export function filterTaskItems(
+  items: TaskWithProject[],
+  opts: { project?: string | null; q?: string },
+): TaskWithProject[] {
+  const q = (opts.q ?? '').trim().toLowerCase();
+  return items.filter((it) =>
+    (!opts.project || it.projectPath === opts.project) &&
+    (!q || it.todo.text.toLowerCase().includes(q)));
+}
 
 function normalizeDue(due: unknown): string | null {
   return typeof due === 'string' && dueDayNum(due) != null ? due : null;

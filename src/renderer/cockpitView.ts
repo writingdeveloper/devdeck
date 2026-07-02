@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SearchAddon } from '@xterm/addon-search';
 import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel } from '../shared/sessionMeta';
@@ -11,7 +12,7 @@ import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitP
 import type { StaleLevel } from '../shared/types';
 import { tr, currentLang } from './i18n-runtime';
 
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; customLabel: string | null; meta: { model: string | null; activeMs: number } | null; }
+interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; customLabel: string | null; meta: { model: string | null; activeMs: number } | null; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; }
 
 const live = new Map<string, Live>();
@@ -34,6 +35,7 @@ export function mountCockpit(): void {
   emptyEl = document.getElementById('ck-empty')!;
   mainEl = document.querySelector('#view-cockpit .ck-main')!;
   searchEl.addEventListener('input', renderList);
+  buildFindBar();
   const newBtn = document.getElementById('ck-new-session') as HTMLButtonElement;
   document.getElementById('ck-new-label')!.textContent = tr('cockpit.new_session');
   newBtn.title = tr('cockpit.new_session');
@@ -61,6 +63,46 @@ export function mountCockpit(): void {
   window.devdeck.cockpit.loadSessions()
     .then((list) => { restorable = sanitizePersistedList(list); restorableLoaded = true; renderList(); if (live.size > 0) persist(); })
     .catch(() => { restorableLoaded = true; });
+}
+
+// ---- in-terminal find (Ctrl+F over the selected session's scrollback) ----
+let findBar: HTMLElement | null = null;
+let findInput: HTMLInputElement | null = null;
+
+function buildFindBar(): void {
+  findBar = document.createElement('div'); findBar.className = 'ck-find hidden';
+  findInput = document.createElement('input');
+  findInput.className = 'ck-find-input'; findInput.placeholder = tr('cockpit.find_ph');
+  findInput.setAttribute('aria-label', tr('cockpit.find_ph'));
+  const prev = document.createElement('button'); prev.className = 'ck-find-btn'; prev.textContent = '↑'; prev.title = tr('cockpit.find_prev');
+  const next = document.createElement('button'); next.className = 'ck-find-btn'; next.textContent = '↓'; next.title = tr('cockpit.find_next');
+  const close = document.createElement('button'); close.className = 'ck-find-btn'; close.textContent = '✕'; close.title = tr('cockpit.find_close');
+  const sel = (): Live | undefined => (selectedId ? live.get(selectedId) : undefined);
+  findInput.addEventListener('input', () => { const l = sel(); if (l && findInput!.value) l.search.findNext(findInput!.value, { incremental: true }); });
+  findInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); const l = sel(); if (l && findInput!.value) l.search.findPrevious(findInput!.value); }
+    else if (e.key === 'Enter') { e.preventDefault(); const l = sel(); if (l && findInput!.value) l.search.findNext(findInput!.value); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeFindBar(); }
+  });
+  prev.addEventListener('click', () => { const l = sel(); if (l && findInput!.value) l.search.findPrevious(findInput!.value); });
+  next.addEventListener('click', () => { const l = sel(); if (l && findInput!.value) l.search.findNext(findInput!.value); });
+  close.addEventListener('click', closeFindBar);
+  findBar.append(findInput, prev, next, close);
+  termsEl.appendChild(findBar); // .ck-terms is position:relative — the bar floats over the terminal
+}
+
+function openFindBar(): void {
+  if (!findBar || !findInput) return;
+  findBar.classList.remove('hidden');
+  findInput.focus(); findInput.select();
+}
+
+function closeFindBar(): void {
+  if (!findBar) return;
+  findBar.classList.add('hidden');
+  const l = selectedId ? live.get(selectedId) : undefined;
+  l?.search.clearDecorations();
+  l?.term.focus(); // hand focus back to the terminal the user was searching
 }
 
 /** Persist the current cockpit membership (live sessions + not-yet-restored entries) eagerly,
@@ -105,8 +147,10 @@ async function createSession(p: OpenReq): Promise<void> {
       window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
       return false;
     }
+    if (action === 'find') { e.preventDefault(); openFindBar(); return false; } // Ctrl+F searches scrollback, never reaches the PTY
     return true;
   });
+  const search = new SearchAddon(); term.loadAddon(search);
   const { cols, rows } = term;
   const res = await window.devdeck.cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, fresh: !!p.fresh });
   if (!res.id) { el.remove(); term.dispose(); if (selectedId) select(selectedId); return; } // refused — restore prior selection
@@ -116,7 +160,7 @@ async function createSession(p: OpenReq): Promise<void> {
     const l = live.get(res.id); // typing answers any pending prompt → clear the buffer + mark input so it reads as "your turn", not "working"
     if (l) { l.recentOutput = ''; l.lastInputAt = Date.now(); }
   });
-  live.set(res.id, { session, term, fit, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, customLabel: p.label ?? null, meta: null });
+  live.set(res.id, { session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, customLabel: p.label ?? null, meta: null });
   if (res.sessionId) restorable = restorable.filter((r) => r.sessionId !== res.sessionId); // dedupe by session id, not path (siblings stay)
   select(res.id);
   updateRailBadge();
@@ -153,6 +197,7 @@ async function refreshGit(id: string): Promise<void> {
 function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshMeta(id); void refreshGit(id); } }
 
 function select(id: string): void {
+  if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
   selectedId = id;
   for (const [lid, l] of live) l.el.classList.toggle('show', lid === id);
   mainEl.classList.toggle('has-session', live.size > 0);

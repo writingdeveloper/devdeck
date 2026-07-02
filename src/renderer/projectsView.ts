@@ -3,6 +3,7 @@ import { shouldAutoRefresh } from '../shared/autoRefresh';
 import { projectSignature, diffCards, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
 import { openProjectsInCockpit, type OpenReq } from './cockpitView';
+import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
 
 const AUTO_REFRESH_MS = 45_000;
@@ -56,7 +57,11 @@ function taskBadge(p: ProjectViewModel): HTMLElement | null {
   b.className = 'task-badge' + (c.overdue ? ' has-overdue' : '');
   b.textContent = `☑ ${c.done}/${c.total}` + (c.overdue ? ` · 🔴${c.overdue}` : '');
   b.title = tr('tasks.badge_tip').replace('{done}', String(c.done)).replace('{total}', String(c.total)).replace('{overdue}', String(c.overdue));
-  b.addEventListener('click', (e) => { e.stopPropagation(); document.querySelector<HTMLButtonElement>('.rail-item[data-view="next"]')?.click(); });
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    presetBoardProject(p.path); // land on the board already narrowed to this project
+    document.querySelector<HTMLButtonElement>('.rail-item[data-view="next"]')?.click();
+  });
   return b;
 }
 function toOpenReq(p: ProjectViewModel, sessionId: string | null = null): OpenReq {
@@ -464,6 +469,10 @@ async function reload(): Promise<void> {
   syncViewToggle();
   render();
   hasRenderedOnce = true;
+  // Surface the cross-project overdue-task count in the tray tooltip (partial update: the
+  // cockpit owns attention/turn on the same channel).
+  const overdue = projects.reduce((n, p) => n + taskCounts(p.todos, Date.now()).overdue, 0);
+  window.devdeck.setTrayCounts({ overdue });
   // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch).
   void window.devdeck.usageReport(0).then((r) => {
     for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);

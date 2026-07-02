@@ -1,4 +1,4 @@
-export type KeyAction = 'copy' | 'paste' | 'pass';
+export type KeyAction = 'copy' | 'paste' | 'find' | 'pass';
 
 /** The keyboard-event shape we need — a subset of DOM KeyboardEvent, so it's unit-testable without a DOM. */
 export interface KeyLike {
@@ -20,6 +20,7 @@ export interface KeyLike {
  * - Ctrl+C (or Ctrl+Shift+C) WITH a selection -> copy. Plain Ctrl+C with NO selection falls
  *   through to 'pass' so the interrupt still works.
  * - Ctrl+V / Ctrl+Shift+V -> paste (Windows-terminal convention).
+ * - Ctrl+F -> find (open the in-terminal search bar instead of sending \x06 to the PTY).
  * - Everything else passes through to the PTY unchanged.
  *
  * Alt is excluded so Alt+C / Alt+V (rare app bindings) are never hijacked.
@@ -31,5 +32,6 @@ export function decideKeyAction(e: KeyLike, hasSelection: boolean): KeyAction {
   const k = e.key.toLowerCase();
   if (k === 'c' && hasSelection) return 'copy';
   if (k === 'v') return 'paste';
+  if (k === 'f') return 'find';
   return 'pass';
 }

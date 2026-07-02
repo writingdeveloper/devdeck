@@ -39,6 +39,9 @@ ipc.langRoundTrip = await win.evaluate(async () => {
 });
 // cockpit.gitInfo must resolve the real branch by project path — the fix for restored cockpit
 // sessions (and in-terminal branch switches) showing "-" instead of the live branch.
+// The handler is allowlist-guarded, so register this checkout as an allowed folder first
+// (on CI the checkout lives outside the default ~/Documents/GitHub scan root).
+await win.evaluate(async (p) => window.devdeck.addFolder(p), root);
 ipc.cockpitGitInfo = await win.evaluate(async (p) => {
   const info = await window.devdeck.cockpit.gitInfo(p);
   return typeof info?.branch === 'string' && info.branch.length > 0;
@@ -72,7 +75,11 @@ ipc.titlebar = await win.evaluate(() => ({
 
 // --- axe a11y per view (inject axe-core source directly; Electron CDP lacks Target.createTarget) ---
 const a11y = {};
-for (const view of ['projects', 'usage', 'settings']) {
+// next + cockpit included — the two newest, most dynamic views were previously never axe-checked.
+// cockpit's rail item only exists on win32, so absent views are skipped (CI runs this on Linux).
+for (const view of ['projects', 'usage', 'settings', 'next', 'cockpit']) {
+  const present = await win.evaluate((v) => !!document.querySelector(`.rail-item[data-view="${v}"]`), view);
+  if (!present) continue;
   await win.click(`.rail-item[data-view="${view}"]`);
   await win.waitForTimeout(600);
   await win.evaluate(axeCore.source);
@@ -80,7 +87,10 @@ for (const view of ['projects', 'usage', 'settings']) {
     // eslint-disable-next-line no-undef
     await window.axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] }),
   );
-  a11y[view] = res.violations.map((v) => ({ id: v.id, impact: v.impact, n: v.nodes.length, help: v.help }));
+  a11y[view] = res.violations.map((v) => ({
+    id: v.id, impact: v.impact, n: v.nodes.length, help: v.help,
+    targets: v.nodes.slice(0, 5).map((n) => n.target.join(' ')), // which elements — otherwise a violation is undebuggable from CI logs
+  }));
 }
 
 writeFileSync(join(out, '_audit.json'), JSON.stringify({ ipc, a11y }, null, 2));

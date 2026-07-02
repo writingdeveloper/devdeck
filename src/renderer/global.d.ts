@@ -18,7 +18,7 @@ declare global {
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
       getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all' }>;
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
-      setTrayCounts(counts: { attention: number; turn: number }): void;
+      setTrayCounts(counts: { attention?: number; turn?: number; overdue?: number }): void;
       setTrayAlertImage(dataUrl: string): void;
       setBaseDir(dir: string): Promise<void>;
       getFolders(): Promise<import('../shared/types').Folder[]>;

@@ -74,7 +74,11 @@ function sumModelCost(byModel: Map<string, UsageTotals>): number | null {
 // files, and the parse loop yields every YIELD_EVERY_LINES lines so even a cached multi-hundred-MB
 // transcript can't monopolize the event loop.
 const YIELD_EVERY_LINES = 20_000;
-const yieldLoop = (): Promise<void> => new Promise((r) => setImmediate(r));
+// setTimeout, NOT setImmediate: in the Electron main process an idle message loop can miss the
+// libuv check-phase wakeup, leaving a setImmediate-based yield parked forever (observed live —
+// a scan stalled mid-file with zero CPU while a Playwright evaluate awaited it). Timers always
+// schedule a wakeup; the ~1ms floor costs under a second across even a full 2.5GB scan.
+const yieldLoop = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 /** Aggregate token usage across the given repos' Claude sessions. sinceMs filters by day (Infinity = all). */
 export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: number): Promise<UsageReport> {

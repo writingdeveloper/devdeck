@@ -65,6 +65,6 @@ contextBridge.exposeInMainWorld('devdeck', {
     openLink: (url: string) => ipcRenderer.invoke('cockpit:openLink', url),
   },
   setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),
-  setTrayCounts: (counts: { attention: number; turn: number }) => ipcRenderer.send('tray:counts', counts),
+  setTrayCounts: (counts: { attention?: number; turn?: number; overdue?: number }) => ipcRenderer.send('tray:counts', counts),
   setTrayAlertImage: (dataUrl: string) => ipcRenderer.send('tray:alertImage', dataUrl),
 });
