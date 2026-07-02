@@ -129,6 +129,14 @@ await win.waitForSelector('#view-next .tk-add, #view-next .empty', { timeout: 50
 await shot('next-tasks');
 const nextAdd = await win.evaluate(() => !!document.querySelector('#view-next .tk-add'));
 console.log('next task-board add form present:', nextAdd);
+// Calendar mode: toggle to the month grid, click a day, capture (exercises buildMonthGrid + Intl render).
+await win.click('#view-next .tk-vt:nth-child(2)').catch(() => {});
+await win.waitForSelector('#view-next .cal-grid .cal-cell', { timeout: 5000 }).catch(() => {});
+const calCells = await win.evaluate(() => document.querySelectorAll('#view-next .cal-grid .cal-cell').length);
+console.log('calendar cells rendered:', calCells, '(expect 42)');
+await win.click('#view-next .cal-cell.today').catch(() => {});
+await shot('next-calendar');
+await win.click('#view-next .tk-vt:nth-child(1)').catch(() => {}); // back to list for later scenes
 
 // Cockpit view: navigate and capture the empty state (no PTY spawned in the harness)
 await showView('cockpit');

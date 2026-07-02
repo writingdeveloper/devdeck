@@ -1,5 +1,6 @@
 import { tr, localeTag } from './i18n-runtime';
 import { openInTerminal } from './openRouter';
+import { buildMonthGrid, toDateStr, type DayCell } from '../shared/calendar';
 import {
   groupTasksByDue, classifyDue, addTodo, toggleTodo, editTodoText, setTodoDue, removeTodo,
   clearDone, filterTaskItems,
@@ -14,6 +15,11 @@ let projects: Proj[] = [];
 let filterProject: string | null = null;
 let filterText = '';
 let showDone = false;
+// Board view mode + calendar month state (view-local, so a re-render keeps the user's place).
+let boardView: 'list' | 'calendar' = 'list';
+let calYear: number | null = null; // null until first render seeds it from "now"
+let calMonth = 0;                   // 0-11
+let calSelected: string | null = null; // the clicked day (YYYY-MM-DD), shows its tasks below the grid
 
 /** Deck task-badge deep-link: land on the board already narrowed to that project. */
 export function presetBoardProject(path: string): void { filterProject = path; }
@@ -195,9 +201,10 @@ function render(): void {
   // Checking off / re-dating a task changes the overdue total — keep the tray tooltip current
   // (partial update: the cockpit owns attention/turn on the same channel).
   window.devdeck.setTrayCounts({ overdue });
-  viewEl.append(head, addRow(), filterRow());
+  viewEl.append(head, addRow(), filterRow(), viewToggle());
 
   const visible = filterTaskItems(items, { project: filterProject, q: filterText });
+  if (boardView === 'calendar') { renderCalendar(visible, now); return; }
   const groups = groupTasksByDue(visible, now);
   const doneItems = showDone ? visible.filter((i) => i.todo.done) : [];
   if (groups.length === 0 && doneItems.length === 0) {
@@ -219,6 +226,72 @@ function render(): void {
     for (const it of doneItems) listEl.appendChild(taskRow(it, now));
     viewEl.append(gh, listEl);
   }
+}
+
+/** [목록 | 달력] segmented toggle for the board. */
+function viewToggle(): HTMLElement {
+  const wrap = document.createElement('div'); wrap.className = 'tk-viewtoggle';
+  for (const [mode, key] of [['list', 'tasks.view_list'], ['calendar', 'tasks.view_calendar']] as ['list' | 'calendar', string][]) {
+    const b = document.createElement('button'); b.className = 'tk-vt' + (boardView === mode ? ' on' : '');
+    b.textContent = tr(key);
+    b.addEventListener('click', () => { if (boardView !== mode) { boardView = mode; render(); } });
+    wrap.appendChild(b);
+  }
+  return wrap;
+}
+
+/** Month calendar of task due dates (same todos as the list, viewed by date). */
+function renderCalendar(items: TaskWithProject[], now: number): void {
+  const today = toDateStr(new Date(now));
+  if (calYear === null) { const d = new Date(now); calYear = d.getFullYear(); calMonth = d.getMonth(); }
+  const grid = buildMonthGrid(calYear, calMonth, items, today);
+
+  const nav = document.createElement('div'); nav.className = 'cal-nav';
+  const prev = document.createElement('button'); prev.className = 'cal-navbtn'; prev.textContent = '◀'; prev.title = tr('tasks.prev_month');
+  prev.addEventListener('click', () => { if (calMonth === 0) { calMonth = 11; calYear!--; } else calMonth!--; render(); });
+  const next = document.createElement('button'); next.className = 'cal-navbtn'; next.textContent = '▶'; next.title = tr('tasks.next_month');
+  next.addEventListener('click', () => { if (calMonth === 11) { calMonth = 0; calYear!++; } else calMonth!++; render(); });
+  const title = document.createElement('span'); title.className = 'cal-title';
+  title.textContent = new Intl.DateTimeFormat(localeTag(), { year: 'numeric', month: 'long' }).format(new Date(calYear, calMonth, 1));
+  const todayBtn = document.createElement('button'); todayBtn.className = 'cal-today'; todayBtn.textContent = tr('tasks.today');
+  todayBtn.addEventListener('click', () => { const d = new Date(now); calYear = d.getFullYear(); calMonth = d.getMonth(); calSelected = today; render(); });
+  nav.append(prev, title, next, todayBtn);
+  viewEl.appendChild(nav);
+
+  // Weekday header — locale-aware (2023-01-01 was a Sunday → Sun..Sat, matching the grid's Sunday-first).
+  const wk = document.createElement('div'); wk.className = 'cal-grid cal-weekdays';
+  const wf = new Intl.DateTimeFormat(localeTag(), { weekday: 'short' });
+  for (let i = 0; i < 7; i++) { const c = document.createElement('div'); c.className = 'cal-wd'; c.textContent = wf.format(new Date(2023, 0, 1 + i)); wk.appendChild(c); }
+  viewEl.appendChild(wk);
+
+  const gEl = document.createElement('div'); gEl.className = 'cal-grid';
+  for (const week of grid.weeks) for (const cell of week) gEl.appendChild(dayCell(cell));
+  viewEl.appendChild(gEl);
+
+  if (calSelected) {
+    const cell = grid.weeks.flat().find((c) => c.dateStr === calSelected);
+    const dayTasks = (cell?.tasks ?? []).filter((t) => showDone || !t.todo.done);
+    const panel = document.createElement('div'); panel.className = 'cal-day';
+    const h = document.createElement('div'); h.className = 'cal-day-head'; h.textContent = `${calSelected} · ${dayTasks.length}`;
+    panel.appendChild(h);
+    if (dayTasks.length === 0) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = tr('next.empty'); panel.appendChild(e); }
+    else { const list = document.createElement('div'); list.className = 'tk-list'; list.setAttribute('role', 'list'); for (const it of dayTasks) list.appendChild(taskRow(it, now)); panel.appendChild(list); }
+    viewEl.appendChild(panel);
+  }
+}
+
+/** One day cell in the month grid (a button: click selects the day → shows its tasks below). */
+function dayCell(cell: DayCell): HTMLElement {
+  const el = document.createElement('button');
+  el.className = 'cal-cell' + (cell.inMonth ? '' : ' out') + (cell.isToday ? ' today' : '') + (cell.dateStr === calSelected ? ' sel' : '');
+  const n = document.createElement('span'); n.className = 'cal-day-n'; n.textContent = String(cell.day); el.appendChild(n);
+  if (cell.openCount > 0) {
+    const m = document.createElement('span'); m.className = 'cal-mark' + (cell.overdue ? ' overdue' : '');
+    m.textContent = `${cell.overdue ? '🔴' : '●'}${cell.openCount}`;
+    el.appendChild(m);
+  }
+  el.addEventListener('click', () => { calSelected = cell.dateStr; render(); });
+  return el;
 }
 
 export function mountNext(): void { viewEl = document.getElementById('view-next')!; }
