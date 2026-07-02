@@ -36,6 +36,8 @@ declare global {
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
       downloadUpdate(): Promise<void>;
       installUpdate(): Promise<void>;
+      setPendingAutoRestore(sessions: import('../shared/cockpitPersist').PersistedSession[]): Promise<void>;
+      consumeAutoRestore(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
       getAppInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean }>;
       openExternal(url: string): Promise<void>;
       checkForUpdates(): Promise<void>;

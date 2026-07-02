@@ -134,6 +134,22 @@ describe('Store', () => {
     expect(new Store(file).getCockpitSessions()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'antigravity', label: 'auth' }]);
   });
 
+  it('round-trips pendingAutoRestore and consume clears it (sanitized)', () => {
+    const s = new Store(file);
+    expect(s.getPendingAutoRestore()).toEqual([]);
+    s.setPendingAutoRestore([
+      { projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null },
+      { name: 'no-path' } as never, // junk → dropped by sanitize
+    ]);
+    // survives an app restart (persisted)
+    expect(new Store(file).getPendingAutoRestore()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null }]);
+    // consume returns the list AND clears it, so a later normal launch won't auto-restore again
+    const s2 = new Store(file);
+    expect(s2.consumePendingAutoRestore()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null }]);
+    expect(s2.getPendingAutoRestore()).toEqual([]);
+    expect(new Store(file).getPendingAutoRestore()).toEqual([]); // cleared on disk too
+  });
+
   it('round-trips trayAlert (default attention; bad value coerced)', () => {
     const s = new Store(file);
     expect(s.getTrayAlert()).toBe('attention');

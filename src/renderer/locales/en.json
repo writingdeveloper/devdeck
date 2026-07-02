@@ -116,6 +116,7 @@
   "update.downloading": "Downloading update… {percent}%",
   "update.ready": "Update ready: v{version}",
   "update.restart": "Restart to update",
+  "update.restart_n": "Restart · restore {n} sessions",
   "about.title": "About",
   "about.github": "GitHub",
   "about.releases": "Releases",

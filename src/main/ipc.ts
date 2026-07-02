@@ -284,6 +284,11 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('cockpit:loadSessions', () => cfg.store.getCockpitSessions());
   ipcMain.on('cockpit:saveSessions', (_e, list: PersistedSession[]) => cfg.store.setCockpitSessions(Array.isArray(list) ? list : []));
 
+  // Seamless update: the renderer records the live sessions right before quitAndInstall; the next
+  // launch consumes (reads + clears) them to auto-restore. store.* sanitize, so untrusted input is safe.
+  ipcMain.handle('update:setPendingAutoRestore', (_e, list: PersistedSession[]) => cfg.store.setPendingAutoRestore(Array.isArray(list) ? list : []));
+  ipcMain.handle('update:consumeAutoRestore', () => cfg.store.consumePendingAutoRestore());
+
   // Per-session model + active working time (read from the Claude session log) for the cockpit header/list.
   ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string) => {
     if (agent().id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0 };

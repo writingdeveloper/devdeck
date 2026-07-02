@@ -116,6 +116,7 @@
   "update.downloading": "업데이트 다운로드 중… {percent}%",
   "update.ready": "업데이트 준비됨: v{version}",
   "update.restart": "재시작하여 업데이트",
+  "update.restart_n": "재시작 · 세션 {n}개 복구",
   "about.title": "정보",
   "about.github": "GitHub",
   "about.releases": "릴리스",

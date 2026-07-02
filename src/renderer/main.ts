@@ -3,7 +3,7 @@ import { mountNav } from './nav';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { mountCockpit, showCockpit } from './cockpitView';
+import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist } from './cockpitView';
 import { isCockpitPlatform } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { mountUsageBar, refreshUsageBar } from './usageBar';
@@ -45,8 +45,16 @@ function renderUpdate(p: import('../shared/update').UpdatePayload): void {
     btn.addEventListener('click', () => { btn.disabled = true; void window.devdeck.downloadUpdate(); });
     updateBanner.appendChild(btn);
   } else if (p.status === 'downloaded') {
-    const btn = document.createElement('button'); btn.className = 'primary'; btn.textContent = tr('update.restart');
-    btn.addEventListener('click', () => { void window.devdeck.installUpdate(); });
+    const n = liveSessionCount();
+    const btn = document.createElement('button'); btn.className = 'primary';
+    btn.textContent = n > 0 ? tr('update.restart_n', { n }) : tr('update.restart');
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      // Record the live sessions so the post-update relaunch auto-restores them (best-effort).
+      const live = liveSessionsForPersist();
+      if (live.length) { try { await window.devdeck.setPendingAutoRestore(live); } catch { /* proceed regardless */ } }
+      void window.devdeck.installUpdate();
+    });
     updateBanner.appendChild(btn);
   }
 }

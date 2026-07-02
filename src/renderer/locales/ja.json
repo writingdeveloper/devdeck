@@ -116,6 +116,7 @@
   "update.downloading": "アップデートをダウンロード中… {percent}%",
   "update.ready": "アップデート準備完了: v{version}",
   "update.restart": "再起動して更新",
+  "update.restart_n": "再起動 · セッション{n}件を復元",
   "about.title": "情報",
   "about.github": "GitHub",
   "about.releases": "リリース",

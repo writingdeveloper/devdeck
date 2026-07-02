@@ -6,7 +6,7 @@ import { sanitizeTodos, type Todo } from '../shared/tasks';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all' };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[] };
 }
 
 const EMPTY: StoreEntry = {
@@ -95,6 +95,12 @@ export class Store {
 
   getCockpitSessions(): PersistedSession[] { return sanitizePersistedList(this.state.settings?.cockpitSessions); }
   setCockpitSessions(list: PersistedSession[]): void { this.state.settings = { ...(this.state.settings ?? {}), cockpitSessions: sanitizePersistedList(list) }; this.save(); }
+
+  // The cockpit sessions that were LIVE when the user restarted for an update — auto-restored once on
+  // the next launch (its presence is the "restarted for update" signal), then consumed/cleared.
+  getPendingAutoRestore(): PersistedSession[] { return sanitizePersistedList(this.state.settings?.pendingAutoRestore); }
+  setPendingAutoRestore(list: PersistedSession[]): void { this.state.settings = { ...(this.state.settings ?? {}), pendingAutoRestore: sanitizePersistedList(list) }; this.save(); }
+  consumePendingAutoRestore(): PersistedSession[] { const l = this.getPendingAutoRestore(); this.setPendingAutoRestore([]); return l; }
 
   getTrayAlert(): 'off' | 'attention' | 'all' { const t = this.state.settings?.trayAlert; return t === 'off' || t === 'all' ? t : 'attention'; }
   setTrayAlert(t: 'off' | 'attention' | 'all'): void { this.state.settings = { ...(this.state.settings ?? {}), trayAlert: t === 'off' || t === 'all' ? t : 'attention' }; this.save(); }

@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld('devdeck', {
     ipcRenderer.on('devdeck:update', (_e, p) => cb(p as import('../shared/update').UpdatePayload)),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
+  setPendingAutoRestore: (sessions: unknown) => ipcRenderer.invoke('update:setPendingAutoRestore', sessions),
+  consumeAutoRestore: () => ipcRenderer.invoke('update:consumeAutoRestore'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),

@@ -116,6 +116,7 @@
   "update.downloading": "正在下载更新… {percent}%",
   "update.ready": "更新已就绪: v{version}",
   "update.restart": "重启以更新",
+  "update.restart_n": "重启 · 恢复 {n} 个会话",
   "about.title": "关于",
   "about.github": "GitHub",
   "about.releases": "发布版本",
