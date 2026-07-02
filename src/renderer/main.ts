@@ -1,4 +1,5 @@
-import { mountProjects, renderProjects, reloadProjects, setCockpitEnabled } from './projectsView';
+import { mountProjects, renderProjects, reloadProjects } from './projectsView';
+import { setCockpitEnabled } from './openRouter';
 import { mountNav } from './nav';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';

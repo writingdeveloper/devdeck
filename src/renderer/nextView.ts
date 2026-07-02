@@ -1,4 +1,5 @@
 import { tr, localeTag } from './i18n-runtime';
+import { openInTerminal } from './openRouter';
 import {
   groupTasksByDue, classifyDue, addTodo, toggleTodo, editTodoText, setTodoDue, removeTodo,
   clearDone, filterTaskItems,
@@ -74,7 +75,9 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
 
   const open = document.createElement('button'); open.className = 'primary tk-open'; open.textContent = '▶';
   open.title = tr('proj.open');
-  open.addEventListener('click', () => window.devdeck.open([{ path: projectPath, sessionId: null }]));
+  // Route through the shared opener so the task board opens in the cockpit (Windows) just like the deck,
+  // instead of always spawning an external PowerShell window.
+  open.addEventListener('click', () => openInTerminal([{ path: projectPath, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0, sessionId: null }]));
 
   row.append(cb, proj, text, due, del, open);
   return row;

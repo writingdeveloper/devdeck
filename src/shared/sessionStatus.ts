@@ -67,7 +67,7 @@ export function hasWorkingSpinner(recentOutput: string): boolean {
   return WORKING_SPINNER_RE.test(recentOutput.slice(-SPINNER_TAIL));
 }
 
-export function computeActivity(i: { exited: boolean; lastDataAt: number; lastInputAt: number; now: number; recentOutput: string; prev?: ActivityState }): ActivityState {
+export function computeActivity(i: { exited: boolean; lastDataAt: number; lastInputAt: number; now: number; recentOutput: string; prev?: ActivityState; spinnerReliable?: boolean }): ActivityState {
   if (i.exited) return 'exited';
   // The user actively typing is engaged, not the agent working — keep it a stable "your turn"
   // so the indicator (and the needs-you badge) don't flicker as keystrokes echo back.
@@ -80,8 +80,11 @@ export function computeActivity(i: { exited: boolean; lastDataAt: number; lastIn
   // through a long silent tool/think/API gap (survives a frozen spinner — which the timer alone can't).
   if (hasWorkingSpinner(i.recentOutput)) return 'working';
   // Timing hysteresis fallback: it WAS working and only briefly went quiet — covers agents/versions
-  // whose spinner glyph we don't match (e.g. Antigravity / Codex-style TUIs).
-  if (i.prev === 'working' && sinceData < WORKING_STICKY_MS) return 'working';
+  // whose spinner glyph we don't match (e.g. Antigravity / Codex-style TUIs). SKIPPED when the spinner
+  // is reliable (Claude): there the spinner above is the positive "working" signal and stays on screen
+  // even through silent tool/think gaps, so once it's gone the turn is genuinely the user's — applying
+  // the timing fallback would just keep it "작업중" for WORKING_STICKY_MS after every turn ends.
+  if (!i.spinnerReliable && i.prev === 'working' && sinceData < WORKING_STICKY_MS) return 'working';
   if (sinceData < IDLE_MS) return 'turn';
   return 'idle';
 }

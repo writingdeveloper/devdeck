@@ -73,6 +73,16 @@ describe('computeActivity', () => {
   it('hysteresis: long silence (>= sticky) => turn even if it was working', () => {
     expect(computeActivity({ ...base, now: 1000 + 11_000, prev: 'working' })).toBe('turn');
   });
+  it('spinnerReliable (Claude): was working but spinner is gone => turn NOW, not 작업중 for 10s', () => {
+    // For Claude the spinner reliably marks "working" (step 5), so once it's absent the turn is the
+    // user's — the timing hysteresis must NOT keep it 작업중 for WORKING_STICKY_MS after a turn ends.
+    expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'working', spinnerReliable: true })).toBe('turn');
+    // agents whose spinner we can't match (Antigravity/Codex) still get the timing fallback
+    expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'working', spinnerReliable: false })).toBe('working');
+  });
+  it('spinnerReliable (Claude): spinner still on screen => working (positive signal unaffected)', () => {
+    expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'working', spinnerReliable: true, recentOutput: '✢Gesticulating…' })).toBe('working');
+  });
   it('stopped >= idle => idle', () => {
     expect(computeActivity({ ...base, now: 1000 + IDLE_MS })).toBe('idle');
   });

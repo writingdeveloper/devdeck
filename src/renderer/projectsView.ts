@@ -2,7 +2,8 @@ import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
 import { projectSignature, diffCards, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
-import { openProjectsInCockpit, type OpenReq } from './cockpitView';
+import { type OpenReq } from './cockpitView';
+import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
 
@@ -68,14 +69,6 @@ function toOpenReq(p: ProjectViewModel, sessionId: string | null = null): OpenRe
   return { path: p.path, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted, sessionId };
 }
 
-let cockpitEnabled = false;
-/** Set by boot() once the platform is known — the cockpit is Windows-only (see isCockpitPlatform). */
-export function setCockpitEnabled(enabled: boolean): void { cockpitEnabled = enabled; }
-/** Route "open" to the embedded cockpit (Windows) or the external terminal (other OSes). */
-function openInTerminal(reqs: OpenReq[]): void {
-  if (cockpitEnabled) { void openProjectsInCockpit(reqs); return; }
-  void window.devdeck.open(reqs.map((r) => ({ path: r.path, sessionId: r.sessionId ?? null })));
-}
 
 const LEVEL_EMOJI: Record<string, string> = { fresh: '🟢', neutral: '⚪', warn: '🟡', neglected: '🔴' };
 function badgeText(p: ProjectViewModel): string {
