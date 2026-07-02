@@ -120,33 +120,8 @@ writeFileSync(nf, [user('scaffold the prototype'), asst('claude-sonnet-4-6', iso
 const nms = NOW - 3 * DAY;
 utimesSync(nf, new Date(nms), new Date(nms));
 
-// ---- Codex sessions (multi-agent demo) ----
-// Codex stores rollouts at ~/.codex/sessions/YYYY/MM/DD/rollout-<uuid>.jsonl with the
-// project path INSIDE the file (session_meta.payload.cwd) — DevDeck's CodexProvider
-// scans the tree and groups by cwd. Giving a few repos Codex sessions lets the demo
-// switch the toolbar agent to Codex and show that lens.
-const CODEX = join(HOME, '.codex', 'sessions');
-const cmeta = (id, cwd) => JSON.stringify({ type: 'session_meta', payload: { id, cwd, timestamp: iso(0) } });
-const cuser = (message) => JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message } });
-const cagent = (message) => JSON.stringify({ type: 'event_msg', payload: { type: 'agent_message', message } });
-const cuuid = (n) => `c0dec0de-0000-4000-8000-00000000${String(n).padStart(4, '0')}`; // hex-only (passes the resume-id guard)
+// (The Codex fixture section was removed with the Codex provider itself. Antigravity's on-disk
+// format is protobuf-in-sqlite — not worth faking here; the demo shows the Claude lens only.)
 
-const CODEX_SESSIONS = [
-  { repo: 'acme-dashboard', day: '2026/06/06', first: 'port the theme toggle to Codex', cue: 'extract the color tokens into a shared module', stale: 0 },
-  { repo: 'payments-api', day: '2026/06/05', first: 'review the refund endpoint', cue: 'add rate limiting to the refund route', stale: 1 },
-  { repo: 'ml-pipeline', day: '2026/06/03', first: 'profile the feature extraction', cue: 'parallelize the batch loader', stale: 3 },
-];
-let cid = 0;
-for (const c of CODEX_SESSIONS) {
-  const cwd = join(REPOS, c.repo);
-  const id = cuuid(cid++);
-  const dir = join(CODEX, c.day);
-  mkdirSync(dir, { recursive: true });
-  const file = join(dir, `rollout-${id}.jsonl`);
-  writeFileSync(file, [cmeta(id, cwd), cuser(c.first), cagent('on it'), cuser(c.cue)].join('\n'));
-  const ms = NOW - c.stale * DAY;
-  utimesSync(file, new Date(ms), new Date(ms));
-}
-
-console.log('projects:', PROJECTS.length + 1, '| claude sessions:', sid, '| codex sessions:', cid);
+console.log('projects:', PROJECTS.length + 1, '| claude sessions:', sid);
 console.log(HOME);

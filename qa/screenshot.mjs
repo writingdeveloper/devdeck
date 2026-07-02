@@ -22,6 +22,14 @@ const win = await app.firstWindow();
 win.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 win.on('pageerror', (e) => pageErrors.push(String(e)));
 
+// The tray guard turns window close into hide-to-tray (and window-all-closed keeps the app alive),
+// so Playwright's bare app.close() waits forever and leaks a zombie harness instance. Mark the quit
+// intent in main (same flag the tray's own Quit item sets) and quit explicitly.
+async function closeApp() {
+  await app.evaluate(({ app: a }) => { a.isQuitting = true; setImmediate(() => a.quit()); }).catch(() => {});
+  await app.close().catch(() => {});
+}
+
 async function shot(name) {
   await win.waitForTimeout(400);
   await win.screenshot({ path: join(out, name + '.png') });
@@ -99,7 +107,7 @@ const reuse = await win.evaluate(async () => {
 console.log(`refresh reuse: ${reuse.survived}/${reuse.total} card nodes reused`);
 if (reuse.total > 0 && reuse.survived === 0) {
   console.error(`QA FAILED — deck refresh wiped all ${reuse.total} cards instead of reconciling in place`);
-  await app.close();
+  await closeApp();
   process.exit(1);
 }
 
@@ -137,7 +145,7 @@ const ckFill = await win.evaluate(() => {
 console.log(`cockpit fill: main=${ckFill.main}px content=${ckFill.content}px ratio=${ckFill.ratio.toFixed(2)}`);
 if (ckFill.ratio < 0.8) {
   console.error(`QA FAILED — cockpit pane collapsed (main ${ckFill.main}px of content ${ckFill.content}px); the embedded terminal would render tiny.`);
-  await app.close();
+  await closeApp();
   process.exit(1);
 }
 
@@ -148,7 +156,7 @@ const badgeHidden = await win.evaluate(() => {
 console.log(`cockpit badge hidden at zero needs-you: ${badgeHidden}`);
 if (!badgeHidden) {
   console.error('QA FAILED — rail badge visible with no needs-you sessions');
-  await app.close();
+  await closeApp();
   process.exit(1);
 }
 
@@ -160,7 +168,7 @@ const ckOk = await win.evaluate(() => {
     && !!newBtn && newBtn.disabled === true; // + New session present and disabled with no live session
 });
 console.log(`cockpit structure + new-session button present: ${ckOk}`);
-if (!ckOk) { console.error('QA FAILED — cockpit structure / + New session button missing'); await app.close(); process.exit(1); }
+if (!ckOk) { console.error('QA FAILED — cockpit structure / + New session button missing'); await closeApp(); process.exit(1); }
 
 // Usage bar fill — regression guard for the inline-span bug where the fill (width/height
 // ignored on an inline box) rendered empty. window.devdeck is a frozen contextBridge object
@@ -179,14 +187,14 @@ await shot('usage-bar');
 console.log(`usage bar fill: fillWidth=${usageFill.fillWidth}px of track=${usageFill.trackWidth}px (expect ~42%)`);
 if (usageFill.fillWidth <= 0 || usageFill.trackWidth <= 0) {
   console.error(`QA FAILED — usage bar fill has no width (fill=${usageFill.fillWidth}px track=${usageFill.trackWidth}px); the meter would look empty (the inline-span bug).`);
-  await app.close();
+  await closeApp();
   process.exit(1);
 }
 
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));
 console.log(`\nconsole errors: ${consoleErrors.length}, page errors: ${pageErrors.length}`);
 
-await app.close();
+await closeApp();
 
 if (consoleErrors.length > 0 || pageErrors.length > 0) {
   console.error('QA FAILED — console/page errors detected:');

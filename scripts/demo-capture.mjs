@@ -23,9 +23,39 @@ const app = await electron.launch({
 const win = await app.firstWindow();
 win.on('console', (m) => { if (m.type() === 'error') console.log('renderer error:', m.text()); });
 
+// The tray guard turns window close into hide-to-tray (and window-all-closed keeps the app alive),
+// so Playwright's bare app.close() waits forever and leaks a zombie harness instance. Mark the quit
+// intent in main (same flag the tray's own Quit item sets) and quit explicitly.
+async function closeApp() {
+  await app.evaluate(({ app: a }) => { a.isQuitting = true; setImmediate(() => a.quit()); }).catch(() => {});
+  await app.close().catch(() => {});
+}
+
 await win.waitForSelector('#cards .card, #cards .empty', { timeout: 30000 }).catch(() => {});
 // Force English + point at the curated repos, then reload so the UI re-inits.
 await win.evaluate((dir) => Promise.all([window.devdeck.setLanguage('en'), window.devdeck.setBaseDir(dir)]), REPOS);
+// Seed per-project tasks BEFORE the hero shot so deck cards carry the ☑ badge and the
+// Next board shows every due bucket (overdue / today / this week / no date).
+const dayIso = (offsetDays) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+const createdAt = new Date().toISOString();
+const TODO_SEED = [
+  ['acme-dashboard', [
+    { id: 'd1', text: 'ship the dark-mode toggle', done: false, due: dayIso(0), createdAt },
+    { id: 'd2', text: 'write the release notes', done: false, due: dayIso(-1), createdAt },
+    { id: 'd3', text: 'fix the theme flash on load', done: true, due: null, createdAt },
+  ]],
+  ['payments-api', [
+    { id: 'p1', text: 'integration tests for refunds', done: false, due: dayIso(2), createdAt },
+    { id: 'p2', text: 'document the idempotency keys', done: false, due: null, createdAt },
+  ]],
+  ['ml-pipeline', [
+    { id: 'm1', text: 'fix the data-loader OOM', done: false, due: dayIso(-3), createdAt },
+    { id: 'm2', text: 'add drift alerts to the metrics dashboard', done: false, due: dayIso(5), createdAt },
+  ]],
+];
+for (const [repo, todos] of TODO_SEED) {
+  await win.evaluate(({ p, t }) => window.devdeck.setTodos(p, t), { p: join(REPOS, repo), t: todos });
+}
 await win.reload();
 await win.waitForSelector('#cards .card', { timeout: 30000 }).catch(() => {});
 await win.setViewportSize({ width: 1200, height: 760 }).catch(() => {});
@@ -54,27 +84,11 @@ await shot('demo-usage');
 // 5) settings
 await showView('settings');
 await shot('demo-settings');
-// 6) Next (cross-project "what's next") — set a note on one project so it mixes notes + cues
-await win.evaluate((p) => window.devdeck.setNote(p, 'ship the v0.3 release notes'), join(REPOS, 'acme-dashboard'));
+// 6) Next task board — the seeded todos fill the overdue / today / this-week / no-date buckets
 await showView('next');
+await win.waitForSelector('#view-next .tk-group, #view-next .tk-add', { timeout: 10000 }).catch(() => {});
 await win.waitForTimeout(500);
-await shot('demo-next');
+await shot('demo-tasks');
 
-// 7) Codex agent — switch the active agent and show the Codex deck (multi-agent QA)
-await showView('projects');
-await win.evaluate(() => window.devdeck.setAgent('codex'));
-await win.reload();
-await win.waitForSelector('#cards .card', { timeout: 30000 }).catch(() => {});
-await win.waitForTimeout(600);
-await shot('demo-codex');
-// expand the first card (acme-dashboard, freshest) to show its Codex session + resume cue
-await win.evaluate(() => {
-  const c = document.querySelector('.sessions-head .caret');
-  if (c) c.parentElement.click();
-});
-await shot('demo-codex-sessions');
-// restore Claude so the captured user-data isn't left on Codex
-await win.evaluate(() => window.devdeck.setAgent('claude'));
-
-await app.close();
+await closeApp();
 console.log('done — qa/shots/demo-*.png');

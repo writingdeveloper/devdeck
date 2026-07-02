@@ -4,14 +4,14 @@
 
 # DevDeck
 
-**A command deck for everyone juggling a pile of Claude Code & Codex projects.**
+**A command deck for everyone juggling a pile of Claude Code & Antigravity projects.**
 
-See every repo's state at a glance — git status, how long it's been neglected, your Claude Code and Codex session history — and jump back in with one click (`claude -c` / `codex resume`).
+See every repo's state at a glance — git status, how long it's been neglected, your Claude Code and Antigravity session history — and jump back in with one click (`claude -c` / `agy -c`).
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-31-47848F)
-![Tests](https://img.shields.io/badge/tests-358%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-366%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 <img src="docs/demo/demo.gif" width="820" alt="DevDeck demo" />
@@ -26,18 +26,20 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 
 - **🗂 Project deck** — every git repo under your scan locations as a card: branch, uncommitted count, last commit, AI session count.
 - **➕ New project** — spin up a project without leaving the deck: pick a scan location, name it, and DevDeck creates the folder, runs `git init`, and opens it in a terminal with your active agent.
-- **🤖 Multi-agent (Claude Code & Codex)** — choose your active agent; the deck shows that agent's sessions and **Open** launches it (`claude -c` / `codex resume`). A toolbar switcher appears when both CLIs are installed.
+- **🤖 Multi-agent (Claude Code & Antigravity)** — choose your active agent; the deck shows that agent's sessions and **Open** launches it (`claude -c` / `agy -c`). A toolbar switcher appears when both are installed.
 - **📂 Multiple scan locations** — point DevDeck at several folders to scan for repos, or add individual repos that live anywhere; each is auto-detected.
 - **🚦 Staleness traffic-light** — fresh / warning / neglected, so dirty or abandoned repos surface themselves.
-- **▶ One-click resume** — opens a terminal in the repo and continues your last session with the active agent (`claude -c` / `codex resume`) — or pick a specific past session.
-- **🖥 Cockpit (embedded terminals · Windows)** — on Windows, **Open** drops you straight into an in-app terminal instead of a pile of external windows. A searchable session list shows each session's **live status** — working (spinner) / awaiting-you / idle — and floats the ones needing you to the top, with a count badge on the 🖥 icon (and an optional **tray icon alert**, off-by-default-able) so you can see "who's waiting on me" from any view. Each session shows its **model and active working time**, and you can **name** sessions and run **several per repo**. The live agent terminal + branch · agent status bar fill the right, with selection **copy (Ctrl+C) / paste (Ctrl+V)** that doesn't clash with the agent's own Ctrl+C interrupt. Running 10+ projects no longer means a wall of shrinking tabs you have to click through to see which finished. Your open sessions are **remembered across restarts** — after a quit or crash the cockpit lists them as one-click **restorable** entries (re-attaching via `claude -c` / `codex resume`). You can run **several sessions in the same repo at once** — a **+ New session** button forks another conversation; each is tracked separately and you can **name it** (double-click the name) so you remember what each one is doing. (macOS/Linux keep opening your external terminal.)
-- **↩ Resume cue** — auto-reads the *last thing you asked* in each project's newest session (Claude or Codex) and shows it in the note slot, so "where was I?" needs no typing. Click to adopt it as your note.
-- **📋 "Next" view** — every project's note (or resume cue) gathered into one cross-project "what's next" list.
+- **▶ One-click resume** — opens a terminal in the repo and continues your last session with the active agent (`claude -c` / `agy -c`) — or pick a specific past session.
+- **🖥 Cockpit (embedded terminals · Windows)** — on Windows, **Open** drops you straight into an in-app terminal instead of a pile of external windows. A searchable session list shows each session's **live status** — working (spinner) / awaiting-you / idle — and floats the ones needing you to the top, with a count badge on the 🖥 icon (and an optional **tray icon alert**, off-by-default-able) so you can see "who's waiting on me" from any view. Each session shows its **model and active working time**, and you can **name** sessions and run **several per repo**. The live agent terminal + branch · agent status bar fill the right, with selection **copy (Ctrl+C) / paste (Ctrl+V)** that doesn't clash with the agent's own Ctrl+C interrupt. Running 10+ projects no longer means a wall of shrinking tabs you have to click through to see which finished. Your open sessions are **remembered across restarts** — after a quit or crash the cockpit lists them as one-click **restorable** entries (re-attaching each to its own conversation). You can run **several sessions in the same repo at once** — a **+ New session** button forks another conversation; each is tracked separately and you can **name it** (double-click the name) so you remember what each one is doing. (macOS/Linux keep opening your external terminal.)
+- **↩ Resume cue** — auto-reads the *last thing you asked* in each project's newest session (Claude or Antigravity) and shows it in the note slot, so "where was I?" needs no typing. Click to adopt it as your note.
+- **☑ Per-project tasks + deadlines** — every project holds its own checklist with optional due dates; deck cards show a compact `☑ done/total` badge (with an overdue count in red) that jumps straight to the board.
+- **📋 "Next" task board** — all open tasks across every project on one board, grouped **overdue / today / this week / later / no date**: check them off, edit inline, set due dates, or add a task to any project without leaving the view.
 - **↑ Unpushed signal** — commits ahead of your remote, flagged on the card so unprotected work stands out.
 - **{ } Open in editor** (VS Code) and **📁 open folder** straight from a card; the deck **auto-refreshes in place** while it's open — only the cards that changed update, so there's no flicker as you work.
 - **🐙 Jump to GitHub** — projects with a `github.com` remote show a GitHub icon; click it to open the repo page in your browser.
 - **📝 Per-project notes** — jot your next todo; it sticks with the card.
-- **📊 Usage analytics** — tokens, cache-hit rate, an API-equivalent cost estimate, and **active working-time** per project (real focused time, idle gaps excluded), parsed locally from `~/.claude`.
+- **📊 Usage analytics** — tokens, cache-hit rate, an API-equivalent cost estimate, and **active working-time** per project (real focused time, idle gaps excluded), parsed locally from `~/.claude`. Deleted projects stay visible (greyed) so totals remain honest.
+- **📉 Live limits bar** — when you're signed into Claude Code, a footer meter shows your **5-hour and weekly usage** (%, reset time, plan) so you see a rate-limit coming before it lands.
 - **📌 Pin / 🙈 hide / 🔎 search / sort** — keep the deck focused.
 - **☰ Card / list view** — toggle a dense one-line-per-project list to scan many repos at a glance; your choice is remembered.
 - **🌐 4 languages** — English, 한국어, 日本語, 中文.
@@ -47,6 +49,7 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 - System tray + global shortcut (`Ctrl+Alt+D`), frameless Discord-style title bar.
 
 <div align="center">
+<img src="docs/screenshots/tasks.png" width="600" alt="Cross-project task board" />
 <img src="docs/screenshots/usage.png" width="600" alt="Usage analytics" />
 </div>
 
@@ -86,7 +89,7 @@ npm run dist       # package to release/win-unpacked  (needs Windows Developer M
 
 ## How it works
 
-DevDeck scans your configured **scan locations** for git repos (walking org/repo layouts, plus any individual repos you add), reads each repo's git state, and cross-references your AI coding sessions — Claude Code (`~/.claude/projects`) or Codex (`~/.codex/sessions`). Everything runs in the Electron main process and stays on your machine — DevDeck only *reads* your data and *launches* a terminal; it never edits your project files. New agents plug in behind one `AgentProvider` interface.
+DevDeck scans your configured **scan locations** for git repos (walking org/repo layouts, plus any individual repos you add), reads each repo's git state, and cross-references your AI coding sessions — Claude Code (`~/.claude/projects`) or Antigravity (`~/.gemini/antigravity`). Everything runs in the Electron main process and stays on your machine — DevDeck only *reads* your data and *launches* a terminal; it never edits your project files. New agents plug in behind one `AgentProvider` interface.
 
 **Tech:** Electron 31 · TypeScript · esbuild · Vitest · electron-updater. Hardened renderer (context isolation, sandbox, strict CSP).
 

@@ -16,6 +16,14 @@ const app = await electron.launch({
   cwd: root,
 });
 const win = await app.firstWindow();
+
+// The tray guard turns window close into hide-to-tray (and window-all-closed keeps the app alive),
+// so Playwright's bare app.close() waits forever and leaks a zombie harness instance. Mark the quit
+// intent in main (same flag the tray's own Quit item sets) and quit explicitly.
+async function closeApp() {
+  await app.evaluate(({ app: a }) => { a.isQuitting = true; setImmediate(() => a.quit()); }).catch(() => {});
+  await app.close().catch(() => {});
+}
 await win.waitForSelector('#cards .card, #cards .empty', { timeout: 30000 }).catch(() => {});
 
 // --- IPC surface checks ---
@@ -78,7 +86,7 @@ for (const view of ['projects', 'usage', 'settings']) {
 writeFileSync(join(out, '_audit.json'), JSON.stringify({ ipc, a11y }, null, 2));
 console.log('IPC:', JSON.stringify(ipc));
 for (const v of Object.keys(a11y)) console.log(`a11y ${v}: ${a11y[v].length} violations`, a11y[v].map((x) => `${x.id}(${x.impact},${x.n})`).join(', '));
-await app.close();
+await closeApp();
 
 const criticalViolations = Object.entries(a11y).flatMap(([view, viols]) =>
   viols.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => ({ view, ...v }))

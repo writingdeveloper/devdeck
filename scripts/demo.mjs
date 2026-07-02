@@ -23,6 +23,7 @@ const SCENES = [
   ['demo-projects.png', 'Every Claude Code project at a glance'],
   ['demo-sessions.png', 'Resume your last session in one click'],
   ['demo-neglected.png', 'Catch neglected & dirty repos'],
+  ['demo-tasks.png', 'Tasks & deadlines across all projects'],
   ['demo-usage.png', 'Local token & cost analytics'],
   ['demo-settings.png', 'Point it at your repos — that’s it'],
 ];
