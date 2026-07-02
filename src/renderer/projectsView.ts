@@ -383,7 +383,10 @@ function render(): void {
   visible = sorted;
 
   cardsEl.classList.toggle('as-list', viewMode === 'list');
-  cardsEl.setAttribute('role', 'list');
+  // role=list only when there ARE listitems: an empty deck (message + hint, no items) with a list
+  // role violates aria-required-children (axe critical — caught by the CI audit's empty profile).
+  if (visible.length === 0) cardsEl.removeAttribute('role');
+  else cardsEl.setAttribute('role', 'list');
   if (visible.length === 0) {
     cardCache.clear();
     cardsEl.replaceChildren();
