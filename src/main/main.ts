@@ -1,7 +1,6 @@
 import { app, BrowserWindow, globalShortcut, crashReporter } from 'electron';
 import * as path from 'node:path';
 import { appendFileSync } from 'node:fs';
-import * as nodePty from '@homebridge/node-pty-prebuilt-multiarch';
 import { Store } from './store';
 import { registerIpc } from './ipc';
 import { PtyHost, type PtySpawn } from './ptyHost';
@@ -16,7 +15,16 @@ import { installGlobalErrorHandlers, installAppCrashHandlers, makeCrashRecovery 
 // leaving no Windows Event Log entry and no trace in our own JS-level error guard below.
 crashReporter.start({ uploadToServer: false, compress: true });
 
+// node-pty backs the win32-only cockpit. A top-level import made its native binding a BOOT
+// dependency on every OS — on Linux/macOS a missing prebuilt for this exact Electron ABI threw
+// during main.js load, so the app never showed a window at all. Guarded require: everything but
+// the cockpit works without it, and the cockpit is hidden off-Windows anyway.
+type NodePty = typeof import('@homebridge/node-pty-prebuilt-multiarch');
+let nodePty: NodePty | null = null;
+try { nodePty = require('@homebridge/node-pty-prebuilt-multiarch') as NodePty; } catch { nodePty = null; }
+
 const realSpawn: PtySpawn = (file, args, opts) => {
+  if (!nodePty) throw new Error('node-pty native binding unavailable — embedded terminals need Windows (or a matching prebuilt)');
   const p = nodePty.spawn(file, args, { name: 'xterm-256color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows });
   return {
     pid: p.pid,
