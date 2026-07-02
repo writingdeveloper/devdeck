@@ -152,6 +152,8 @@
   "cockpit.grp_working": "実行中",
   "cockpit.grp_turn": "あなたの番",
   "cockpit.grp_idle": "アイドル / 終了",
+  "cockpit.context": "コンテキスト使用量",
+  "set.context_window": "コンテキストウィンドウサイズ",
   "cockpit.grp_pinned": "ピン留め",
   "cockpit.pin": "上部に固定",
   "cockpit.unpin": "固定を解除",

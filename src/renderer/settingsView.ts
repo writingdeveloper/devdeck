@@ -1,4 +1,5 @@
 import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i18n-runtime';
+import { setCockpitContextWindow } from './cockpitView';
 import type { Folder } from '../shared/types';
 
 let host: HTMLElement;
@@ -70,6 +71,14 @@ async function render(): Promise<void> {
     }
     tray.addEventListener('change', () => void window.devdeck.setTrayAlert(tray.value as 'off' | 'attention' | 'all'));
     host.appendChild(field('set.tray_alert', tray, tray));
+
+    // Context window basis for the cockpit's per-session context % (Claude's 1M beta vs the 200k default).
+    const ctxWin = document.createElement('select'); ctxWin.className = 'set-input';
+    for (const val of [1_000_000, 200_000]) {
+      const o = document.createElement('option'); o.value = String(val); o.textContent = val === 1_000_000 ? '1M' : '200K'; if (val === s.contextWindow) o.selected = true; ctxWin.appendChild(o);
+    }
+    ctxWin.addEventListener('change', () => { const w = Number(ctxWin.value); void window.devdeck.setContextWindow(w); setCockpitContextWindow(w); });
+    host.appendChild(field('set.context_window', ctxWin, ctxWin));
   }
 
   const info = await window.devdeck.getAppInfo();

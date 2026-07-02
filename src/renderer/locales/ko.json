@@ -152,6 +152,8 @@
   "cockpit.grp_working": "작업 중",
   "cockpit.grp_turn": "내 차례",
   "cockpit.grp_idle": "유휴 / 종료",
+  "cockpit.context": "컨텍스트 사용량",
+  "set.context_window": "컨텍스트 창 크기",
   "cockpit.grp_pinned": "고정",
   "cockpit.pin": "상단 고정",
   "cockpit.unpin": "고정 해제",

@@ -150,6 +150,15 @@ describe('Store', () => {
     expect(new Store(file).getPendingAutoRestore()).toEqual([]); // cleared on disk too
   });
 
+  it('round-trips contextWindow (default 1M; only 200k/1M allowed)', () => {
+    const s = new Store(file);
+    expect(s.getContextWindow()).toBe(1_000_000);
+    s.setContextWindow(200_000);
+    expect(new Store(file).getContextWindow()).toBe(200_000);
+    s.setContextWindow(12345 as number); // junk → coerced to 1M
+    expect(s.getContextWindow()).toBe(1_000_000);
+  });
+
   it('round-trips trayAlert (default attention; bad value coerced)', () => {
     const s = new Store(file);
     expect(s.getTrayAlert()).toBe('attention');

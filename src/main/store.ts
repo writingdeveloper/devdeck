@@ -6,7 +6,7 @@ import { sanitizeTodos, type Todo } from '../shared/tasks';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[] };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number };
 }
 
 const EMPTY: StoreEntry = {
@@ -101,6 +101,10 @@ export class Store {
   getPendingAutoRestore(): PersistedSession[] { return sanitizePersistedList(this.state.settings?.pendingAutoRestore); }
   setPendingAutoRestore(list: PersistedSession[]): void { this.state.settings = { ...(this.state.settings ?? {}), pendingAutoRestore: sanitizePersistedList(list) }; this.save(); }
   consumePendingAutoRestore(): PersistedSession[] { const l = this.getPendingAutoRestore(); this.setPendingAutoRestore([]); return l; }
+
+  // Context window (tokens) for the cockpit's per-session context % — 1M (Claude's beta) or the 200k default.
+  getContextWindow(): number { return this.state.settings?.contextWindow === 200_000 ? 200_000 : 1_000_000; }
+  setContextWindow(w: number): void { this.state.settings = { ...(this.state.settings ?? {}), contextWindow: w === 200_000 ? 200_000 : 1_000_000 }; this.save(); }
 
   getTrayAlert(): 'off' | 'attention' | 'all' { const t = this.state.settings?.trayAlert; return t === 'off' || t === 'all' ? t : 'attention'; }
   setTrayAlert(t: 'off' | 'attention' | 'all'): void { this.state.settings = { ...(this.state.settings ?? {}), trayAlert: t === 'off' || t === 'all' ? t : 'attention' }; this.save(); }

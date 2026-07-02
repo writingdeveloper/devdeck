@@ -16,8 +16,9 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all' }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number }>;
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
+      setContextWindow(w: number): Promise<void>;
       setTrayCounts(counts: { attention?: number; turn?: number; overdue?: number }): void;
       setTrayAlertImage(dataUrl: string): void;
       setBaseDir(dir: string): Promise<void>;
@@ -61,7 +62,7 @@ declare global {
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
-        sessionMeta(projectPath: string, sessionId: string): Promise<{ model: string | null; activeMs: number }>;
+        sessionMeta(projectPath: string, sessionId: string): Promise<{ model: string | null; activeMs: number; contextTokens: number }>;
         sessionIds(projectPath: string): Promise<string[]>;
         gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
         openLink(url: string): Promise<void>;

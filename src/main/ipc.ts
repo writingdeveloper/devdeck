@@ -118,8 +118,9 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
     openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform,
-    viewMode: cfg.store.getViewMode(), trayAlert: cfg.store.getTrayAlert(),
+    viewMode: cfg.store.getViewMode(), trayAlert: cfg.store.getTrayAlert(), contextWindow: cfg.store.getContextWindow(),
   }));
+  ipcMain.handle('settings:setContextWindow', (_e, w: number) => cfg.store.setContextWindow(w === 200_000 ? 200_000 : 1_000_000));
   ipcMain.handle('settings:setTrayAlert', (_e, mode: string) => {
     cfg.store.setTrayAlert(mode === 'off' || mode === 'all' ? mode : 'attention');
     cfg.tray.applyCounts(lastTrayCounts, cfg.store.getTrayAlert()); // re-apply immediately with the latest counts
@@ -291,7 +292,7 @@ export function registerIpc(cfg: IpcConfig): void {
 
   // Per-session model + active working time (read from the Claude session log) for the cockpit header/list.
   ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string) => {
-    if (agent().id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0 };
+    if (agent().id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0, contextTokens: 0 };
     return readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
   });
   // Newest-first session ids for a project (mtime-desc) — restore resumes the LATEST conversation,

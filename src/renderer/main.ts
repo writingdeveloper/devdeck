@@ -4,7 +4,7 @@ import { mountNav } from './nav';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist } from './cockpitView';
+import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, setCockpitContextWindow } from './cockpitView';
 import { isCockpitPlatform } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { mountUsageBar, refreshUsageBar } from './usageBar';
@@ -165,7 +165,8 @@ async function boot(): Promise<void> {
   mountTitlebar();
   setLanguage(await window.devdeck.getLanguage());
   // Cockpit (embedded node-pty terminals) is Windows-only for now; elsewhere "open" uses the external terminal.
-  const cockpitOn = isCockpitPlatform((await window.devdeck.getSettings()).platform);
+  const settings = await window.devdeck.getSettings();
+  const cockpitOn = isCockpitPlatform(settings.platform);
   setCockpitEnabled(cockpitOn);
   if (!cockpitOn) document.querySelector('.rail-item[data-view="cockpit"]')?.remove();
   applyStaticLabels();
@@ -174,7 +175,7 @@ async function boot(): Promise<void> {
   mountSettings(() => { applyStaticLabels(); reloadProjects(); void refreshUsageBar(); });
   mountNext();
   mountUsageBar();
-  if (cockpitOn) mountCockpit();
+  if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); }
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit(); });
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;

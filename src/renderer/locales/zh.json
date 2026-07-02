@@ -152,6 +152,8 @@
   "cockpit.grp_working": "工作中",
   "cockpit.grp_turn": "轮到你",
   "cockpit.grp_idle": "空闲 / 已退出",
+  "cockpit.context": "上下文用量",
+  "set.context_window": "上下文窗口大小",
   "cockpit.grp_pinned": "置顶",
   "cockpit.pin": "置顶",
   "cockpit.unpin": "取消置顶",
