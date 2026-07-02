@@ -65,7 +65,7 @@ export function isCockpitPlatform(platform: string): boolean {
 
 export interface CockpitRowSig {
   id: string; activity: string; label: string; dirty: number;
-  branch: string | null; model: string | null; agentId: string; selected: boolean;
+  branch: string | null; model: string | null; agentId: string; selected: boolean; pinned: boolean;
 }
 
 /**
@@ -82,7 +82,7 @@ export function cockpitListSignature(
   search: string,
 ): string {
   return JSON.stringify([
-    rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected]),
+    rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected, x.pinned]),
     prev.map((x) => [x.key, x.label, x.agentId]),
     lang,
     search,

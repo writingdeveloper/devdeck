@@ -369,6 +369,11 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-close { background: transparent; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 6px; line-height: 1; opacity: 0; }
 .ck-row:hover .ck-close { opacity: 1; }
 .ck-close:hover { background: var(--bad); color: #fff; }
+/* Pin a session to the top "고정" group (📌, hover-revealed; always shown + full-color once pinned). */
+.ck-pin { background: transparent; border: 0; font-size: 11px; cursor: pointer; padding: 2px 4px; border-radius: 6px; line-height: 1; opacity: 0; filter: grayscale(1); }
+.ck-row:hover .ck-pin { opacity: .55; }
+.ck-pin:hover { background: var(--surface-hover); opacity: 1; }
+.ck-row.pinned .ck-pin { opacity: 1; filter: none; }
 /* + New session: keep the target-project label on one line with ellipsis. */
 #ck-new-session { min-width: 0; }
 #ck-new-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

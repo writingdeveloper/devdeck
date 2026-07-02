@@ -41,6 +41,12 @@ describe('sanitizePersistedList', () => {
     expect(r[2]).toMatchObject({ agentId: 'claude' });
   });
 
+  it('coerces pinned to a strict boolean (absent/junk → falsy, only true stays true)', () => {
+    expect(sanitizePersistedList([{ projectPath: 'C:/a', pinned: true }])[0].pinned).toBe(true);
+    expect(sanitizePersistedList([{ projectPath: 'C:/b', pinned: 'yes' }])[0].pinned).toBeFalsy();
+    expect(sanitizePersistedList([{ projectPath: 'C:/c' }])[0].pinned).toBeFalsy();
+  });
+
   it('caps at 50 entries', () => {
     const big = Array.from({ length: 80 }, (_v, i) => ({ projectPath: `C:/p${i}` }));
     expect(sanitizePersistedList(big).length).toBe(50);

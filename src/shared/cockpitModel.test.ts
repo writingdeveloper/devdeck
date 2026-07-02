@@ -70,7 +70,7 @@ describe('isCockpitPlatform', () => {
 
 describe('cockpitListSignature', () => {
   const row = (over: Partial<Parameters<typeof cockpitListSignature>[0][number]> = {}) =>
-    ({ id: 'a', activity: 'working', label: 'devdeck', dirty: 0, branch: 'main', model: 'Opus 4.8', agentId: 'claude', selected: false, ...over });
+    ({ id: 'a', activity: 'working', label: 'devdeck', dirty: 0, branch: 'main', model: 'Opus 4.8', agentId: 'claude', selected: false, pinned: false, ...over });
 
   it('is stable for identical inputs', () => {
     expect(cockpitListSignature([row()], [], 'ko', '')).toBe(cockpitListSignature([row()], [], 'ko', ''));
@@ -84,6 +84,7 @@ describe('cockpitListSignature', () => {
     expect(cockpitListSignature([row({ model: null })], [], 'ko', '')).not.toBe(base);
     expect(cockpitListSignature([row({ label: 'renamed' })], [], 'ko', '')).not.toBe(base);
     expect(cockpitListSignature([row({ selected: true })], [], 'ko', '')).not.toBe(base);
+    expect(cockpitListSignature([row({ pinned: true })], [], 'ko', '')).not.toBe(base); // pin toggle moves it to the top group
     expect(cockpitListSignature([row()], [], 'en', '')).not.toBe(base);  // language → tr() text differs
     expect(cockpitListSignature([row()], [], 'ko', 'q')).not.toBe(base); // search filter
     expect(cockpitListSignature([row(), row({ id: 'b' })], [], 'ko', '')).not.toBe(base); // row added

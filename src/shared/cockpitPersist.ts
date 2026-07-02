@@ -5,6 +5,7 @@ export interface PersistedSession {
   sessionId: string | null; // the specific session to resume, or null to continue/new
   agentId: string;          // 'claude' | 'antigravity' — which agent the session was opened with
   label?: string | null;    // user-given custom name (overrides the auto label); null/absent = auto
+  pinned?: boolean;         // user pinned this session to the top group (absent = not pinned)
 }
 
 const MAX_PERSISTED = 50;
@@ -47,6 +48,7 @@ export function sanitizePersistedList(raw: unknown): PersistedSession[] {
       sessionId: typeof o.sessionId === 'string' ? o.sessionId : null,
       agentId: o.agentId === 'antigravity' ? 'antigravity' : 'claude',
       label,
+      pinned: o.pinned === true ? true : undefined, // omit when not pinned (keeps state.json minimal)
     });
     if (out.length >= MAX_PERSISTED) break;
   }
