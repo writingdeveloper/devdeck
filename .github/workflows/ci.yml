@@ -45,5 +45,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      # ubuntu-24.04 runners restrict unprivileged user namespaces (AppArmor), which kills the
+      # Electron/Chromium sandbox before a window ever appears — firstWindow() then times out.
+      - name: Allow unprivileged user namespaces for the Electron sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run the audit under a virtual display
         run: xvfb-run -a node qa/audit.mjs
+        env:
+          DEBUG: 'pw:browser' # if launch fails again, the electron process's own stderr lands in the log
