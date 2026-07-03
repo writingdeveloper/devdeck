@@ -256,25 +256,34 @@ export function registerIpc(cfg: IpcConfig): void {
       return { id: '', agentId: agent().id, sessionId: null };
     }
     const a = agent();
-    // Resolve BOTH the launch command and the concrete session id to persist (so each session
-    // restores to its OWN conversation — required once a project can hold several sessions).
-    const resolved = resolveOpenSession(a, {
-      fresh: !!req.fresh,
-      sessionId: req.sessionId,
-      sessionCount: req.fresh ? 1 : a.listSessions(req.projectPath).length, // count only consulted on the non-fresh new/continue path
-      latestId: a.listSessions(req.projectPath, 1)[0]?.id ?? null,
-      genId: () => randomUUID(),
-    });
-    const shellPath = resolveShellPath();
-    const id = `${req.projectPath}#${++cockpitSeq}`;
-    cfg.ptyHost.create(
-      id, shellPath, ['-NoExit', '-Command', resolved.command], req.projectPath,
-      Math.max(20, req.cols | 0), Math.max(5, req.rows | 0),
-      (chunk) => ptyBatch.push(id, chunk),
-      (e) => { ptyBatch.flush(); sendToWin('cockpit:exit', { id, exitCode: e.exitCode }); }, // flush buffered output before the exit notice
-    );
-    cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
-    return { id, agentId: a.id, sessionId: resolved.sessionId };
+    // A failed open must come back as the same refusal shape the allowlist path returns (id: '') —
+    // node-pty's spawn throws synchronously (e.g. the project folder was deleted since the session
+    // was saved), and an unguarded throw here rejects the invoke, leaking the renderer's
+    // already-mounted terminal and aborting a restore-all loop mid-way.
+    try {
+      // Resolve BOTH the launch command and the concrete session id to persist (so each session
+      // restores to its OWN conversation — required once a project can hold several sessions).
+      const resolved = resolveOpenSession(a, {
+        fresh: !!req.fresh,
+        sessionId: req.sessionId,
+        sessionCount: req.fresh ? 1 : a.listSessions(req.projectPath).length, // count only consulted on the non-fresh new/continue path
+        latestId: a.listSessions(req.projectPath, 1)[0]?.id ?? null,
+        genId: () => randomUUID(),
+      });
+      const shellPath = resolveShellPath();
+      const id = `${req.projectPath}#${++cockpitSeq}`;
+      cfg.ptyHost.create(
+        id, shellPath, ['-NoExit', '-Command', resolved.command], req.projectPath,
+        Math.max(20, req.cols | 0), Math.max(5, req.rows | 0),
+        (chunk) => ptyBatch.push(id, chunk),
+        (e) => { ptyBatch.flush(); sendToWin('cockpit:exit', { id, exitCode: e.exitCode }); }, // flush buffered output before the exit notice
+      );
+      cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
+      return { id, agentId: a.id, sessionId: resolved.sessionId };
+    } catch (err) {
+      cfg.sendError(`Could not open session in ${req.projectPath}: ${err instanceof Error ? err.message : String(err)}`);
+      return { id: '', agentId: a.id, sessionId: null };
+    }
   });
   ipcMain.on('cockpit:input', (_e, id: string, data: string) => cfg.ptyHost.write(String(id), String(data)));
   ipcMain.on('cockpit:resize', (_e, id: string, cols: number, rows: number) => cfg.ptyHost.resize(String(id), Math.max(1, cols | 0), Math.max(1, rows | 0)));
