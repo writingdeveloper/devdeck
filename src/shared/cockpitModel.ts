@@ -77,13 +77,13 @@ export interface CockpitRowSig {
  */
 export function cockpitListSignature(
   rows: CockpitRowSig[],
-  prev: { key: string; label: string; agentId: string }[],
+  prev: { key: string; label: string; agentId: string; pinned?: boolean }[],
   lang: string,
   search: string,
 ): string {
   return JSON.stringify([
     rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected, x.pinned]),
-    prev.map((x) => [x.key, x.label, x.agentId]),
+    prev.map((x) => [x.key, x.label, x.agentId, x.pinned === true]),
     lang,
     search,
   ]);

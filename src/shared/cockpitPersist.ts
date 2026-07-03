@@ -30,6 +30,26 @@ export function pickRestoreSessionId(newestFirstIds: string[], liveIds: Set<stri
 }
 
 /**
+ * A newly-opened session that lands on a conversation a saved (restorable) entry already points at
+ * CONSUMES that entry — and must inherit its user-given pin + label unless the open request carries
+ * its own. Without this, opening a project from the deck / task board / ⟳ restart (none of which
+ * know about pins) silently erased the pin from persistence even though state.json had saved it.
+ */
+export function adoptRestorableMatch(
+  restorable: PersistedSession[],
+  sessionId: string | null,
+  req: { label: string | null; pinned: boolean },
+): { rest: PersistedSession[]; label: string | null; pinned: boolean } {
+  if (!sessionId) return { rest: restorable, label: req.label, pinned: req.pinned };
+  const match = restorable.find((r) => r.sessionId === sessionId);
+  return {
+    rest: restorable.filter((r) => r.sessionId !== sessionId),
+    label: req.label ?? match?.label ?? null,
+    pinned: req.pinned || match?.pinned === true,
+  };
+}
+
+/**
  * Validate/normalize a persisted-session list loaded from disk (defends against a corrupted
  * state.json): drops entries without a string projectPath, defaults the name to the path
  * basename, coerces sessionId to string|null and agentId to 'claude'/'antigravity', caps the count.

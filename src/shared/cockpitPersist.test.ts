@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePersistedList, pickRestoreSessionId } from './cockpitPersist';
+import { sanitizePersistedList, pickRestoreSessionId, adoptRestorableMatch, type PersistedSession } from './cockpitPersist';
 
 describe('sanitizePersistedList', () => {
   it('returns [] for non-arrays', () => {
@@ -50,6 +50,39 @@ describe('sanitizePersistedList', () => {
   it('caps at 50 entries', () => {
     const big = Array.from({ length: 80 }, (_v, i) => ({ projectPath: `C:/p${i}` }));
     expect(sanitizePersistedList(big).length).toBe(50);
+  });
+});
+
+describe('adoptRestorableMatch', () => {
+  // Opening a session onto a conversation that a saved entry already points at CONSUMES that entry —
+  // its user-given pin + label must carry over, or a deck-open / ⟳ restart silently erases them
+  // (the "핀이 재시작 후 사라짐" bug: state.json still had pinned:true, the open path dropped it).
+  const entry = (over: Partial<PersistedSession> = {}): PersistedSession =>
+    ({ projectPath: 'C:/p', name: 'p', sessionId: 's1', agentId: 'claude', label: null, ...over });
+
+  it('inherits pin + label from the consumed entry when the request carries none (deck open)', () => {
+    const r = adoptRestorableMatch([entry({ pinned: true, label: 'auth work' })], 's1', { label: null, pinned: false });
+    expect(r).toMatchObject({ label: 'auth work', pinned: true });
+    expect(r.rest).toEqual([]); // entry consumed
+  });
+
+  it('an explicit request wins over the consumed entry', () => {
+    const r = adoptRestorableMatch([entry({ pinned: true, label: 'old' })], 's1', { label: 'new', pinned: true });
+    expect(r).toMatchObject({ label: 'new', pinned: true });
+  });
+
+  it('leaves non-matching entries untouched and keeps the request values', () => {
+    const other = entry({ sessionId: 's2', pinned: true });
+    const r = adoptRestorableMatch([other], 's1', { label: null, pinned: false });
+    expect(r).toMatchObject({ label: null, pinned: false });
+    expect(r.rest).toEqual([other]);
+  });
+
+  it('null sessionId adopts nothing and removes nothing', () => {
+    const list = [entry({ sessionId: null, pinned: true })];
+    const r = adoptRestorableMatch(list, null, { label: null, pinned: false });
+    expect(r.rest).toEqual(list);
+    expect(r.pinned).toBe(false);
   });
 });
 

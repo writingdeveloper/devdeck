@@ -89,6 +89,9 @@ describe('cockpitListSignature', () => {
     expect(cockpitListSignature([row()], [], 'ko', 'q')).not.toBe(base); // search filter
     expect(cockpitListSignature([row(), row({ id: 'b' })], [], 'ko', '')).not.toBe(base); // row added
     expect(cockpitListSignature([row()], [{ key: 'p', label: 'old', agentId: 'claude' }], 'ko', '')).not.toBe(base); // prev added
+    // A restorable entry's pin renders it in the 고정 group (survives restart) — its flip must rebuild.
+    expect(cockpitListSignature([row()], [{ key: 'p', label: 'old', agentId: 'claude', pinned: true }], 'ko', ''))
+      .not.toBe(cockpitListSignature([row()], [{ key: 'p', label: 'old', agentId: 'claude', pinned: false }], 'ko', ''));
   });
 
   it('does not collide when fields shift across the delimiter', () => {
