@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   windowControls: {
+    show: () => ipcRenderer.invoke('win:show'),
     minimize: () => ipcRenderer.invoke('win:minimize'),
     toggleMaximize: () => ipcRenderer.invoke('win:toggleMaximize'),
     close: () => ipcRenderer.invoke('win:close'),

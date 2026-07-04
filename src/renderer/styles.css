@@ -339,6 +339,9 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row.sel { background: #16182b; border-left-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(85,88,239,.35); }
 .ck-row .nm { font-weight: 600; font-size: 12.5px; }
 .ck-row .mt { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
+/* Per-session context % on the row — tinted as it nears compaction (≥80 warn, ≥95 crit). */
+.ck-ctx.sev-warn { color: var(--warn); }
+.ck-ctx.sev-crit { color: var(--bad); font-weight: 700; }
 .ck-main { flex: 1; display: flex; flex-direction: column; background: #0a0b0e; min-width: 0; }
 .ck-header { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), #0e1015); min-height: 42px; }
 .ck-header .title { font-weight: 700; font-size: 13.5px; }

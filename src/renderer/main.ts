@@ -4,7 +4,7 @@ import { mountNav } from './nav';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, setCockpitContextWindow } from './cockpitView';
+import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, setCockpitContextWindow, setCockpitTrayAlert } from './cockpitView';
 import { isCockpitPlatform } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { mountUsageBar, refreshUsageBar } from './usageBar';
@@ -175,7 +175,7 @@ async function boot(): Promise<void> {
   mountSettings(() => { applyStaticLabels(); reloadProjects(); void refreshUsageBar(); });
   mountNext();
   mountUsageBar();
-  if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); }
+  if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); setCockpitTrayAlert(settings.trayAlert); }
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit(); });
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;

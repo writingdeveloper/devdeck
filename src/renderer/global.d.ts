@@ -43,6 +43,7 @@ declare global {
       openExternal(url: string): Promise<void>;
       checkForUpdates(): Promise<void>;
       windowControls: {
+        show(): Promise<void>;
         minimize(): Promise<void>;
         toggleMaximize(): Promise<void>;
         close(): Promise<void>;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, numberCollidingNames, cockpitListSignature, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -17,6 +17,32 @@ describe('filterSessions', () => {
     const list = [s({ id: 'a', name: 'devdeck', branch: null })];
     expect(filterSessions(list, 'dev').map((x) => x.id)).toEqual(['a']);
     expect(filterSessions(list, 'nomatch')).toEqual([]);
+  });
+  it('matches the custom display label — a renamed session must be findable by the name it SHOWS', () => {
+    const list = [s({ id: 'a', name: 'devdeck' }), s({ id: 'b', name: 'devdeck' })];
+    const labels = new Map([['a', '결제모듈 리팩터링']]);
+    expect(filterSessions(list, '결제', labels).map((x) => x.id)).toEqual(['a']);
+    expect(filterSessions(list, 'devdeck', labels).map((x) => x.id)).toEqual(['a', 'b']); // folder name still matches
+  });
+});
+
+describe('shouldNotifyAttention', () => {
+  // OS notification fires exactly on the working/turn/idle → attention transition, only when the
+  // user isn't already looking at the window, gated by the same setting as the tray alert.
+  const base = { prev: 'working' as const, next: 'attention' as const, trayAlert: 'attention' as const, windowFocused: false };
+  it('notifies on a fresh transition into attention while the window is unfocused', () => {
+    expect(shouldNotifyAttention(base)).toBe(true);
+    expect(shouldNotifyAttention({ ...base, trayAlert: 'all' })).toBe(true);
+  });
+  it('is silent when the alert setting is off', () => {
+    expect(shouldNotifyAttention({ ...base, trayAlert: 'off' })).toBe(false);
+  });
+  it('is silent when the window is focused (the user already sees it)', () => {
+    expect(shouldNotifyAttention({ ...base, windowFocused: true })).toBe(false);
+  });
+  it('is silent when already in attention (no re-notify) or when leaving attention', () => {
+    expect(shouldNotifyAttention({ ...base, prev: 'attention' })).toBe(false);
+    expect(shouldNotifyAttention({ ...base, prev: 'attention', next: 'turn' as never })).toBe(false);
   });
 });
 
@@ -85,6 +111,7 @@ describe('cockpitListSignature', () => {
     expect(cockpitListSignature([row({ label: 'renamed' })], [], 'ko', '')).not.toBe(base);
     expect(cockpitListSignature([row({ selected: true })], [], 'ko', '')).not.toBe(base);
     expect(cockpitListSignature([row({ pinned: true })], [], 'ko', '')).not.toBe(base); // pin toggle moves it to the top group
+    expect(cockpitListSignature([row({ ctx: 82 })], [], 'ko', '')).not.toBe(base); // row context % changed
     expect(cockpitListSignature([row()], [], 'en', '')).not.toBe(base);  // language → tr() text differs
     expect(cockpitListSignature([row()], [], 'ko', 'q')).not.toBe(base); // search filter
     expect(cockpitListSignature([row(), row({ id: 'b' })], [], 'ko', '')).not.toBe(base); // row added

@@ -369,6 +369,8 @@ export function registerIpc(cfg: IpcConfig): void {
 
   // Frameless-window controls (the title bar draws its own buttons).
   ipcMain.handle('win:minimize', () => cfg.win.minimize());
+  // Raise the window from a renderer-side notification click (the window may be hidden to tray).
+  ipcMain.handle('win:show', () => { cfg.win.show(); cfg.win.focus(); });
   ipcMain.handle('win:toggleMaximize', () => {
     cfg.win.isMaximized() ? cfg.win.unmaximize() : cfg.win.maximize();
   });

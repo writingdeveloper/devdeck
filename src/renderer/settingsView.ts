@@ -1,5 +1,5 @@
 import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i18n-runtime';
-import { setCockpitContextWindow } from './cockpitView';
+import { setCockpitContextWindow, setCockpitTrayAlert } from './cockpitView';
 import type { Folder } from '../shared/types';
 
 let host: HTMLElement;
@@ -69,7 +69,11 @@ async function render(): Promise<void> {
     for (const [val, key] of [['attention', 'set.tray_alert_attention'], ['all', 'set.tray_alert_all'], ['off', 'set.tray_alert_off']] as [string, string][]) {
       const o = document.createElement('option'); o.value = val; o.textContent = tr(key); if (val === s.trayAlert) o.selected = true; tray.appendChild(o);
     }
-    tray.addEventListener('change', () => void window.devdeck.setTrayAlert(tray.value as 'off' | 'attention' | 'all'));
+    tray.addEventListener('change', () => {
+      const mode = tray.value as 'off' | 'attention' | 'all';
+      void window.devdeck.setTrayAlert(mode);
+      setCockpitTrayAlert(mode); // the same setting gates the attention OS notification
+    });
     host.appendChild(field('set.tray_alert', tray, tray));
 
     // Context window basis for the cockpit's per-session context % (Claude's 1M beta vs the 200k default).

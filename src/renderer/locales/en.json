@@ -158,6 +158,7 @@
   "cockpit.grp_turn": "Your turn",
   "cockpit.grp_idle": "Idle / exited",
   "cockpit.context": "Context usage",
+  "cockpit.notify_attention": "A session is waiting for your reply",
   "set.context_window": "Context window size",
   "cockpit.grp_pinned": "Pinned",
   "cockpit.pin": "Pin to top",

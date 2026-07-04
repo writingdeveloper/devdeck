@@ -15,11 +15,22 @@ export interface CockpitSession {
   activity: ActivityState;
 }
 
-export function filterSessions(list: CockpitSession[], query: string): CockpitSession[] {
+export function filterSessions(list: CockpitSession[], query: string, labels?: Map<string, string>): CockpitSession[] {
   const q = query.trim().toLowerCase();
   if (!q) return [...list];
+  // A renamed session shows its custom label, so search must match what the list SHOWS —
+  // not just the folder name underneath it.
   return list.filter((s) =>
-    s.name.toLowerCase().includes(q) || (s.branch ?? '').toLowerCase().includes(q));
+    s.name.toLowerCase().includes(q) || (s.branch ?? '').toLowerCase().includes(q) ||
+    (labels?.get(s.id) ?? '').toLowerCase().includes(q));
+}
+
+/**
+ * OS notification for "the agent is waiting on you": fire exactly on the transition INTO attention,
+ * only when the user isn't already looking at the window, gated by the same setting as the tray alert.
+ */
+export function shouldNotifyAttention(x: { prev: ActivityState; next: ActivityState; trayAlert: 'off' | 'attention' | 'all'; windowFocused: boolean }): boolean {
+  return x.next === 'attention' && x.prev !== 'attention' && x.trayAlert !== 'off' && !x.windowFocused;
 }
 
 type Bucket = 'attention' | 'working' | 'turn' | 'idle';
@@ -66,6 +77,7 @@ export function isCockpitPlatform(platform: string): boolean {
 export interface CockpitRowSig {
   id: string; activity: string; label: string; dirty: number;
   branch: string | null; model: string | null; agentId: string; selected: boolean; pinned: boolean;
+  ctx?: number | null; // per-session context % shown on the row (null/absent = unknown)
 }
 
 /**
@@ -82,7 +94,7 @@ export function cockpitListSignature(
   search: string,
 ): string {
   return JSON.stringify([
-    rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected, x.pinned]),
+    rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected, x.pinned, x.ctx ?? null]),
     prev.map((x) => [x.key, x.label, x.agentId, x.pinned === true]),
     lang,
     search,

@@ -18,6 +18,11 @@ export function contextPercent(tokens: number, windowTokens: number): number | n
   return Math.min(100, Math.round((tokens / windowTokens) * 100));
 }
 
+/** Compact-danger tint for a context %: ≥95 crit (compact imminent), ≥80 warn, else ok. */
+export function contextSeverity(pct: number): 'ok' | 'warn' | 'crit' {
+  return pct >= 95 ? 'crit' : pct >= 80 ? 'warn' : 'ok';
+}
+
 function num(x: unknown): number { return typeof x === 'number' && Number.isFinite(x) ? x : 0; }
 
 /**

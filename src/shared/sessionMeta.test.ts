@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { friendlyModel, parseSessionMeta, contextPercent } from './sessionMeta';
+import { friendlyModel, parseSessionMeta, contextPercent, contextSeverity } from './sessionMeta';
 
 describe('friendlyModel', () => {
   it('maps known model ids to short names', () => {
@@ -54,5 +54,15 @@ describe('contextPercent', () => {
   it('null when there is nothing to show (no tokens or bad window)', () => {
     expect(contextPercent(0, 1_000_000)).toBeNull();
     expect(contextPercent(100, 0)).toBeNull();
+  });
+});
+
+describe('contextSeverity', () => {
+  it("flags the compact danger zone: >=95 crit, >=80 warn, else ok", () => {
+    expect(contextSeverity(79)).toBe('ok');
+    expect(contextSeverity(80)).toBe('warn');
+    expect(contextSeverity(94)).toBe('warn');
+    expect(contextSeverity(95)).toBe('crit');
+    expect(contextSeverity(100)).toBe('crit');
   });
 });

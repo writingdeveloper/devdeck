@@ -158,6 +158,7 @@
   "cockpit.grp_turn": "あなたの番",
   "cockpit.grp_idle": "アイドル / 終了",
   "cockpit.context": "コンテキスト使用量",
+  "cockpit.notify_attention": "セッションが応答を待っています",
   "set.context_window": "コンテキストウィンドウサイズ",
   "cockpit.grp_pinned": "ピン留め",
   "cockpit.pin": "上部に固定",
