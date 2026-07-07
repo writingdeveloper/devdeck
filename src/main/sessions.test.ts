@@ -10,8 +10,8 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 const userLine = (text: string) => JSON.stringify({ type: 'user', message: { content: text } });
 
-describe('listSessions', () => {
-  it('returns sessions newest-first with id, mtime, and first message', () => {
+describe('listSessions', async () => {
+  it('returns sessions newest-first with id, mtime, and first message', async () => {
     const enc = 'C--g-proj';
     const d = join(root, enc);
     mkdirSync(d, { recursive: true });
@@ -22,12 +22,12 @@ describe('listSessions', () => {
     utimesSync(join(d, `${olderId}.jsonl`), 1000, 1000);
     utimesSync(join(d, `${newerId}.jsonl`), 2000, 2000);
 
-    const out = listSessions('C:\\g\\proj', root);
+    const out = await listSessions('C:\\g\\proj', root);
     expect(out.map((s) => s.id)).toEqual([newerId, olderId]);
     expect(out[0]).toMatchObject({ id: newerId, mtimeMs: 2000 * 1000, firstMessage: 'newer work' });
   });
 
-  it('respects the limit', () => {
+  it('respects the limit', async () => {
     const d = join(root, 'C--g-proj2');
     mkdirSync(d, { recursive: true });
     for (let i = 0; i < 7; i++) {
@@ -35,40 +35,40 @@ describe('listSessions', () => {
       writeFileSync(f, userLine(`m${i}`));
       utimesSync(f, 1000 + i, 1000 + i);
     }
-    expect(listSessions('C:\\g\\proj2', root, 3)).toHaveLength(3);
+    expect(await listSessions('C:\\g\\proj2', root, 3)).toHaveLength(3);
   });
 
-  it('returns [] when the session dir is missing', () => {
-    expect(listSessions('C:\\g\\missing', root)).toEqual([]);
+  it('returns [] when the session dir is missing', async () => {
+    expect(await listSessions('C:\\g\\missing', root)).toEqual([]);
   });
 });
 
-describe('listSessions sessionId filtering', () => {
-  it('accepts UUID-ish ids', () => {
+describe('listSessions sessionId filtering', async () => {
+  it('accepts UUID-ish ids', async () => {
     const enc = 'C--g-filter';
     const d = join(root, enc);
     mkdirSync(d, { recursive: true });
     const validId = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
     writeFileSync(join(d, `${validId}.jsonl`), userLine('valid'));
-    const out = listSessions('C:\\g\\filter', root);
+    const out = await listSessions('C:\\g\\filter', root);
     expect(out).toHaveLength(1);
     expect(out[0].id).toBe(validId);
   });
 
-  it('rejects ids with shell metacharacters or too short', () => {
+  it('rejects ids with shell metacharacters or too short', async () => {
     const enc = 'C--g-filter2';
     const d = join(root, enc);
     mkdirSync(d, { recursive: true });
     writeFileSync(join(d, '$(evil).jsonl'), userLine('bad'));
     writeFileSync(join(d, 'short.jsonl'), userLine('bad'));
     writeFileSync(join(d, 'nothex-zz.jsonl'), userLine('bad'));
-    const out = listSessions('C:\\g\\filter2', root);
+    const out = await listSessions('C:\\g\\filter2', root);
     expect(out).toHaveLength(0);
   });
 });
 
-describe('lastUserMessageForSession', () => {
-  it('returns the last genuine user message from the session tail', () => {
+describe('lastUserMessageForSession', async () => {
+  it('returns the last genuine user message from the session tail', async () => {
     const d = join(root, 'C--g-cue');
     mkdirSync(d, { recursive: true });
     const id = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
@@ -78,15 +78,15 @@ describe('lastUserMessageForSession', () => {
       JSON.stringify({ type: 'assistant', message: { content: 'done' } }),
     ].join('\n');
     writeFileSync(join(d, `${id}.jsonl`), jsonl);
-    expect(lastUserMessageForSession('C:\\g\\cue', id, root)).toBe('pick up the rail refactor');
+    expect(await lastUserMessageForSession('C:\\g\\cue', id, root)).toBe('pick up the rail refactor');
   });
 
-  it('returns null for a missing file or invalid session id', () => {
-    expect(lastUserMessageForSession('C:\\g\\cue', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789', root)).toBeNull();
-    expect(lastUserMessageForSession('C:\\g\\cue', '$(evil)', root)).toBeNull();
+  it('returns null for a missing file or invalid session id', async () => {
+    expect(await lastUserMessageForSession('C:\\g\\cue', 'a0b1c2d3-e4f5-6789-abcd-ef0123456789', root)).toBeNull();
+    expect(await lastUserMessageForSession('C:\\g\\cue', '$(evil)', root)).toBeNull();
   });
 
-  it('finds the last user message even when it is beyond the first tail chunk', () => {
+  it('finds the last user message even when it is beyond the first tail chunk', async () => {
     const d = join(root, 'C--g-big');
     mkdirSync(d, { recursive: true });
     const id = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
@@ -96,6 +96,6 @@ describe('lastUserMessageForSession', () => {
     const filler = 'x'.repeat(2000);
     for (let i = 0; i < 650; i++) lines.push(JSON.stringify({ type: 'assistant', message: { content: filler } }));
     writeFileSync(join(d, `${id}.jsonl`), lines.join('\n'));
-    expect(lastUserMessageForSession('C:\\g\\big', id, root)).toBe(target);
+    expect(await lastUserMessageForSession('C:\\g\\big', id, root)).toBe(target);
   });
 });

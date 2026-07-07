@@ -174,7 +174,7 @@ export function registerIpc(cfg: IpcConfig): void {
     else cfg.sendError(`Blocked external URL: ${u}`);
   });
 
-  ipcMain.handle('projects:open', (_e, items: { path: string; sessionId: string | null }[]) => {
+  ipcMain.handle('projects:open', async (_e, items: { path: string; sessionId: string | null }[]) => {
     const now = new Date().toISOString();
     const folders = effFolders();
     const tabs: WtTab[] = [];
@@ -186,7 +186,7 @@ export function registerIpc(cfg: IpcConfig): void {
       const a = agent();
       let command: string;
       if (typeof it.sessionId === 'string') command = a.buildCommand('resume', it.sessionId);
-      else if (a.listSessions(it.path).length > 0) command = a.buildCommand('continue');
+      else if ((await a.listSessions(it.path)).length > 0) command = a.buildCommand('continue');
       else command = a.buildCommand('new');
       tabs.push({
         name: it.path.split(/[\\/]/).pop() ?? it.path,
@@ -249,7 +249,7 @@ export function registerIpc(cfg: IpcConfig): void {
   // Coalesce pty output (~one frame) before it crosses IPC so many streaming sessions don't flood the
   // renderer's single UI thread; input is never batched, and a big burst flushes immediately via the cap.
   const ptyBatch = new PtyBatcher((id, chunk) => sendToWin('cockpit:data', { id, chunk }), (flush) => { setTimeout(flush, 16); });
-  ipcMain.handle('cockpit:open', (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }) => {
+  ipcMain.handle('cockpit:open', async (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }) => {
     const folders = effFolders();
     if (!isAllowedPath(folders, req.projectPath)) {
       cfg.sendError(`Path outside allowed folders: ${req.projectPath}`);
@@ -265,9 +265,10 @@ export function registerIpc(cfg: IpcConfig): void {
       // restores to its OWN conversation — required once a project can hold several sessions).
       const resolved = resolveOpenSession(a, {
         fresh: !!req.fresh,
+        // count/latestId only consulted on the non-fresh new/continue path — skip the disk reads when fresh
+        sessionCount: req.fresh ? 1 : (await a.listSessions(req.projectPath)).length,
         sessionId: req.sessionId,
-        sessionCount: req.fresh ? 1 : a.listSessions(req.projectPath).length, // count only consulted on the non-fresh new/continue path
-        latestId: a.listSessions(req.projectPath, 1)[0]?.id ?? null,
+        latestId: req.fresh ? null : (await a.listSessions(req.projectPath, 1))[0]?.id ?? null,
         genId: () => randomUUID(),
       });
       const shellPath = resolveShellPath();

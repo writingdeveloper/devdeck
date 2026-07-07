@@ -7,8 +7,8 @@ export interface BuildDeps {
   thresholds: StaleThresholds;
   scan: () => Promise<RawProject[]>;
   git: (dir: string) => Promise<GitInfo>;
-  sessions: (projectPath: string) => SessionMeta[];
-  resumeCue: (projectPath: string, sessionId: string) => string | null;
+  sessions: (projectPath: string) => Promise<SessionMeta[]>;
+  resumeCue: (projectPath: string, sessionId: string) => Promise<string | null>;
   getEntry: (path: string) => StoreEntry;
 }
 
@@ -23,8 +23,8 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
   const models = await Promise.all(
     raw.map(async (r): Promise<ProjectViewModel> => {
       const git = await deps.git(r.path);
-      const sessions = deps.sessions(r.path);
-      const cueText = sessions[0] ? deps.resumeCue(r.path, sessions[0].id) : null;
+      const sessions = await deps.sessions(r.path);
+      const cueText = sessions[0] ? await deps.resumeCue(r.path, sessions[0].id) : null;
       const lastSessionMs = sessions[0]?.mtimeMs ?? null;
       const activityMs = maxMs(git.lastCommitMs, lastSessionMs);
       const entry = deps.getEntry(r.path);

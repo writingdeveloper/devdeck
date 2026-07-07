@@ -22,8 +22,8 @@ function deps(over: Partial<BuildDeps>): BuildDeps {
       ahead: null,
       repoUrl: null,
     }),
-    sessions: () => [],
-    resumeCue: () => null,
+    sessions: async () => [],
+    resumeCue: async () => null,
     getEntry: () => ({ note: '', pinned: false, hidden: false, lastOpened: null, todos: [] }),
     ...over,
   };
@@ -61,7 +61,7 @@ describe('buildProjectList', () => {
     const NOW2 = NOW;
     const list = await buildProjectList(deps({
       git: async (): Promise<GitInfo> => ({ branch: 'main', lastCommitMs: null, lastSubject: null, uncommitted: 0, ahead: 4, repoUrl: 'https://github.com/acme/proj' }),
-      sessions: (p) => p.endsWith('fresh')
+      sessions: async (p) => p.endsWith('fresh')
         ? [{ id: 'x', mtimeMs: NOW2 - 3_600_000, firstMessage: 'hi' }]
         : [],
     }));
@@ -76,10 +76,10 @@ describe('buildProjectList', () => {
 
   it('derives resumeCue from the newest session via the dep', async () => {
     const list = await buildProjectList(deps({
-      sessions: (p) => p.endsWith('fresh')
+      sessions: async (p) => p.endsWith('fresh')
         ? [{ id: 'newest', mtimeMs: NOW, firstMessage: 'hi' }]
         : [],
-      resumeCue: (_p, sessionId) => (sessionId === 'newest' ? 'continue the cue work' : null),
+      resumeCue: async (_p, sessionId) => (sessionId === 'newest' ? 'continue the cue work' : null),
     }));
     expect(list.find((p) => p.name === 'fresh')!.resumeCue).toEqual({ kind: 'lastMessage', text: 'continue the cue work' });
     expect(list.find((p) => p.name === 'old')!.resumeCue).toBeNull();

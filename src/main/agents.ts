@@ -16,9 +16,11 @@ export interface AgentProvider {
   label: string;
   supportsSessionId: boolean;
   isAvailable(): boolean;
-  listSessions(projectPath: string, limit?: number): SessionMeta[];
+  // Async: the deck scans sessions for EVERY project every ~45s + on focus — sync file I/O here blocked
+  // the main process (and thus live cockpit PTY output / IPC). listSessionIds stays sync (single project).
+  listSessions(projectPath: string, limit?: number): Promise<SessionMeta[]>;
   listSessionIds(projectPath: string): string[]; // ALL on-disk ids, mtime-desc (for the restore resolver)
-  lastUserMessage(projectPath: string, sessionId: string): string | null;
+  lastUserMessage(projectPath: string, sessionId: string): Promise<string | null>;
   buildCommand(kind: LaunchKind, sessionId?: string): string;
 }
 
@@ -30,6 +32,7 @@ const claudeProvider: AgentProvider = {
   listSessions: (p, limit) => listSessions(p, CLAUDE_PROJECTS, limit),
   listSessionIds: (p) => listSessionIds(p, CLAUDE_PROJECTS),
   lastUserMessage: (p, id) => lastUserMessageForSession(p, id, CLAUDE_PROJECTS),
+  // ^ listSessions / lastUserMessage are async (fs/promises) — see AgentProvider.
   buildCommand: (kind, id) => {
     if (kind === 'resume' && id && SESSION_ID_RE.test(id)) return `claude --resume ${id}`;
     if (kind === 'new' && id && SESSION_ID_RE.test(id)) return `claude --session-id ${id}`;
@@ -42,9 +45,10 @@ const antigravityProvider: AgentProvider = {
   label: 'Antigravity',
   supportsSessionId: false, // agy has no --session-id pin; --conversation resumes by id only
   isAvailable: () => antigravityAvailable(ANTIGRAVITY_DIR),
-  listSessions: (p, limit) => listAntigravitySessions(p, ANTIGRAVITY_DIR, limit),
+  // Async to match the interface; antigravity's own reads stay sync (rare provider, small .db files).
+  listSessions: async (p, limit) => listAntigravitySessions(p, ANTIGRAVITY_DIR, limit),
   listSessionIds: (p) => listAntigravitySessionIds(p, ANTIGRAVITY_DIR),
-  lastUserMessage: (p, id) => lastUserMessageForAntigravitySession(p, id, ANTIGRAVITY_DIR),
+  lastUserMessage: async (p, id) => lastUserMessageForAntigravitySession(p, id, ANTIGRAVITY_DIR),
   buildCommand: (kind, id) => {
     if (kind === 'resume' && id && SESSION_ID_RE.test(id)) return `agy --conversation ${id}`;
     return kind === 'new' ? 'agy' : 'agy -c';

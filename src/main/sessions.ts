@@ -1,4 +1,5 @@
-import { readdirSync, statSync, existsSync, readFileSync, openSync, readSync, closeSync, fstatSync } from 'node:fs';
+import { readdirSync, statSync, existsSync } from 'node:fs';
+import { readdir, stat, open, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
 import { firstUserMessage, lastUserMessage } from '../shared/sessionParse';
@@ -23,53 +24,50 @@ export function isValidSessionId(id: string): boolean {
   return SESSION_ID_RE.test(id);
 }
 
-function readHead(file: string): string {
+async function readHead(file: string): Promise<string> {
+  let handle;
   try {
-    const fd = openSync(file, 'r');
-    try {
-      const buf = Buffer.alloc(HEAD_BYTES);
-      const n = readSync(fd, buf, 0, HEAD_BYTES, 0);
-      return buf.toString('utf8', 0, n);
-    } finally {
-      closeSync(fd);
-    }
+    handle = await open(file, 'r');
+    const buf = Buffer.alloc(HEAD_BYTES);
+    const { bytesRead } = await handle.read(buf, 0, HEAD_BYTES, 0);
+    return buf.toString('utf8', 0, bytesRead);
   } catch {
-    try { return readFileSync(file, 'utf8'); } catch { return ''; }
+    try { return await readFile(file, 'utf8'); } catch { return ''; }
+  } finally {
+    await handle?.close().catch(() => { /* already gone */ });
   }
 }
 
-/** Sessions for a project, newest-first, with first-message previews. */
-export function listSessions(
+/** Sessions for a project, newest-first, with first-message previews. Async so the deck's per-project
+ *  scan (readdir + head reads for many projects, every ~45s + on focus) never blocks the main thread. */
+export async function listSessions(
   projectPath: string,
   claudeProjectsDir: string,
   limit = 5,
-): SessionMeta[] {
+): Promise<SessionMeta[]> {
   const dir = join(claudeProjectsDir, encodeProjectPath(projectPath));
   if (!existsSync(dir)) return [];
   let names: string[];
   try {
-    names = readdirSync(dir);
+    names = await readdir(dir);
   } catch {
     return [];
   }
   const metas: SessionMeta[] = [];
   for (const name of names) {
     if (!name.endsWith('.jsonl')) continue;
-    const full = join(dir, name);
-    let mtimeMs: number;
+    const id = name.slice(0, -'.jsonl'.length);
+    if (!SESSION_ID_RE.test(id)) continue;
     try {
-      mtimeMs = statSync(full).mtimeMs;
+      metas.push({ id, mtimeMs: (await stat(join(dir, name))).mtimeMs, firstMessage: null });
     } catch {
       continue;
     }
-    const id = name.slice(0, -'.jsonl'.length);
-    if (!SESSION_ID_RE.test(id)) continue;
-    metas.push({ id, mtimeMs, firstMessage: null });
   }
   metas.sort((a, b) => b.mtimeMs - a.mtimeMs);
   const top = metas.slice(0, limit);
   for (const m of top) {
-    m.firstMessage = firstUserMessage(readHead(join(dir, m.id + '.jsonl')));
+    m.firstMessage = firstUserMessage(await readHead(join(dir, m.id + '.jsonl')));
   }
   return top;
 }
@@ -108,28 +106,28 @@ export function listSessionIds(projectPath: string, claudeProjectsDir: string): 
  * chunks (so a multi-MB trailing assistant turn doesn't hide it) up to TAIL_MAX.
  * Null if absent/unreadable or no user message within the cap.
  */
-export function lastUserMessageForSession(
+export async function lastUserMessageForSession(
   projectPath: string,
   sessionId: string,
   claudeProjectsDir: string,
-): string | null {
+): Promise<string | null> {
   if (!SESSION_ID_RE.test(sessionId)) return null;
   const file = join(claudeProjectsDir, encodeProjectPath(projectPath), sessionId + '.jsonl');
-  let fd: number;
+  let handle;
   try {
-    fd = openSync(file, 'r');
+    handle = await open(file, 'r');
   } catch {
     return null;
   }
   try {
-    const size = fstatSync(fd).size;
+    const size = (await handle.stat()).size;
     let pos = size;
     let acc = Buffer.alloc(0);
     while (pos > 0 && size - pos < TAIL_MAX) {
       const readLen = Math.min(TAIL_CHUNK, pos);
       pos -= readLen;
       const buf = Buffer.alloc(readLen);
-      readSync(fd, buf, 0, readLen, pos);
+      await handle.read(buf, 0, readLen, pos);
       acc = Buffer.concat([buf, acc]); // contiguous byte range [pos, size) — safe to decode whole
       const text = acc.toString('utf8');
       // Drop the leading partial line until we've read the very start of the file.
@@ -141,6 +139,6 @@ export function lastUserMessageForSession(
   } catch {
     return null;
   } finally {
-    closeSync(fd);
+    await handle.close().catch(() => { /* already gone */ });
   }
 }
