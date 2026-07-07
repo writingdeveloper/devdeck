@@ -25,6 +25,17 @@ export interface KeyLike {
  *
  * Alt is excluded so Alt+C / Alt+V (rare app bindings) are never hijacked.
  */
+/**
+ * Cell count of an xterm buffer selection running from `start` to `end` over a `cols`-wide grid.
+ * xterm drops the text selection on resize, so DevDeck captures the selection position before a
+ * (height-only) fit and re-select()s it after with this length — otherwise a background fit (usage bar
+ * toggle, header-pill reflow via the ResizeObserver, window resize) silently clears a selection the
+ * user is about to Ctrl+C-copy, and the copy falls through to SIGINT.
+ */
+export function selectionCellLength(start: { x: number; y: number }, end: { x: number; y: number }, cols: number): number {
+  return (end.y - start.y) * cols + (end.x - start.x);
+}
+
 export function decideKeyAction(e: KeyLike, hasSelection: boolean): KeyAction {
   if (e.type && e.type !== 'keydown') return 'pass';
   if (e.repeat) return 'pass'; // ignore OS key auto-repeat — a held Ctrl+V must paste once, not repeatedly

@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { decideKeyAction, type KeyLike } from './terminalKeys';
+import { decideKeyAction, selectionCellLength, type KeyLike } from './terminalKeys';
+
+describe('selectionCellLength', () => {
+  // Cell count of an xterm buffer selection, for re-select() after a height-only fit (xterm clears the
+  // selection on resize; DevDeck restores it so a background fit can't break Ctrl+C-to-copy).
+  it('single-line selection is end.x - start.x', () => {
+    expect(selectionCellLength({ x: 2, y: 5 }, { x: 12, y: 5 }, 80)).toBe(10);
+  });
+  it('multi-line selection spans the full rows in between', () => {
+    // (70,3) → (10,5): 10 to end of row 3, all of row 4 (80), 10 into row 5 = 100.
+    expect(selectionCellLength({ x: 70, y: 3 }, { x: 10, y: 5 }, 80)).toBe(100);
+  });
+  it('adjacent full row', () => {
+    expect(selectionCellLength({ x: 0, y: 2 }, { x: 0, y: 3 }, 80)).toBe(80);
+  });
+});
 
 const key = (over: Partial<KeyLike>): KeyLike => ({ type: 'keydown', ctrlKey: false, shiftKey: false, altKey: false, key: '', ...over });
 
