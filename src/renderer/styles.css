@@ -60,6 +60,10 @@ body {
 button[disabled] { opacity: .4; cursor: default; }
 button[disabled]:hover { background: var(--surface); border-color: var(--border-strong); }
 .skeleton { height: 120px; border-radius: 8px; border: 1px solid var(--border); background: linear-gradient(90deg,#15171c 25%,#1b1e24 50%,#15171c 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+/* Retryable error state for a view whose load failed (replaces a stuck skeleton / blank pane). */
+.load-error { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 16px; color: var(--text-dim); }
+.load-error-msg { font-size: 13px; }
+.load-error-retry { cursor: pointer; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 .empty { color: var(--text-faint); padding: 24px; }

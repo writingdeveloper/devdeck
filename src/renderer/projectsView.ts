@@ -6,6 +6,7 @@ import { type OpenReq } from './cockpitView';
 import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
+import { renderLoadError } from './loadError';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -457,9 +458,18 @@ async function reload(): Promise<void> {
   // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
   // so they never wipe the deck to gray placeholders.
   if (!hasRenderedOnce) showSkeleton();
-  const [proj, agent, settings] = await Promise.all([
-    window.devdeck.listProjects(), window.devdeck.getAgent(), window.devdeck.getSettings(),
-  ]);
+  let proj, agent, settings;
+  try {
+    [proj, agent, settings] = await Promise.all([
+      window.devdeck.listProjects(), window.devdeck.getAgent(), window.devdeck.getSettings(),
+    ]);
+  } catch (e) {
+    console.error('DevDeck: projects load failed', e);
+    // First-load failure would otherwise leave the skeleton stuck forever → offer a retry. A later
+    // background/focus refresh failing keeps the last good deck on screen (don't wipe it).
+    if (!hasRenderedOnce) renderLoadError(cardsEl, () => void reload());
+    return;
+  }
   projects = proj; agentLabel = agent;
   viewMode = settings.viewMode === 'list' ? 'list' : 'cards';
   syncViewToggle();

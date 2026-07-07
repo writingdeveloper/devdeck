@@ -177,5 +177,7 @@
   "usage.reset_soon": "곧",
   "usage.reset_d": "X일 Y시간",
   "usage.reset_h": "X시간 Y분",
-  "usage.reset_m": "Y분"
+  "usage.reset_m": "Y분",
+  "common.load_failed": "불러오기에 실패했습니다",
+  "common.retry": "다시 시도"
 }

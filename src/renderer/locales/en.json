@@ -177,5 +177,7 @@
   "usage.reset_soon": "soon",
   "usage.reset_d": "Xd Yh",
   "usage.reset_h": "Xh Ym",
-  "usage.reset_m": "Ym"
+  "usage.reset_m": "Ym",
+  "common.load_failed": "Failed to load",
+  "common.retry": "Retry"
 }

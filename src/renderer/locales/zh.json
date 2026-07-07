@@ -177,5 +177,7 @@
   "usage.reset_soon": "即将",
   "usage.reset_d": "X天Y小时",
   "usage.reset_h": "X小时Y分",
-  "usage.reset_m": "Y分"
+  "usage.reset_m": "Y分",
+  "common.load_failed": "加载失败",
+  "common.retry": "重试"
 }

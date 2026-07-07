@@ -177,5 +177,7 @@
   "usage.reset_soon": "まもなく",
   "usage.reset_d": "X日Y時間",
   "usage.reset_h": "X時間Y分",
-  "usage.reset_m": "Y分"
+  "usage.reset_m": "Y分",
+  "common.load_failed": "読み込みに失敗しました",
+  "common.retry": "再試行"
 }

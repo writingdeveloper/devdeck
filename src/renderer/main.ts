@@ -7,6 +7,7 @@ import { mountNext, showNext } from './nextView';
 import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, setCockpitContextWindow, setCockpitTrayAlert } from './cockpitView';
 import { isCockpitPlatform } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
+import { toast } from './loadError';
 import { mountUsageBar, refreshUsageBar } from './usageBar';
 
 const toastHost = document.getElementById('toast-host')!;
@@ -196,4 +197,9 @@ async function boot(): Promise<void> {
   mountLangMenu();
 }
 
-boot();
+// A rejected await inside boot() would otherwise abort silently, leaving a half-mounted UI with no log
+// or feedback. Surface it (toast + console) so a transient IPC failure at startup is at least visible.
+boot().catch((e) => {
+  console.error('DevDeck: boot failed', e);
+  toast(tr('common.load_failed'));
+});

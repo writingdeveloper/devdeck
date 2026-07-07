@@ -1,5 +1,6 @@
 import { tr, localeTag } from './i18n-runtime';
 import { openInTerminal } from './openRouter';
+import { renderLoadError } from './loadError';
 import { buildMonthGrid, toDateStr, type DayCell } from '../shared/calendar';
 import {
   groupTasksByDue, classifyDue, addTodo, toggleTodo, editTodoText, setTodoDue, removeTodo,
@@ -25,7 +26,14 @@ let calSelected: string | null = null; // the clicked day (YYYY-MM-DD), shows it
 export function presetBoardProject(path: string): void { filterProject = path; }
 
 async function load(): Promise<void> {
-  const list = await window.devdeck.listProjects();
+  let list;
+  try {
+    list = await window.devdeck.listProjects();
+  } catch (e) {
+    console.error('DevDeck: task board load failed', e); // otherwise the board would sit blank
+    renderLoadError(viewEl, () => void load());
+    return;
+  }
   projects = list.map((p) => ({ path: p.path, name: p.name, todos: p.todos ?? [] }));
   render();
 }

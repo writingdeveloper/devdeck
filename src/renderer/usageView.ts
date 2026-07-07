@@ -1,6 +1,7 @@
 import { barChart, shareBar } from './charts';
 import { formatDuration } from '../shared/usage';
 import { tr, localeTag } from './i18n-runtime';
+import { renderLoadError } from './loadError';
 
 type UsageReport = Awaited<ReturnType<Window['devdeck']['usageReport']>>;
 
@@ -26,8 +27,12 @@ async function load(): Promise<void> {
   const sinceMs = range.days === Infinity ? Infinity : Date.now() - range.days * 86_400_000;
   const sk = document.createElement('div'); sk.className = 'skeleton'; sk.style.margin = '16px';
   viewEl.replaceChildren(sk);
-  const r = await window.devdeck.usageReport(sinceMs);
-  render(r);
+  try {
+    render(await window.devdeck.usageReport(sinceMs));
+  } catch (e) {
+    console.error('DevDeck: usage load failed', e); // otherwise the skeleton would stay forever
+    renderLoadError(viewEl, () => void load());
+  }
 }
 
 function render(r: UsageReport): void {
