@@ -84,17 +84,24 @@ export function registerIpc(cfg: IpcConfig): void {
     });
   });
 
+  // These persist to state.json keyed by `path`. Guard with the same allowlist every other path-taking
+  // handler uses — a compromised renderer must not be able to write store entries (10KB notes, todo
+  // lists) for arbitrary paths outside any scanned folder and grow state.json unboundedly.
   ipcMain.handle('project:setNote', (_e, path: string, note: string) => {
+    if (!isAllowedPath(effFolders(), path)) return;
     cfg.store.setNote(path, String(note).slice(0, 10000));
   });
   ipcMain.handle('project:setTodos', (_e, path: string, todos: unknown) => {
+    if (!isAllowedPath(effFolders(), path)) return;
     // store.setTodos sanitizes (drops junk, caps text + list length), so an untrusted array is safe.
     cfg.store.setTodos(path, sanitizeTodos(todos));
   });
   ipcMain.handle('project:setPinned', (_e, path: string, pinned: boolean) => {
+    if (!isAllowedPath(effFolders(), path)) return;
     cfg.store.setPinned(path, pinned);
   });
   ipcMain.handle('project:setHidden', (_e, path: string, hidden: boolean) => {
+    if (!isAllowedPath(effFolders(), path)) return;
     cfg.store.setHidden(path, hidden);
   });
 
@@ -301,16 +308,20 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('update:consumeAutoRestore', () => cfg.store.consumePendingAutoRestore());
 
   // Per-session model + active working time (read from the Claude session log) for the cockpit header/list.
+  // Allowlist-guarded like cockpit:gitInfo below — don't read session model/time/context (or ids) for
+  // projects outside a scanned folder if a compromised renderer asks. Return each handler's neutral shape.
   ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string) => {
+    if (!isAllowedPath(effFolders(), String(projectPath))) return { model: null, activeMs: 0, contextTokens: 0 };
     if (agent().id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0, contextTokens: 0 };
     return readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
   });
-  // Newest-first session ids for a project (mtime-desc) — restore resumes the LATEST conversation,
-  // not a frozen pinned id that has since gone stale.
   // ALL of the project's on-disk session ids (mtime-desc) — the restore resolver needs the full set so
   // an older-but-valid saved id is still recognized as existing (listSessions caps at 5, which would
   // hide it and wrongly fall the tile back to the newest conversation).
-  ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string) => agent().listSessionIds(String(projectPath)));
+  ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string) => {
+    if (!isAllowedPath(effFolders(), String(projectPath))) return [];
+    return agent().listSessionIds(String(projectPath));
+  });
 
   // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a
   // RESTORED session (re-created with no branch) and in-terminal branch switches both show the real

@@ -27,12 +27,16 @@ import { getGitBranchDirty } from './gitInfo';
 const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
 const sendError = vi.fn();
 const applyCounts = vi.fn();
+const storeSpies = { setNote: vi.fn(), setTodos: vi.fn(), setPinned: vi.fn(), setHidden: vi.fn() };
 
 beforeAll(() => {
   const cfg = {
     win: { on: () => {}, isDestroyed: () => true, webContents: { send: () => {} } },
     defaultBaseDir: ALLOWED_ROOT,
-    store: { getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getTrayAlert: () => 'attention' },
+    store: {
+      getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getTrayAlert: () => 'attention',
+      ...storeSpies,
+    },
     sendError,
     defaultLanguage: 'en',
     ptyHost: {},
@@ -55,6 +59,47 @@ describe('cockpit:gitInfo path guard', () => {
     const out = handlers.get('cockpit:gitInfo')!(null, p);
     expect(out).toEqual({ branch: 'main', dirty: 2 });
     expect(getGitBranchDirty).toHaveBeenCalledWith(p);
+  });
+});
+
+describe('project store-setter path guards', () => {
+  // setNote/setTodos/setPinned/setHidden write to state.json keyed by an arbitrary path string. Without
+  // the same allowlist every other path-taking handler uses, a compromised renderer could grow the
+  // store unboundedly with keys outside any scanned folder. Legit deck writes are always in-allowlist.
+  const outside = join(process.cwd(), 'elsewhere', 'proj');
+  const inside = join(ALLOWED_ROOT, 'proj');
+
+  it('ignores writes to a path outside the allowed folders', () => {
+    for (const s of Object.values(storeSpies)) s.mockClear();
+    handlers.get('project:setNote')!(null, outside, 'x');
+    handlers.get('project:setTodos')!(null, outside, []);
+    handlers.get('project:setPinned')!(null, outside, true);
+    handlers.get('project:setHidden')!(null, outside, true);
+    expect(storeSpies.setNote).not.toHaveBeenCalled();
+    expect(storeSpies.setTodos).not.toHaveBeenCalled();
+    expect(storeSpies.setPinned).not.toHaveBeenCalled();
+    expect(storeSpies.setHidden).not.toHaveBeenCalled();
+  });
+
+  it('allows writes to a project under an allowed folder', () => {
+    for (const s of Object.values(storeSpies)) s.mockClear();
+    handlers.get('project:setNote')!(null, inside, 'hi');
+    handlers.get('project:setPinned')!(null, inside, true);
+    handlers.get('project:setHidden')!(null, inside, true);
+    expect(storeSpies.setNote).toHaveBeenCalledWith(inside, 'hi');
+    expect(storeSpies.setPinned).toHaveBeenCalledWith(inside, true);
+    expect(storeSpies.setHidden).toHaveBeenCalledWith(inside, true);
+  });
+});
+
+describe('cockpit read-path guards', () => {
+  // The guard returns before the provider is touched, so a disallowed path yields each handler's neutral
+  // shape without leaking session ids / model / time / context for projects outside a scanned folder.
+  it('returns empty/neutral for a path outside the allowed folders', () => {
+    const outside = join(process.cwd(), 'elsewhere', 'proj');
+    expect(handlers.get('cockpit:sessionIds')!(null, outside)).toEqual([]);
+    expect(handlers.get('cockpit:sessionMeta')!(null, outside, 'some-sid'))
+      .toEqual({ model: null, activeMs: 0, contextTokens: 0 });
   });
 });
 
