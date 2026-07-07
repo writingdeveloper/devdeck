@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, renameSync, copyFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { StoreEntry, Folder } from '../shared/types';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
@@ -20,14 +20,35 @@ export class Store {
     this.state = this.load();
   }
 
-  private load(): StateFile {
-    if (!existsSync(this.filePath)) return { projects: {} };
+  /** Parse a state file, or null if missing/unreadable/not an object (so callers can fall back). */
+  private readValid(path: string): StateFile | null {
+    if (!existsSync(path)) return null;
     try {
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf8'));
-      return { projects: parsed.projects ?? {}, settings: parsed.settings };
+      const parsed = JSON.parse(readFileSync(path, 'utf8'));
+      if (!parsed || typeof parsed !== 'object') return null;
+      const projects = parsed.projects && typeof parsed.projects === 'object' ? parsed.projects : {};
+      return { projects, settings: parsed.settings };
     } catch {
-      return { projects: {} };
+      return null;
     }
+  }
+
+  /**
+   * Load the state, defending the user's data against a corrupt file: the live file wins, else the
+   * last-good `.bak` (save() mirrors it). If the live file EXISTS but is unreadable, copy it to
+   * `.corrupt` first — otherwise the next save() would atomically overwrite a recoverable file with
+   * an empty one and silently wipe every note / todo / cockpit session / folder.
+   */
+  private load(): StateFile {
+    const primary = this.readValid(this.filePath);
+    if (primary) return primary;
+    if (existsSync(this.filePath)) {
+      try { copyFileSync(this.filePath, this.filePath + '.corrupt'); } catch { /* best-effort preservation */ }
+      console.error('DevDeck: state.json was unreadable — preserved as state.json.corrupt');
+    }
+    const backup = this.readValid(this.filePath + '.bak');
+    if (backup) { console.error('DevDeck: recovered state from state.json.bak'); return backup; }
+    return { projects: {} };
   }
 
   private save(): void {
@@ -35,6 +56,9 @@ export class Store {
     try {
       writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf8');
       renameSync(tmp, this.filePath);
+      // Mirror the just-written good state to .bak so external corruption of the live file (disk error,
+      // a sync tool, a manual edit) is recoverable on the next load instead of starting from empty.
+      try { copyFileSync(this.filePath, this.filePath + '.bak'); } catch { /* best-effort backup */ }
     } catch (err) {
       console.error('DevDeck: failed to persist state', err);
     }

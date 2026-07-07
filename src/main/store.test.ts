@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from './store';
@@ -173,5 +173,39 @@ describe('Store', () => {
     // bypass the typed setter to simulate a hand-corrupted state.json
     (s as unknown as { state: { settings: { cockpitSessions: unknown } } }).state.settings = { cockpitSessions: 'garbage' };
     expect(s.getCockpitSessions()).toEqual([]);
+  });
+
+  // --- corruption resilience: a broken state.json must never be silently wiped ---
+  it('mirrors the last good state to a .bak sidecar on every save', () => {
+    const s = new Store(file);
+    s.setNote('C:\\g\\x', 'keep me');
+    expect(existsSync(file + '.bak')).toBe(true);
+    expect(readFileSync(file + '.bak', 'utf8')).toBe(readFileSync(file, 'utf8')); // .bak mirrors live
+  });
+
+  it('preserves a corrupt state.json as .corrupt instead of overwriting it blind', () => {
+    writeFileSync(file, '{ this is not: valid json ', 'utf8'); // externally corrupted
+    const s = new Store(file); // load() must not throw, must preserve the corrupt bytes
+    expect(existsSync(file + '.corrupt')).toBe(true);
+    expect(readFileSync(file + '.corrupt', 'utf8')).toBe('{ this is not: valid json ');
+    s.setNote('C:\\g\\x', 'fresh'); // the next save writes a valid file (self-heals) without losing the .corrupt copy
+    expect(existsSync(file + '.corrupt')).toBe(true);
+    expect(new Store(file).get('C:\\g\\x').note).toBe('fresh');
+  });
+
+  it('recovers the last good state from .bak when the live file is corrupt', () => {
+    const s1 = new Store(file);
+    s1.setNote('C:\\g\\x', 'important note'); // writes state.json + .bak
+    writeFileSync(file, 'CORRUPTED', 'utf8'); // live file goes bad, .bak still good
+    const s2 = new Store(file); // must recover from .bak, not start empty
+    expect(s2.get('C:\\g\\x').note).toBe('important note');
+  });
+
+  it('starts empty (no throw) when both the live file and .bak are unrecoverable', () => {
+    writeFileSync(file, 'CORRUPT', 'utf8');
+    writeFileSync(file + '.bak', 'ALSO CORRUPT', 'utf8');
+    const s = new Store(file);
+    expect(s.get('C:\\g\\x').note).toBe('');
+    expect(existsSync(file + '.corrupt')).toBe(true); // still preserved for manual recovery
   });
 });
