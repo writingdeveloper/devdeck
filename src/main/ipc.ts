@@ -306,7 +306,10 @@ export function registerIpc(cfg: IpcConfig): void {
   });
   // Newest-first session ids for a project (mtime-desc) — restore resumes the LATEST conversation,
   // not a frozen pinned id that has since gone stale.
-  ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string) => agent().listSessions(String(projectPath)).map((s) => s.id));
+  // ALL of the project's on-disk session ids (mtime-desc) — the restore resolver needs the full set so
+  // an older-but-valid saved id is still recognized as existing (listSessions caps at 5, which would
+  // hide it and wrongly fall the tile back to the newest conversation).
+  ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string) => agent().listSessionIds(String(projectPath)));
 
   // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a
   // RESTORED session (re-created with no branch) and in-terminal branch switches both show the real

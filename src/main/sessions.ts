@@ -75,6 +75,35 @@ export function listSessions(
 }
 
 /**
+ * ALL of a project's on-disk session ids, mtime-desc — cheap (no head-read for first messages, no
+ * limit), for the cockpit restore resolver which must recognize an older-but-valid saved id as still
+ * existing (listSessions caps at 5, which would hide it and force a wrong newest fallback).
+ */
+export function listSessionIds(projectPath: string, claudeProjectsDir: string): string[] {
+  const dir = join(claudeProjectsDir, encodeProjectPath(projectPath));
+  if (!existsSync(dir)) return [];
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const rows: { id: string; mtimeMs: number }[] = [];
+  for (const name of names) {
+    if (!name.endsWith('.jsonl')) continue;
+    const id = name.slice(0, -'.jsonl'.length);
+    if (!SESSION_ID_RE.test(id)) continue;
+    try {
+      rows.push({ id, mtimeMs: statSync(join(dir, name)).mtimeMs });
+    } catch {
+      continue;
+    }
+  }
+  rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return rows.map((r) => r.id);
+}
+
+/**
  * Last genuine user message of a session, found by scanning the file backward in
  * chunks (so a multi-MB trailing assistant turn doesn't hide it) up to TAIL_MAX.
  * Null if absent/unreadable or no user message within the cap.

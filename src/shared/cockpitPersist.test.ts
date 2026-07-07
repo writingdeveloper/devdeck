@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePersistedList, pickRestoreSessionId, adoptRestorableMatch, type PersistedSession } from './cockpitPersist';
+import { sanitizePersistedList, pickRestoreSessionId, resolveRestoreSessionId, adoptRestorableMatch, type PersistedSession } from './cockpitPersist';
 
 describe('sanitizePersistedList', () => {
   it('returns [] for non-arrays', () => {
@@ -99,5 +99,32 @@ describe('pickRestoreSessionId', () => {
   it('returns null when there are no sessions, or all are already live (caller falls back to continue/new)', () => {
     expect(pickRestoreSessionId([], new Set())).toBeNull();
     expect(pickRestoreSessionId(['a'], new Set(['a']))).toBeNull();
+  });
+});
+
+describe('resolveRestoreSessionId', () => {
+  // The tile's OWN conversation is what "restore this session" should reopen — so distinct topics keep
+  // distinct tiles. Only when that conversation is gone (deleted) or already open elsewhere do we fall
+  // back to the project's newest not-live session. (Fixes: a 3rd tile collapsing onto the 2 newest.)
+  const disk = ['new', 'mid', 'homepage', 'old']; // newest-first, all on disk
+
+  it('reopens the saved id when it still exists on disk and is not already live', () => {
+    expect(resolveRestoreSessionId('homepage', disk, new Set())).toBe('homepage');
+    expect(resolveRestoreSessionId('old', disk, new Set(['new']))).toBe('old'); // not the newest — its own
+  });
+  it('falls back to newest-not-live when the saved id was deleted from disk', () => {
+    expect(resolveRestoreSessionId('gone', disk, new Set())).toBe('new');
+  });
+  it('falls back to newest-not-live when the saved id is already open in another tile', () => {
+    expect(resolveRestoreSessionId('homepage', disk, new Set(['homepage']))).toBe('new'); // newest not-live
+    expect(resolveRestoreSessionId('homepage', disk, new Set(['homepage', 'new']))).toBe('mid');
+  });
+  it('null saved id (deck open / new) → newest-not-live', () => {
+    expect(resolveRestoreSessionId(null, disk, new Set())).toBe('new');
+    expect(resolveRestoreSessionId(null, disk, new Set(['new']))).toBe('mid');
+  });
+  it('null when nothing is on disk', () => {
+    expect(resolveRestoreSessionId('x', [], new Set())).toBeNull();
+    expect(resolveRestoreSessionId(null, [], new Set())).toBeNull();
   });
 });

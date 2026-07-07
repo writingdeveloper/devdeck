@@ -50,6 +50,14 @@ export function listAntigravitySessions(projectPath: string, antigravityDir: str
     });
 }
 
+/** ALL Antigravity conversation ids for a project, mtime-desc — no transcript read (for the restore resolver). */
+export function listAntigravitySessionIds(projectPath: string, antigravityDir: string): string[] {
+  return conversationHeads(antigravityDir)
+    .filter((h) => h.cwd && resolve(h.cwd) === resolve(projectPath))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .map((h) => h.id);
+}
+
 /** Last user message of a specific Antigravity session (by id). Null when no transcript exists. */
 export function lastUserMessageForAntigravitySession(projectPath: string, sessionId: string, antigravityDir: string): string | null {
   if (!SESSION_ID_RE.test(sessionId)) return null;

@@ -30,6 +30,19 @@ export function pickRestoreSessionId(newestFirstIds: string[], liveIds: Set<stri
 }
 
 /**
+ * Which conversation a restored tile should reopen. Prefer the tile's OWN saved id when that
+ * conversation still exists on disk and isn't already open in another tile — so a project's several
+ * distinct conversations each keep their own tile instead of every tile collapsing onto the newest
+ * one or two (the "3rd session vanished" bug). Only fall back to the newest not-live session when the
+ * saved id was deleted or is already live. `newestFirstIds` must be ALL of the project's on-disk ids
+ * (mtime-desc) so an older-but-valid saved id is still recognized as existing.
+ */
+export function resolveRestoreSessionId(savedId: string | null, newestFirstIds: string[], liveIds: Set<string>): string | null {
+  if (savedId && newestFirstIds.includes(savedId) && !liveIds.has(savedId)) return savedId;
+  return pickRestoreSessionId(newestFirstIds, liveIds);
+}
+
+/**
  * A newly-opened session that lands on a conversation a saved (restorable) entry already points at
  * CONSUMES that entry — and must inherit its user-given pin + label unless the open request carries
  * its own. Without this, opening a project from the deck / task board / ⟳ restart (none of which
