@@ -105,7 +105,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "axe-core": "^4.12.0",
-    "electron": "^31.0.0",
+    "electron": "^43.1.0",
     "electron-builder": "^26.8.1",
     "esbuild": "^0.28.1",
     "playwright": "^1.60.0",
