@@ -1,34 +1,42 @@
-import { existsSync } from 'node:fs';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { existsSync, createReadStream } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
-import { emptyTotals, addUsage, estimateCost, activeMsFromTimestamps, MODEL_PRICING, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
+import { emptyTotals, addUsage, addTotals, estimateCost, activeMsFromTimestamps, MODEL_PRICING, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
 import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 
-// Cache: filepath -> { mtime, parsed lines }. Keyed by PATH (not path+mtime), with the mtime stored
-// in the value, so a modified file REPLACES its entry instead of leaking a new key per modification
-// in this long-lived process. Bounded by the number of distinct files — BUT that bound is only on
-// entry COUNT, not total bytes: a power user's ~/.claude/projects can hold thousands of session
-// files, some hundreds of MB (one real transcript was 347MB). Caching every one's full text forever
-// ballooned the main process to several GB within ~1 minute of a cold start (projectsView.ts's
-// per-project cost fill calls usage:report(0) = every file, all time, unconditionally on every deck
-// load) and crashed it with a V8 "out of memory" abort that bypasses every JS exception handler.
-// Files over MAX_CACHED_FILE_BYTES are still read and aggregated correctly — just never RETAINED.
-export const MAX_CACHED_FILE_BYTES = 5 * 1024 * 1024; // 5MB — generous for the vast majority of sessions
-// The per-file cap alone still allows unbounded AGGREGATE growth (thousands of just-under-cap
-// sessions = multiple GB over this long-lived process), so the cache is also bounded as a whole:
-// least-recently-used files are evicted once the on-disk-bytes total passes the budget. Sized so
-// the hot working set (recently active sessions) stays cached while cold history is re-read on demand.
-export const MAX_CACHE_TOTAL_BYTES = 200 * 1024 * 1024; // 200MB of on-disk bytes (in-memory strings cost ~2-3x)
+// Cache: filepath -> per-file DIGEST — (day × model) usage rollups + message timestamps — NOT the raw
+// text. History: caching every file's full text forever ballooned the main process to several GB and
+// crashed it (V8 OOM, v1.12.2); the follow-up "don't retain files over 5MB" fix then aged badly as the
+// user's transcripts grew — 56 files totalling ~2GB fell over that cap and were RE-READ AND RE-PARSED
+// from disk on every deck refresh (~45s), which is exactly the "everything got slower" complaint. A
+// digest is a few KB even for a multi-hundred-MB transcript (it scales with turn count, not bytes), so
+// EVERY file can stay cached: an unchanged mtime costs one stat() and zero parsing, for any size.
+// sinceMs filtering happens at day granularity, so filtering the digest gives identical results.
+interface DigestEntry { dayMs: number; day: string; model: string; totals: UsageTotals; webSearch: number; webFetch: number; unknown: boolean }
+interface FileDigest {
+  mtimeMs: number;
+  entries: DigestEntry[]; // (day × model) rollups, synthetic lines already excluded
+  stamps: number[];       // every line's timestamp (user + assistant + tool) for active-time gaps
+  stampDayMs: number[];   // parallel to stamps: that line's UTC day start, for the sinceMs day filter
+  bytes: number;          // estimated in-memory size, for the total-cache budget
+}
+// The digest cache is still bounded as a whole (a runaway dataset must never OOM the main process
+// again), but digests are so small the working set effectively always fits.
+export const MAX_CACHE_TOTAL_BYTES = 50 * 1024 * 1024;
 let _cacheBudget = MAX_CACHE_TOTAL_BYTES;
 let _cacheBytes = 0;
-const _fileCache = new Map<string, { mtimeMs: number; lines: string[]; bytes: number }>(); // Map iteration order = insertion order = LRU order
+const _fileCache = new Map<string, FileDigest>(); // Map iteration order = insertion order = LRU order
 
+function digestBytes(entries: number, stamps: number): number {
+  return 200 + entries * 160 + stamps * 16; // rough JS-object overhead estimate — only the budget uses it
+}
 function cacheDelete(path: string): void {
   const e = _fileCache.get(path);
   if (e) { _cacheBytes -= e.bytes; _fileCache.delete(path); }
 }
-function cacheSet(path: string, entry: { mtimeMs: number; lines: string[]; bytes: number }): void {
+function cacheSet(path: string, entry: FileDigest): void {
   cacheDelete(path); // replace = remove old bytes first
   _fileCache.set(path, entry);
   _cacheBytes += entry.bytes;
@@ -47,7 +55,7 @@ function cacheTouch(path: string): void {
 export function _cacheHasFile(path: string): boolean { return _fileCache.has(path); }
 /** Test-only: reset cache state between tests so assertions aren't affected by cross-test leakage. */
 export function _clearFileCache(): void { _fileCache.clear(); _cacheBytes = 0; _cacheBudget = MAX_CACHE_TOTAL_BYTES; }
-/** Test-only: shrink the total-bytes budget so eviction is exercisable without writing 200MB. */
+/** Test-only: shrink the total-bytes budget so eviction is exercisable without huge fixtures. */
 export function _setCacheBudget(bytes: number): void { _cacheBudget = bytes; }
 
 interface RepoRef { path: string; name: string; status?: 'active' | 'deleted'; }
@@ -68,17 +76,50 @@ function sumModelCost(byModel: Map<string, UsageTotals>): number | null {
   return any ? sum : null;
 }
 
-// The scan is ASYNC on purpose: usage:report(0) runs on every deck load, and a synchronous pass
-// over ~/.claude (2.5GB across 5,000+ files in the real dataset) froze all IPC and live cockpit
-// PTY output for its whole duration. Async fs I/O lets other main-process work interleave between
-// files, and the parse loop yields every YIELD_EVERY_LINES lines so even a cached multi-hundred-MB
-// transcript can't monopolize the event loop.
-const YIELD_EVERY_LINES = 20_000;
-// setTimeout, NOT setImmediate: in the Electron main process an idle message loop can miss the
-// libuv check-phase wakeup, leaving a setImmediate-based yield parked forever (observed live —
-// a scan stalled mid-file with zero CPU while a Playwright evaluate awaited it). Timers always
-// schedule a wakeup; the ~1ms floor costs under a second across even a full 2.5GB scan.
-const yieldLoop = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+/**
+ * One full parse of a session file into its digest (the only place raw lines are ever walked).
+ * STREAMED line by line: readFile'ing a multi-hundred-MB transcript spiked the main process to a
+ * ~2.5GB RSS during the cold scan (the whole file as one string plus its split array) - the same
+ * memory shape that OOM-aborted the process back in v1.12.2. A stream holds one line at a time, and
+ * its async iterator naturally yields the event loop between chunks (no manual yield needed).
+ * Returns null when the file is unreadable (caller skips it, like the old readFile-failure path).
+ */
+async function parseDigest(fullPath: string, fileMs: number, mtimeMs: number): Promise<FileDigest | null> {
+  const rollup = new Map<string, DigestEntry>(); // `${day} ${model}`
+  const stamps: number[] = [];
+  const stampDayMs: number[] = [];
+  try {
+    const rl = createInterface({ input: createReadStream(fullPath, { encoding: 'utf8' }), crlfDelay: Infinity });
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      let o: { type?: string; timestamp?: string; message?: { model?: string; usage?: RawUsage & { server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } } } };
+      try { o = JSON.parse(line); } catch { continue; }
+      const day = dayKey(o.timestamp, fileMs);
+      const dayMs = new Date(day + 'T00:00:00.000Z').getTime();
+      // Collect every line's timestamp (user + assistant + tool) so gaps reflect real wall-clock activity.
+      if (o.timestamp) {
+        const ms = new Date(o.timestamp).getTime();
+        if (!Number.isNaN(ms)) { stamps.push(ms); stampDayMs.push(dayMs); }
+      }
+      const u = o.message?.usage;
+      if (o.type !== 'assistant' || !u) continue;
+      const model = o.message?.model ?? 'unknown';
+      // Claude Code emits <synthetic> assistant lines (API errors, interrupts) with a zero usage block -
+      // not a real model. Skip them so they don't show as a phantom model row or trip the unknown warning.
+      if (model === SYNTHETIC_MODEL) continue;
+      const key = day + ' ' + model;
+      let e = rollup.get(key);
+      if (!e) { e = { dayMs, day, model, totals: emptyTotals(), webSearch: 0, webFetch: 0, unknown: !MODEL_PRICING[model] }; rollup.set(key, e); }
+      e.totals = addUsage(e.totals, u);
+      e.webSearch += u.server_tool_use?.web_search_requests ?? 0;
+      e.webFetch += u.server_tool_use?.web_fetch_requests ?? 0;
+    }
+  } catch {
+    return null; // unreadable / vanished mid-read - skip this file
+  }
+  const entries = [...rollup.values()];
+  return { mtimeMs, entries, stamps, stampDayMs, bytes: digestBytes(entries.length, stamps.length) };
+}
 
 /** Aggregate token usage across the given repos' Claude sessions. sinceMs filters by day (Infinity = all). */
 export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: number): Promise<UsageReport> {
@@ -87,6 +128,7 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
   const perDay = new Map<string, UsageTotals>();
   const byProject: ProjectUsage[] = [];
   let webSearch = 0, webFetch = 0, sessions = 0, hasUnknownModel = false, globalActiveMs = 0;
+  const inRange = (dayMs: number): boolean => sinceMs === Infinity || dayMs >= sinceMs;
 
   for (const repo of repos) {
     const dir = join(claudeProjectsDir, encodeProjectPath(repo.path));
@@ -99,49 +141,31 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
       try { files = (await readdir(dir)).filter((f) => f.endsWith('.jsonl')); } catch { files = []; }
       for (const f of files) {
         const full = join(dir, f);
-        let fileMs = Date.now(), fileSize = 0;
-        try { const st = await stat(full); fileMs = st.mtimeMs; fileSize = st.size; } catch { /* keep defaults */ }
-        const cached = _fileCache.get(full);
-        let lines: string[];
-        if (cached && cached.mtimeMs === fileMs) {
-          lines = cached.lines;
+        let fileMs = Date.now();
+        try { fileMs = (await stat(full)).mtimeMs; } catch { /* keep default */ }
+        let digest = _fileCache.get(full);
+        if (digest && digest.mtimeMs === fileMs) {
           cacheTouch(full); // keep the hot file at the recent end of the LRU order
         } else {
-          let text = '';
-          try { text = await readFile(full, 'utf8'); } catch { continue; }
-          lines = text.split('\n');
-          if (fileSize <= MAX_CACHED_FILE_BYTES) cacheSet(full, { mtimeMs: fileMs, lines, bytes: fileSize }); // replaces any stale entry
-          else cacheDelete(full); // a previously-small, now-grown file must not linger in the cache
+          const parsed = await parseDigest(full, fileMs, fileMs);
+          if (!parsed) continue; // unreadable — skip, don't poison the cache
+          digest = parsed;
+          cacheSet(full, digest);
         }
         projSessions++;
-        const stamps: number[] = []; // in-range message timestamps, for active-time gaps
-        let lineNo = 0;
-        for (const line of lines) {
-          if (++lineNo % YIELD_EVERY_LINES === 0) await yieldLoop(); // cached files skip fs awaits, but their parse loop must breathe too
-          if (!line.trim()) continue;
-          let o: { type?: string; timestamp?: string; message?: { model?: string; usage?: RawUsage & { server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } } } };
-          try { o = JSON.parse(line); } catch { continue; }
-          const day = dayKey(o.timestamp, fileMs);
-          if (sinceMs !== Infinity && new Date(day + 'T00:00:00.000Z').getTime() < sinceMs) continue;
-          // Collect every line's timestamp (user + assistant + tool) so gaps reflect real wall-clock activity.
-          if (o.timestamp) { const ms = new Date(o.timestamp).getTime(); if (!Number.isNaN(ms)) stamps.push(ms); }
-          const u = o.message?.usage;
-          if (o.type !== 'assistant' || !u) continue;
-          const model = o.message?.model ?? 'unknown';
-          // Claude Code emits <synthetic> assistant lines (API errors, interrupts) with a zero usage
-          // block — not a real model. Skip them so they don't show as a phantom 0% model row or wrongly
-          // trip the unknown-model cost warning (the cockpit's session meta skips them the same way).
-          if (model === SYNTHETIC_MODEL) continue;
-          if (!MODEL_PRICING[model]) { hasUnknownModel = true; projUnknown = true; }
-          Object.assign(global, addUsage(global, u));
-          Object.assign(projTotals, addUsage(projTotals, u));
-          projByModel.set(model, addUsage(projByModel.get(model) ?? emptyTotals(), u));
-          perModelGlobal.set(model, addUsage(perModelGlobal.get(model) ?? emptyTotals(), u));
-          perDay.set(day, addUsage(perDay.get(day) ?? emptyTotals(), u));
-          webSearch += u.server_tool_use?.web_search_requests ?? 0;
-          webFetch += u.server_tool_use?.web_fetch_requests ?? 0;
+        for (const e of digest.entries) {
+          if (!inRange(e.dayMs)) continue;
+          if (e.unknown) { hasUnknownModel = true; projUnknown = true; }
+          Object.assign(global, addTotals(global, e.totals));
+          Object.assign(projTotals, addTotals(projTotals, e.totals));
+          projByModel.set(e.model, addTotals(projByModel.get(e.model) ?? emptyTotals(), e.totals));
+          perModelGlobal.set(e.model, addTotals(perModelGlobal.get(e.model) ?? emptyTotals(), e.totals));
+          perDay.set(e.day, addTotals(perDay.get(e.day) ?? emptyTotals(), e.totals));
+          webSearch += e.webSearch;
+          webFetch += e.webFetch;
         }
-        projActiveMs += activeMsFromTimestamps(stamps);
+        const stampsInRange = sinceMs === Infinity ? digest.stamps : digest.stamps.filter((_, i) => digest!.stampDayMs[i] >= sinceMs);
+        projActiveMs += activeMsFromTimestamps(stampsInRange);
       }
     }
 

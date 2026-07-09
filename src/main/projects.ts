@@ -18,10 +18,30 @@ function maxMs(a: number | null, b: number | null): number | null {
   return Math.max(a, b);
 }
 
+// How many projects are enriched (git subprocesses + session reads) concurrently. Unbounded
+// Promise.all launched work for EVERY project at once — at 100 projects that meant hundreds of
+// simultaneous git processes per refresh, which thrashed the system far more than it parallelized.
+const ENRICH_CONCURRENCY = 8;
+
+/** Map items through an async fn with at most `limit` in flight (order-preserving). */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewModel[]> {
   const raw = await deps.scan();
-  const models = await Promise.all(
-    raw.map(async (r): Promise<ProjectViewModel> => {
+  const models = await mapLimit(raw, ENRICH_CONCURRENCY,
+    async (r): Promise<ProjectViewModel> => {
       const git = await deps.git(r.path);
       const sessions = await deps.sessions(r.path);
       const cueText = sessions[0] ? await deps.resumeCue(r.path, sessions[0].id) : null;
@@ -49,8 +69,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
         repoUrl: git.repoUrl,
         todos: entry.todos,
       };
-    }),
-  );
+    });
 
   return models
     .sort((a, b) => {

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { GitInfo } from '../shared/types';
-import { parseBranch, parseLastCommit, parsePorcelainCount, parseAheadCount, parseRemoteUrl } from '../shared/gitParse';
+import { parseBranch, parseLastCommit, parsePorcelainCount, parseRemoteUrl, parseStatusV2 } from '../shared/gitParse';
 
 const execFileAsync = promisify(execFile);
 
@@ -20,22 +20,42 @@ async function safe(run: GitRunner, args: string[]): Promise<string | null> {
   }
 }
 
+// remote.origin.url is effectively immutable for a repo — cache it for the process lifetime so the
+// deck refresh doesn't re-spawn `git config` per project every ~45s. (A changed remote shows up after
+// an app restart; acceptable for cutting a whole subprocess per project per refresh.)
+const _remoteCache = new Map<string, string | null>();
+/** Test-only: reset the remote-url cache between tests. */
+export function _clearRemoteCache(): void { _remoteCache.clear(); }
+
+/**
+ * Deck git info in TWO subprocesses per project (was five): `status --porcelain=v2 --branch` answers
+ * branch + dirty + ahead at once, `log -1` gives the last commit, and the remote URL comes from the
+ * process-lifetime cache (one extra spawn only the first time a repo is seen). At 100 projects per
+ * refresh that's ~200 process launches instead of ~500.
+ */
 export async function getGitInfo(dir: string, run: GitRunner = defaultRunner): Promise<GitInfo> {
-  const [branchOut, logOut, statusOut, aheadOut, remoteOut] = await Promise.all([
-    safe(run, ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD']),
+  const remoteCached = _remoteCache.get(dir);
+  const [statusOut, logOut, remoteOut] = await Promise.all([
+    safe(run, ['-C', dir, 'status', '--porcelain=v2', '--branch']),
     safe(run, ['-C', dir, 'log', '-1', '--format=%ct|%s']),
-    safe(run, ['-C', dir, 'status', '--porcelain']),
-    safe(run, ['-C', dir, 'rev-list', '--count', '@{upstream}..HEAD']),
-    safe(run, ['-C', dir, 'config', '--get', 'remote.origin.url']),
+    remoteCached !== undefined ? Promise.resolve(null) : safe(run, ['-C', dir, 'config', '--get', 'remote.origin.url']),
   ]);
   const { lastCommitMs, lastSubject } = parseLastCommit(logOut ?? '');
+  const status = parseStatusV2(statusOut ?? '');
+  let repoUrl: string | null;
+  if (remoteCached !== undefined) {
+    repoUrl = remoteCached;
+  } else {
+    repoUrl = parseRemoteUrl(remoteOut ?? '');
+    if (statusOut != null) _remoteCache.set(dir, repoUrl); // only cache when the repo actually answered (git present, real repo)
+  }
   return {
-    branch: branchOut == null ? null : parseBranch(branchOut),
+    branch: status.branch,
     lastCommitMs,
     lastSubject,
-    uncommitted: parsePorcelainCount(statusOut ?? ''),
-    ahead: aheadOut == null ? null : parseAheadCount(aheadOut),
-    repoUrl: parseRemoteUrl(remoteOut ?? ''),
+    uncommitted: status.dirty,
+    ahead: status.ahead,
+    repoUrl,
   };
 }
 

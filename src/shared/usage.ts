@@ -61,6 +61,11 @@ export function formatDuration(ms: number): string {
 
 export function emptyTotals(): UsageTotals { return { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }; }
 
+/** Sum two already-aggregated totals (digest rollups combining into report totals). */
+export function addTotals(a: UsageTotals, b: UsageTotals): UsageTotals {
+  return { input: a.input + b.input, output: a.output + b.output, cacheWrite: a.cacheWrite + b.cacheWrite, cacheRead: a.cacheRead + b.cacheRead };
+}
+
 export function addUsage(t: UsageTotals, u: RawUsage): UsageTotals {
   return {
     input: t.input + (u.input_tokens ?? 0),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseBranch, parseLastCommit, parsePorcelainCount, parseAheadCount, parseRemoteUrl } from './gitParse';
+import { parseBranch, parseLastCommit, parsePorcelainCount, parseAheadCount, parseRemoteUrl, parseStatusV2 } from './gitParse';
 
 describe('parseBranch', () => {
   it('trims branch output', () => {
@@ -73,5 +73,34 @@ describe('parseRemoteUrl', () => {
   it('returns null when the path is not exactly owner/repo', () => {
     expect(parseRemoteUrl('https://github.com/writingdeveloper')).toBeNull();
     expect(parseRemoteUrl('https://github.com/a/b/c')).toBeNull();
+  });
+});
+
+describe('parseStatusV2', () => {
+  // `git status --porcelain=v2 --branch` answers branch + dirty + ahead in ONE subprocess —
+  // the deck used to spawn three separate git calls per project for the same facts.
+  const out = [
+    '# branch.oid 1234abcd',
+    '# branch.head main',
+    '# branch.upstream origin/main',
+    '# branch.ab +2 -1',
+    '1 .M N... 100644 100644 100644 aaa bbb src/a.ts',
+    '1 M. N... 100644 100644 100644 ccc ddd src/b.ts',
+    '? untracked.txt',
+  ].join('\n');
+
+  it('parses branch, dirty count (entries, not headers), and ahead', () => {
+    expect(parseStatusV2(out)).toEqual({ branch: 'main', dirty: 3, ahead: 2 });
+  });
+  it('no upstream → ahead null; detached HEAD → branch null', () => {
+    const detached = ['# branch.oid 1234abcd', '# branch.head (detached)'].join('\n');
+    expect(parseStatusV2(detached)).toEqual({ branch: null, dirty: 0, ahead: null });
+  });
+  it('clean tree on a tracked branch', () => {
+    const clean = ['# branch.oid x', '# branch.head dev', '# branch.upstream origin/dev', '# branch.ab +0 -0'].join('\n');
+    expect(parseStatusV2(clean)).toEqual({ branch: 'dev', dirty: 0, ahead: 0 });
+  });
+  it('null/garbage input → all-null shape', () => {
+    expect(parseStatusV2('')).toEqual({ branch: null, dirty: 0, ahead: null });
   });
 });

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { scanUsage, _cacheHasFile, _clearFileCache, _setCacheBudget, MAX_CACHED_FILE_BYTES } from './usageScan';
+import { scanUsage, _cacheHasFile, _clearFileCache, _setCacheBudget } from './usageScan';
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'devdeck-usage-')); _clearFileCache(); });
@@ -87,20 +87,27 @@ describe('scanUsage', () => {
     expect(_cacheHasFile(f)).toBe(true);
   });
 
-  it('does NOT cache a session file over MAX_CACHED_FILE_BYTES — a huge transcript must never be held in memory forever', async () => {
-    // Real-world trigger: a multi-hundred-MB Claude session file, held forever in a module-level Map,
-    // ballooned the main process to multiple GB within ~1 minute of a cold start (the eager,
-    // unfiltered projectsView.ts per-project cost fill calls usage:report(0) = every file, all time)
-    // and crashed it with no catchable exception. Oversized files must be processed but NOT retained.
+  it('caches only the DIGEST of a huge transcript and reuses it without re-parsing', async () => {
+    // History: v1.12.2 stopped retaining >5MB files to prevent an OOM crash — but as transcripts grew,
+    // 56 real files (~2GB) fell over that cap and were re-read+re-parsed on EVERY deck refresh (~45s),
+    // which was the "everything got slower" complaint. The digest is a few KB regardless of file size,
+    // so every file stays cached. Prove reuse by rewriting the file but restoring its mtime — an
+    // unchanged mtime must serve the OLD digest without touching the 6MB of text again.
     const d = join(root, 'C--g-huge');
     mkdirSync(d, { recursive: true });
     const f = join(d, 's.jsonl');
-    const line = asst('claude-opus-4-8', { input_tokens: 1 });
-    const pad = 'x'.repeat(MAX_CACHED_FILE_BYTES); // one line alone already exceeds the cap
-    writeFileSync(f, line + '\n// ' + pad);
-    const r = await scanUsage([{ path: 'C:\\g\\huge', name: 'huge' }], root, Infinity);
-    expect(_cacheHasFile(f)).toBe(false);
-    expect(r.global.input).toBe(1); // still processed correctly even though not cached
+    // Pin the mtime EXPLICITLY on both writes (restoring a stat()-captured mtime can lose sub-ms
+    // precision on Windows, which would falsely read as a modification).
+    const T = new Date('2026-06-01T00:00:00.000Z');
+    writeFileSync(f, asst('claude-opus-4-8', { input_tokens: 1 }) + '\n// ' + 'x'.repeat(6 * 1024 * 1024));
+    utimesSync(f, T, T);
+    const r1 = await scanUsage([{ path: 'C:\\g\\huge', name: 'huge' }], root, Infinity);
+    expect(r1.global.input).toBe(1);
+    expect(_cacheHasFile(f)).toBe(true); // cached — as a digest, not 6MB of text
+    writeFileSync(f, asst('claude-opus-4-8', { input_tokens: 999 }));
+    utimesSync(f, T, T); // same mtime → the scan must trust the digest and skip the read
+    const r2 = await scanUsage([{ path: 'C:\\g\\huge', name: 'huge' }], root, Infinity);
+    expect(r2.global.input).toBe(1); // old digest served → the big file was NOT re-parsed
   });
 
   it('bounds the TOTAL cached bytes — the least-recently-used file is evicted when the budget overflows', async () => {
@@ -110,10 +117,13 @@ describe('scanUsage', () => {
       const d = join(root, `C--g-${proj}`);
       mkdirSync(d, { recursive: true });
       const f = join(d, 's.jsonl');
-      writeFileSync(f, asst('claude-opus-4-8', { input_tokens: 1 }) + '\n// ' + 'x'.repeat(2 * 1024));
+      // ~150 unique-timestamp lines ⇒ a ~2.6KB DIGEST (stamps dominate) — the shrunk budget fits two.
+      const lines = Array.from({ length: 150 }, (_v, i) =>
+        asst('claude-opus-4-8', { input_tokens: 1 }, `2026-06-01T10:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`));
+      writeFileSync(f, lines.join('\n'));
       return f;
     };
-    _setCacheBudget(5 * 1024); // room for two ~2KB files, not three
+    _setCacheBudget(6 * 1024); // room for two ~2.6KB digests, not three
     const [fa, fb, fc] = [mk('lru-a'), mk('lru-b'), mk('lru-c')];
     await scanUsage([{ path: 'C:\\g\\lru-a', name: 'a' }], root, Infinity);
     await scanUsage([{ path: 'C:\\g\\lru-b', name: 'b' }], root, Infinity);
@@ -128,10 +138,13 @@ describe('scanUsage', () => {
       const d = join(root, `C--g-${proj}`);
       mkdirSync(d, { recursive: true });
       const f = join(d, 's.jsonl');
-      writeFileSync(f, asst('claude-opus-4-8', { input_tokens: 1 }) + '\n// ' + 'x'.repeat(2 * 1024));
+      // ~150 unique-timestamp lines ⇒ a ~2.6KB DIGEST (stamps dominate) — the shrunk budget fits two.
+      const lines = Array.from({ length: 150 }, (_v, i) =>
+        asst('claude-opus-4-8', { input_tokens: 1 }, `2026-06-01T10:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`));
+      writeFileSync(f, lines.join('\n'));
       return f;
     };
-    _setCacheBudget(5 * 1024);
+    _setCacheBudget(6 * 1024);
     const [fa, fb, fc] = [mk('fifo-a'), mk('fifo-b'), mk('fifo-c')];
     await scanUsage([{ path: 'C:\\g\\fifo-a', name: 'a' }], root, Infinity);
     await scanUsage([{ path: 'C:\\g\\fifo-b', name: 'b' }], root, Infinity);
@@ -169,5 +182,20 @@ describe('scanUsage', () => {
     const r = await scanUsage([{ path: 'C:\\g\\time', name: 'time' }], root, Infinity);
     expect(r.activeMs).toBe(4 * 60_000);
     expect(r.byProject[0].activeMs).toBe(4 * 60_000);
+  });
+
+  it('sinceMs filtering served from the CACHED digest matches a fresh parse (day-granular)', async () => {
+    const d = join(root, 'C--g-since');
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, 's.jsonl'), [
+      asst('claude-opus-4-8', { input_tokens: 5 }, '2026-05-30T10:00:00.000Z'),
+      asst('claude-opus-4-8', { input_tokens: 7 }, '2026-06-01T10:00:00.000Z'),
+    ].join('\n'));
+    const all = await scanUsage([{ path: 'C:\\g\\since', name: 'since' }], root, Infinity); // parses + caches
+    expect(all.global.input).toBe(12);
+    const junCut = new Date('2026-06-01T00:00:00.000Z').getTime();
+    const jun = await scanUsage([{ path: 'C:\\g\\since', name: 'since' }], root, junCut); // served from the digest
+    expect(jun.global.input).toBe(7);
+    expect(jun.daily.map((b) => b.day)).toEqual(['2026-06-01']);
   });
 });

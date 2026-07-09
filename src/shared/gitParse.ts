@@ -61,3 +61,26 @@ export function parseRemoteUrl(out: string): string | null {
   if (!m) return null;
   return `https://github.com/${m[1]}/${m[2]}`;
 }
+
+/**
+ * Parse `git status --porcelain=v2 --branch` output: branch + dirty count + ahead in ONE subprocess
+ * (the deck previously spawned rev-parse + status + rev-list separately per project — 3 of its 5
+ * per-project git calls — which at 100 projects meant hundreds of process launches every refresh).
+ */
+export function parseStatusV2(out: string): { branch: string | null; dirty: number; ahead: number | null } {
+  let branch: string | null = null;
+  let ahead: number | null = null;
+  let dirty = 0;
+  for (const line of out.split('\n')) {
+    if (line.startsWith('# branch.head ')) {
+      const name = line.slice('# branch.head '.length).trim();
+      branch = name === '(detached)' ? null : name;
+    } else if (line.startsWith('# branch.ab ')) {
+      const m = line.match(/\+(\d+) -\d+/);
+      if (m) ahead = Number(m[1]);
+    } else if (line && !line.startsWith('#')) {
+      dirty++; // every non-header entry line is one changed/untracked/unmerged path
+    }
+  }
+  return { branch, dirty, ahead };
+}
