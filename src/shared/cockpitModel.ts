@@ -86,6 +86,11 @@ export interface CockpitRowSig {
  * every row on each 1s activity tick / 30s meta tick even when the result is identical. Includes the
  * language so a tr()-driven text change (group headers, buttons) still forces a rebuild. JSON encoding
  * keeps it collision-safe (values can't blur across a delimiter).
+ *
+ * Note on group ORDER (e.g. renderList's urgency-first attention/working-above-pinned layout): the
+ * bucket a row lands in is derived purely from `activity`, and `activity` is already one of the fields
+ * below — so any change that moves a row between groups (bucket change) already changes `activity` and
+ * therefore already busts this signature. Group order itself needs no separate field here.
  */
 export function cockpitListSignature(
   rows: CockpitRowSig[],

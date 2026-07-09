@@ -380,11 +380,16 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row { display: flex; align-items: center; gap: 9px; padding: 8px 12px; margin: 1px 8px; border-radius: 8px; border-left: 3px solid transparent; cursor: pointer; }
 .ck-row:hover { background: var(--surface-hover); }
 .ck-row.sel { background: #16182b; border-left-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(85,88,239,.35); }
-.ck-row .nm { font-weight: 600; font-size: 12.5px; }
-.ck-row .mt { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
-/* Per-session context % on the row — tinted as it nears compaction (≥80 warn, ≥95 crit). */
-.ck-ctx.sev-warn { color: var(--warn); }
-.ck-ctx.sev-crit { color: var(--bad); font-weight: 700; }
+/* Row body: line 1 = name + right-aligned context %, line 2 = branch/agent/model meta. */
+.ck-row-main { flex: 1 1 auto; min-width: 0; }
+.ck-line1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ck-row .nm { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: var(--fs-row); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-row .mt { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-dim); margin-top: 1px; }
+/* Per-session context % — now on line 1 (next to the name), tinted as it nears compaction (≥80 warn,
+   ≥95 crit) — with many concurrent sessions this answers "which one is about to compact" at a glance. */
+.ck-ctx-col { margin-left: auto; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); }
+.ck-ctx-col.sev-warn { color: var(--warn); }
+.ck-ctx-col.sev-crit { color: var(--bad); font-weight: 700; }
 .ck-main { flex: 1; display: flex; flex-direction: column; background: #0a0b0e; min-width: 0; }
 .ck-header { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), #0e1015); min-height: 42px; }
 .ck-header .title { font-weight: 700; font-size: 13.5px; }
@@ -413,8 +418,9 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row.act-turn .ck-dot { background: var(--accent); }
 .ck-row.act-idle .ck-dot { background: var(--neutral); opacity: .55; }
 .ck-row.act-exited .ck-dot { background: transparent; border: 1.5px solid var(--text-faint); }
-.ck-row.act-attention { background: #241512; border-left-color: var(--bad); }
+.ck-row.act-attention { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
 .ck-row.act-attention .ck-ind { color: var(--bad); font-weight: 700; }
+.ck-row.act-working .ck-dot, .ck-row.act-working .ck-spin { filter: drop-shadow(0 0 4px var(--accent)); }
 
 /* Previous (restorable) sessions — muted, with a ↻ "restore all" in the group header and a ✕ to forget. */
 .ck-grp-prev { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
