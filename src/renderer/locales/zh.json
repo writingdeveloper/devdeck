@@ -96,6 +96,7 @@
   "usage.deleted_badge": "已删除",
   "usage.show_deleted": "显示已删除项目",
   "usage.deleted_hidden": "🗑 已隐藏 {n} 个 · 合计含此项",
+  "usage.search_ph": "搜索项目…",
   "set.open_at_login": "Windows 登录时自动启动",
   "set.tray_alert": "托盘提醒 (会话在等你)",
   "set.tray_alert_attention": "仅问题 (推荐)",

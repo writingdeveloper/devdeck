@@ -248,13 +248,25 @@ button.primary:hover { background: var(--accent-hover); }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
 .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .usage-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-.usage-total { margin-left: auto; font-family: var(--mono); color: var(--text); }
-.usage-total--secondary { font-size: 12px; color: var(--text-dim); }
+.usage-search {
+  margin-left: auto;
+  width: 160px;
+  background: #0f1115;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: var(--fs-body);
+}
+.usage-search:focus { border-color: var(--accent); }
 .usage-summary { padding: 14px 16px; }
 .usage-stats { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; }
 .stat { display: flex; flex-direction: column; }
 .stat b { font-family: var(--mono); font-size: 16px; }
 .stat span { color: var(--text-faint); font-size: 11px; }
+/* Cost leads the summary row — larger and full-text-color so the reader lands on $ first. */
+.usage-stats .stat-lead b { font-size: var(--fs-view); color: var(--text); }
 .sharebar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface); }
 .sharebar span { height: 100%; }
 .chart-box { padding: 8px 16px 16px; }

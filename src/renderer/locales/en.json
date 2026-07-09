@@ -96,6 +96,7 @@
   "usage.deleted_badge": "deleted",
   "usage.show_deleted": "Show deleted projects",
   "usage.deleted_hidden": "🗑 {n} deleted hidden · included in totals",
+  "usage.search_ph": "Search projects…",
   "set.open_at_login": "Start on Windows login",
   "set.tray_alert": "Tray alert (sessions need you)",
   "set.tray_alert_attention": "Questions only (recommended)",
