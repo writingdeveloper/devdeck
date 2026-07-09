@@ -116,6 +116,7 @@
   "proj.sort_uncommitted": "未コミット",
   "proj.sort_name": "名前",
   "proj.sort_opened": "最終開覧",
+  "deck.today": "今日",
   "update.available": "アップデートあり: v{version}",
   "update.download": "ダウンロード",
   "update.downloading": "アップデートをダウンロード中… {percent}%",

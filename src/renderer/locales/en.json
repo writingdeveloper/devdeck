@@ -116,6 +116,7 @@
   "proj.sort_uncommitted": "Uncommitted",
   "proj.sort_name": "Name",
   "proj.sort_opened": "Last opened",
+  "deck.today": "Today",
   "update.available": "Update available: v{version}",
   "update.download": "Download",
   "update.downloading": "Downloading update… {percent}%",

@@ -2,7 +2,7 @@ import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
 import { projectSignature, diffCards, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
-import { type OpenReq } from './cockpitView';
+import { type OpenReq, liveProjectActivity } from './cockpitView';
 import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
@@ -453,6 +453,20 @@ function showSkeleton(): void {
   for (let i = 0; i < 6; i++) { const s = document.createElement('div'); s.className = 'skeleton'; cardsEl.appendChild(s); }
 }
 
+// Toolbar summary: live cockpit status counts (attention/working) + today's est. cost.
+// Purely additive — never blocks reload() and degrades to omitting the cost span on failure.
+function renderDeckPulse(todayCost: number | null): void {
+  const el = document.getElementById('deck-pulse'); if (!el) return;
+  const act = liveProjectActivity();
+  const attn = [...act.values()].filter((v) => v === 'attention').length;
+  const work = act.size - attn;
+  el.replaceChildren();
+  const span = (cls: string, text: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = text; el.appendChild(s); };
+  if (attn > 0) span('p-attn', `⚠ ${attn}`);
+  if (work > 0) span('p-work', `◉ ${work}`);
+  if (todayCost != null) span('', `${tr('deck.today')} ~$${todayCost.toFixed(0)}`);
+}
+
 async function reload(): Promise<void> {
   lastLoadMs = Date.now();
   // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
@@ -479,11 +493,17 @@ async function reload(): Promise<void> {
   // cockpit owns attention/turn on the same channel).
   const overdue = projects.reduce((n, p) => n + taskCounts(p.todos, Date.now()).overdue, 0);
   window.devdeck.setTrayCounts({ overdue });
-  // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch).
-  void window.devdeck.usageReport(0).then((r) => {
+  // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch), then
+  // the toolbar pulse summary (live status counts + today's cost). Both best-effort: any
+  // failure in this chain falls back to a status-only pulse rather than blocking reload().
+  void window.devdeck.usageReport(0).then(async (r) => {
     for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);
     render();
-  }).catch(() => { /* cost is best-effort; ignore failures */ });
+    const t0 = new Date();
+    t0.setUTCHours(0, 0, 0, 0);
+    const today = await window.devdeck.usageReport(t0.getTime());
+    renderDeckPulse(today.globalCost);
+  }).catch(() => { renderDeckPulse(null); /* cost is best-effort; ignore failures */ });
 }
 
 // External triggers (agent switch, settings change) should rebuild from scratch: the agent

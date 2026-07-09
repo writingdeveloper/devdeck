@@ -116,6 +116,7 @@
   "proj.sort_uncommitted": "미커밋",
   "proj.sort_name": "이름",
   "proj.sort_opened": "최근 열람",
+  "deck.today": "오늘",
   "update.available": "업데이트 있음: v{version}",
   "update.download": "다운로드",
   "update.downloading": "업데이트 다운로드 중… {percent}%",

@@ -219,6 +219,10 @@ button.primary:hover { background: var(--accent-hover); }
 .mi-mark { display: inline-block; flex: 0 0 1em; width: 1em; text-align: center; color: var(--accent-hover); }
 
 .vt-spacer { flex: 1; }
+.deck-pulse { display:flex; gap:12px; align-items:center; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); margin-right: 10px; }
+.deck-pulse b { font-weight:600; }
+.deck-pulse .p-attn { color: var(--warn); }
+.deck-pulse .p-work { color: var(--accent-hover); }
 .usage-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
 .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
