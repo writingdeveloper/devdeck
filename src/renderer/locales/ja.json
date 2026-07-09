@@ -29,6 +29,7 @@
   "agent.antigravity": "Antigravity",
   "next.title": "タスク（全プロジェクト）",
   "next.empty": "未完了のタスクはありません — 下で追加してください。",
+  "tasks.empty_cta": "+ 最初のタスクを追加",
   "tasks.add": "追加",
   "tasks.add_ph": "新しいタスク…",
   "tasks.add_project_ph": "プロジェクト",

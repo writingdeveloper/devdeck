@@ -29,6 +29,7 @@
   "agent.antigravity": "Antigravity",
   "next.title": "할 일 (전체 프로젝트)",
   "next.empty": "열린 할 일이 없습니다 — 아래에서 추가하세요.",
+  "tasks.empty_cta": "+ 첫 할 일 추가",
   "tasks.add": "추가",
   "tasks.add_ph": "새 할 일…",
   "tasks.add_project_ph": "프로젝트",

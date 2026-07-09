@@ -29,6 +29,7 @@
   "agent.antigravity": "Antigravity",
   "next.title": "Tasks — all projects",
   "next.empty": "No open tasks — add one below.",
+  "tasks.empty_cta": "+ Add your first task",
   "tasks.add": "Add",
   "tasks.add_ph": "New task…",
   "tasks.add_project_ph": "Project",

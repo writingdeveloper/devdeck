@@ -125,9 +125,9 @@ await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
 // Next task board: navigate + capture (empty-state render path — add form + no open tasks in the
 // isolated QA profile). Guards the tasks.ts wiring renders without console/page errors.
 await showView('next');
-await win.waitForSelector('#view-next .tk-add, #view-next .empty', { timeout: 5000 }).catch(() => {});
+await win.waitForSelector('#view-next .tk-bar, #view-next .empty', { timeout: 5000 }).catch(() => {});
 await shot('next-tasks');
-const nextAdd = await win.evaluate(() => !!document.querySelector('#view-next .tk-add'));
+const nextAdd = await win.evaluate(() => !!document.querySelector('#view-next .tk-add-text'));
 console.log('next task-board add form present:', nextAdd);
 // Calendar mode: toggle to the month grid, click a day, capture (exercises buildMonthGrid + Intl render).
 await win.click('#view-next .tk-vt:nth-child(2)').catch(() => {});

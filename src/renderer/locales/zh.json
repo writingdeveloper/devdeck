@@ -29,6 +29,7 @@
   "agent.antigravity": "Antigravity",
   "next.title": "任务（所有项目）",
   "next.empty": "没有未完成的任务 — 在下方添加。",
+  "tasks.empty_cta": "+ 添加第一个任务",
   "tasks.add": "添加",
   "tasks.add_ph": "新任务…",
   "tasks.add_project_ph": "项目",

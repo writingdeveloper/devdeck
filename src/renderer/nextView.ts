@@ -119,8 +119,8 @@ function startDueEdit(chip: HTMLElement, path: string, todo: Todo): void {
   input.showPicker?.();
 }
 
-function addRow(): HTMLElement {
-  const wrap = document.createElement('div'); wrap.className = 'tk-add';
+/** [project select][new-todo input][date][add] — appended straight into the shared `.tk-bar`. */
+function addControls(bar: HTMLElement): void {
   const sel = document.createElement('select'); sel.className = 'tk-add-proj';
   sel.setAttribute('aria-label', tr('tasks.add_project_ph'));
   for (const p of [...projects].sort((a, b) => a.name.localeCompare(b.name))) {
@@ -136,13 +136,17 @@ function addRow(): HTMLElement {
   btn.addEventListener('click', submit);
   text.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   if (projects.length === 0) { sel.disabled = true; text.disabled = true; btn.disabled = true; }
-  wrap.append(sel, text, dueI, btn);
-  return wrap;
+  bar.append(sel, text, dueI, btn);
 }
 
-function filterRow(): HTMLElement {
-  const wrap = document.createElement('div'); wrap.className = 'tk-filter';
+/** Thin vertical rule between the add group and the filter group of `.tk-bar` (decorative only). */
+function barSeparator(): HTMLElement {
+  const sep = document.createElement('span'); sep.className = 'tk-sep'; sep.setAttribute('aria-hidden', 'true');
+  return sep;
+}
 
+/** [filter project][filter input][show-done toggle](+optional clear-done) — appended into the shared `.tk-bar`. */
+function filterControls(bar: HTMLElement): void {
   const sel = document.createElement('select'); sel.className = 'tk-filter-proj';
   sel.setAttribute('aria-label', tr('tasks.filter_all'));
   const all = document.createElement('option'); all.value = ''; all.textContent = tr('tasks.filter_all'); sel.appendChild(all);
@@ -169,7 +173,7 @@ function filterRow(): HTMLElement {
   doneCb.addEventListener('change', () => { showDone = doneCb.checked; render(); });
   doneLab.append(doneCb, document.createTextNode(' ' + tr('tasks.show_done')));
 
-  wrap.append(sel, q, doneLab);
+  bar.append(sel, q, doneLab);
 
   const doneCount = projects.reduce((n, p) => n + p.todos.filter((t) => t.done).length, 0);
   if (doneCount > 0) {
@@ -192,9 +196,8 @@ function filterRow(): HTMLElement {
       }
       render();
     });
-    wrap.appendChild(clear);
+    bar.appendChild(clear);
   }
-  return wrap;
 }
 
 function render(): void {
@@ -209,14 +212,25 @@ function render(): void {
   // Checking off / re-dating a task changes the overdue total — keep the tray tooltip current
   // (partial update: the cockpit owns attention/turn on the same channel).
   window.devdeck.setTrayCounts({ overdue });
-  viewEl.append(head, addRow(), filterRow(), viewToggle());
+
+  // Single control row: [project▾][new-todo…][date][add] | separator | [filter▾][filter…][show-done](+clear) | [list|calendar]
+  const bar = document.createElement('div'); bar.className = 'tk-bar';
+  addControls(bar);
+  bar.appendChild(barSeparator());
+  filterControls(bar);
+  bar.appendChild(viewToggle());
+  viewEl.append(head, bar);
 
   const visible = filterTaskItems(items, { project: filterProject, q: filterText });
   if (boardView === 'calendar') { renderCalendar(visible, now); return; }
   const groups = groupTasksByDue(visible, now);
   const doneItems = showDone ? visible.filter((i) => i.todo.done) : [];
   if (groups.length === 0 && doneItems.length === 0) {
-    const e = document.createElement('div'); e.className = 'empty'; e.textContent = tr('next.empty');
+    const e = document.createElement('div'); e.className = 'empty';
+    const msg = document.createElement('div'); msg.textContent = tr('next.empty');
+    const cta = document.createElement('button'); cta.className = 'primary tk-empty-cta'; cta.textContent = tr('tasks.empty_cta');
+    cta.addEventListener('click', () => viewEl.querySelector<HTMLInputElement>('.tk-add-text')?.focus());
+    e.append(msg, cta);
     viewEl.appendChild(e);
     return;
   }

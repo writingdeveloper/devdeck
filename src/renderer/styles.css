@@ -73,6 +73,7 @@ button[disabled]:hover { background: var(--surface); border-color: var(--border-
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 .empty { color: var(--text-faint); padding: 24px; }
+.empty:has(.tk-empty-cta) { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 
 button {
   background: var(--surface); color: var(--text);
@@ -157,14 +158,14 @@ button.primary:hover { background: var(--accent-hover); }
 .cardfoot .foot-meta { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); white-space: nowrap; }
 
 .next-head { padding: 14px 16px 8px; font-size: 14px; font-weight: 600; color: var(--text); }
-/* Task board (Next view) */
-.tk-add { display: flex; gap: 8px; padding: 0 16px 12px; align-items: center; }
+/* Task board (Next view) — one control bar: [project][new-todo][date][add] | separator | [filter project][filter][show-done](+clear) | [list|calendar] */
+.tk-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 16px 12px; }
+.tk-sep { width: 1px; height: 16px; background: var(--border-strong); flex: 0 0 auto; }
 .tk-add-proj { flex: 0 0 auto; max-width: 170px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
-.tk-add-text { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.tk-add-text { flex: 1 1 140px; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .tk-add-due { flex: 0 0 auto; background: var(--surface); color: var(--text-dim); border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 8px; font-size: 12px; }
-.tk-filter { display: flex; gap: 8px; padding: 0 16px 12px; align-items: center; }
 .tk-filter-proj { flex: 0 0 auto; max-width: 170px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
-.tk-filter-text { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+.tk-filter-text { flex: 1 1 140px; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
 .tk-show-done { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
 .tk-clear-done { flex: 0 0 auto; background: transparent; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-dim); font-size: 12px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
 .tk-clear-done:hover { border-color: var(--bad); color: var(--bad); }
@@ -177,7 +178,7 @@ button.primary:hover { background: var(--accent-hover); }
 .tk-group.tk-later, .tk-group.tk-none { color: var(--text-faint); border-left-color: var(--border-strong); }
 .tk-list { display: flex; flex-direction: column; gap: 4px; padding: 0 16px 6px; }
 /* Task board: list/calendar toggle + month calendar */
-.tk-viewtoggle { display: flex; gap: 4px; padding: 2px 16px 8px; }
+.tk-viewtoggle { display: flex; gap: 4px; flex: 0 0 auto; }
 .tk-vt { background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); font-size: 12px; padding: 3px 12px; border-radius: 6px; cursor: pointer; }
 .tk-vt.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .cal-nav { display: flex; align-items: center; gap: 8px; padding: 2px 16px 10px; }
