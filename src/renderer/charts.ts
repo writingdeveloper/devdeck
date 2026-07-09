@@ -1,7 +1,8 @@
 const NS = 'http://www.w3.org/2000/svg';
 
-/** A simple bar chart. values: [{label, value}], height in px. */
-export function barChart(values: { label: string; value: number }[], height = 80): SVGSVGElement {
+/** A simple bar chart. values: [{label, value}], height in px.
+ *  titles, when given, overrides the per-bar tooltip text (index-aligned with values). */
+export function barChart(values: { label: string; value: number }[], height = 80, titles?: string[]): SVGSVGElement {
   const LABEL_H = 14;
   const chartH = height - LABEL_H;
   const w = Math.max(values.length * 14, 60), max = Math.max(1, ...values.map((v) => v.value));
@@ -24,9 +25,10 @@ export function barChart(values: { label: string; value: number }[], height = 80
     rect.setAttribute('height', String(h));
     rect.setAttribute('rx', '2');
     rect.setAttribute('fill', '#6366f1');
-    rect.setAttribute('aria-label', `${v.label}: ${v.value.toLocaleString()}`);
+    const tip = titles?.[i] ?? `${v.label}: ${v.value.toLocaleString()}`;
+    rect.setAttribute('aria-label', tip);
     const title = document.createElementNS(NS, 'title');
-    title.textContent = `${v.label}: ${v.value.toLocaleString()}`;
+    title.textContent = tip;
     rect.appendChild(title);
     svg.appendChild(rect);
   });

@@ -15,6 +15,8 @@
   --warn: #d98a1f;
   --bad: #e0623f;
   --mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
+  /* type scale — 산발적 font-size를 5단으로 통일 (리디자인 Phase 0) */
+  --fs-meta: 11px; --fs-body: 12.5px; --fs-row: 14px; --fs-title: 16px; --fs-view: 19px;
 }
 
 * { box-sizing: border-box; }
@@ -44,7 +46,7 @@ body {
 #rail { width: 48px; flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; background: #101218; border-right: 1px solid var(--border); }
 .rail-item { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 8px; font-size: 16px; color: var(--text-dim); cursor: pointer; }
 .rail-item:hover { background: var(--surface-hover); color: var(--text); }
-.rail-item.active { background: #1b1e3a; border-color: var(--accent); color: var(--accent-hover); }
+.rail-item.active { background: #1b1e3a; border-color: var(--accent); color: var(--accent-hover); box-shadow: inset 2px 0 0 var(--accent); }
 .rail-spacer { flex: 1; }
 
 #content { flex: 1; overflow-y: auto; }
@@ -59,6 +61,10 @@ body {
 
 button[disabled] { opacity: .4; cursor: default; }
 button[disabled]:hover { background: var(--surface); border-color: var(--border-strong); }
+/* 상태 시그널: 응답대기(amber)·작업중(accent)·조용(faint) — 덱/코크핏/보드 공통 언어 */
+.sig { display:inline-block; width:9px; height:9px; border-radius:2px; background: var(--border-strong); flex:0 0 auto; }
+.sig.attn { background: var(--warn); box-shadow: 0 0 7px color-mix(in srgb, var(--warn) 60%, transparent); }
+.sig.work { background: var(--accent); }
 .skeleton { height: 120px; border-radius: 8px; border: 1px solid var(--border); background: linear-gradient(90deg,#15171c 25%,#1b1e24 50%,#15171c 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
 /* Retryable error state for a view whose load failed (replaces a stuck skeleton / blank pane). */
 .load-error { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 16px; color: var(--text-dim); }
@@ -67,6 +73,7 @@ button[disabled]:hover { background: var(--surface); border-color: var(--border-
 @keyframes shimmer { to { background-position: -200% 0; } }
 
 .empty { color: var(--text-faint); padding: 24px; }
+.empty:has(.tk-empty-cta) { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 
 button {
   background: var(--surface); color: var(--text);
@@ -80,33 +87,47 @@ button.primary:hover { background: var(--accent-hover); }
 
 .card {
   position: relative; background: var(--surface);
-  border: 1px solid var(--border); border-left-width: 4px;
+  border: 1px solid var(--border); border-left-width: 3px;
   border-radius: 8px; padding: 10px 12px;
   transition: border-color .12s ease, background .12s ease;
 }
 .card:hover { background: var(--surface-hover); border-color: var(--border-strong); }
-.card.lvl-fresh { border-left-color: var(--ok); }
-.card.lvl-neutral { border-left-color: var(--neutral); }
-.card.lvl-warn { border-left-color: var(--warn); }
-.card.lvl-neglected { border-left-color: var(--bad); }
+/* left border = LIVE status channel only (live-attention/live-working); stale age lives in the badge */
+.card.lvl-fresh { border-left-color: transparent; }
+.card.lvl-neutral { border-left-color: transparent; }
+.card.lvl-warn { border-left-color: transparent; }
+.card.lvl-neglected { border-left-color: transparent; }
 .card.norecord { border-left-color: var(--border-strong); border-left-style: dashed; }
 .card.selected { box-shadow: inset 0 0 0 1px var(--accent); }
+/* Live cockpit status wins over the (data-driven) staleness stripe above — a project someone
+   is actively in, or one waiting on a reply, is the most important signal on the deck. */
+.card.live-attention { border-left-color: var(--warn); background: linear-gradient(180deg, color-mix(in srgb, var(--warn) 7%, transparent), transparent 45%) var(--surface); }
+.card.live-working { border-left-color: var(--accent); }
 
 .card-head { display: flex; align-items: center; gap: 8px; }
-.card-title { font-size: 14px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-title { font-size: 15px; font-weight: 650; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; white-space: nowrap; }
 .badge.lvl-fresh { background: #14304f; color: #9cc4ff; }
 .badge.lvl-neutral { background: #23262e; color: var(--text-dim); }
 .badge.lvl-warn { background: #4a371259; color: #f0c178; }
 .badge.lvl-neglected { background: #4a201859; color: #f2a78e; }
 .badge.norecord { background: transparent; color: var(--text-faint); border: 1px dashed var(--border-strong); }
+.badge.live-attention { background: #4a371259; color: #f0c178; }
+.badge.live-working { background: #1b1e3a; color: var(--accent-hover); }
 
 .iconbtn { background: transparent; border: 0; color: var(--text-faint); padding: 2px 4px; cursor: pointer; border-radius: 4px; font-size: 13px; }
 .iconbtn:hover { color: var(--text); background: var(--surface-hover); }
 .pin-on { color: var(--accent); }
 
-.meta { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); line-height: 1.6; margin-top: 4px; }
-.meta .branch { color: var(--text); }
+/* Resume cue: the card's headline — "what to pick back up," ahead of git/session chrome. */
+.card-cue {
+  margin: 7px 0 5px; font-size: var(--fs-body); line-height: 1.45; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-cue::before { content: "↩ "; color: var(--accent-hover); }
+
+.card-git { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.card-git .branch { color: var(--text-dim); }
 .dirty { color: var(--text); }
 .dirty.alarm { color: var(--warn); }
 .ahead { color: var(--accent-hover); }
@@ -128,16 +149,23 @@ button.primary:hover { background: var(--accent-hover); }
 
 .cardfoot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .cardfoot .spacer { flex: 1; }
+/* Secondary actions (editor/folder/GitHub) reveal on hover or keyboard focus — the primary
+   "open" CTA and the glance metadata stay visible at all times. Fully hidden at rest (not
+   semi-faded): a 25%-alpha glyph on --surface is ~1.5:1 contrast, an axe serious violation. */
+.cardfoot .iconbtn, .cardfoot .gh-btn { opacity: 0; transition: opacity .12s; }
+.card:hover .cardfoot .iconbtn, .card:hover .cardfoot .gh-btn,
+.card:focus-within .cardfoot .iconbtn, .card:focus-within .cardfoot .gh-btn { opacity: 1; }
+.cardfoot .foot-meta { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); white-space: nowrap; }
 
 .next-head { padding: 14px 16px 8px; font-size: 14px; font-weight: 600; color: var(--text); }
-/* Task board (Next view) */
-.tk-add { display: flex; gap: 8px; padding: 0 16px 12px; align-items: center; }
+/* Task board (Next view) — one control bar: [project][new-todo][date][add] | separator | [filter project][filter][show-done](+clear) | [list|calendar] */
+.tk-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 0 16px 12px; }
+.tk-sep { width: 1px; height: 16px; background: var(--border-strong); flex: 0 0 auto; }
 .tk-add-proj { flex: 0 0 auto; max-width: 170px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
-.tk-add-text { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.tk-add-text { flex: 1 1 140px; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .tk-add-due { flex: 0 0 auto; background: var(--surface); color: var(--text-dim); border: 1px solid var(--border-strong); border-radius: 8px; padding: 5px 8px; font-size: 12px; }
-.tk-filter { display: flex; gap: 8px; padding: 0 16px 12px; align-items: center; }
 .tk-filter-proj { flex: 0 0 auto; max-width: 170px; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 8px; font-size: 12px; }
-.tk-filter-text { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
+.tk-filter-text { flex: 1 1 140px; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
 .tk-show-done { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
 .tk-clear-done { flex: 0 0 auto; background: transparent; border: 1px solid var(--border-strong); border-radius: 8px; color: var(--text-dim); font-size: 12px; padding: 5px 10px; cursor: pointer; white-space: nowrap; }
 .tk-clear-done:hover { border-color: var(--bad); color: var(--bad); }
@@ -150,7 +178,7 @@ button.primary:hover { background: var(--accent-hover); }
 .tk-group.tk-later, .tk-group.tk-none { color: var(--text-faint); border-left-color: var(--border-strong); }
 .tk-list { display: flex; flex-direction: column; gap: 4px; padding: 0 16px 6px; }
 /* Task board: list/calendar toggle + month calendar */
-.tk-viewtoggle { display: flex; gap: 4px; padding: 2px 16px 8px; }
+.tk-viewtoggle { display: flex; gap: 4px; flex: 0 0 auto; }
 .tk-vt { background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); font-size: 12px; padding: 3px 12px; border-radius: 6px; cursor: pointer; }
 .tk-vt.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .cal-nav { display: flex; align-items: center; gap: 8px; padding: 2px 16px 10px; }
@@ -213,17 +241,38 @@ button.primary:hover { background: var(--accent-hover); }
 .mi-mark { display: inline-block; flex: 0 0 1em; width: 1em; text-align: center; color: var(--accent-hover); }
 
 .vt-spacer { flex: 1; }
+.deck-pulse { display:flex; gap:12px; align-items:center; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); margin-right: 10px; }
+.deck-pulse .p-attn { color: var(--warn); }
+.deck-pulse .p-work { color: var(--accent-hover); }
+/* ⚠/◉ pulse segments are buttons (click filters the deck to that live status) — reset
+   default button chrome so they read the same as the plain text they replace. */
+.deck-pulse .pulse-seg { appearance: none; background: none; border: 1px solid transparent; color: inherit; font: inherit; padding: 1px 5px; margin: -1px -5px; border-radius: 8px; cursor: pointer; }
+.deck-pulse .pulse-seg:hover { background: var(--surface-hover); }
+.deck-pulse .p-attn.active { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, transparent); }
+.deck-pulse .p-work.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .usage-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
 .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .usage-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
-.usage-total { margin-left: auto; font-family: var(--mono); color: var(--text); }
-.usage-total--secondary { font-size: 12px; color: var(--text-dim); }
+.usage-search {
+  margin-left: auto;
+  width: 160px;
+  background: #0f1115;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: var(--fs-body);
+}
+.usage-search:focus { border-color: var(--accent); }
 .usage-summary { padding: 14px 16px; }
 .usage-stats { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; }
 .stat { display: flex; flex-direction: column; }
 .stat b { font-family: var(--mono); font-size: 16px; }
 .stat span { color: var(--text-faint); font-size: 11px; }
+/* Cost leads the summary row — larger and full-text-color so the reader lands on $ first. */
+.usage-stats .stat-lead b { font-size: var(--fs-view); color: var(--text); }
 .sharebar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface); }
 .sharebar span { height: 100%; }
 .chart-box { padding: 8px 16px 16px; }
@@ -298,22 +347,30 @@ button.primary:hover { background: var(--accent-hover); }
 .gh-btn { display: inline-flex; align-items: center; }
 .gh-btn svg { display: block; }
 
-/* Compact list view */
+/* Compact list view — a "control-board" row grid: check · signal · name+branch · resume cue
+   · git state · sessions · actions. Same live-status language (border-left + `.sig`) as the
+   card stripe/badge, so cards and list agree on what's waiting on you vs. actively running. */
 #cards.as-list { display: flex; flex-direction: column; gap: 2px; padding: 8px 14px; }
-.prow { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 6px; background: var(--surface); }
-.prow:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.prow { display: grid; grid-template-columns: 24px 14px minmax(150px,190px) 1fr minmax(90px,120px) 76px auto; gap: 12px; align-items: center; padding: 8px 14px; border-left: 3px solid transparent; border-radius: 6px; background: var(--surface); }
+.prow:hover { background: var(--surface-hover); }
 .prow.selected { box-shadow: inset 0 0 0 1px var(--accent); }
-.prow.lvl-fresh { border-left-color: var(--ok); }
-.prow.lvl-neutral { border-left-color: var(--neutral); }
-.prow.lvl-warn { border-left-color: var(--warn); }
-.prow.lvl-neglected { border-left-color: var(--bad); }
+/* left border = LIVE status channel only (live-attention/live-working); stale age lives in the badge */
+.prow.lvl-fresh { border-left-color: transparent; }
+.prow.lvl-neutral { border-left-color: transparent; }
+.prow.lvl-warn { border-left-color: transparent; }
+.prow.lvl-neglected { border-left-color: transparent; }
 .prow.norecord { border-left-style: dashed; border-left-color: var(--border-strong); }
-.prow-check { flex: 0 0 auto; margin: 0; }
-.prow-dot { flex: 0 0 auto; font-size: 10px; }
-.prow-name { flex: 0 1 auto; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38%; }
-.prow-meta { flex: 1 1 auto; min-width: 0; font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.prow-time { flex: 0 0 auto; font-family: var(--mono); font-size: 11px; color: var(--text-faint); white-space: nowrap; }
-.prow-open { flex: 0 0 auto; color: var(--accent-hover); }
+/* Live cockpit status wins over the (data-driven) staleness stripe — same precedence as .card. */
+.prow.live-attention { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 6%, transparent); }
+.prow.live-working { border-left-color: var(--accent); }
+.prow-check { margin: 0; }
+.prow-name { font-size: var(--fs-row); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prow-name small { display: block; font-family: var(--mono); font-size: 10px; color: var(--text-faint); font-weight: 400; }
+.prow-cue { font-size: var(--fs-body); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prow-cue:not(:empty)::before { content: "↩ "; color: var(--accent-hover); }
+.prow-git, .prow-sess { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); text-align: right; white-space: nowrap; }
+.prow-actions { display: flex; align-items: center; gap: 4px; justify-self: end; }
+.prow-open { color: var(--accent-hover); }
 .about { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
 .about-title { margin: 0 0 8px; font-size: 13px; color: var(--text); }
 .about-ver { font-size: 13px; color: var(--text); }
@@ -341,11 +398,16 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row { display: flex; align-items: center; gap: 9px; padding: 8px 12px; margin: 1px 8px; border-radius: 8px; border-left: 3px solid transparent; cursor: pointer; }
 .ck-row:hover { background: var(--surface-hover); }
 .ck-row.sel { background: #16182b; border-left-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(85,88,239,.35); }
-.ck-row .nm { font-weight: 600; font-size: 12.5px; }
-.ck-row .mt { font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); margin-top: 1px; }
-/* Per-session context % on the row — tinted as it nears compaction (≥80 warn, ≥95 crit). */
-.ck-ctx.sev-warn { color: var(--warn); }
-.ck-ctx.sev-crit { color: var(--bad); font-weight: 700; }
+/* Row body: line 1 = name + right-aligned context %, line 2 = branch/agent/model meta. */
+.ck-row-main { flex: 1 1 auto; min-width: 0; }
+.ck-line1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ck-row .nm { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: var(--fs-row); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-row .mt { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-dim); margin-top: 1px; }
+/* Per-session context % — now on line 1 (next to the name), tinted as it nears compaction (≥80 warn,
+   ≥95 crit) — with many concurrent sessions this answers "which one is about to compact" at a glance. */
+.ck-ctx-col { margin-left: auto; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); }
+.ck-ctx-col.sev-warn { color: var(--warn); }
+.ck-ctx-col.sev-crit { color: var(--bad); font-weight: 700; }
 .ck-main { flex: 1; display: flex; flex-direction: column; background: #0a0b0e; min-width: 0; }
 .ck-header { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), #0e1015); min-height: 42px; }
 .ck-header .title { font-weight: 700; font-size: 13.5px; }
@@ -374,8 +436,9 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row.act-turn .ck-dot { background: var(--accent); }
 .ck-row.act-idle .ck-dot { background: var(--neutral); opacity: .55; }
 .ck-row.act-exited .ck-dot { background: transparent; border: 1.5px solid var(--text-faint); }
-.ck-row.act-attention { background: #241512; border-left-color: var(--bad); }
+.ck-row.act-attention { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
 .ck-row.act-attention .ck-ind { color: var(--bad); font-weight: 700; }
+.ck-row.act-working .ck-dot, .ck-row.act-working .ck-spin { filter: drop-shadow(0 0 4px var(--accent)); }
 
 /* Previous (restorable) sessions — muted, with a ↻ "restore all" in the group header and a ✕ to forget. */
 .ck-grp-prev { display: flex; align-items: center; justify-content: space-between; gap: 8px; }

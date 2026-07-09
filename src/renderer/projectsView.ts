@@ -1,8 +1,8 @@
 import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
-import { projectSignature, diffCards, type SignatureUiState } from '../shared/deckReconcile';
+import { projectSignature, diffCards, filterByLive, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
-import { type OpenReq } from './cockpitView';
+import { type OpenReq, liveProjectActivity } from './cockpitView';
 import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
@@ -32,6 +32,12 @@ type SortMode = 'activity' | 'uncommitted' | 'name' | 'opened';
 let searchQuery = '';
 let sortMode: SortMode = 'activity';
 let viewMode: 'cards' | 'list' = 'cards';
+// Toolbar pulse click-to-filter (⚠/◉): '' = no filter, otherwise narrows the deck to
+// projects currently in that live cockpit status. Same pattern as `searchQuery`.
+let liveFilter: '' | 'attention' | 'working' = '';
+// Last cost fetched for the toolbar pulse, kept so toggling the filter can re-render the
+// pulse's active/aria-pressed state without waiting on another usage scan.
+let lastPulseCost: number | null = null;
 
 let cardsEl: HTMLElement;
 let neglectedOnly: HTMLInputElement;
@@ -83,7 +89,11 @@ function truncateCue(text: string, max = 60): string {
   return oneLine.length > max ? oneLine.slice(0, max - 1) + '…' : oneLine;
 }
 
-function makeNote(p: ProjectViewModel): HTMLElement {
+// `suppressCue`: the card already shows the resume cue up top in its own `.card-cue`
+// element (see makeCard) — when true, fall back to the plain ghost here instead of
+// repeating the same cue text a second time. Defaults to false so callers that don't
+// render `.card-cue` (list view has none) keep the original ghost-cue behavior.
+function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
   const wrap = document.createElement('div');
   const showRead = () => {
     wrap.replaceChildren();
@@ -91,7 +101,7 @@ function makeNote(p: ProjectViewModel): HTMLElement {
     if (p.note) {
       el.className = 'note-preview'; el.textContent = p.note;
       el.addEventListener('click', () => showEdit());
-    } else if (p.resumeCue) {
+    } else if (p.resumeCue && !suppressCue) {
       const cueText = p.resumeCue.text;
       el.className = 'note-ghost has-cue';
       el.textContent = `↩ ${tr('proj.resume_prefix')}: ${truncateCue(cueText)}`;
@@ -126,6 +136,21 @@ function makeNote(p: ProjectViewModel): HTMLElement {
   };
   showRead();
   return wrap;
+}
+
+// The card's headline affordance: "what to pick back up." Prefers the harvested resume
+// cue, falls back to the most recent session's first message, and renders nothing at all
+// when neither exists (an empty `.card-cue` would just be dead space above the git line).
+function cardCueText(p: ProjectViewModel): string | null {
+  return p.resumeCue?.text ?? p.sessions[0]?.firstMessage ?? null;
+}
+function makeCue(p: ProjectViewModel): HTMLElement | null {
+  const text = cardCueText(p);
+  if (!text) return null;
+  const el = document.createElement('div'); el.className = 'card-cue';
+  el.textContent = text;
+  el.title = text;
+  return el;
 }
 
 function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
@@ -223,43 +248,46 @@ function makeMenuWrap(p: ProjectViewModel): HTMLElement {
   return menuWrap;
 }
 
-function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
+function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention' | 'working' = ''): HTMLElement {
   const card = document.createElement('div');
   const noRecord = isNoRecord(p);
-  card.className = 'card lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '');
+  const liveCls = live === 'attention' ? ' live-attention' : live === 'working' ? ' live-working' : '';
+  card.className = 'card lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '') + liveCls;
   card.setAttribute('role', 'listitem');
 
   const headRow = document.createElement('div'); headRow.className = 'card-head';
   const title = document.createElement('span'); title.className = 'card-title'; title.textContent = p.name; title.title = p.name;
   const badge = document.createElement('span');
-  badge.className = 'badge ' + (noRecord ? 'norecord' : 'lvl-' + p.stale.level);
-  badge.textContent = badgeText(p);
+  // Live cockpit status (attention/working) takes over the badge while a session is open;
+  // otherwise it falls back to the usual staleness badge (fresh/warn/neglected/no-record).
+  badge.className = 'badge ' + (liveCls ? liveCls.trim() : (noRecord ? 'norecord' : 'lvl-' + p.stale.level));
+  badge.textContent = live === 'attention' ? tr('deck.badge_attn') : live === 'working' ? tr('deck.badge_work') : badgeText(p);
 
   const menuWrap = makeMenuWrap(p);
 
   headRow.append(title, badge, menuWrap);
 
-  const meta = document.createElement('div'); meta.className = 'meta';
+  // Resume cue leads the card: "what to pick back up," ahead of git/session chrome.
+  const cue = makeCue(p);
+
+  const gitLine = document.createElement('div'); gitLine.className = 'card-git';
   const branch = document.createElement('span'); branch.className = 'branch'; branch.textContent = p.branch ?? tr('proj.no_branch');
-  meta.appendChild(branch);
+  gitLine.appendChild(branch);
   if (p.uncommitted > 0) {
     const dirty = document.createElement('span'); dirty.className = 'dirty' + (p.stale.level === 'neglected' ? ' alarm' : '');
-    dirty.textContent = ` · ✎${p.uncommitted}`; meta.appendChild(dirty);
+    dirty.textContent = ` · ✎${p.uncommitted}`; gitLine.appendChild(dirty);
   }
   if (p.ahead && p.ahead > 0) {
     const ahead = document.createElement('span'); ahead.className = 'ahead';
     ahead.textContent = ` · ↑${p.ahead}`;
     ahead.title = tr('proj.unpushed', { n: p.ahead });
-    meta.appendChild(ahead);
+    gitLine.appendChild(ahead);
   }
-  meta.appendChild(document.createElement('br'));
-  const commitLine = document.createElement('span');
+  const commitSpan = document.createElement('span');
   const subjectText = p.lastSubject ? `"${p.lastSubject}"` : tr('proj.no_commits');
-  commitLine.textContent = `git ${fmtTime(p.lastCommitMs)} ${subjectText}`;
-  if (p.lastSubject) commitLine.title = p.lastSubject;
-  meta.appendChild(commitLine);
-  const tb = taskBadge(p);
-  if (tb) { meta.appendChild(document.createElement('br')); meta.appendChild(tb); }
+  commitSpan.textContent = ` · ${fmtTime(p.lastCommitMs)} ${subjectText}`;
+  if (p.lastSubject) commitSpan.title = p.lastSubject;
+  gitLine.appendChild(commitSpan);
 
   const foot = document.createElement('div'); foot.className = 'cardfoot';
   const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
@@ -277,22 +305,37 @@ function makeCard(p: ProjectViewModel, render: () => void): HTMLElement {
   folderBtn.textContent = '📁'; folderBtn.title = tr('proj.open_folder');
   folderBtn.setAttribute('aria-label', tr('proj.open_folder'));
   folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
+  // Compact glance strip near the primary action: session count · last activity · est. cost.
+  const footMeta = document.createElement('span'); footMeta.className = 'foot-meta';
+  const footBits: string[] = [];
+  if (p.sessionCount) footBits.push(`${p.sessionCount} ${tr('proj.sessions')}`);
+  footBits.push(fmtTime(p.lastSessionMs));
+  const cost = costByPath.get(p.path);
+  if (cost != null) footBits.push(`~$${cost.toFixed(2)}`);
+  footMeta.textContent = footBits.join(' · ');
   const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
   open.addEventListener('click', () => openInTerminal([toOpenReq(p)]));
-  foot.append(check, spacer, editorBtn, folderBtn);
+  foot.append(check);
+  const tb = taskBadge(p);
+  if (tb) foot.append(tb);
+  foot.append(spacer, editorBtn, folderBtn);
   if (p.repoUrl) foot.append(githubBtn(p));
-  foot.append(open);
+  foot.append(footMeta, open);
 
-  card.append(headRow, meta, makeSessions(p, render), makeNote(p), foot);
+  card.append(headRow);
+  if (cue) card.append(cue);
+  card.append(gitLine, makeSessions(p, render), makeNote(p, !!p.resumeCue), foot);
   return card;
 }
 
-// One dense line per project for the "list" view — name + git state + last activity
-// + GitHub + open + the shared ⋯ menu, tuned for scanning many projects fast.
-function makeRow(p: ProjectViewModel): HTMLElement {
+// One control-board row per project for the "list" view — leading live/staleness signal +
+// name/branch + resume cue + git state + sessions + open + the shared ⋯ menu, tuned for
+// scanning many projects fast while still surfacing the same live cockpit status as cards.
+function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): HTMLElement {
   const row = document.createElement('div');
   const noRecord = isNoRecord(p);
-  row.className = 'prow lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '');
+  const liveCls = live === 'attention' ? ' live-attention' : live === 'working' ? ' live-working' : '';
+  row.className = 'prow lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '') + liveCls;
   row.setAttribute('role', 'listitem');
 
   const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
@@ -302,25 +345,51 @@ function makeRow(p: ProjectViewModel): HTMLElement {
     syncOpenBtn();
   });
 
-  const dot = document.createElement('span'); dot.className = 'prow-dot'; dot.textContent = LEVEL_EMOJI[p.stale.level] ?? '';
+  // Same signal language as the card stripe/badge (Task 1/4 `.sig`): amber = waiting on you,
+  // accent = actively working, plain = quiet (staleness level still carries via border-left).
+  const sig = document.createElement('span');
+  sig.className = 'sig' + (live === 'attention' ? ' attn' : live === 'working' ? ' work' : '');
+  if (live) {
+    const sigLabel = live === 'attention' ? tr('deck.badge_attn') : tr('deck.badge_work');
+    sig.title = sigLabel;
+    sig.setAttribute('aria-label', sigLabel);
+  } else {
+    sig.setAttribute('aria-hidden', 'true');
+  }
+
   const name = document.createElement('span'); name.className = 'prow-name'; name.textContent = p.name; name.title = p.name;
+  if (p.branch) {
+    const branchEl = document.createElement('small'); branchEl.textContent = p.branch;
+    name.appendChild(branchEl);
+  }
 
-  const meta = document.createElement('span'); meta.className = 'prow-meta';
-  let metaText = p.branch ?? tr('proj.no_branch');
-  if (p.uncommitted > 0) metaText += ` · ✎${p.uncommitted}`;
-  if (p.ahead && p.ahead > 0) metaText += ` · ↑${p.ahead}`;
-  meta.textContent = metaText;
+  // Resume cue: only the harvested cue (not the card's session-first-message fallback) —
+  // a list row is a scan surface, not a substitute for opening the card/cockpit.
+  const cue = document.createElement('span'); cue.className = 'prow-cue';
+  cue.textContent = p.resumeCue?.text ?? '';
+  if (p.resumeCue?.text) cue.title = p.resumeCue.text;
 
-  const time = document.createElement('span'); time.className = 'prow-time'; time.textContent = fmtTime(p.activityMs);
+  const git = document.createElement('span'); git.className = 'prow-git';
+  let gitText = '';
+  if (p.uncommitted > 0) gitText += `✎${p.uncommitted}`;
+  if (p.ahead && p.ahead > 0) gitText += (gitText ? ' ' : '') + `↑${p.ahead}`;
+  gitText += (gitText ? ' · ' : '') + fmtTime(p.lastCommitMs);
+  git.textContent = gitText;
 
+  // No per-project context % is available on ProjectViewModel (that's a cockpit/session-level
+  // stat) — show just the session count here rather than inventing a number.
+  const sess = document.createElement('span'); sess.className = 'prow-sess';
+  sess.textContent = p.sessionCount ? String(p.sessionCount) : '—';
+
+  const actions = document.createElement('span'); actions.className = 'prow-actions';
+  const tb = taskBadge(p);
+  if (tb) actions.append(tb);
+  if (p.repoUrl) actions.append(githubBtn(p));
   const open = document.createElement('button'); open.className = 'iconbtn prow-open'; open.textContent = '▶'; open.title = tr('proj.open'); open.setAttribute('aria-label', tr('proj.open'));
   open.addEventListener('click', () => openInTerminal([toOpenReq(p)]));
+  actions.append(open, makeMenuWrap(p));
 
-  row.append(check, dot, name, meta, time);
-  const tb = taskBadge(p);
-  if (tb) row.append(tb);
-  if (p.repoUrl) row.append(githubBtn(p));
-  row.append(open, makeMenuWrap(p));
+  row.append(check, sig, name, cue, git, sess, actions);
   return row;
 }
 
@@ -341,6 +410,9 @@ function setView(mode: 'cards' | 'list'): void {
 function render(): void {
   hiddenCountEl.textContent = String(projects.filter((p) => p.hidden).length);
   showHiddenBtn.classList.toggle('active', showHidden);
+  // Computed once per render: drives the card status stripe/badge, the activity-sort
+  // priority below, and the reconcile signature (so a live status flip forces a rebuild).
+  const act = liveProjectActivity();
   let visible = showHidden ? projects.filter((p) => p.hidden) : projects.filter((p) => !p.hidden);
   if (neglectedOnly.checked) visible = visible.filter((p) => p.stale.level === 'neglected');
 
@@ -354,6 +426,14 @@ function render(): void {
     );
   }
 
+  // Live-status filter (toolbar pulse ⚠/◉ click). Composes with the search/방치만/hidden
+  // filters above — one more AND step over the already-narrowed list, not a replacement.
+  // Uses the same `act` map computed above, not the (already-filtered) `visible` list, so
+  // this can only ever narrow further. The pulse itself is rendered separately from ALL
+  // projects (see renderDeckPulse), so its buttons stay clickable even when this empties
+  // the deck — the user can always un-filter.
+  visible = filterByLive(visible, act, liveFilter);
+
   // Sort
   const sorted = [...visible];
   if (sortMode === 'activity') {
@@ -361,6 +441,10 @@ function render(): void {
     // pinned-first only for activity sort
     sorted.sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      // A project mid-attention (waiting on you in the cockpit) jumps ahead of quieter ones.
+      const aa = act.get(a.path) === 'attention' ? 0 : 1;
+      const bb = act.get(b.path) === 'attention' ? 0 : 1;
+      if (aa !== bb) return aa - bb;
       return (b.activityMs ?? -Infinity) - (a.activityMs ?? -Infinity);
     });
   } else if (sortMode === 'uncommitted') {
@@ -402,7 +486,7 @@ function render(): void {
   // In-place reconcile: reuse the DOM node of every project whose displayed values are
   // unchanged, rebuild only changed/new cards, drop removed ones, and move nodes to match
   // order. This keeps the always-open deck from flickering on the periodic refresh.
-  const desired = visible.map((p) => ({ key: p.path, sig: projectSignature(p, uiStateFor(p)) }));
+  const desired = visible.map((p) => ({ key: p.path, sig: projectSignature(p, uiStateFor(p, act)) }));
   const prevSigs = new Map<string, string>();
   for (const [key, entry] of cardCache) prevSigs.set(key, entry.sig);
   const { reuse, remove } = diffCards(prevSigs, desired);
@@ -416,11 +500,15 @@ function render(): void {
       orderedEls.push(cached.el);
       return;
     }
-    const el = viewMode === 'list' ? makeRow(p) : makeCard(p, render);
+    const el = viewMode === 'list' ? makeRow(p, act.get(p.path) ?? '') : makeCard(p, render, act.get(p.path) ?? '');
     if (showHidden) {
       const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = tr('proj.restore');
       restore.addEventListener('click', () => { window.devdeck.setHidden(p.path, false); reload(); });
-      el.appendChild(restore);
+      // List mode's row is a 7-column grid (.prow); appending to the row root adds an 8th
+      // child that wraps to an implicit second row. Put it in the actions cell instead so it
+      // sits inline with the other action buttons.
+      const actionsCell = viewMode === 'list' ? el.querySelector<HTMLElement>('.prow-actions') : null;
+      (actionsCell ?? el).appendChild(restore);
     }
     cardCache.set(p.path, { el, sig: desired[i].sig });
     orderedEls.push(el);
@@ -430,8 +518,8 @@ function render(): void {
   reconcileChildren(cardsEl, orderedEls);
 }
 
-function uiStateFor(p: ProjectViewModel): SignatureUiState {
-  return { expanded: expanded.has(p.path), cost: costByPath.get(p.path), showHidden, viewMode };
+function uiStateFor(p: ProjectViewModel, act: Map<string, 'attention' | 'working'>): SignatureUiState {
+  return { expanded: expanded.has(p.path), cost: costByPath.get(p.path), showHidden, viewMode, live: act.get(p.path) ?? '' };
 }
 
 // Make `container`'s children exactly `ordered`, in order, touching only what is out of
@@ -451,6 +539,48 @@ function reconcileChildren(container: HTMLElement, ordered: HTMLElement[]): void
 function showSkeleton(): void {
   cardsEl.replaceChildren();
   for (let i = 0; i < 6; i++) { const s = document.createElement('div'); s.className = 'skeleton'; cardsEl.appendChild(s); }
+}
+
+// Toolbar summary: live cockpit status counts (attention/working) + today's est. cost.
+// Purely additive — never blocks reload() and degrades to omitting the cost span on failure.
+// The ⚠/◉ counts are real buttons: click filters the deck to that live status (toggle same
+// status off, switch to the other). Rendered from ALL projects' activity (not the currently
+// filtered `visible` list in render()), so the pulse — and the way to un-filter — is always
+// available even when the active filter has narrowed the deck to nothing else.
+function renderDeckPulse(todayCost: number | null): void {
+  const el = document.getElementById('deck-pulse'); if (!el) return;
+  lastPulseCost = todayCost;
+  const act = liveProjectActivity();
+  const attn = [...act.values()].filter((v) => v === 'attention').length;
+  const work = act.size - attn;
+  // Edge case: a zero-count segment isn't rendered at all (same as before this feature) —
+  // so if the currently active filter's segment count drops to 0 (its last live session
+  // cleared), its button is about to disappear and the user would be stranded on a filtered,
+  // possibly-empty deck with no pulse control left to un-filter. Auto-clear instead.
+  if ((liveFilter === 'attention' && attn === 0) || (liveFilter === 'working' && work === 0)) {
+    liveFilter = '';
+    render(); // prevent stranded empty deck; safe: render() never calls renderDeckPulse
+  }
+  el.replaceChildren();
+  const span = (cls: string, text: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = text; el.appendChild(s); };
+  const seg = (cls: string, text: string, status: 'attention' | 'working', labelKey: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const active = liveFilter === status;
+    b.className = 'pulse-seg ' + cls + (active ? ' active' : '');
+    b.textContent = text;
+    b.setAttribute('aria-pressed', String(active));
+    b.setAttribute('aria-label', tr(labelKey));
+    b.addEventListener('click', () => {
+      liveFilter = liveFilter === status ? '' : status;
+      renderDeckPulse(lastPulseCost); // refresh pulse active/aria-pressed state
+      render(); // same re-render path searchQuery changes use
+    });
+    el.appendChild(b);
+  };
+  if (attn > 0) seg('p-attn', `⚠ ${attn}`, 'attention', 'deck.badge_attn');
+  if (work > 0) seg('p-work', `◉ ${work}`, 'working', 'deck.badge_work');
+  if (todayCost != null) span('', `${tr('deck.today')} ~$${todayCost.toFixed(0)}`);
 }
 
 async function reload(): Promise<void> {
@@ -479,11 +609,17 @@ async function reload(): Promise<void> {
   // cockpit owns attention/turn on the same channel).
   const overdue = projects.reduce((n, p) => n + taskCounts(p.todos, Date.now()).overdue, 0);
   window.devdeck.setTrayCounts({ overdue });
-  // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch).
-  void window.devdeck.usageReport(0).then((r) => {
+  // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch), then
+  // the toolbar pulse summary (live status counts + today's cost). Both best-effort: any
+  // failure in this chain falls back to a status-only pulse rather than blocking reload().
+  void window.devdeck.usageReport(0).then(async (r) => {
     for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);
     render();
-  }).catch(() => { /* cost is best-effort; ignore failures */ });
+    const t0 = new Date();
+    t0.setUTCHours(0, 0, 0, 0);
+    const today = await window.devdeck.usageReport(t0.getTime());
+    renderDeckPulse(today.globalCost);
+  }).catch(() => { renderDeckPulse(null); /* cost is best-effort; ignore failures */ });
 }
 
 // External triggers (agent switch, settings change) should rebuild from scratch: the agent

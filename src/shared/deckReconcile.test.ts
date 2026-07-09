@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { projectSignature, diffCards, type SignatureInput, type SignatureUiState } from './deckReconcile';
+import { projectSignature, diffCards, filterByLive, type SignatureInput, type SignatureUiState } from './deckReconcile';
 
 const baseInput: SignatureInput = {
   stale: { level: 'fresh', ageDays: 0 },
@@ -73,6 +73,10 @@ describe('projectSignature', () => {
     expect(projectSignature(baseInput, { ...baseUi, cost: undefined }))
       .toBe(projectSignature(baseInput, { ...baseUi, cost: null }));
   });
+  it('changes when the live status changes (attention stripe must re-render)', () => {
+    const base = projectSignature(baseInput, baseUi);
+    expect(projectSignature(baseInput, { ...baseUi, live: 'attention' })).not.toBe(base);
+  });
   it('distinguishes a real cost from no cost', () => {
     expect(projectSignature(baseInput, { ...baseUi, cost: 1.23 }))
       .not.toBe(projectSignature(baseInput, { ...baseUi, cost: null }));
@@ -126,5 +130,40 @@ describe('diffCards', () => {
     expect([...r.reuse]).toEqual(['a']);
     expect(r.rebuild).toEqual(['b', 'd']); // desired order preserved
     expect(r.remove).toEqual(['c']);       // gone from desired
+  });
+});
+
+// Backs the deck toolbar pulse's click-to-filter (⚠/◉ segments): narrows a project list to
+// those in a given live cockpit status. Pure so the composition with the deck's other filters
+// (search / 방치만-neglected / show-hidden, all applied by the caller before this one) is
+// testable without touching the DOM.
+describe('filterByLive', () => {
+  const items = [{ path: '/a' }, { path: '/b' }, { path: '/c' }];
+
+  it('returns every item unchanged when no filter is active', () => {
+    const act = new Map<string, 'attention' | 'working'>([['/a', 'attention'], ['/b', 'working']]);
+    expect(filterByLive(items, act, '')).toEqual(items);
+  });
+
+  it('keeps only attention-status projects when filtering by attention', () => {
+    const act = new Map<string, 'attention' | 'working'>([['/a', 'attention'], ['/b', 'working']]);
+    expect(filterByLive(items, act, 'attention')).toEqual([items[0]]);
+  });
+
+  it('keeps only working-status projects when filtering by working', () => {
+    const act = new Map<string, 'attention' | 'working'>([['/a', 'attention'], ['/b', 'working']]);
+    expect(filterByLive(items, act, 'working')).toEqual([items[1]]);
+  });
+
+  it('excludes a project with no entry in the activity map for any active filter', () => {
+    // '/c' has no live cockpit session at all -> absent from `act` -> never matches.
+    const act = new Map<string, 'attention' | 'working'>([['/a', 'attention'], ['/b', 'working']]);
+    expect(filterByLive(items, act, 'attention')).not.toContainEqual(items[2]);
+    expect(filterByLive(items, act, 'working')).not.toContainEqual(items[2]);
+  });
+
+  it('returns an empty array when the filtered status has no matching projects', () => {
+    const act = new Map<string, 'attention' | 'working'>([['/a', 'working']]);
+    expect(filterByLive(items, act, 'attention')).toEqual([]);
   });
 });
