@@ -559,6 +559,7 @@ function renderDeckPulse(todayCost: number | null): void {
   // possibly-empty deck with no pulse control left to un-filter. Auto-clear instead.
   if ((liveFilter === 'attention' && attn === 0) || (liveFilter === 'working' && work === 0)) {
     liveFilter = '';
+    render(); // prevent stranded empty deck; safe: render() never calls renderDeckPulse
   }
   el.replaceChildren();
   const span = (cls: string, text: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = text; el.appendChild(s); };
