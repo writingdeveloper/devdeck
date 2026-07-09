@@ -343,7 +343,13 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   // accent = actively working, plain = quiet (staleness level still carries via border-left).
   const sig = document.createElement('span');
   sig.className = 'sig' + (live === 'attention' ? ' attn' : live === 'working' ? ' work' : '');
-  if (live) sig.title = live === 'attention' ? tr('deck.badge_attn') : tr('deck.badge_work');
+  if (live) {
+    const sigLabel = live === 'attention' ? tr('deck.badge_attn') : tr('deck.badge_work');
+    sig.title = sigLabel;
+    sig.setAttribute('aria-label', sigLabel);
+  } else {
+    sig.setAttribute('aria-hidden', 'true');
+  }
 
   const name = document.createElement('span'); name.className = 'prow-name'; name.textContent = p.name; name.title = p.name;
   if (p.branch) {
@@ -484,7 +490,11 @@ function render(): void {
     if (showHidden) {
       const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = tr('proj.restore');
       restore.addEventListener('click', () => { window.devdeck.setHidden(p.path, false); reload(); });
-      el.appendChild(restore);
+      // List mode's row is a 7-column grid (.prow); appending to the row root adds an 8th
+      // child that wraps to an implicit second row. Put it in the actions cell instead so it
+      // sits inline with the other action buttons.
+      const actionsCell = viewMode === 'list' ? el.querySelector<HTMLElement>('.prow-actions') : null;
+      (actionsCell ?? el).appendChild(restore);
     }
     cardCache.set(p.path, { el, sig: desired[i].sig });
     orderedEls.push(el);

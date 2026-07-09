@@ -229,6 +229,9 @@ function render(): void {
     const e = document.createElement('div'); e.className = 'empty';
     const msg = document.createElement('div'); msg.textContent = tr('next.empty');
     const cta = document.createElement('button'); cta.className = 'primary tk-empty-cta'; cta.textContent = tr('tasks.empty_cta');
+    // Mirror addControls' zero-projects guard: with no projects the .tk-add-text input is
+    // disabled, so focusing it would be a no-op — disable the CTA too instead of doing nothing.
+    if (projects.length === 0) cta.disabled = true;
     cta.addEventListener('click', () => viewEl.querySelector<HTMLInputElement>('.tk-add-text')?.focus());
     e.append(msg, cta);
     viewEl.appendChild(e);

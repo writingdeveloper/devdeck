@@ -242,7 +242,6 @@ button.primary:hover { background: var(--accent-hover); }
 
 .vt-spacer { flex: 1; }
 .deck-pulse { display:flex; gap:12px; align-items:center; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); margin-right: 10px; }
-.deck-pulse b { font-weight:600; }
 .deck-pulse .p-attn { color: var(--warn); }
 .deck-pulse .p-work { color: var(--accent-hover); }
 .usage-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
