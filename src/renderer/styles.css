@@ -91,10 +91,11 @@ button.primary:hover { background: var(--accent-hover); }
   transition: border-color .12s ease, background .12s ease;
 }
 .card:hover { background: var(--surface-hover); border-color: var(--border-strong); }
-.card.lvl-fresh { border-left-color: var(--ok); }
-.card.lvl-neutral { border-left-color: var(--neutral); }
-.card.lvl-warn { border-left-color: var(--warn); }
-.card.lvl-neglected { border-left-color: var(--bad); }
+/* left border = LIVE status channel only (live-attention/live-working); stale age lives in the badge */
+.card.lvl-fresh { border-left-color: transparent; }
+.card.lvl-neutral { border-left-color: transparent; }
+.card.lvl-warn { border-left-color: transparent; }
+.card.lvl-neglected { border-left-color: transparent; }
 .card.norecord { border-left-color: var(--border-strong); border-left-style: dashed; }
 .card.selected { box-shadow: inset 0 0 0 1px var(--accent); }
 /* Live cockpit status wins over the (data-driven) staleness stripe above — a project someone
@@ -335,10 +336,11 @@ button.primary:hover { background: var(--accent-hover); }
 .prow { display: grid; grid-template-columns: 24px 14px minmax(150px,190px) 1fr minmax(90px,120px) 76px auto; gap: 12px; align-items: center; padding: 8px 14px; border-left: 3px solid transparent; border-radius: 6px; background: var(--surface); }
 .prow:hover { background: var(--surface-hover); }
 .prow.selected { box-shadow: inset 0 0 0 1px var(--accent); }
-.prow.lvl-fresh { border-left-color: var(--ok); }
-.prow.lvl-neutral { border-left-color: var(--neutral); }
-.prow.lvl-warn { border-left-color: var(--warn); }
-.prow.lvl-neglected { border-left-color: var(--bad); }
+/* left border = LIVE status channel only (live-attention/live-working); stale age lives in the badge */
+.prow.lvl-fresh { border-left-color: transparent; }
+.prow.lvl-neutral { border-left-color: transparent; }
+.prow.lvl-warn { border-left-color: transparent; }
+.prow.lvl-neglected { border-left-color: transparent; }
 .prow.norecord { border-left-style: dashed; border-left-color: var(--border-strong); }
 /* Live cockpit status wins over the (data-driven) staleness stripe — same precedence as .card. */
 .prow.live-attention { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 6%, transparent); }
