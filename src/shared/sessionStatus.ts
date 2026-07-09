@@ -67,7 +67,7 @@ export function hasWorkingSpinner(recentOutput: string): boolean {
   return WORKING_SPINNER_RE.test(recentOutput.slice(-SPINNER_TAIL));
 }
 
-export function computeActivity(i: { exited: boolean; lastDataAt: number; lastInputAt: number; now: number; recentOutput: string; prev?: ActivityState; spinnerReliable?: boolean }): ActivityState {
+export function computeActivity(i: { exited: boolean; lastDataAt: number; lastInputAt: number; now: number; recentOutput: string; screenText?: string; prev?: ActivityState; spinnerReliable?: boolean }): ActivityState {
   if (i.exited) return 'exited';
   // The user actively typing is engaged, not the agent working — keep it a stable "your turn"
   // so the indicator (and the needs-you badge) don't flicker as keystrokes echo back.
@@ -78,7 +78,10 @@ export function computeActivity(i: { exited: boolean; lastDataAt: number; lastIn
   if (hasPromptPattern(i.recentOutput)) return 'attention';
   // Content signal: the agent's spinner frame is still the last thing on screen, so it's working even
   // through a long silent tool/think/API gap (survives a frozen spinner — which the timer alone can't).
-  if (hasWorkingSpinner(i.recentOutput)) return 'working';
+  // Prefer the LIVE SCREEN when the caller provides it: recentOutput is an append-only stream, so a
+  // spinner frame the agent ERASED (turn over) lingers in its 200-char tail whenever the post-turn
+  // output is short — sticking the row on 작업중 until something repaints. The screen reflects erasures.
+  if (hasWorkingSpinner(i.screenText ?? i.recentOutput)) return 'working';
   // Timing hysteresis fallback: it WAS working and only briefly went quiet — covers agents/versions
   // whose spinner glyph we don't match (e.g. Antigravity / Codex-style TUIs). SKIPPED when the spinner
   // is reliable (Claude): there the spinner above is the positive "working" signal and stays on screen

@@ -83,6 +83,14 @@ describe('computeActivity', () => {
   it('spinnerReliable (Claude): spinner still on screen => working (positive signal unaffected)', () => {
     expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'working', spinnerReliable: true, recentOutput: '✢Gesticulating…' })).toBe('working');
   });
+  it('screenText (live screen) OUTRANKS the recentOutput stream for the spinner: erased on screen => turn', () => {
+    // recentOutput is append-only, so an ANSI-erased spinner frame lingers in its 200-char tail when the
+    // post-turn output is short — the "sidebar keeps spinning until I click" bug. The live screen is
+    // ground truth: erasures actually remove the glyph there.
+    expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'working', spinnerReliable: true, recentOutput: '✢Gesticulating…', screenText: '❯ done' })).toBe('turn');
+    // and the converse: spinner genuinely on screen keeps it working even with a star-free stream tail
+    expect(computeActivity({ ...base, now: 1000 + 5000, prev: 'working', spinnerReliable: true, recentOutput: 'plain tail', screenText: '✻ Thinking…' })).toBe('working');
+  });
   it('stopped >= idle => idle', () => {
     expect(computeActivity({ ...base, now: 1000 + IDLE_MS })).toBe('idle');
   });
