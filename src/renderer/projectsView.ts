@@ -322,12 +322,14 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   return card;
 }
 
-// One dense line per project for the "list" view — name + git state + last activity
-// + GitHub + open + the shared ⋯ menu, tuned for scanning many projects fast.
-function makeRow(p: ProjectViewModel): HTMLElement {
+// One control-board row per project for the "list" view — leading live/staleness signal +
+// name/branch + resume cue + git state + sessions + open + the shared ⋯ menu, tuned for
+// scanning many projects fast while still surfacing the same live cockpit status as cards.
+function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): HTMLElement {
   const row = document.createElement('div');
   const noRecord = isNoRecord(p);
-  row.className = 'prow lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '');
+  const liveCls = live === 'attention' ? ' live-attention' : live === 'working' ? ' live-working' : '';
+  row.className = 'prow lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '') + liveCls;
   row.setAttribute('role', 'listitem');
 
   const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
@@ -337,25 +339,45 @@ function makeRow(p: ProjectViewModel): HTMLElement {
     syncOpenBtn();
   });
 
-  const dot = document.createElement('span'); dot.className = 'prow-dot'; dot.textContent = LEVEL_EMOJI[p.stale.level] ?? '';
+  // Same signal language as the card stripe/badge (Task 1/4 `.sig`): amber = waiting on you,
+  // accent = actively working, plain = quiet (staleness level still carries via border-left).
+  const sig = document.createElement('span');
+  sig.className = 'sig' + (live === 'attention' ? ' attn' : live === 'working' ? ' work' : '');
+  if (live) sig.title = live === 'attention' ? tr('deck.badge_attn') : tr('deck.badge_work');
+
   const name = document.createElement('span'); name.className = 'prow-name'; name.textContent = p.name; name.title = p.name;
+  if (p.branch) {
+    const branchEl = document.createElement('small'); branchEl.textContent = p.branch;
+    name.appendChild(branchEl);
+  }
 
-  const meta = document.createElement('span'); meta.className = 'prow-meta';
-  let metaText = p.branch ?? tr('proj.no_branch');
-  if (p.uncommitted > 0) metaText += ` · ✎${p.uncommitted}`;
-  if (p.ahead && p.ahead > 0) metaText += ` · ↑${p.ahead}`;
-  meta.textContent = metaText;
+  // Resume cue: only the harvested cue (not the card's session-first-message fallback) —
+  // a list row is a scan surface, not a substitute for opening the card/cockpit.
+  const cue = document.createElement('span'); cue.className = 'prow-cue';
+  cue.textContent = p.resumeCue?.text ?? '';
+  if (p.resumeCue?.text) cue.title = p.resumeCue.text;
 
-  const time = document.createElement('span'); time.className = 'prow-time'; time.textContent = fmtTime(p.activityMs);
+  const git = document.createElement('span'); git.className = 'prow-git';
+  let gitText = '';
+  if (p.uncommitted > 0) gitText += `✎${p.uncommitted}`;
+  if (p.ahead && p.ahead > 0) gitText += (gitText ? ' ' : '') + `↑${p.ahead}`;
+  gitText += (gitText ? ' · ' : '') + fmtTime(p.lastCommitMs);
+  git.textContent = gitText;
 
+  // No per-project context % is available on ProjectViewModel (that's a cockpit/session-level
+  // stat) — show just the session count here rather than inventing a number.
+  const sess = document.createElement('span'); sess.className = 'prow-sess';
+  sess.textContent = p.sessionCount ? String(p.sessionCount) : '—';
+
+  const actions = document.createElement('span'); actions.className = 'prow-actions';
+  const tb = taskBadge(p);
+  if (tb) actions.append(tb);
+  if (p.repoUrl) actions.append(githubBtn(p));
   const open = document.createElement('button'); open.className = 'iconbtn prow-open'; open.textContent = '▶'; open.title = tr('proj.open'); open.setAttribute('aria-label', tr('proj.open'));
   open.addEventListener('click', () => openInTerminal([toOpenReq(p)]));
+  actions.append(open, makeMenuWrap(p));
 
-  row.append(check, dot, name, meta, time);
-  const tb = taskBadge(p);
-  if (tb) row.append(tb);
-  if (p.repoUrl) row.append(githubBtn(p));
-  row.append(open, makeMenuWrap(p));
+  row.append(check, sig, name, cue, git, sess, actions);
   return row;
 }
 
@@ -458,7 +480,7 @@ function render(): void {
       orderedEls.push(cached.el);
       return;
     }
-    const el = viewMode === 'list' ? makeRow(p) : makeCard(p, render, act.get(p.path) ?? '');
+    const el = viewMode === 'list' ? makeRow(p, act.get(p.path) ?? '') : makeCard(p, render, act.get(p.path) ?? '');
     if (showHidden) {
       const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = tr('proj.restore');
       restore.addEventListener('click', () => { window.devdeck.setHidden(p.path, false); reload(); });
