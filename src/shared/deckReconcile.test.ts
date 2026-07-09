@@ -73,6 +73,10 @@ describe('projectSignature', () => {
     expect(projectSignature(baseInput, { ...baseUi, cost: undefined }))
       .toBe(projectSignature(baseInput, { ...baseUi, cost: null }));
   });
+  it('changes when the live status changes (attention stripe must re-render)', () => {
+    const base = projectSignature(baseInput, baseUi);
+    expect(projectSignature(baseInput, { ...baseUi, live: 'attention' })).not.toBe(base);
+  });
   it('distinguishes a real cost from no cost', () => {
     expect(projectSignature(baseInput, { ...baseUi, cost: 1.23 }))
       .not.toBe(projectSignature(baseInput, { ...baseUi, cost: null }));

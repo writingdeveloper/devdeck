@@ -117,6 +117,8 @@
   "proj.sort_name": "名前",
   "proj.sort_opened": "最終開覧",
   "deck.today": "今日",
+  "deck.badge_attn": "応答待ち",
+  "deck.badge_work": "作業中",
   "update.available": "アップデートあり: v{version}",
   "update.download": "ダウンロード",
   "update.downloading": "アップデートをダウンロード中… {percent}%",

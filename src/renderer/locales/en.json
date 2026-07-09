@@ -117,6 +117,8 @@
   "proj.sort_name": "Name",
   "proj.sort_opened": "Last opened",
   "deck.today": "Today",
+  "deck.badge_attn": "Needs you",
+  "deck.badge_work": "Working",
   "update.available": "Update available: v{version}",
   "update.download": "Download",
   "update.downloading": "Downloading update… {percent}%",

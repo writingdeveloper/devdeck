@@ -117,6 +117,8 @@
   "proj.sort_name": "名称",
   "proj.sort_opened": "最近打开",
   "deck.today": "今日",
+  "deck.badge_attn": "等待回复",
+  "deck.badge_work": "工作中",
   "update.available": "有可用更新: v{version}",
   "update.download": "下载",
   "update.downloading": "正在下载更新… {percent}%",

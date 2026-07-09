@@ -86,7 +86,7 @@ button.primary:hover { background: var(--accent-hover); }
 
 .card {
   position: relative; background: var(--surface);
-  border: 1px solid var(--border); border-left-width: 4px;
+  border: 1px solid var(--border); border-left-width: 3px;
   border-radius: 8px; padding: 10px 12px;
   transition: border-color .12s ease, background .12s ease;
 }
@@ -97,22 +97,35 @@ button.primary:hover { background: var(--accent-hover); }
 .card.lvl-neglected { border-left-color: var(--bad); }
 .card.norecord { border-left-color: var(--border-strong); border-left-style: dashed; }
 .card.selected { box-shadow: inset 0 0 0 1px var(--accent); }
+/* Live cockpit status wins over the (data-driven) staleness stripe above — a project someone
+   is actively in, or one waiting on a reply, is the most important signal on the deck. */
+.card.live-attention { border-left-color: var(--warn); background: linear-gradient(180deg, color-mix(in srgb, var(--warn) 7%, transparent), transparent 45%) var(--surface); }
+.card.live-working { border-left-color: var(--accent); }
 
 .card-head { display: flex; align-items: center; gap: 8px; }
-.card-title { font-size: 14px; font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-title { font-size: 15px; font-weight: 650; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; white-space: nowrap; }
 .badge.lvl-fresh { background: #14304f; color: #9cc4ff; }
 .badge.lvl-neutral { background: #23262e; color: var(--text-dim); }
 .badge.lvl-warn { background: #4a371259; color: #f0c178; }
 .badge.lvl-neglected { background: #4a201859; color: #f2a78e; }
 .badge.norecord { background: transparent; color: var(--text-faint); border: 1px dashed var(--border-strong); }
+.badge.live-attention { background: #4a371259; color: #f0c178; }
+.badge.live-working { background: #1b1e3a; color: var(--accent-hover); }
 
 .iconbtn { background: transparent; border: 0; color: var(--text-faint); padding: 2px 4px; cursor: pointer; border-radius: 4px; font-size: 13px; }
 .iconbtn:hover { color: var(--text); background: var(--surface-hover); }
 .pin-on { color: var(--accent); }
 
-.meta { font-family: var(--mono); font-size: 11.5px; color: var(--text-dim); line-height: 1.6; margin-top: 4px; }
-.meta .branch { color: var(--text); }
+/* Resume cue: the card's headline — "what to pick back up," ahead of git/session chrome. */
+.card-cue {
+  margin: 7px 0 5px; font-size: var(--fs-body); line-height: 1.45; color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.card-cue::before { content: "↩ "; color: var(--accent-hover); }
+
+.card-git { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.card-git .branch { color: var(--text-dim); }
 .dirty { color: var(--text); }
 .dirty.alarm { color: var(--warn); }
 .ahead { color: var(--accent-hover); }
@@ -134,6 +147,13 @@ button.primary:hover { background: var(--accent-hover); }
 
 .cardfoot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .cardfoot .spacer { flex: 1; }
+/* Secondary actions (editor/folder/GitHub) reveal on hover or keyboard focus — the primary
+   "open" CTA and the glance metadata stay visible at all times. Fully hidden at rest (not
+   semi-faded): a 25%-alpha glyph on --surface is ~1.5:1 contrast, an axe serious violation. */
+.cardfoot .iconbtn, .cardfoot .gh-btn { opacity: 0; transition: opacity .12s; }
+.card:hover .cardfoot .iconbtn, .card:hover .cardfoot .gh-btn,
+.card:focus-within .cardfoot .iconbtn, .card:focus-within .cardfoot .gh-btn { opacity: 1; }
+.cardfoot .foot-meta { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); white-space: nowrap; }
 
 .next-head { padding: 14px 16px 8px; font-size: 14px; font-weight: 600; color: var(--text); }
 /* Task board (Next view) */

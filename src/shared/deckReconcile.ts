@@ -31,6 +31,9 @@ export interface SignatureUiState {
   cost: number | null | undefined;
   showHidden: boolean;
   viewMode: 'cards' | 'list';
+  // Live cockpit activity (attention/working) drives the card's status stripe + badge —
+  // optional so existing call sites that don't track it keep compiling.
+  live?: '' | 'attention' | 'working';
 }
 // NOTE: selection is intentionally NOT part of the signature. It toggles a class directly
 // (no re-render) and is re-derived from `selected.has(path)` whenever a card is rebuilt, so
@@ -70,6 +73,7 @@ export function projectSignature(p: SignatureInput, ui: SignatureUiState): strin
     ui.showHidden ? 1 : 0,
     ui.viewMode,
     ui.cost == null ? '' : ui.cost.toFixed(2),
+    ui.live ?? '',
   ].join(SEP);
 }
 
