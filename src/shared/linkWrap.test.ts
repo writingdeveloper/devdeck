@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findUrlLinks, type BufferRow } from './linkWrap';
+import { findUrlLinks, findImagePathLinks, type BufferRow } from './linkWrap';
 
 const row = (text: string, wrapped = false): BufferRow => ({ text, wrapped });
 
@@ -68,5 +68,36 @@ describe('findUrlLinks', () => {
   it('multiple URLs on one line each get their own range', () => {
     const hits = findUrlLinks([row('a https://x.example.com b https://y.example.com c')]);
     expect(hits).toHaveLength(2);
+  });
+});
+
+describe('findImagePathLinks', () => {
+  // Claude prints artifacts like "  > [image] pinterest-assets\\en\\A1.png (95.8KB)" - clicking should
+  // open the image instead of the user digging through Explorer.
+  it('finds a relative Windows path ending in an image extension (size suffix excluded)', () => {
+    const hits = findImagePathLinks([row('  > [image] pinterest-assets\\en\\A1.png (95.8KB)')]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].url).toBe('pinterest-assets\\en\\A1.png');
+    expect(hits[0].start).toEqual({ row: 0, col: 12 });
+    expect(hits[0].end).toEqual({ row: 0, col: 38 }); // exclusive: past ".png"
+  });
+
+  it('finds absolute paths and forward-slash paths', () => {
+    const hits = findImagePathLinks([row('saved C:\\Users\\me\\out\\shot.jpeg and assets/logo.webp')]);
+    expect(hits.map((h) => h.url)).toEqual(['C:\\Users\\me\\out\\shot.jpeg', 'assets/logo.webp']);
+  });
+
+  it('ignores non-image extensions (never click-to-run an executable)', () => {
+    expect(findImagePathLinks([row('run build\\tool.exe and see notes.txt')])).toHaveLength(0);
+  });
+
+  it('ignores image paths that are part of a URL (the URL provider owns those)', () => {
+    expect(findImagePathLinks([row('see https://cdn.example.com/img/a.png here')])).toHaveLength(0);
+  });
+
+  it('finds a bare filename', () => {
+    const hits = findImagePathLinks([row('wrote A1.png')]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].url).toBe('A1.png');
   });
 });

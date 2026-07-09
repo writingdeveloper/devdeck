@@ -41,6 +41,31 @@ function isContinuationFragment(frag: string): boolean {
  * Find every URL across the given rows (0-based coordinates into those rows). Soft-wrapped rows are
  * joined unconditionally; hard-wrapped continuations only via the conservative fragment heuristic.
  */
+// Image files only — click-to-open runs the OS default handler, so this list must never include
+// anything executable. (Claude prints artifacts like "> [image] pinterest-assets\en\A1.png (95.8KB)".)
+const IMAGE_PATH_RE = /(?:[A-Za-z]:)?[^\s"'`<>|*?:]+\.(?:png|jpe?g|gif|webp|bmp|svg|ico)\b/gi;
+
+/**
+ * Local image paths in terminal rows (relative or absolute, either slash), so a printed artifact can be
+ * clicked open instead of hunted down in Explorer. URLs are excluded — the URL provider owns those.
+ */
+export function findImagePathLinks(rows: BufferRow[]): UrlHit[] {
+  const hits: UrlHit[] = [];
+  for (let r = 0; r < rows.length; r++) {
+    const text = rows[r].text;
+    IMAGE_PATH_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = IMAGE_PATH_RE.exec(text)) !== null) {
+      const token = m[0];
+      // Part of a URL, not a filesystem path (the drive-letter prefix can even eat the 's' of 'https',
+      // matching "s://cdn/…" — hence the '://' check): the URL provider owns those.
+      if (token.includes('://') || token.startsWith('//') || /https?:$/i.test(text.slice(0, m.index))) continue;
+      hits.push({ url: token, start: { row: r, col: m.index }, end: { row: r, col: m.index + token.length } });
+    }
+  }
+  return hits;
+}
+
 export function findUrlLinks(rows: BufferRow[]): UrlHit[] {
   const hits: UrlHit[] = [];
   const consumed = new Set<number>(); // rows already used as a continuation of an earlier URL

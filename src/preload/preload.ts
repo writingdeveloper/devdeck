@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     sessionIds: (projectPath: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath),
     gitInfo: (projectPath: string) => ipcRenderer.invoke('cockpit:gitInfo', projectPath),
     openLink: (url: string) => ipcRenderer.invoke('cockpit:openLink', url),
+    openImage: (projectPath: string, imagePath: string) => ipcRenderer.invoke('cockpit:openImage', projectPath, imagePath),
   },
   setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),
   setContextWindow: (w: number) => ipcRenderer.invoke('settings:setContextWindow', w),

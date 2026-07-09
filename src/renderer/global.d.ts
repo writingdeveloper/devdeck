@@ -67,6 +67,7 @@ declare global {
         sessionIds(projectPath: string): Promise<string[]>;
         gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
         openLink(url: string): Promise<void>;
+        openImage(projectPath: string, imagePath: string): Promise<string>;
       };
     };
   }
