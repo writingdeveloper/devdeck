@@ -86,6 +86,23 @@ export interface DiffResult {
   remove: string[];
 }
 
+/**
+ * Narrow a project list to those currently in a given live cockpit status (the deck toolbar
+ * pulse's ⚠/◉ click-to-filter). An empty `liveFilter` returns `items` unchanged. A project
+ * with no entry in `act` (no live cockpit session at all) never matches a non-empty filter.
+ * Pure and generic over anything path-keyed so it composes with whatever other filters
+ * (search, 방치만/neglected-only, show-hidden) the caller already applied — this is just one
+ * more AND step over the same list, not a replacement for them.
+ */
+export function filterByLive<T extends { path: string }>(
+  items: T[],
+  act: Map<string, 'attention' | 'working'>,
+  liveFilter: '' | 'attention' | 'working',
+): T[] {
+  if (!liveFilter) return items;
+  return items.filter((item) => act.get(item.path) === liveFilter);
+}
+
 /** Decide which cached cards to reuse, rebuild, or remove for the next render. */
 export function diffCards(prev: Map<string, string>, desired: { key: string; sig: string }[]): DiffResult {
   const reuse = new Set<string>();

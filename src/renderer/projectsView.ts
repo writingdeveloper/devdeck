@@ -1,6 +1,6 @@
 import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
-import { projectSignature, diffCards, type SignatureUiState } from '../shared/deckReconcile';
+import { projectSignature, diffCards, filterByLive, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
 import { type OpenReq, liveProjectActivity } from './cockpitView';
 import { openInTerminal } from './openRouter';
@@ -32,6 +32,12 @@ type SortMode = 'activity' | 'uncommitted' | 'name' | 'opened';
 let searchQuery = '';
 let sortMode: SortMode = 'activity';
 let viewMode: 'cards' | 'list' = 'cards';
+// Toolbar pulse click-to-filter (⚠/◉): '' = no filter, otherwise narrows the deck to
+// projects currently in that live cockpit status. Same pattern as `searchQuery`.
+let liveFilter: '' | 'attention' | 'working' = '';
+// Last cost fetched for the toolbar pulse, kept so toggling the filter can re-render the
+// pulse's active/aria-pressed state without waiting on another usage scan.
+let lastPulseCost: number | null = null;
 
 let cardsEl: HTMLElement;
 let neglectedOnly: HTMLInputElement;
@@ -420,6 +426,14 @@ function render(): void {
     );
   }
 
+  // Live-status filter (toolbar pulse ⚠/◉ click). Composes with the search/방치만/hidden
+  // filters above — one more AND step over the already-narrowed list, not a replacement.
+  // Uses the same `act` map computed above, not the (already-filtered) `visible` list, so
+  // this can only ever narrow further. The pulse itself is rendered separately from ALL
+  // projects (see renderDeckPulse), so its buttons stay clickable even when this empties
+  // the deck — the user can always un-filter.
+  visible = filterByLive(visible, act, liveFilter);
+
   // Sort
   const sorted = [...visible];
   if (sortMode === 'activity') {
@@ -529,15 +543,42 @@ function showSkeleton(): void {
 
 // Toolbar summary: live cockpit status counts (attention/working) + today's est. cost.
 // Purely additive — never blocks reload() and degrades to omitting the cost span on failure.
+// The ⚠/◉ counts are real buttons: click filters the deck to that live status (toggle same
+// status off, switch to the other). Rendered from ALL projects' activity (not the currently
+// filtered `visible` list in render()), so the pulse — and the way to un-filter — is always
+// available even when the active filter has narrowed the deck to nothing else.
 function renderDeckPulse(todayCost: number | null): void {
   const el = document.getElementById('deck-pulse'); if (!el) return;
+  lastPulseCost = todayCost;
   const act = liveProjectActivity();
   const attn = [...act.values()].filter((v) => v === 'attention').length;
   const work = act.size - attn;
+  // Edge case: a zero-count segment isn't rendered at all (same as before this feature) —
+  // so if the currently active filter's segment count drops to 0 (its last live session
+  // cleared), its button is about to disappear and the user would be stranded on a filtered,
+  // possibly-empty deck with no pulse control left to un-filter. Auto-clear instead.
+  if ((liveFilter === 'attention' && attn === 0) || (liveFilter === 'working' && work === 0)) {
+    liveFilter = '';
+  }
   el.replaceChildren();
   const span = (cls: string, text: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = text; el.appendChild(s); };
-  if (attn > 0) span('p-attn', `⚠ ${attn}`);
-  if (work > 0) span('p-work', `◉ ${work}`);
+  const seg = (cls: string, text: string, status: 'attention' | 'working', labelKey: string) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const active = liveFilter === status;
+    b.className = 'pulse-seg ' + cls + (active ? ' active' : '');
+    b.textContent = text;
+    b.setAttribute('aria-pressed', String(active));
+    b.setAttribute('aria-label', tr(labelKey));
+    b.addEventListener('click', () => {
+      liveFilter = liveFilter === status ? '' : status;
+      renderDeckPulse(lastPulseCost); // refresh pulse active/aria-pressed state
+      render(); // same re-render path searchQuery changes use
+    });
+    el.appendChild(b);
+  };
+  if (attn > 0) seg('p-attn', `⚠ ${attn}`, 'attention', 'deck.badge_attn');
+  if (work > 0) seg('p-work', `◉ ${work}`, 'working', 'deck.badge_work');
   if (todayCost != null) span('', `${tr('deck.today')} ~$${todayCost.toFixed(0)}`);
 }
 

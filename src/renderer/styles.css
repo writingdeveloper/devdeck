@@ -244,6 +244,12 @@ button.primary:hover { background: var(--accent-hover); }
 .deck-pulse { display:flex; gap:12px; align-items:center; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); margin-right: 10px; }
 .deck-pulse .p-attn { color: var(--warn); }
 .deck-pulse .p-work { color: var(--accent-hover); }
+/* ⚠/◉ pulse segments are buttons (click filters the deck to that live status) — reset
+   default button chrome so they read the same as the plain text they replace. */
+.deck-pulse .pulse-seg { appearance: none; background: none; border: 1px solid transparent; color: inherit; font: inherit; padding: 1px 5px; margin: -1px -5px; border-radius: 8px; cursor: pointer; }
+.deck-pulse .pulse-seg:hover { background: var(--surface-hover); }
+.deck-pulse .p-attn.active { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, transparent); }
+.deck-pulse .p-work.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .usage-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
 .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); font-family: var(--mono); }
 .legend-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
