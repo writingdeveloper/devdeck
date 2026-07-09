@@ -100,3 +100,13 @@ export function cockpitListSignature(
     search,
   ]);
 }
+
+/** Fold live sessions to a per-project signal for the deck: attention outranks working; quiet projects are absent. */
+export function foldProjectActivity(sessions: { projectPath: string; activity: ActivityState }[]): Map<string, 'attention' | 'working'> {
+  const m = new Map<string, 'attention' | 'working'>();
+  for (const s of sessions) {
+    if (s.activity === 'attention') m.set(s.projectPath, 'attention');
+    else if (s.activity === 'working' && m.get(s.projectPath) !== 'attention') m.set(s.projectPath, 'working');
+  }
+  return m;
+}

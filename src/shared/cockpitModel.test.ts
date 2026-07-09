@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -125,5 +125,19 @@ describe('cockpitListSignature', () => {
     // "a|b" vs "ab|" must differ — guards against a naive join with no separator.
     expect(cockpitListSignature([row({ id: 'a', label: 'b' })], [], 'ko', ''))
       .not.toBe(cockpitListSignature([row({ id: 'ab', label: '' })], [], 'ko', ''));
+  });
+});
+
+describe('foldProjectActivity', () => {
+  it('folds sessions to per-project status, attention outranking working', () => {
+    const m = foldProjectActivity([
+      { projectPath: 'C:/g/a', activity: 'working' },
+      { projectPath: 'C:/g/a', activity: 'attention' },
+      { projectPath: 'C:/g/b', activity: 'working' },
+      { projectPath: 'C:/g/c', activity: 'idle' },
+    ]);
+    expect(m.get('C:/g/a')).toBe('attention');
+    expect(m.get('C:/g/b')).toBe('working');
+    expect(m.has('C:/g/c')).toBe(false); // idle/turn/exited는 신호 아님
   });
 });
