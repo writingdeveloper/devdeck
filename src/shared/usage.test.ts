@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { emptyTotals, addUsage, estimateCost, MODEL_PRICING, activeMsFromTimestamps, formatDuration, ACTIVE_GAP_CAP_MS } from './usage';
+import { emptyTotals, addUsage, estimateCost, MODEL_PRICING, priceFor, activeMsFromTimestamps, formatDuration, ACTIVE_GAP_CAP_MS } from './usage';
 
 describe('addUsage', () => {
   it('accumulates the four token categories', () => {
@@ -28,6 +28,36 @@ describe('estimateCost', () => {
   it('prices Opus 4.8 at the current $5/$25 per Mtok (not the retired $15/$75)', () => {
     // Opus dropped to $5/$25 at 4.6; the old $15/$75 card 3x-inflated every Opus 4.8 cost estimate.
     expect(MODEL_PRICING['claude-opus-4-8']).toEqual({ input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 });
+  });
+  it('has a price card for claude-fable-5 at $10/$50 per Mtok', () => {
+    expect(MODEL_PRICING['claude-fable-5']).toEqual({ input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 });
+  });
+  it('has a price card for claude-sonnet-5 at introductory $2/$10 per Mtok (through 2026-08-31)', () => {
+    expect(MODEL_PRICING['claude-sonnet-5']).toEqual({ input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 });
+  });
+});
+
+describe('priceFor', () => {
+  it('resolves an exact MODEL_PRICING key', () => {
+    expect(priceFor('claude-sonnet-5')).toEqual(MODEL_PRICING['claude-sonnet-5']);
+    expect(priceFor('claude-fable-5')).toEqual(MODEL_PRICING['claude-fable-5']);
+  });
+  it('strips a trailing -YYYYMMDD date suffix and retries', () => {
+    // claude-haiku-4-5-20251001 has no exact key, but claude-haiku-4-5 does.
+    expect(priceFor('claude-haiku-4-5-20251001')).toEqual(MODEL_PRICING['claude-haiku-4-5']);
+  });
+  it('maps bare family aliases to the newest card for that family', () => {
+    expect(priceFor('opus')).toEqual(MODEL_PRICING['claude-opus-4-8']);
+    expect(priceFor('sonnet')).toEqual(MODEL_PRICING['claude-sonnet-5']);
+    expect(priceFor('haiku')).toEqual(MODEL_PRICING['claude-haiku-4-5']);
+    expect(priceFor('fable')).toEqual(MODEL_PRICING['claude-fable-5']);
+  });
+  it('returns undefined for non-Claude ids and empty string', () => {
+    expect(priceFor('ltx-2.3-22b-distilled')).toBeUndefined();
+    expect(priceFor('')).toBeUndefined();
+  });
+  it('returns undefined for an unrecognized dated id whose stripped base has no card', () => {
+    expect(priceFor('mystery-model-20260101')).toBeUndefined();
   });
 });
 

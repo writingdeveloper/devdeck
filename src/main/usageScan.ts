@@ -3,7 +3,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
-import { emptyTotals, addUsage, addTotals, estimateCost, activeMsFromTimestamps, MODEL_PRICING, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
+import { emptyTotals, addUsage, addTotals, estimateCost, activeMsFromTimestamps, priceFor, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
 import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
 
 // Cache: filepath -> per-file DIGEST — (day × model) usage rollups + message timestamps — NOT the raw
@@ -70,7 +70,7 @@ function tokensOf(t: UsageTotals): number { return t.input + t.output + t.cacheW
 function sumModelCost(byModel: Map<string, UsageTotals>): number | null {
   let any = false, sum = 0;
   for (const [model, totals] of byModel) {
-    const c = estimateCost(totals, MODEL_PRICING[model]);
+    const c = estimateCost(totals, priceFor(model));
     if (c != null) { any = true; sum += c; }
   }
   return any ? sum : null;
@@ -109,7 +109,7 @@ async function parseDigest(fullPath: string, fileMs: number, mtimeMs: number): P
       if (model === SYNTHETIC_MODEL) continue;
       const key = day + ' ' + model;
       let e = rollup.get(key);
-      if (!e) { e = { dayMs, day, model, totals: emptyTotals(), webSearch: 0, webFetch: 0, unknown: !MODEL_PRICING[model] }; rollup.set(key, e); }
+      if (!e) { e = { dayMs, day, model, totals: emptyTotals(), webSearch: 0, webFetch: 0, unknown: !priceFor(model) }; rollup.set(key, e); }
       e.totals = addUsage(e.totals, u);
       e.webSearch += u.server_tool_use?.web_search_requests ?? 0;
       e.webFetch += u.server_tool_use?.web_fetch_requests ?? 0;
@@ -179,7 +179,7 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
   }
 
   const byModel: ModelUsage[] = [...perModelGlobal.entries()].map(([model, totals]) => ({
-    model, totals, costEstimate: estimateCost(totals, MODEL_PRICING[model]),
+    model, totals, costEstimate: estimateCost(totals, priceFor(model)),
   }));
   const daily = [...perDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([day, t]) => ({
     day, tokens: tokensOf(t), cost: null as number | null,
