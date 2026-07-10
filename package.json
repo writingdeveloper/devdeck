@@ -1,6 +1,6 @@
 {
   "name": "devdeck",
-  "version": "1.19.0",
+  "version": "1.19.1",
   "description": "Project command deck — at-a-glance state + claude -c resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
