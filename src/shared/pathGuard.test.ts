@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { join, resolve, sep } from 'node:path';
-import { isAllowedPath, isAllowedFilePath } from './pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentImagePath } from './pathGuard';
 
 // Build OS-native absolute paths so the test exercises the same separator/`resolve`
 // semantics the guard uses on whatever platform runs it (CI runs ubuntu/macos/windows).
@@ -39,5 +39,39 @@ describe('isAllowedFilePath', () => {
   it('still rejects anything outside every configured folder', () => {
     expect(isAllowedFilePath(folders, resolve(sep, 'elsewhere', 'img.png'))).toBe(false);
     expect(isAllowedFilePath([], join(root, 'img.png'))).toBe(false);
+  });
+
+  const scratch = resolve(sep, 'tmp-root');
+  it('with extraRoots, also allows files under an extra root (e.g. the OS temp/scratchpad dir)', () => {
+    expect(isAllowedFilePath(folders, join(scratch, 'claude', 'a.png'), [scratch])).toBe(true);
+    expect(isAllowedFilePath(folders, scratch, [scratch])).toBe(true);
+  });
+  it('extraRoots does not widen access beyond itself plus the configured folders', () => {
+    expect(isAllowedFilePath(folders, resolve(sep, 'elsewhere', 'img.png'), [scratch])).toBe(false);
+  });
+  it('omitting extraRoots preserves prior behavior exactly', () => {
+    expect(isAllowedFilePath(folders, join(root, 'projA', 'img.png'))).toBe(true);
+  });
+});
+
+describe('resolveAgentImagePath', () => {
+  const home = resolve(sep, 'home', 'demo');
+  const proj = resolve(sep, 'work', 'projA');
+
+  it('resolves a plain relative path against the project dir (unchanged behavior)', () => {
+    expect(resolveAgentImagePath(proj, join('assets', 'a.png'), home)).toBe(join(proj, 'assets', 'a.png'));
+  });
+  it('expands a leading ~ to the home dir instead of the project dir', () => {
+    expect(resolveAgentImagePath(proj, '~/AppData/Local/Temp/claude/a.png', home))
+      .toBe(join(home, 'AppData', 'Local', 'Temp', 'claude', 'a.png'));
+    expect(resolveAgentImagePath(proj, '~\\AppData\\Local\\Temp\\claude\\a.png', home))
+      .toBe(join(home, 'AppData', 'Local', 'Temp', 'claude', 'a.png'));
+  });
+  it('bare ~ resolves to exactly the home dir', () => {
+    expect(resolveAgentImagePath(proj, '~', home)).toBe(home);
+  });
+  it('does not treat a path merely starting with a tilde-prefixed segment as home-relative', () => {
+    // "~foo" (no separator) is a literal relative filename, not shorthand for the home dir.
+    expect(resolveAgentImagePath(proj, '~foo.png', home)).toBe(join(proj, '~foo.png'));
   });
 });

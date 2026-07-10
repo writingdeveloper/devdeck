@@ -1,5 +1,5 @@
 import { ipcMain, dialog, shell, app, clipboard, type BrowserWindow } from 'electron';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -12,7 +12,7 @@ import { scanFolders, isRepo } from './scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession } from './agents';
 import type { AgentId, Folder } from '../shared/types';
-import { isAllowedPath, isAllowedFilePath } from '../shared/pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentImagePath } from '../shared/pathGuard';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
 import { makeTtlCache } from '../shared/ttlCache';
 import { buildProjectList } from './projects';
@@ -383,14 +383,17 @@ export function registerIpc(cfg: IpcConfig): void {
   });
 
   // Open a local IMAGE the agent printed (e.g. "> [image] assets\a.png") in the OS default viewer.
-  // Relative paths resolve against the session's project dir. Guards, in order: the resolved target
-  // must carry an image extension (shell.openPath runs the default handler — never executables), sit
-  // under an allowed folder, and exist. Returns a status string so failures can toast + be tested.
+  // Relative paths resolve against the session's project dir; a leading `~` (home-dir shorthand some
+  // tools print, e.g. a scratchpad path) resolves against the home dir instead. Guards, in order: the
+  // resolved target must carry an image extension (shell.openPath runs the default handler — never
+  // executables), sit under an allowed folder OR the OS temp dir (where agent tooling writes
+  // cross-project scratch files — a click-to-open convenience, not project-file access), and exist.
+  // Returns a status string so failures can toast + be tested.
   ipcMain.handle('cockpit:openImage', async (_e, projectPath: string, imagePath: string) => {
     const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|bmp|svg|ico)$/i;
-    const resolved = path.resolve(String(projectPath), String(imagePath));
+    const resolved = resolveAgentImagePath(String(projectPath), String(imagePath), homedir());
     if (!IMAGE_EXT.test(resolved)) { cfg.sendError(`Not an image: ${resolved}`); return 'denied'; }
-    if (!isAllowedFilePath(effFolders(), resolved)) { cfg.sendError(`Path outside allowed folders: ${resolved}`); return 'denied'; }
+    if (!isAllowedFilePath(effFolders(), resolved, [tmpdir()])) { cfg.sendError(`Path outside allowed folders: ${resolved}`); return 'denied'; }
     if (!existsSync(resolved)) { cfg.sendError(`Image not found: ${resolved}`); return 'missing'; }
     const err = await shell.openPath(resolved);
     if (err) { cfg.sendError(`Could not open image: ${err}`); return 'error'; }
