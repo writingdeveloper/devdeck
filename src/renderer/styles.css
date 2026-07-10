@@ -156,7 +156,17 @@ button.primary:hover { background: var(--accent-hover); }
 .cardfoot .iconbtn, .cardfoot .gh-btn { opacity: 0; transition: opacity .12s; }
 .card:hover .cardfoot .iconbtn, .card:hover .cardfoot .gh-btn,
 .card:focus-within .cardfoot .iconbtn, .card:focus-within .cardfoot .gh-btn { opacity: 1; }
-.cardfoot .foot-meta { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); white-space: nowrap; }
+/* Meta is the one row member allowed to shrink — a nowrap flex child's default min-width:auto
+   otherwise floors it at its full text width, so a task badge + long meta together overflow
+   the card and shove the primary "open" button past the right edge. Ellipsize instead. */
+.cardfoot .foot-meta {
+  font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1;
+}
+/* Everything else in the foot keeps its natural size — the shrink budget above comes only
+   from the meta text, so the open button (and task badge) never get squeezed or wrapped. */
+.cardfoot > input[type="checkbox"], .cardfoot .task-badge, .cardfoot .iconbtn,
+.cardfoot .gh-btn, .cardfoot .primary { flex-shrink: 0; }
 
 .next-head { padding: 14px 16px 8px; font-size: 14px; font-weight: 600; color: var(--text); }
 /* Task board (Next view) — one control bar: [project][new-todo][date][add] | separator | [filter project][filter][show-done](+clear) | [list|calendar] */
