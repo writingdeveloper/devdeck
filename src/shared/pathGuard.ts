@@ -32,6 +32,14 @@ export function isAllowedFilePath(folders: Folder[], incoming: string, extraRoot
 }
 
 /**
+ * Image extensions the terminal click-to-open accepts. Deliberately RASTER-ONLY: `.svg` and `.ico`
+ * are excluded because they open in the OS default handler (frequently a browser) and an SVG can
+ * carry a `<script>` that executes in a file:// origin — a click-to-open image must never be
+ * script-capable. Widen this ONLY to formats that can't carry active content.
+ */
+export const AGENT_IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|bmp)$/i;
+
+/**
  * Resolve a path an agent printed in the terminal (e.g. "> [image] ~\AppData\...\a.png") against the
  * session's project dir — except a leading `~` (home-dir shorthand some tools print; Node's `path`
  * module, unlike a shell, never expands it), which resolves against `homeDir` instead of the project.

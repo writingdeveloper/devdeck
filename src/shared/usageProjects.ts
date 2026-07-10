@@ -1,15 +1,11 @@
+import { basename } from './paths';
+
 // Pure helpers for surfacing DELETED projects on the Usage page. Claude's session logs live in
 // ~/.claude/projects/<encoded-path>/ independently of the project folder, so a deleted project's
 // usage still exists on disk — these reconcile that data with the live deck so the totals stay honest.
 
 export interface ClaudeProjectRef { path: string; name: string; }
 export interface UsageProjectRef { path: string; name: string; status: 'active' | 'deleted'; }
-
-/** Cross-platform basename for a Windows OR POSIX path (the cwd may be a Windows path read on any OS). */
-function basenameOf(p: string): string {
-  const parts = p.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : p;
-}
 
 /** Normalize a path for cross-source comparison: unify separators, drop a trailing one, lowercase
  *  (project paths here are Windows / case-insensitive). */
@@ -24,7 +20,7 @@ export function recoverProjectFromLines(lines: string[]): ClaudeProjectRef | nul
     if (!line.trim()) continue;
     let o: { cwd?: unknown };
     try { o = JSON.parse(line); } catch { continue; }
-    if (typeof o.cwd === 'string' && o.cwd) return { path: o.cwd, name: basenameOf(o.cwd) };
+    if (typeof o.cwd === 'string' && o.cwd) return { path: o.cwd, name: basename(o.cwd) };
   }
   return null;
 }

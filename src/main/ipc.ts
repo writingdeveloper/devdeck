@@ -12,7 +12,8 @@ import { scanFolders, isRepo } from './scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession } from './agents';
 import type { AgentId, Folder } from '../shared/types';
-import { isAllowedPath, isAllowedFilePath, resolveAgentImagePath } from '../shared/pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentImagePath, AGENT_IMAGE_EXT } from '../shared/pathGuard';
+import { basename } from '../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
 import { makeTtlCache } from '../shared/ttlCache';
 import { buildProjectList } from './projects';
@@ -142,8 +143,16 @@ export function registerIpc(cfg: IpcConfig): void {
   });
   ipcMain.handle('settings:setBaseDir', (_e, dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
   ipcMain.handle('settings:getFolders', () => effFolders());
+  // addFolder is the one handler that WIDENS the scan allowlist every other path guard checks against,
+  // so it accepts only a directory the user just chose via the native pickFolder dialog (a dialog a
+  // compromised renderer can't silently confirm) — never an arbitrary path the renderer names itself.
+  const blessedFolderPicks = new Set<string>();
   ipcMain.handle('settings:addFolder', async (_e, p: string) => {
     const path = String(p).trim().slice(0, 2000);
+    if (!blessedFolderPicks.delete(path)) { // one-time consume; false ⇒ this path never came from pickFolder
+      cfg.sendError(`Folder must be chosen via the picker: ${path}`);
+      return effFolders();
+    }
     let isDir = false;
     try { isDir = (await stat(path)).isDirectory(); } catch { isDir = false; }
     if (isDir) {
@@ -167,7 +176,9 @@ export function registerIpc(cfg: IpcConfig): void {
   });
   ipcMain.handle('settings:pickFolder', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] });
-    return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+    const picked = r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+    if (picked) blessedFolderPicks.add(picked.trim().slice(0, 2000)); // bless it for one subsequent addFolder
+    return picked;
   });
   ipcMain.handle('app:info', () => ({
     version: app.getVersion(),
@@ -196,7 +207,7 @@ export function registerIpc(cfg: IpcConfig): void {
       else if ((await a.listSessions(it.path)).length > 0) command = a.buildCommand('continue');
       else command = a.buildCommand('new');
       tabs.push({
-        name: it.path.split(/[\\/]/).pop() ?? it.path,
+        name: basename(it.path),
         dir: it.path,
         command,
       });
@@ -390,9 +401,9 @@ export function registerIpc(cfg: IpcConfig): void {
   // cross-project scratch files — a click-to-open convenience, not project-file access), and exist.
   // Returns a status string so failures can toast + be tested.
   ipcMain.handle('cockpit:openImage', async (_e, projectPath: string, imagePath: string) => {
-    const IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|bmp|svg|ico)$/i;
     const resolved = resolveAgentImagePath(String(projectPath), String(imagePath), homedir());
-    if (!IMAGE_EXT.test(resolved)) { cfg.sendError(`Not an image: ${resolved}`); return 'denied'; }
+    // Raster-only (AGENT_IMAGE_EXT) — .svg/.ico are refused so a scriptable SVG can't be opened in the browser.
+    if (!AGENT_IMAGE_EXT.test(resolved)) { cfg.sendError(`Not an image: ${resolved}`); return 'denied'; }
     if (!isAllowedFilePath(effFolders(), resolved, [tmpdir()])) { cfg.sendError(`Path outside allowed folders: ${resolved}`); return 'denied'; }
     if (!existsSync(resolved)) { cfg.sendError(`Image not found: ${resolved}`); return 'missing'; }
     const err = await shell.openPath(resolved);

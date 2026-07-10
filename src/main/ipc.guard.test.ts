@@ -9,7 +9,7 @@ vi.mock('electron', () => ({
     handle: (ch: string, fn: (...args: unknown[]) => unknown) => { handlers.set(ch, fn); },
     on: (ch: string, fn: (...args: unknown[]) => unknown) => { handlers.set(ch, fn); },
   },
-  dialog: {},
+  dialog: { showOpenDialog: vi.fn() },
   shell: {},
   clipboard: {},
   app: { getPath: () => '', getVersion: () => '0.0.0', isPackaged: false },
@@ -23,11 +23,12 @@ vi.mock('./gitInfo', () => ({
 
 import { registerIpc, type IpcConfig } from './ipc';
 import { getGitBranchDirty } from './gitInfo';
+import { dialog } from 'electron';
 
 const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
 const sendError = vi.fn();
 const applyCounts = vi.fn();
-const storeSpies = { setNote: vi.fn(), setTodos: vi.fn(), setPinned: vi.fn(), setHidden: vi.fn() };
+const storeSpies = { setNote: vi.fn(), setTodos: vi.fn(), setPinned: vi.fn(), setHidden: vi.fn(), addFolder: vi.fn() };
 
 beforeAll(() => {
   const cfg = {
@@ -120,5 +121,31 @@ describe('tray:counts partial merge', () => {
     applyCounts.mockClear();
     handlers.get('tray:counts')!(null, { attention: -5, turn: 'x', overdue: 2.9 });
     expect(applyCounts).toHaveBeenLastCalledWith({ attention: 0, turn: 0, overdue: 2 }, 'attention');
+  });
+});
+
+describe('settings:addFolder picker handshake', () => {
+  // addFolder WIDENS the scan allowlist every other path guard relies on, so it must refuse any path
+  // the renderer names itself and accept only one the user chose through the native dialog.
+  it('refuses a renderer-named path that never came from pickFolder', async () => {
+    storeSpies.addFolder.mockClear(); sendError.mockClear();
+    await handlers.get('settings:addFolder')!(null, join(process.cwd(), 'attacker-named'));
+    expect(storeSpies.addFolder).not.toHaveBeenCalled();
+    expect(sendError).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a directory returned by pickFolder, and only once (single-use bless)', async () => {
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({ canceled: false, filePaths: [process.cwd()] } as never);
+    const picked = await handlers.get('settings:pickFolder')!(null);
+    expect(picked).toBe(process.cwd());
+
+    storeSpies.addFolder.mockClear();
+    await handlers.get('settings:addFolder')!(null, process.cwd());
+    expect(storeSpies.addFolder).toHaveBeenCalledWith({ path: process.cwd(), kind: expect.any(String) });
+
+    // The bless is consumed — a second addFolder for the same path is refused.
+    storeSpies.addFolder.mockClear();
+    await handlers.get('settings:addFolder')!(null, process.cwd());
+    expect(storeSpies.addFolder).not.toHaveBeenCalled();
   });
 });

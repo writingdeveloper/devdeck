@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { join, resolve, sep } from 'node:path';
-import { isAllowedPath, isAllowedFilePath, resolveAgentImagePath } from './pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentImagePath, AGENT_IMAGE_EXT } from './pathGuard';
 
 // Build OS-native absolute paths so the test exercises the same separator/`resolve`
 // semantics the guard uses on whatever platform runs it (CI runs ubuntu/macos/windows).
@@ -73,5 +73,18 @@ describe('resolveAgentImagePath', () => {
   it('does not treat a path merely starting with a tilde-prefixed segment as home-relative', () => {
     // "~foo" (no separator) is a literal relative filename, not shorthand for the home dir.
     expect(resolveAgentImagePath(proj, '~foo.png', home)).toBe(join(proj, '~foo.png'));
+  });
+});
+
+describe('AGENT_IMAGE_EXT (click-to-open allowlist)', () => {
+  it('accepts raster image extensions, case-insensitively', () => {
+    for (const f of ['a.png', 'b.JPG', 'c.jpeg', 'd.gif', 'e.webp', 'f.bmp', 'shot.PNG']) {
+      expect(AGENT_IMAGE_EXT.test(f)).toBe(true);
+    }
+  });
+  it('REFUSES script-capable / non-raster extensions (svg, ico) so shell.openPath cannot run them', () => {
+    for (const f of ['evil.svg', 'x.SVG', 'icon.ico', 'note.txt', 'app.exe', 'page.html', 'archive.png.svg']) {
+      expect(AGENT_IMAGE_EXT.test(f)).toBe(false);
+    }
   });
 });

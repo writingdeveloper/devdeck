@@ -31,9 +31,23 @@ export const MODEL_PRICING: Record<string, PriceCard> = {
   'claude-sonnet-4-6': { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 },
   'claude-haiku-4-5': { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.1 },
   'claude-fable-5': { input: 10, output: 50, cacheWrite: 12.5, cacheRead: 1 },
-  // Introductory pricing through 2026-08-31. EDIT to { input: 3, output: 15, cacheWrite: 3.75,
-  // cacheRead: 0.3 } from 2026-09-01 (the standard Sonnet-tier rate the intro price rolls off to).
+  // Introductory pricing; priceFor() auto-switches to the standard Sonnet-tier rate
+  // (SONNET5_STANDARD) from 2026-09-01 — no manual edit needed (see SONNET5_ROLLOFF_MS).
   'claude-sonnet-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+};
+
+// Sonnet-5 launched at an introductory rate; it rolls off to the standard Sonnet-tier rate on this
+// date (UTC). priceFor() is date-aware so the estimate self-corrects at the rollover instead of
+// silently under-reporting ~33% until someone remembers to edit the card (guarded by a test).
+export const SONNET5_ROLLOFF_MS = Date.UTC(2026, 8, 1); // 2026-09-01T00:00Z (month is 0-based: 8 = Sept)
+const SONNET5_STANDARD: PriceCard = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
+
+// Bare family name (no version) → newest card for that family. Module-scope single definition.
+const BARE_FAMILY_ALIAS: Record<string, string> = {
+  opus: 'claude-opus-4-8',
+  sonnet: 'claude-sonnet-5',
+  haiku: 'claude-haiku-4-5',
+  fable: 'claude-fable-5',
 };
 
 /**
@@ -46,19 +60,17 @@ export const MODEL_PRICING: Record<string, PriceCard> = {
  *      that family as the best available estimate, not a guarantee of the exact model that ran.
  * Non-Claude ids (ltx-*, hunyuan3d-*, etc.) fall through to undefined — stay unknown, as they should.
  */
-export function priceFor(model: string): PriceCard | undefined {
-  if (MODEL_PRICING[model]) return MODEL_PRICING[model];
-  const stripped = model.replace(/-\d{8}$/, '');
-  if (stripped !== model && MODEL_PRICING[stripped]) return MODEL_PRICING[stripped];
-  const BARE_FAMILY_ALIAS: Record<string, string> = {
-    opus: 'claude-opus-4-8',
-    sonnet: 'claude-sonnet-5',
-    haiku: 'claude-haiku-4-5',
-    fable: 'claude-fable-5',
-  };
-  const aliasKey = BARE_FAMILY_ALIAS[model];
-  if (aliasKey) return MODEL_PRICING[aliasKey];
-  return undefined;
+export function priceFor(model: string, now: number = Date.now()): PriceCard | undefined {
+  let key: string | undefined;
+  if (MODEL_PRICING[model]) key = model;
+  else {
+    const stripped = model.replace(/-\d{8}$/, '');
+    key = stripped !== model && MODEL_PRICING[stripped] ? stripped : BARE_FAMILY_ALIAS[model];
+  }
+  if (!key) return undefined;
+  // Sonnet-5's introductory price rolls off to the standard Sonnet-tier rate on 2026-09-01 (UTC).
+  if (key === 'claude-sonnet-5' && now >= SONNET5_ROLLOFF_MS) return SONNET5_STANDARD;
+  return MODEL_PRICING[key];
 }
 
 /**

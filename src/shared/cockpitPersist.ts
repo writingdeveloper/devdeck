@@ -1,3 +1,5 @@
+import { basename } from './paths';
+
 /** A cockpit session remembered across restarts, enough to re-open it via the agent's resume command. */
 export interface PersistedSession {
   projectPath: string;
@@ -10,11 +12,6 @@ export interface PersistedSession {
 
 const MAX_PERSISTED = 50;
 const MAX_LABEL = 60;
-
-function basename(p: string): string {
-  const parts = p.split(/[\\/]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : p;
-}
 
 /**
  * Choose which session a restored cockpit tile should actually resume. Claude Code appends in place

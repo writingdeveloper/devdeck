@@ -1,7 +1,7 @@
 import { readdirSync, statSync, existsSync } from 'node:fs';
 import { readdir, stat, open, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { encodeProjectPath } from '../shared/paths';
+import { encodeProjectPath, SESSION_ID_RE, isValidSessionId } from '../shared/paths';
 import { firstUserMessage, lastUserMessage } from '../shared/sessionParse';
 
 export interface SessionMeta {
@@ -17,12 +17,9 @@ const HEAD_BYTES = 64 * 1024;
 const TAIL_CHUNK = 1024 * 1024;
 const TAIL_MAX = 8 * 1024 * 1024;
 
-const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
-
-/** A session id is safe to interpolate into a `claude -r <id>` command only if it matches this. */
-export function isValidSessionId(id: string): boolean {
-  return SESSION_ID_RE.test(id);
-}
+// SESSION_ID_RE + isValidSessionId now live in shared/paths (single source of truth); re-export the
+// latter so sessionMeta.ts's `import { isValidSessionId } from './sessions'` keeps working unchanged.
+export { isValidSessionId };
 
 async function readHead(file: string): Promise<string> {
   let handle;

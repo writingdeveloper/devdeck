@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { emptyTotals, addUsage, estimateCost, MODEL_PRICING, priceFor, activeMsFromTimestamps, formatDuration, ACTIVE_GAP_CAP_MS } from './usage';
+import { emptyTotals, addUsage, estimateCost, MODEL_PRICING, priceFor, SONNET5_ROLLOFF_MS, activeMsFromTimestamps, formatDuration, ACTIVE_GAP_CAP_MS } from './usage';
 
 describe('addUsage', () => {
   it('accumulates the four token categories', () => {
@@ -39,7 +39,8 @@ describe('estimateCost', () => {
 
 describe('priceFor', () => {
   it('resolves an exact MODEL_PRICING key', () => {
-    expect(priceFor('claude-sonnet-5')).toEqual(MODEL_PRICING['claude-sonnet-5']);
+    // sonnet-5 is date-aware; pin a pre-rollover date so this asserts key resolution, not the rollover.
+    expect(priceFor('claude-sonnet-5', Date.UTC(2026, 0, 1))).toEqual(MODEL_PRICING['claude-sonnet-5']);
     expect(priceFor('claude-fable-5')).toEqual(MODEL_PRICING['claude-fable-5']);
   });
   it('strips a trailing -YYYYMMDD date suffix and retries', () => {
@@ -48,7 +49,7 @@ describe('priceFor', () => {
   });
   it('maps bare family aliases to the newest card for that family', () => {
     expect(priceFor('opus')).toEqual(MODEL_PRICING['claude-opus-4-8']);
-    expect(priceFor('sonnet')).toEqual(MODEL_PRICING['claude-sonnet-5']);
+    expect(priceFor('sonnet', Date.UTC(2026, 0, 1))).toEqual(MODEL_PRICING['claude-sonnet-5']); // pre-rollover
     expect(priceFor('haiku')).toEqual(MODEL_PRICING['claude-haiku-4-5']);
     expect(priceFor('fable')).toEqual(MODEL_PRICING['claude-fable-5']);
   });
@@ -58,6 +59,26 @@ describe('priceFor', () => {
   });
   it('returns undefined for an unrecognized dated id whose stripped base has no card', () => {
     expect(priceFor('mystery-model-20260101')).toBeUndefined();
+  });
+});
+
+describe('Sonnet-5 introductory-price rollover', () => {
+  const INTRO = { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 };
+  const STANDARD = { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.3 };
+  it('uses the introductory rate just before the 2026-09-01 rollover', () => {
+    expect(priceFor('claude-sonnet-5', SONNET5_ROLLOFF_MS - 1)).toEqual(INTRO);
+  });
+  it('auto-switches to the standard Sonnet-tier rate at/after the rollover — no manual edit', () => {
+    expect(priceFor('claude-sonnet-5', SONNET5_ROLLOFF_MS)).toEqual(STANDARD);
+    expect(priceFor('claude-sonnet-5', SONNET5_ROLLOFF_MS + 86_400_000)).toEqual(STANDARD);
+  });
+  it('applies the rollover through the bare "sonnet" alias and a dated id too', () => {
+    expect(priceFor('sonnet', SONNET5_ROLLOFF_MS)).toEqual(STANDARD);
+    expect(priceFor('claude-sonnet-5-20260901', SONNET5_ROLLOFF_MS)).toEqual(STANDARD);
+  });
+  it('leaves other families unaffected by the date', () => {
+    expect(priceFor('claude-haiku-4-5', SONNET5_ROLLOFF_MS)).toEqual(MODEL_PRICING['claude-haiku-4-5']);
+    expect(priceFor('claude-opus-4-8', SONNET5_ROLLOFF_MS)).toEqual(MODEL_PRICING['claude-opus-4-8']);
   });
 });
 

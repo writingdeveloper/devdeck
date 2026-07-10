@@ -4,8 +4,8 @@ import { existsSync } from 'node:fs';
 import type { AgentId, SessionMeta } from '../shared/types';
 import { listSessions, listSessionIds, lastUserMessageForSession } from './sessions';
 import { listAntigravitySessions, listAntigravitySessionIds, lastUserMessageForAntigravitySession, antigravityAvailable } from './antigravitySessions';
+import { SESSION_ID_RE } from '../shared/paths';
 
-const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
 

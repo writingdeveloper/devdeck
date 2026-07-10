@@ -6,6 +6,7 @@ import { type OpenReq, liveProjectActivity } from './cockpitView';
 import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
+import { basename } from '../shared/paths';
 import { renderLoadError } from './loadError';
 
 const AUTO_REFRESH_MS = 45_000;
@@ -661,7 +662,7 @@ export function mountProjects(): void {
   });
   document.getElementById('new-project')!.addEventListener('click', () => {
     openNewProjectModal((path) => {
-      openInTerminal([{ path, name: path.split(/[\\/]/).pop() ?? path, staleLevel: 'neutral', branch: null, dirty: 0 }]); // open the new project (cockpit on Windows, external terminal otherwise)
+      openInTerminal([{ path, name: basename(path), staleLevel: 'neutral', branch: null, dirty: 0 }]); // open the new project (cockpit on Windows, external terminal otherwise)
       reload();
     });
   });

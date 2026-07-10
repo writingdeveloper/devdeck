@@ -2,8 +2,7 @@ import { readdirSync, statSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { SessionMeta } from '../shared/types';
 import { extractCwdFromDbBuffer, firstUserMessageFromTranscript, lastUserMessageFromTranscript } from '../shared/antigravityParse';
-
-const SESSION_ID_RE = /^[0-9a-fA-F][0-9a-fA-F-]{7,}$/;
+import { SESSION_ID_RE } from '../shared/paths';
 
 /** Antigravity (agy CLI + IDE) stores conversations under <dir>/conversations/<uuid>.db. */
 export function antigravityAvailable(antigravityDir: string): boolean {

@@ -53,10 +53,13 @@ body {
 #content { flex: 1; overflow-y: auto; }
 .view { display: none; }
 .view.active { display: block; }
-.view-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 5; }
-.chk { color: var(--text-dim); font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+/* flex-wrap so the toolbar drops to a second row on narrow widths instead of crushing controls —
+   CJK labels break between every glyph (min-content = 1 char), so without this + nowrap below the
+   buttons collapse into unreadable vertical single-character columns near the 720px min width. */
+.view-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg); z-index: 5; }
+.chk { color: var(--text-dim); font-size: 12px; display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
 .chk:has(input:checked) { color: var(--accent-hover); }
-.chip { background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-dim); border-radius: 14px; padding: 3px 10px; font-size: 12px; cursor: pointer; }
+.chip { background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-dim); border-radius: 14px; padding: 3px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .chip.active { border-color: var(--accent); color: var(--accent-hover); background: #1b1e3a; }
 #cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 14px; }
 
@@ -83,7 +86,7 @@ button {
   transition: background .1s ease, border-color .1s ease;
 }
 button:hover { background: var(--surface-hover); border-color: var(--accent); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; white-space: nowrap; }
 button.primary:hover { background: var(--accent-hover); }
 
 .card {
@@ -397,7 +400,7 @@ button.primary:hover { background: var(--accent-hover); }
    giving the view height:100% lets the percentage chain resolve and the terminal fill. */
 #view-cockpit { height: 100%; overflow: hidden; }
 .ck-wrap { display: flex; height: 100%; }
-.ck-list { width: 250px; flex: 0 0 250px; border-right: 1px solid var(--border); background: #101218; display: flex; flex-direction: column; overflow-y: auto; }
+.ck-list { width: 250px; flex: 0 0 250px; border-right: 1px solid var(--border); background: #101218; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
 /* Prominent "+ New session" button at the top of the session list (discoverable entry point). */
 .ck-new { margin: 11px 11px 0; display: flex; align-items: center; justify-content: center; gap: 7px; background: #1b1e3a; border: 1px solid var(--accent); color: var(--accent-hover); border-radius: 8px; padding: 8px 10px; font: inherit; font-weight: 600; cursor: pointer; }
 .ck-new:hover:not(:disabled) { background: #232861; }
@@ -413,7 +416,7 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row-main { flex: 1 1 auto; min-width: 0; }
 .ck-line1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .ck-row .nm { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: var(--fs-row); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ck-row .mt { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-dim); margin-top: 1px; }
+.ck-row .mt { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-dim); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Per-session context % — now on line 1 (next to the name), tinted as it nears compaction (≥80 warn,
    ≥95 crit) — with many concurrent sessions this answers "which one is about to compact" at a glance. */
 .ck-ctx-col { margin-left: auto; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); }
