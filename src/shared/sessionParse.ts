@@ -10,7 +10,7 @@ function textOf(content: unknown): string {
   return '';
 }
 
-const WRAPPER_PREFIXES = ['<command-', '<local-command', 'Caveat:', 'Base directory for this skill:'];
+const WRAPPER_PREFIXES = ['<command-', '<local-command', 'Caveat:', 'Base directory for this skill:', '[SYSTEM NOTIFICATION', '<task-notification'];
 
 function isWrapper(text: string): boolean {
   const t = text.trimStart();

@@ -81,6 +81,7 @@
   "proj.empty_hint": "Set your scan folder in Settings",
   "usage.range_all": "All",
   "usage.est_cost": "API-equivalent cost (not your subscription)",
+  "usage.est_cost_short": "API-equivalent cost",
   "usage.cache_hit": "Cache hit",
   "usage.input": "Input",
   "usage.output": "Output",

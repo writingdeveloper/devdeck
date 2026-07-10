@@ -81,6 +81,7 @@
   "proj.empty_hint": "스캔 폴더를 설정에서 지정하세요",
   "usage.range_all": "전체",
   "usage.est_cost": "API 환산 비용 (구독과 무관)",
+  "usage.est_cost_short": "API 환산 비용",
   "usage.cache_hit": "캐시 적중",
   "usage.input": "입력",
   "usage.output": "출력",

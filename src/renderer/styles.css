@@ -14,6 +14,7 @@
   --neutral: #6b7280;
   --warn: #d98a1f;
   --bad: #e0623f;
+  --input-bg: #0f1115;
   --mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
   /* type scale — 산발적 font-size를 5단으로 통일 (리디자인 Phase 0) */
   --fs-meta: 11px; --fs-body: 12.5px; --fs-row: 14px; --fs-title: 16px; --fs-view: 19px;
@@ -145,7 +146,7 @@ button.primary:hover { background: var(--accent-hover); }
 .note-ghost { color: var(--text-dim); font-size: 12px; margin: 8px 0; cursor: text; }
 .note-ghost.has-cue { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .note-preview { color: var(--text); font-size: 12px; margin: 8px 0; white-space: pre-wrap; cursor: text; }
-.note-edit { width: 100%; margin: 8px 0; background: #0f1115; color: var(--text); border: 1px solid var(--accent); border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }
+.note-edit { width: 100%; margin: 8px 0; background: var(--input-bg); color: var(--text); border: 1px solid var(--accent); border-radius: 6px; padding: 6px; font: inherit; resize: vertical; }
 
 .cardfoot { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .cardfoot .spacer { flex: 1; }
@@ -257,7 +258,7 @@ button.primary:hover { background: var(--accent-hover); }
 .usage-search {
   margin-left: auto;
   width: 160px;
-  background: #0f1115;
+  background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -295,14 +296,14 @@ button.primary:hover { background: var(--accent-hover); }
 .set-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
 .set-label { color: var(--text-dim); font-size: 12px; }
 .set-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.set-input { flex: 1; min-width: 200px; background: #0f1115; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; font: inherit; }
-.set-num { width: 64px; background: #0f1115; color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px; font: inherit; }
+.set-input { flex: 1; min-width: 200px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; font: inherit; }
+.set-num { width: 64px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px; font: inherit; }
 .set-thr { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 12px; }
 .set-check { align-self: flex-start; width: 16px; height: 16px; accent-color: #6366f1; cursor: pointer; }
 .set-note { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
 
 #proj-search, #proj-sort {
-  background: #0f1115;
+  background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -427,7 +428,7 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-empty { padding: 24px; color: var(--text-faint); }
 .ck-main.has-session .ck-empty { display: none; }
 .rail-item { position: relative; }
-.rail-badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--bad); color: #fff; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #101218; }
+.rail-badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--warn); color: var(--bg); font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #101218; }
 .rail-badge.hidden { display: none; }
 .ck-ind { width: 16px; flex: 0 0 16px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
 .ck-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
@@ -437,7 +438,7 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row.act-idle .ck-dot { background: var(--neutral); opacity: .55; }
 .ck-row.act-exited .ck-dot { background: transparent; border: 1.5px solid var(--text-faint); }
 .ck-row.act-attention { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
-.ck-row.act-attention .ck-ind { color: var(--bad); font-weight: 700; }
+.ck-row.act-attention .ck-ind { color: var(--warn); font-weight: 700; }
 .ck-row.act-working .ck-dot, .ck-row.act-working .ck-spin { filter: drop-shadow(0 0 4px var(--accent)); }
 
 /* Previous (restorable) sessions — muted, with a ↻ "restore all" in the group header and a ✕ to forget. */

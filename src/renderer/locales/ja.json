@@ -81,6 +81,7 @@
   "proj.empty_hint": "設定でスキャンフォルダを指定してください",
   "usage.range_all": "全期間",
   "usage.est_cost": "API換算コスト（サブスク外）",
+  "usage.est_cost_short": "API換算コスト",
   "usage.cache_hit": "キャッシュ命中",
   "usage.input": "入力",
   "usage.output": "出力",

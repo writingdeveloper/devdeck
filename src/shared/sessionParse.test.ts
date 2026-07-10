@@ -35,6 +35,15 @@ describe('firstUserMessage', () => {
     expect(firstUserMessage('')).toBeNull();
     expect(firstUserMessage('not json\n{bad')).toBeNull();
   });
+
+  it('skips harness-injected notification messages and returns the next genuine message', () => {
+    const jsonl = [
+      line({ type: 'user', message: { content: '[SYSTEM NOTIFICATION - NOT USER INPUT] session resumed' } }),
+      line({ type: 'user', message: { content: '<task-notification>background task finished</task-notification>' } }),
+      line({ type: 'user', message: { content: '어제 하던 작업을 이어서' } }),
+    ].join('\n');
+    expect(firstUserMessage(jsonl)).toBe('어제 하던 작업을 이어서');
+  });
 });
 
 describe('lastUserMessage', () => {
@@ -68,5 +77,14 @@ describe('lastUserMessage', () => {
   it('returns null when there is no genuine user message', () => {
     expect(lastUserMessage(line({ type: 'assistant', message: { content: 'hi' } }))).toBeNull();
     expect(lastUserMessage('')).toBeNull();
+  });
+
+  it('skips a trailing harness-injected notification and returns the previous genuine message', () => {
+    const jsonl = [
+      line({ type: 'user', message: { content: '이어서 작업해줘' } }),
+      line({ type: 'user', message: { content: '[SYSTEM NOTIFICATION - NOT USER INPUT] context compacted' } }),
+      line({ type: 'user', message: { content: '<task-notification>reminder fired</task-notification>' } }),
+    ].join('\n');
+    expect(lastUserMessage(jsonl)).toBe('이어서 작업해줘');
   });
 });

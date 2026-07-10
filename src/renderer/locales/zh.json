@@ -81,6 +81,7 @@
   "proj.empty_hint": "在设置中指定扫描文件夹",
   "usage.range_all": "全部",
   "usage.est_cost": "API 等效费用（与订阅无关）",
+  "usage.est_cost_short": "API等值成本",
   "usage.cache_hit": "缓存命中",
   "usage.input": "输入",
   "usage.output": "输出",

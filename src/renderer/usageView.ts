@@ -60,13 +60,13 @@ function render(r: UsageReport): void {
     ? Math.round((r.global.cacheRead / (r.global.cacheRead + r.global.input)) * 100)
     : 0;
   stats.append(...([
-    [tr('usage.est_cost'), usd(r.globalCost) + (r.hasUnknownModel ? ' *' : '')],
+    [tr('usage.est_cost_short'), usd(r.globalCost) + (r.hasUnknownModel ? ' *' : '')],
     [tr('usage.cache_hit'), `${cacheHitPct}%`],
     [tr('usage.input'), fmt(r.global.input)], [tr('usage.output'), fmt(r.global.output)],
     [tr('usage.cache_w'), fmt(r.global.cacheWrite)], [tr('usage.cache_r'), fmt(r.global.cacheRead)],
     [tr('usage.web'), `${r.webSearch + r.webFetch}`], [tr('usage.sessions'), `${r.sessions}`],
     [tr('usage.active_time'), formatDuration(r.activeMs)],
-  ] as [string, string][]).map(([k, v], i) => { const d = document.createElement('div'); d.className = i === 0 ? 'stat stat-lead' : 'stat'; d.innerHTML = `<b></b><span></span>`; d.querySelector('b')!.textContent = v; d.querySelector('span')!.textContent = k; return d; }));
+  ] as [string, string][]).map(([k, v], i) => { const d = document.createElement('div'); d.className = i === 0 ? 'stat stat-lead' : 'stat'; if (i === 0) d.title = tr('usage.est_cost'); d.innerHTML = `<b></b><span></span>`; d.querySelector('b')!.textContent = v; d.querySelector('span')!.textContent = k; return d; }));
   sum.appendChild(stats);
   sum.appendChild(shareBar(r.byModel.map((m, i) => ({ label: m.model, value: m.totals.input + m.totals.output, color: COLORS[i % COLORS.length] }))));
   const legend = document.createElement('div'); legend.className = 'usage-legend';
