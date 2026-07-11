@@ -67,6 +67,12 @@ describe('resolveAgentImagePath', () => {
     expect(resolveAgentImagePath(proj, '~\\AppData\\Local\\Temp\\claude\\a.png', home))
       .toBe(join(home, 'AppData', 'Local', 'Temp', 'claude', 'a.png'));
   });
+  it('expands ~ for a CROSS-PROJECT path clicked from another project (wishing-stones bug report)', () => {
+    // "> [image] ~\Documents\GitHub\wishing-stones\…\T_Stone_BC.png" clicked while in another project.
+    // Pre-v1.19.2 this resolved against the project dir → …\<project>\~\Documents\… → "Image not found".
+    expect(resolveAgentImagePath(proj, '~\\Documents\\GitHub\\wishing-stones\\RawAssets\\T_Stone_BC.png', home))
+      .toBe(join(home, 'Documents', 'GitHub', 'wishing-stones', 'RawAssets', 'T_Stone_BC.png'));
+  });
   it('bare ~ resolves to exactly the home dir', () => {
     expect(resolveAgentImagePath(proj, '~', home)).toBe(home);
   });
