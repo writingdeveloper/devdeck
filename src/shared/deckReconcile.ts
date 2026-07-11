@@ -103,6 +103,35 @@ export function filterByLive<T extends { path: string }>(
   return items.filter((item) => act.get(item.path) === liveFilter);
 }
 
+/**
+ * A project is "neglected" for the deck pulse only when it is level=neglected AND has a record
+ * (`ageDays != null`). A no-record project (never committed, never sessioned — `activityMs==null`,
+ * so classifyStaleness also returns 'neglected') is a DIFFERENT category, shown as "기록 없음", and
+ * is deliberately excluded so the count/filter means "was active, now ≥ neglectedDays stale".
+ */
+export function isNeglected(p: { stale: { level: string; ageDays: number | null } }): boolean {
+  return p.stale.level === 'neglected' && p.stale.ageDays != null;
+}
+
+/** How many genuinely-neglected projects — drives the pulse's `🔴 N` segment and its auto-clear guard. */
+export function neglectedCount<T extends { stale: { level: string; ageDays: number | null } }>(items: T[]): number {
+  return items.filter(isNeglected).length;
+}
+
+/**
+ * The deck toolbar pulse's unified click-to-filter: '' (no filter), a live cockpit status
+ * (attention/working, delegated to filterByLive), or neglected (staleness, via isNeglected). The
+ * three are mutually exclusive. Pure; composes as one more AND step after search/show-hidden.
+ */
+export function filterByDeckState<T extends { path: string; stale: { level: string; ageDays: number | null } }>(
+  items: T[],
+  act: Map<string, 'attention' | 'working'>,
+  filter: '' | 'attention' | 'working' | 'neglected',
+): T[] {
+  if (filter === 'neglected') return items.filter(isNeglected);
+  return filterByLive(items, act, filter);
+}
+
 /** Decide which cached cards to reuse, rebuild, or remove for the next render. */
 export function diffCards(prev: Map<string, string>, desired: { key: string; sig: string }[]): DiffResult {
   const reuse = new Set<string>();

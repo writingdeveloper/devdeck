@@ -122,6 +122,7 @@
   "deck.today": "今日",
   "deck.badge_attn": "等待回复",
   "deck.badge_work": "工作中",
+  "deck.badge_neglect": "搁置中",
   "update.available": "有可用更新: v{version}",
   "update.download": "下载",
   "update.downloading": "正在下载更新… {percent}%",

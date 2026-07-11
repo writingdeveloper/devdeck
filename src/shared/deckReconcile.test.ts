@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { projectSignature, diffCards, filterByLive, type SignatureInput, type SignatureUiState } from './deckReconcile';
+import { projectSignature, diffCards, filterByLive, isNeglected, neglectedCount, filterByDeckState, type SignatureInput, type SignatureUiState } from './deckReconcile';
 
 const baseInput: SignatureInput = {
   stale: { level: 'fresh', ageDays: 0 },
@@ -165,5 +165,45 @@ describe('filterByLive', () => {
   it('returns an empty array when the filtered status has no matching projects', () => {
     const act = new Map<string, 'attention' | 'working'>([['/a', 'working']]);
     expect(filterByLive(items, act, 'attention')).toEqual([]);
+  });
+});
+
+describe('isNeglected / neglectedCount', () => {
+  const neglectedWithRecord = { path: '/old', stale: { level: 'neglected', ageDays: 42 } };
+  const noRecord = { path: '/never', stale: { level: 'neglected', ageDays: null } }; // never committed/sessioned
+  const fresh = { path: '/new', stale: { level: 'fresh', ageDays: 0 } };
+  const warn = { path: '/warn', stale: { level: 'warn', ageDays: 5 } };
+
+  it('is true only for level=neglected WITH a record (ageDays != null)', () => {
+    expect(isNeglected(neglectedWithRecord)).toBe(true);
+    expect(isNeglected(noRecord)).toBe(false); // "no-record" is its own category, not "neglected"
+    expect(isNeglected(fresh)).toBe(false);
+    expect(isNeglected(warn)).toBe(false);
+  });
+
+  it('counts genuinely-neglected projects, excluding no-record', () => {
+    expect(neglectedCount([fresh, neglectedWithRecord, noRecord, warn])).toBe(1);
+    expect(neglectedCount([])).toBe(0);
+    expect(neglectedCount([noRecord, noRecord])).toBe(0);
+  });
+});
+
+describe('filterByDeckState', () => {
+  const fresh = { path: '/a', stale: { level: 'fresh', ageDays: 0 } };
+  const working = { path: '/b', stale: { level: 'neutral', ageDays: 1 } };
+  const old = { path: '/c', stale: { level: 'neglected', ageDays: 30 } };
+  const noRec = { path: '/d', stale: { level: 'neglected', ageDays: null } };
+  const items = [fresh, working, old, noRec];
+  const act = new Map<string, 'attention' | 'working'>([['/a', 'attention'], ['/b', 'working']]);
+
+  it('returns all items when no filter is active', () => {
+    expect(filterByDeckState(items, act, '')).toEqual(items);
+  });
+  it('delegates attention/working to the live-status map (same as filterByLive)', () => {
+    expect(filterByDeckState(items, act, 'attention')).toEqual([fresh]);
+    expect(filterByDeckState(items, act, 'working')).toEqual([working]);
+  });
+  it('keeps only genuinely-neglected projects (excludes no-record) under the neglected filter', () => {
+    expect(filterByDeckState(items, act, 'neglected')).toEqual([old]);
   });
 });

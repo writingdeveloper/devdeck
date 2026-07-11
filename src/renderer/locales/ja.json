@@ -122,6 +122,7 @@
   "deck.today": "今日",
   "deck.badge_attn": "応答待ち",
   "deck.badge_work": "作業中",
+  "deck.badge_neglect": "放置中",
   "update.available": "アップデートあり: v{version}",
   "update.download": "ダウンロード",
   "update.downloading": "アップデートをダウンロード中… {percent}%",

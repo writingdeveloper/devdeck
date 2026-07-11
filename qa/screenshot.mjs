@@ -72,9 +72,11 @@ const expanded = await win.evaluate(() => {
   return false;
 });
 if (expanded) await shot('projects-session-expanded');
-await win.click('#neglected-only').catch(() => {});
+// Neglected filter is now the deck-pulse 🔴 segment (renders after the cost/pulse loads).
+await win.waitForSelector('.deck-pulse .p-neglect', { timeout: 8000 }).catch(() => {});
+await win.click('.deck-pulse .p-neglect').catch(() => {});
 await shot('projects-neglected-filter');
-await win.click('#neglected-only').catch(() => {});
+await win.click('.deck-pulse .p-neglect').catch(() => {});
 
 // New-project modal: open, capture default + a validation-error state, then close
 await win.click('#new-project').catch(() => {});

@@ -1,6 +1,6 @@
 import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
-import { projectSignature, diffCards, filterByLive, type SignatureUiState } from '../shared/deckReconcile';
+import { projectSignature, diffCards, filterByDeckState, neglectedCount, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
 import { type OpenReq, liveProjectActivity } from './cockpitView';
 import { openInTerminal } from './openRouter';
@@ -33,15 +33,14 @@ type SortMode = 'activity' | 'uncommitted' | 'name' | 'opened';
 let searchQuery = '';
 let sortMode: SortMode = 'activity';
 let viewMode: 'cards' | 'list' = 'cards';
-// Toolbar pulse click-to-filter (⚠/◉): '' = no filter, otherwise narrows the deck to
-// projects currently in that live cockpit status. Same pattern as `searchQuery`.
-let liveFilter: '' | 'attention' | 'working' = '';
+// Toolbar pulse click-to-filter (⚠ attention / ◉ working / 🔴 neglected): '' = no filter,
+// otherwise narrows the deck to that state. The three are mutually exclusive. Like `searchQuery`.
+let deckFilter: '' | 'attention' | 'working' | 'neglected' = '';
 // Last cost fetched for the toolbar pulse, kept so toggling the filter can re-render the
 // pulse's active/aria-pressed state without waiting on another usage scan.
 let lastPulseCost: number | null = null;
 
 let cardsEl: HTMLElement;
-let neglectedOnly: HTMLInputElement;
 let showHiddenBtn: HTMLButtonElement;
 let hiddenCountEl: HTMLElement;
 let openBtn: HTMLButtonElement;
@@ -415,7 +414,6 @@ function render(): void {
   // priority below, and the reconcile signature (so a live status flip forces a rebuild).
   const act = liveProjectActivity();
   let visible = showHidden ? projects.filter((p) => p.hidden) : projects.filter((p) => !p.hidden);
-  if (neglectedOnly.checked) visible = visible.filter((p) => p.stale.level === 'neglected');
 
   // Search filter (case-insensitive substring match on name, branch, note)
   if (searchQuery) {
@@ -433,7 +431,7 @@ function render(): void {
   // this can only ever narrow further. The pulse itself is rendered separately from ALL
   // projects (see renderDeckPulse), so its buttons stay clickable even when this empties
   // the deck — the user can always un-filter.
-  visible = filterByLive(visible, act, liveFilter);
+  visible = filterByDeckState(visible, act, deckFilter);
 
   // Sort
   const sorted = [...visible];
@@ -459,6 +457,14 @@ function render(): void {
       return tb - ta;
     });
   }
+  // Neglect filter overrides the sort to stalest-first (oldest activity leads) so the most-abandoned
+  // projects surface at the top — the inverse of the deck's usual most-recent-first order.
+  if (deckFilter === 'neglected') {
+    sorted.sort((a, b) => {
+      if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+      return (a.activityMs ?? Infinity) - (b.activityMs ?? Infinity);
+    });
+  }
   visible = sorted;
 
   cardsEl.classList.toggle('as-list', viewMode === 'list');
@@ -470,9 +476,9 @@ function render(): void {
     cardCache.clear();
     cardsEl.replaceChildren();
     const e = document.createElement('div'); e.className = 'empty';
-    e.textContent = neglectedOnly.checked ? tr('proj.empty_neglected') : (showHidden ? tr('proj.empty_hidden') : tr('proj.empty_none'));
+    e.textContent = deckFilter === 'neglected' ? tr('proj.empty_neglected') : (showHidden ? tr('proj.empty_hidden') : tr('proj.empty_none'));
     cardsEl.appendChild(e);
-    if (!showHidden && !neglectedOnly.checked && projects.length === 0) {
+    if (!showHidden && deckFilter !== 'neglected' && projects.length === 0) {
       const hint = document.createElement('button');
       hint.className = 'chip';
       hint.textContent = tr('proj.empty_hint');
@@ -554,26 +560,26 @@ function renderDeckPulse(todayCost: number | null): void {
   const act = liveProjectActivity();
   const attn = [...act.values()].filter((v) => v === 'attention').length;
   const work = act.size - attn;
-  // Edge case: a zero-count segment isn't rendered at all (same as before this feature) —
-  // so if the currently active filter's segment count drops to 0 (its last live session
-  // cleared), its button is about to disappear and the user would be stranded on a filtered,
-  // possibly-empty deck with no pulse control left to un-filter. Auto-clear instead.
-  if ((liveFilter === 'attention' && attn === 0) || (liveFilter === 'working' && work === 0)) {
-    liveFilter = '';
+  const neglected = neglectedCount(projects); // stale ≥ neglectedDays, excluding no-record (see isNeglected)
+  // Edge case: a zero-count segment isn't rendered at all — so if the currently active filter's
+  // segment count drops to 0, its button is about to disappear and the user would be stranded on a
+  // filtered, possibly-empty deck with no pulse control left to un-filter. Auto-clear instead.
+  if ((deckFilter === 'attention' && attn === 0) || (deckFilter === 'working' && work === 0) || (deckFilter === 'neglected' && neglected === 0)) {
+    deckFilter = '';
     render(); // prevent stranded empty deck; safe: render() never calls renderDeckPulse
   }
   el.replaceChildren();
   const span = (cls: string, text: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = text; el.appendChild(s); };
-  const seg = (cls: string, text: string, status: 'attention' | 'working', labelKey: string) => {
+  const seg = (cls: string, text: string, status: 'attention' | 'working' | 'neglected', labelKey: string) => {
     const b = document.createElement('button');
     b.type = 'button';
-    const active = liveFilter === status;
+    const active = deckFilter === status;
     b.className = 'pulse-seg ' + cls + (active ? ' active' : '');
     b.textContent = text;
     b.setAttribute('aria-pressed', String(active));
     b.setAttribute('aria-label', tr(labelKey));
     b.addEventListener('click', () => {
-      liveFilter = liveFilter === status ? '' : status;
+      deckFilter = deckFilter === status ? '' : status;
       renderDeckPulse(lastPulseCost); // refresh pulse active/aria-pressed state
       render(); // same re-render path searchQuery changes use
     });
@@ -581,6 +587,8 @@ function renderDeckPulse(todayCost: number | null): void {
   };
   if (attn > 0) seg('p-attn', `⚠ ${attn}`, 'attention', 'deck.badge_attn');
   if (work > 0) seg('p-work', `◉ ${work}`, 'working', 'deck.badge_work');
+  // 🔴 N — one-click "show only neglected" (the count answers "how many am I neglecting?" at a glance).
+  if (neglected > 0) seg('p-neglect', `🔴 ${neglected}`, 'neglected', 'deck.badge_neglect');
   if (todayCost != null) span('', `${tr('deck.today')} ~$${todayCost.toFixed(0)}`);
 }
 
@@ -642,7 +650,6 @@ function applyProjectLabels(): void {
 
 export function mountProjects(): void {
   cardsEl = document.getElementById('cards')!;
-  neglectedOnly = document.getElementById('neglected-only') as HTMLInputElement;
   showHiddenBtn = document.getElementById('show-hidden') as HTMLButtonElement;
   hiddenCountEl = document.getElementById('hidden-count')!;
   openBtn = document.getElementById('open-selected') as HTMLButtonElement;
@@ -654,7 +661,6 @@ export function mountProjects(): void {
   document.getElementById('refresh')!.addEventListener('click', reload);
   viewCardsBtn.addEventListener('click', () => setView('cards'));
   viewListBtn.addEventListener('click', () => setView('list'));
-  neglectedOnly.addEventListener('change', render);
   showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); });
   openBtn.addEventListener('click', () => {
     if (selected.size === 0) return;

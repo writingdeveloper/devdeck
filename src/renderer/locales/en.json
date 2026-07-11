@@ -122,6 +122,7 @@
   "deck.today": "Today",
   "deck.badge_attn": "Needs you",
   "deck.badge_work": "Working",
+  "deck.badge_neglect": "Neglected",
   "update.available": "Update available: v{version}",
   "update.download": "Download",
   "update.downloading": "Downloading update… {percent}%",

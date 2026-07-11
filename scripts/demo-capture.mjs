@@ -73,10 +73,11 @@ const expanded = await win.evaluate(() => {
   if (c) { c.parentElement.click(); return true; } return false;
 });
 if (expanded) await shot('demo-sessions');
-// 3) neglected-only filter (the traffic-light payoff)
-await win.click('#neglected-only').catch(() => {});
+// 3) neglected filter via the deck-pulse 🔴 segment (the traffic-light payoff)
+await win.waitForSelector('.deck-pulse .p-neglect', { timeout: 8000 }).catch(() => {});
+await win.click('.deck-pulse .p-neglect').catch(() => {});
 await shot('demo-neglected');
-await win.click('#neglected-only').catch(() => {});
+await win.click('.deck-pulse .p-neglect').catch(() => {});
 // 4) usage analytics
 await showView('usage');
 await win.waitForSelector('.usage-summary, .usage-table', { timeout: 30000 }).catch(() => {});
