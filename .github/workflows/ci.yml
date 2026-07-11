@@ -53,7 +53,9 @@ jobs:
       # in detached HEAD (no current branch), so that check would fail for an environment reason unrelated
       # to the app — put the checkout on a real branch first. (Local `npm run qa:audit` is already on one.)
       - name: Put the checkout on a branch for the gitInfo check
-        run: git checkout -B ci-audit
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git checkout -B ci-audit
       - name: Run the audit under a virtual display
         run: xvfb-run -a node qa/audit.mjs
         env:

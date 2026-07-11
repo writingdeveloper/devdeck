@@ -42,10 +42,8 @@ ipc.langRoundTrip = await win.evaluate(async () => {
 // The handler is allowlist-guarded, so register this checkout as an allowed folder first
 // (on CI the checkout lives outside the default ~/Documents/GitHub scan root).
 await win.evaluate(async (p) => window.devdeck.addFolder(p), root);
-ipc.cockpitGitInfo = await win.evaluate(async (p) => {
-  const info = await window.devdeck.cockpit.gitInfo(p);
-  return typeof info?.branch === 'string' && info.branch.length > 0;
-}, root);
+const gitInfoRaw = await win.evaluate(async (p) => (await window.devdeck.cockpit.gitInfo(p)) ?? null, root);
+ipc.cockpitGitInfo = typeof gitInfoRaw?.branch === 'string' && gitInfoRaw.branch.length > 0;
 ipc.usageShape = await win.evaluate(async () => {
   const r = await window.devdeck.usageReport(0);
   return { hasGlobal: !!r.global, hasByProject: Array.isArray(r.byProject), hasByModel: Array.isArray(r.byModel) };
@@ -110,7 +108,7 @@ if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.le
   if (criticalViolations.length > 0) console.error('  a11y critical/serious:', JSON.stringify(criticalViolations, null, 2));
   if (surfaceFails.length > 0) console.error('  ipc.surface checks failed:', surfaceFails.map(([k]) => k).join(', '));
   if (titlebarFails.length > 0) console.error('  ipc.titlebar checks failed:', titlebarFails.map(([k]) => k).join(', '));
-  if (gitInfoFail) console.error('  cockpit.gitInfo did not resolve a branch for the repo root:', ipc.cockpitGitInfo);
+  if (gitInfoFail) console.error('  cockpit.gitInfo did not resolve a branch for the repo root:', ipc.cockpitGitInfo, '· raw gitInfo:', JSON.stringify(gitInfoRaw));
   process.exit(1);
 }
 console.log('done');
