@@ -41,21 +41,23 @@ function isContinuationFragment(frag: string): boolean {
  * Find every URL across the given rows (0-based coordinates into those rows). Soft-wrapped rows are
  * joined unconditionally; hard-wrapped continuations only via the conservative fragment heuristic.
  */
-// Image files only — click-to-open runs the OS default handler, so this list must never include
-// anything executable. (Claude prints artifacts like "> [image] pinterest-assets\en\A1.png (95.8KB)".)
-const IMAGE_PATH_RE = /(?:[A-Za-z]:)?[^\s"'`<>|*?:]+\.(?:png|jpe?g|gif|webp|bmp|svg|ico)\b/gi;
+// Openable files only — click-to-open runs the OS default handler, so this list must never include
+// anything executable or script-capable (no svg/ico/html; see AGENT_OPEN_EXT in pathGuard, which the
+// main process re-checks on the resolved path). Claude prints artifacts like
+// "> [image] pinterest-assets\en\A1.png (95.8KB)" or "› [file] RawAssets\Audio\S_Perfect.wav (65.7KB)".
+const FILE_PATH_RE = /(?:[A-Za-z]:)?[^\s"'`<>|*?:]+\.(?:png|jpe?g|gif|webp|bmp|wav|mp3|ogg|flac|m4a|aac|opus|midi?|mp4|webm|mov|mkv|avi|pdf|txt|md|log|csv|tsv|jsonl?|ya?ml|toml)\b/gi;
 
 /**
- * Local image paths in terminal rows (relative or absolute, either slash), so a printed artifact can be
+ * Local file paths in terminal rows (relative or absolute, either slash), so a printed artifact can be
  * clicked open instead of hunted down in Explorer. URLs are excluded — the URL provider owns those.
  */
-export function findImagePathLinks(rows: BufferRow[]): UrlHit[] {
+export function findFilePathLinks(rows: BufferRow[]): UrlHit[] {
   const hits: UrlHit[] = [];
   for (let r = 0; r < rows.length; r++) {
     const text = rows[r].text;
-    IMAGE_PATH_RE.lastIndex = 0;
+    FILE_PATH_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
-    while ((m = IMAGE_PATH_RE.exec(text)) !== null) {
+    while ((m = FILE_PATH_RE.exec(text)) !== null) {
       const token = m[0];
       // Part of a URL, not a filesystem path (the drive-letter prefix can even eat the 's' of 'https',
       // matching "s://cdn/…" — hence the '://' check): the URL provider owns those.

@@ -12,7 +12,7 @@ import { scanFolders, isRepo } from './scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession } from './agents';
 import type { AgentId, Folder } from '../shared/types';
-import { isAllowedPath, isAllowedFilePath, resolveAgentImagePath, AGENT_IMAGE_EXT } from '../shared/pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../shared/pathGuard';
 import { basename } from '../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
 import { makeTtlCache } from '../shared/ttlCache';
@@ -423,18 +423,18 @@ export function registerIpc(cfg: IpcConfig): void {
   // Open a local IMAGE the agent printed (e.g. "> [image] assets\a.png") in the OS default viewer.
   // Relative paths resolve against the session's project dir; a leading `~` (home-dir shorthand some
   // tools print, e.g. a scratchpad path) resolves against the home dir instead. Guards, in order: the
-  // resolved target must carry an image extension (shell.openPath runs the default handler — never
-  // executables), sit under an allowed folder OR the OS temp dir (where agent tooling writes
+  // resolved target must carry an inert-content extension (shell.openPath runs the default handler —
+  // never executables/scripts), sit under an allowed folder OR the OS temp dir (where agent tooling writes
   // cross-project scratch files — a click-to-open convenience, not project-file access), and exist.
   // Returns a status string so failures can toast + be tested.
-  ipcMain.handle('cockpit:openImage', async (_e, projectPath: string, imagePath: string) => {
-    const resolved = resolveAgentImagePath(String(projectPath), String(imagePath), homedir());
-    // Raster-only (AGENT_IMAGE_EXT) — .svg/.ico are refused so a scriptable SVG can't be opened in the browser.
-    if (!AGENT_IMAGE_EXT.test(resolved)) { cfg.sendError(`Not an image: ${resolved}`); return 'denied'; }
+  ipcMain.handle('cockpit:openFile', async (_e, projectPath: string, filePath: string) => {
+    const resolved = resolveAgentFilePath(String(projectPath), String(filePath), homedir());
+    // Inert-content only (AGENT_OPEN_EXT) — executables/scripts/.svg/.html are refused so a click can never run code.
+    if (!AGENT_OPEN_EXT.test(resolved)) { cfg.sendError(`Not an openable file type: ${resolved}`); return 'denied'; }
     if (!isAllowedFilePath(effFolders(), resolved, [tmpdir()])) { cfg.sendError(`Path outside allowed folders: ${resolved}`); return 'denied'; }
-    if (!existsSync(resolved)) { cfg.sendError(`Image not found: ${resolved}`); return 'missing'; }
+    if (!existsSync(resolved)) { cfg.sendError(`File not found: ${resolved}`); return 'missing'; }
     const err = await shell.openPath(resolved);
-    if (err) { cfg.sendError(`Could not open image: ${err}`); return 'error'; }
+    if (err) { cfg.sendError(`Could not open file: ${err}`); return 'error'; }
     return 'ok';
   });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { join, resolve, sep } from 'node:path';
-import { isAllowedPath, isAllowedFilePath, resolveAgentImagePath, AGENT_IMAGE_EXT } from './pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from './pathGuard';
 
 // Build OS-native absolute paths so the test exercises the same separator/`resolve`
 // semantics the guard uses on whatever platform runs it (CI runs ubuntu/macos/windows).
@@ -54,43 +54,47 @@ describe('isAllowedFilePath', () => {
   });
 });
 
-describe('resolveAgentImagePath', () => {
+describe('resolveAgentFilePath', () => {
   const home = resolve(sep, 'home', 'demo');
   const proj = resolve(sep, 'work', 'projA');
 
   it('resolves a plain relative path against the project dir (unchanged behavior)', () => {
-    expect(resolveAgentImagePath(proj, join('assets', 'a.png'), home)).toBe(join(proj, 'assets', 'a.png'));
+    expect(resolveAgentFilePath(proj, join('assets', 'a.png'), home)).toBe(join(proj, 'assets', 'a.png'));
   });
   it('expands a leading ~ to the home dir instead of the project dir', () => {
-    expect(resolveAgentImagePath(proj, '~/AppData/Local/Temp/claude/a.png', home))
+    expect(resolveAgentFilePath(proj, '~/AppData/Local/Temp/claude/a.png', home))
       .toBe(join(home, 'AppData', 'Local', 'Temp', 'claude', 'a.png'));
-    expect(resolveAgentImagePath(proj, '~\\AppData\\Local\\Temp\\claude\\a.png', home))
+    expect(resolveAgentFilePath(proj, '~\\AppData\\Local\\Temp\\claude\\a.png', home))
       .toBe(join(home, 'AppData', 'Local', 'Temp', 'claude', 'a.png'));
   });
   it('expands ~ for a CROSS-PROJECT path clicked from another project (wishing-stones bug report)', () => {
     // "> [image] ~\Documents\GitHub\wishing-stones\…\T_Stone_BC.png" clicked while in another project.
     // Pre-v1.19.2 this resolved against the project dir → …\<project>\~\Documents\… → "Image not found".
-    expect(resolveAgentImagePath(proj, '~\\Documents\\GitHub\\wishing-stones\\RawAssets\\T_Stone_BC.png', home))
+    expect(resolveAgentFilePath(proj, '~\\Documents\\GitHub\\wishing-stones\\RawAssets\\T_Stone_BC.png', home))
       .toBe(join(home, 'Documents', 'GitHub', 'wishing-stones', 'RawAssets', 'T_Stone_BC.png'));
   });
   it('bare ~ resolves to exactly the home dir', () => {
-    expect(resolveAgentImagePath(proj, '~', home)).toBe(home);
+    expect(resolveAgentFilePath(proj, '~', home)).toBe(home);
   });
   it('does not treat a path merely starting with a tilde-prefixed segment as home-relative', () => {
     // "~foo" (no separator) is a literal relative filename, not shorthand for the home dir.
-    expect(resolveAgentImagePath(proj, '~foo.png', home)).toBe(join(proj, '~foo.png'));
+    expect(resolveAgentFilePath(proj, '~foo.png', home)).toBe(join(proj, '~foo.png'));
   });
 });
 
-describe('AGENT_IMAGE_EXT (click-to-open allowlist)', () => {
-  it('accepts raster image extensions, case-insensitively', () => {
-    for (const f of ['a.png', 'b.JPG', 'c.jpeg', 'd.gif', 'e.webp', 'f.bmp', 'shot.PNG']) {
-      expect(AGENT_IMAGE_EXT.test(f)).toBe(true);
+describe('AGENT_OPEN_EXT (click-to-open allowlist)', () => {
+  it('accepts raster images, audio, video, and inert documents, case-insensitively', () => {
+    for (const f of ['a.png', 'b.JPG', 'c.jpeg', 'd.gif', 'e.webp', 'f.bmp', 'shot.PNG',
+      's.wav', 'S_Perfect.WAV', 'song.mp3', 'x.ogg', 'y.flac', 'z.m4a', 'w.aac', 'v.opus', 'm.mid',
+      'clip.mp4', 'v.webm', 'v.mov', 'v.mkv', 'v.avi',
+      'doc.pdf', 'notes.txt', 'readme.md', 'run.log', 'data.csv', 'data.tsv', 'x.json', 'x.jsonl', 'c.yaml', 'c.yml', 'c.toml']) {
+      expect(AGENT_OPEN_EXT.test(f), f).toBe(true);
     }
   });
-  it('REFUSES script-capable / non-raster extensions (svg, ico) so shell.openPath cannot run them', () => {
-    for (const f of ['evil.svg', 'x.SVG', 'icon.ico', 'note.txt', 'app.exe', 'page.html', 'archive.png.svg']) {
-      expect(AGENT_IMAGE_EXT.test(f)).toBe(false);
+  it('REFUSES executable / script-capable extensions so shell.openPath cannot run them', () => {
+    for (const f of ['evil.svg', 'x.SVG', 'icon.ico', 'app.exe', 'setup.bat', 'run.cmd', 'h.ps1', 'v.vbs',
+      's.scr', 'l.lnk', 'u.url', 'page.html', 'p.htm', 'x.xml', 'j.js', 'p.py', 'archive.png.svg', 'a.zip', 'x.jar']) {
+      expect(AGENT_OPEN_EXT.test(f), f).toBe(false);
     }
   });
 });

@@ -7,7 +7,7 @@ import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessio
 import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
-import { findUrlLinks, findImagePathLinks, type BufferRow } from '../shared/linkWrap';
+import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
 import { sanitizePersistedList, resolveRestoreSessionId, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import type { AgentId, StaleLevel } from '../shared/types';
 import { tr, currentLang } from './i18n-runtime';
@@ -214,10 +214,11 @@ async function createSession(p: OpenReq): Promise<boolean> {
           range: toRange(h), text: h.url,
           activate: (_e: MouseEvent, text: string) => { void window.devdeck.cockpit.openLink(text); },
         })),
-        // Local image paths the agent printed (e.g. "> [image] assets\a.png") — click opens the viewer.
-        ...findImagePathLinks(rows).filter(onRow).map((h) => ({
+        // Local file paths the agent printed (e.g. "> [image] assets\a.png", "› [file] SFX\bell.wav")
+        // — click opens the OS default app (inert-content extensions only, re-checked in main).
+        ...findFilePathLinks(rows).filter(onRow).map((h) => ({
           range: toRange(h), text: h.url,
-          activate: (_e: MouseEvent, text: string) => { void window.devdeck.cockpit.openImage(p.path, text); },
+          activate: (_e: MouseEvent, text: string) => { void window.devdeck.cockpit.openFile(p.path, text); },
         })),
       ];
       callback(links.length ? links : undefined);

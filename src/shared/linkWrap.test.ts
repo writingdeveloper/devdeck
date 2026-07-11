@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findUrlLinks, findImagePathLinks, type BufferRow } from './linkWrap';
+import { findUrlLinks, findFilePathLinks, type BufferRow } from './linkWrap';
 
 const row = (text: string, wrapped = false): BufferRow => ({ text, wrapped });
 
@@ -71,11 +71,12 @@ describe('findUrlLinks', () => {
   });
 });
 
-describe('findImagePathLinks', () => {
-  // Claude prints artifacts like "  > [image] pinterest-assets\\en\\A1.png (95.8KB)" - clicking should
-  // open the image instead of the user digging through Explorer.
+describe('findFilePathLinks', () => {
+  // Claude prints artifacts like "  > [image] pinterest-assets\\en\\A1.png (95.8KB)" or
+  // "  › [file] RawAssets\\Audio\\S_Perfect.wav (65.7KB)" - clicking should open the file
+  // in the OS default app instead of the user digging through Explorer.
   it('finds a relative Windows path ending in an image extension (size suffix excluded)', () => {
-    const hits = findImagePathLinks([row('  > [image] pinterest-assets\\en\\A1.png (95.8KB)')]);
+    const hits = findFilePathLinks([row('  > [image] pinterest-assets\\en\\A1.png (95.8KB)')]);
     expect(hits).toHaveLength(1);
     expect(hits[0].url).toBe('pinterest-assets\\en\\A1.png');
     expect(hits[0].start).toEqual({ row: 0, col: 12 });
@@ -83,20 +84,33 @@ describe('findImagePathLinks', () => {
   });
 
   it('finds absolute paths and forward-slash paths', () => {
-    const hits = findImagePathLinks([row('saved C:\\Users\\me\\out\\shot.jpeg and assets/logo.webp')]);
+    const hits = findFilePathLinks([row('saved C:\\Users\\me\\out\\shot.jpeg and assets/logo.webp')]);
     expect(hits.map((h) => h.url)).toEqual(['C:\\Users\\me\\out\\shot.jpeg', 'assets/logo.webp']);
   });
 
-  it('ignores non-image extensions (never click-to-run an executable)', () => {
-    expect(findImagePathLinks([row('run build\\tool.exe and see notes.txt')])).toHaveLength(0);
+  it('finds audio/video/document artifacts (the "[file] …wav" report)', () => {
+    const hits = findFilePathLinks([
+      row('  › [file] RawAssets\\Audio\\S_Perfect.wav (65.7KB)'),
+      row('  › [file] ~\\AppData\\Local\\Temp\\claude\\scratchpad\\regen\\ready\\SFX\\bell_B.wav (43.9KB)'),
+      row('  wrote docs\\report.pdf and clip.mp4 and data/log.csv'),
+    ]);
+    expect(hits.map((h) => h.url)).toEqual([
+      'RawAssets\\Audio\\S_Perfect.wav',
+      '~\\AppData\\Local\\Temp\\claude\\scratchpad\\regen\\ready\\SFX\\bell_B.wav',
+      'docs\\report.pdf', 'clip.mp4', 'data/log.csv',
+    ]);
   });
 
-  it('ignores image paths that are part of a URL (the URL provider owns those)', () => {
-    expect(findImagePathLinks([row('see https://cdn.example.com/img/a.png here')])).toHaveLength(0);
+  it('ignores executable/script-capable extensions (never click-to-run)', () => {
+    expect(findFilePathLinks([row('run build\\tool.exe or setup.bat or hack.ps1 or page.html or pic.svg')])).toHaveLength(0);
+  });
+
+  it('ignores file paths that are part of a URL (the URL provider owns those)', () => {
+    expect(findFilePathLinks([row('see https://cdn.example.com/img/a.png here')])).toHaveLength(0);
   });
 
   it('finds a bare filename', () => {
-    const hits = findImagePathLinks([row('wrote A1.png')]);
+    const hits = findFilePathLinks([row('wrote A1.png')]);
     expect(hits).toHaveLength(1);
     expect(hits[0].url).toBe('A1.png');
   });

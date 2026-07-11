@@ -70,7 +70,7 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.invoke('cockpit:liveSessionId', projectPath, opts),
     gitInfo: (projectPath: string) => ipcRenderer.invoke('cockpit:gitInfo', projectPath),
     openLink: (url: string) => ipcRenderer.invoke('cockpit:openLink', url),
-    openImage: (projectPath: string, imagePath: string) => ipcRenderer.invoke('cockpit:openImage', projectPath, imagePath),
+    openFile: (projectPath: string, filePath: string) => ipcRenderer.invoke('cockpit:openFile', projectPath, filePath),
   },
   setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),
   setContextWindow: (w: number) => ipcRenderer.invoke('settings:setContextWindow', w),
