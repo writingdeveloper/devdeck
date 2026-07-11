@@ -43,11 +43,17 @@ export const AGENT_IMAGE_EXT = /\.(?:png|jpe?g|gif|webp|bmp)$/i;
  * Resolve a path an agent printed in the terminal (e.g. "> [image] ~\AppData\...\a.png") against the
  * session's project dir — except a leading `~` (home-dir shorthand some tools print; Node's `path`
  * module, unlike a shell, never expands it), which resolves against `homeDir` instead of the project.
+ *
+ * Backslashes are normalized to `/` before resolving. The cockpit is Windows-only, so agents print
+ * Windows `\` paths — but the default `resolve` only treats `\` as a separator ON Windows, which made
+ * this host-OS-dependent (its unit tests split backslash paths only on the Windows CI runner, red on
+ * Linux/macOS). `/` is a valid separator for both path flavors, so normalizing first makes the result
+ * identical on every host; on Windows the output is byte-for-byte unchanged (win32 resolve emits `\`).
  */
 export function resolveAgentImagePath(projectPath: string, imagePath: string, homeDir: string): string {
-  const p = String(imagePath);
-  if (p === '~' || p.startsWith('~/') || p.startsWith('~\\')) {
-    return resolve(homeDir, p.slice(1).replace(/^[/\\]/, ''));
+  const p = String(imagePath).replace(/\\/g, '/');
+  if (p === '~' || p.startsWith('~/')) {
+    return resolve(homeDir, p.slice(1).replace(/^\//, ''));
   }
   return resolve(projectPath, p);
 }
