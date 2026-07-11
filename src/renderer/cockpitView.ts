@@ -13,7 +13,7 @@ import type { AgentId, StaleLevel } from '../shared/types';
 import { tr, currentLang } from './i18n-runtime';
 import { toast } from './loadError';
 
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; customLabel: string | null; meta: { model: string | null; activeMs: number; contextTokens: number } | null; pinned: boolean; }
+interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: { model: string | null; activeMs: number; contextTokens: number } | null; pinned: boolean; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; pinned?: boolean; }
 
 const live = new Map<string, Live>();
@@ -281,7 +281,7 @@ async function createSession(p: OpenReq): Promise<boolean> {
   // its pin + label when the open request has none (deck/board opens don't know about pins).
   const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { label: p.label ?? null, pinned: !!p.pinned });
   restorable = adopted.rest;
-  live.set(res.id, { session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, customLabel: adopted.label, meta: null, pinned: adopted.pinned });
+  live.set(res.id, { session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned });
   select(res.id);
   updateRailBadge();
   persist();
@@ -300,6 +300,35 @@ async function refreshMeta(id: string): Promise<void> {
   if (!editingId) renderList();
   renderHeader();
 }
+/** Re-resolve WHICH on-disk conversation a live tile is actually writing to. /clear starts a
+ *  brand-new session id in the same terminal, so the open-time id goes permanently stale — persisting
+ *  it made a restart/update restore the PAST conversation. Evidence-gated (pickDriftedSessionId in
+ *  main): adopts a new id only when this tile streamed output, its own file did not move, and exactly
+ *  one unclaimed file born after the tile opened moved in lockstep with the tile's output. */
+async function refreshSessionId(id: string): Promise<void> {
+  const l = live.get(id); if (!l || l.session.agentId !== 'claude' || l.session.status === 'exited') return;
+  const since = l.idCheckAt;
+  if (l.lastDataAt <= since) return; // no output since the last check — nothing moved on our behalf
+  l.idCheckAt = Date.now(); // advance BEFORE the async hop so overlapping calls can't double-adopt
+  const claimedIds = [...live.values()].filter((o) => o !== l).map((o) => o.openedSessionId).filter((x): x is string => !!x);
+  let next: string | null = null;
+  try {
+    next = await window.devdeck.cockpit.liveSessionId(l.session.projectPath, {
+      currentId: l.openedSessionId, claimedIds, openedAtMs: l.openedAt, sinceMs: since, lastDataAtMs: l.lastDataAt,
+    });
+  } catch { return; }
+  if (!next || next === l.openedSessionId || !live.has(id)) return; // tile may have closed mid-await
+  l.openedSessionId = next;
+  persist(); // the drifted id is exactly what a quit would have frozen — save the corrected one now
+  void refreshMeta(id); // model/context % must now read the NEW conversation, not the stale file
+}
+
+/** Await a drift check for every live tile — the update-restart path calls this right before it
+ *  snapshots liveSessionsForPersist, so the relaunch restores the post-/clear conversations. */
+export async function refreshLiveSessionIds(): Promise<void> {
+  await Promise.all([...live.keys()].map((id) => refreshSessionId(id)));
+}
+
 /** Pull a session's CURRENT git branch + dirty count by project path, so a RESTORED session — which is
  *  re-created with no branch — and in-terminal branch switches both show the live branch instead of "-". */
 async function refreshGit(id: string): Promise<void> {
@@ -315,7 +344,7 @@ async function refreshGit(id: string): Promise<void> {
 }
 // The 30s tick: skip exited sessions — their model/branch can't change, so re-reading their log +
 // re-spawning git every tick is pure waste (matters most with many concurrent sessions).
-function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshMeta(id); void refreshGit(id); } }
+function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshSessionId(id); void refreshMeta(id); void refreshGit(id); } }
 
 function select(id: string): void {
   if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
@@ -377,8 +406,10 @@ function tickActivity(): void {
     if (next !== prev) {
       l.session.activity = next; changed = true;
       // A turn just finished → a new assistant model may have been logged; refresh so the sidebar model
-      // isn't stuck on the previous turn's model after a /model switch (only otherwise refreshed on the 30s tick).
-      if (next === 'turn' && prev === 'working') void refreshMeta(l.session.id);
+      // isn't stuck on the previous turn's model after a /model switch (only otherwise refreshed on the
+      // 30s tick). The drift check rides along so a /clear is adopted within seconds of the next turn,
+      // not up to 30s later (a quit inside that window would still have frozen the stale id).
+      if (next === 'turn' && prev === 'working') { void refreshSessionId(l.session.id); void refreshMeta(l.session.id); }
       // The agent just started waiting on the user → OS notification (click = jump to that session).
       if (shouldNotifyAttention({ prev, next, trayAlert: trayAlertMode, windowFocused: document.hasFocus() })) notifyAttention(l);
     }

@@ -15,11 +15,11 @@ const MAX_LABEL = 60;
 
 /**
  * Choose which session a restored cockpit tile should actually resume. Claude Code appends in place
- * (--resume/-c/compaction never fork), so a frozen open-time id goes stale the moment a newer
- * conversation exists for the project — restoring it lands the user in the PAST. Instead resume the
- * NEWEST session (`newestFirstIds` is mtime-desc from listSessions) that isn't already open in another
- * tile, so a stale pin self-heals and multiple tiles of one project each get a distinct recent
- * conversation. null → nothing to resume (caller falls back to continue/new).
+ * for --resume/-c/compaction, but /clear DOES start a brand-new session id in the same terminal —
+ * live tiles track that via pickDriftedSessionId below, so the persisted id stays current. This
+ * fallback resumes the NEWEST session (`newestFirstIds` is mtime-desc from listSessions) that isn't
+ * already open in another tile, so a stale pin self-heals and multiple tiles of one project each get
+ * a distinct recent conversation. null → nothing to resume (caller falls back to continue/new).
  */
 export function pickRestoreSessionId(newestFirstIds: string[], liveIds: Set<string>): string | null {
   for (const id of newestFirstIds) if (!liveIds.has(id)) return id;
@@ -37,6 +37,42 @@ export function pickRestoreSessionId(newestFirstIds: string[], liveIds: Set<stri
 export function resolveRestoreSessionId(savedId: string | null, newestFirstIds: string[], liveIds: Set<string>): string | null {
   if (savedId && newestFirstIds.includes(savedId) && !liveIds.has(savedId)) return savedId;
   return pickRestoreSessionId(newestFirstIds, liveIds);
+}
+
+/** One on-disk session file's identity + timestamps, for the live drift detector below. */
+export interface SessionFileStat { id: string; mtimeMs: number; birthtimeMs: number; }
+
+// A candidate file only counts as "this tile's output" when its mtime tracks the tile's last PTY
+// output this closely — an unrelated session streaming in another terminal won't stay coupled.
+const DRIFT_COUPLING_MS = 8_000;
+
+/**
+ * Detect that a live tile's conversation MOVED to a different on-disk session. `--resume`/`-c`/
+ * compaction append in place, but /clear (and a manual `claude` run inside the tile's shell) starts a
+ * BRAND-NEW session id in the same terminal — the tile's open-time id then goes permanently stale, so
+ * persisting it restores the PAST conversation after a restart/update (the "과거 데이터 복원" bug).
+ *
+ * Adopt a new id only on unambiguous evidence, ALL of:
+ *  - the tile produced output since the last check (something was written on our behalf),
+ *  - the tile's CURRENT file did not move since the last check (the output went elsewhere),
+ *  - exactly ONE unclaimed file moved since the last check, was born after the tile opened,
+ *    and its mtime tracks the tile's output time (uncoupled writes belong to other terminals).
+ * Anything ambiguous returns null (keep the current id — a later sample disambiguates).
+ */
+export function pickDriftedSessionId(
+  stats: SessionFileStat[],
+  opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number },
+): string | null {
+  if (opts.lastDataAtMs <= opts.sinceMs) return null; // no output since the last check
+  const cur = stats.find((s) => s.id === opts.currentId);
+  if (cur && cur.mtimeMs > opts.sinceMs) return null; // our own file is still being written — no drift
+  const claimed = new Set(opts.claimedIds);
+  const candidates = stats.filter((s) =>
+    s.id !== opts.currentId && !claimed.has(s.id)
+    && s.mtimeMs > opts.sinceMs
+    && s.birthtimeMs > opts.openedAtMs
+    && Math.abs(s.mtimeMs - opts.lastDataAtMs) <= DRIFT_COUPLING_MS);
+  return candidates.length === 1 ? candidates[0].id : null;
 }
 
 /**

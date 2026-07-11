@@ -99,6 +99,36 @@ export function listSessionIds(projectPath: string, claudeProjectsDir: string): 
 }
 
 /**
+ * Every on-disk session's id + mtime + birthtime for one project — the live drift detector's input
+ * (pickDriftedSessionId): birthtime tells "was this file born after the tile opened" (/clear creates
+ * a brand-new file), mtime tells "was it written since the last check". Sync like listSessionIds
+ * (single project dir, called per live session on a slow tick).
+ */
+export function listSessionStats(projectPath: string, claudeProjectsDir: string): { id: string; mtimeMs: number; birthtimeMs: number }[] {
+  const dir = join(claudeProjectsDir, encodeProjectPath(projectPath));
+  if (!existsSync(dir)) return [];
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const rows: { id: string; mtimeMs: number; birthtimeMs: number }[] = [];
+  for (const name of names) {
+    if (!name.endsWith('.jsonl')) continue;
+    const id = name.slice(0, -'.jsonl'.length);
+    if (!SESSION_ID_RE.test(id)) continue;
+    try {
+      const st = statSync(join(dir, name));
+      rows.push({ id, mtimeMs: st.mtimeMs, birthtimeMs: st.birthtimeMs });
+    } catch {
+      continue;
+    }
+  }
+  return rows;
+}
+
+/**
  * Last genuine user message of a session, found by scanning the file backward in
  * chunks (so a multi-MB trailing assistant turn doesn't hide it) up to TAIL_MAX.
  * Null if absent/unreadable or no user message within the cap.

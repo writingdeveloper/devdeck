@@ -25,7 +25,8 @@ import { listClaudeProjectDirs } from './usageProjectsScan';
 import { classifyUsageProjects } from '../shared/usageProjects';
 import { sanitizeTodos } from '../shared/tasks';
 import { getUsageWindows, readClaudeCredentials, fetchUsageApi, type CacheEntry } from './claudeUsage';
-import type { PersistedSession } from '../shared/cockpitPersist';
+import { pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
+import { listSessionStats } from './sessions';
 import { readClaudeSessionMeta } from './sessionMeta';
 import type { TrayController } from './tray';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
@@ -332,6 +333,21 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return [];
     return agent().listSessionIds(String(projectPath));
+  });
+  // Live session-id drift check (/clear starts a brand-new session id in the same terminal — the
+  // open-time id then goes stale and a restart would restore the PAST conversation). The renderer
+  // sends the tile's timing evidence; this stats the project's session files and adopts a new id only
+  // when unambiguous (pickDriftedSessionId). Claude-only: antigravity has no per-file session store.
+  ipcMain.handle('cockpit:liveSessionId', (_e, projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number }) => {
+    if (!isAllowedPath(effFolders(), String(projectPath))) return null;
+    if (agent().id !== 'claude' || !opts || typeof opts !== 'object') return null;
+    return pickDriftedSessionId(listSessionStats(String(projectPath), CLAUDE_PROJECTS), {
+      currentId: typeof opts.currentId === 'string' ? opts.currentId : null,
+      claimedIds: Array.isArray(opts.claimedIds) ? opts.claimedIds.filter((x): x is string => typeof x === 'string') : [],
+      openedAtMs: Number(opts.openedAtMs) || 0,
+      sinceMs: Number(opts.sinceMs) || 0,
+      lastDataAtMs: Number(opts.lastDataAtMs) || 0,
+    });
   });
 
   // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a

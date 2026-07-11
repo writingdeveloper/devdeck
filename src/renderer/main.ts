@@ -4,7 +4,7 @@ import { mountNav } from './nav';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, setCockpitContextWindow, setCockpitTrayAlert } from './cockpitView';
+import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert } from './cockpitView';
 import { isCockpitPlatform } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -53,6 +53,9 @@ function renderUpdate(p: import('../shared/update').UpdatePayload): void {
     btn.addEventListener('click', async () => {
       btn.disabled = true;
       // Record the live sessions so the post-update relaunch auto-restores them (best-effort).
+      // Sweep the drift check first: a /clear in the last seconds before the restart would otherwise
+      // freeze the pre-clear id and the relaunch would restore the PAST conversation.
+      try { await refreshLiveSessionIds(); } catch { /* best-effort */ }
       const live = liveSessionsForPersist();
       if (live.length) { try { await window.devdeck.setPendingAutoRestore(live); } catch { /* proceed regardless */ } }
       void window.devdeck.installUpdate();

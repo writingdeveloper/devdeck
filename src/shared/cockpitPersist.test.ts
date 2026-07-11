@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePersistedList, pickRestoreSessionId, resolveRestoreSessionId, adoptRestorableMatch, type PersistedSession } from './cockpitPersist';
+import { sanitizePersistedList, pickRestoreSessionId, resolveRestoreSessionId, adoptRestorableMatch, pickDriftedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
 
 describe('sanitizePersistedList', () => {
   it('returns [] for non-arrays', () => {
@@ -99,6 +99,55 @@ describe('pickRestoreSessionId', () => {
   it('returns null when there are no sessions, or all are already live (caller falls back to continue/new)', () => {
     expect(pickRestoreSessionId([], new Set())).toBeNull();
     expect(pickRestoreSessionId(['a'], new Set(['a']))).toBeNull();
+  });
+});
+
+describe('pickDriftedSessionId', () => {
+  // A live tile's conversation MOVES to a brand-new session id when the user runs /clear (Claude
+  // starts a new .jsonl in the same terminal). The open-time id then goes permanently stale, and a
+  // restart restores the PAST conversation — the "재시작 후 과거 데이터" bug. This detector adopts the
+  // new id only on unambiguous evidence; every ambiguous case must return null (keep the current id).
+  const T = 1_000_000_000; // base "now"
+  const stat = (id: string, mtimeMs: number, birthtimeMs: number): SessionFileStat => ({ id, mtimeMs, birthtimeMs });
+  // Typical /clear at T-5s: tile opened at T-60s on X (born long ago, last written T-20s);
+  // Y was created by /clear and is being written now. Last drift check was at T-30s.
+  const base = { currentId: 'X', claimedIds: [] as string[], openedAtMs: T - 60_000, sinceMs: T - 30_000, lastDataAtMs: T - 1_000 };
+  const oldX = stat('X', T - 40_000, T - 300_000); // current file quiet since before the last check
+  const hotY = stat('Y', T - 2_000, T - 5_000);    // born after the tile opened, written just now
+
+  it('adopts the single unclaimed newborn file when the tile streamed but its own file did not move (/clear)', () => {
+    expect(pickDriftedSessionId([oldX, hotY], base)).toBe('Y');
+  });
+  it('keeps the current id while its own file is still being written (no drift)', () => {
+    expect(pickDriftedSessionId([stat('X', T - 1_500, T - 300_000), hotY], base)).toBeNull();
+  });
+  it('ignores files claimed by another live tile (same-project siblings stay distinct)', () => {
+    expect(pickDriftedSessionId([oldX, hotY], { ...base, claimedIds: ['Y'] })).toBeNull();
+  });
+  it('ignores files born before the tile opened (an old conversation written by an external terminal)', () => {
+    const external = stat('E', T - 2_000, T - 90_000); // hot, but predates this tile
+    expect(pickDriftedSessionId([oldX, external], base)).toBeNull();
+  });
+  it('ambiguous — two hot newborn candidates → keep the current id (resolve on a later sample)', () => {
+    const hotZ = stat('Z', T - 2_500, T - 6_000);
+    expect(pickDriftedSessionId([oldX, hotY, hotZ], base)).toBeNull();
+  });
+  it('requires the candidate mtime to track the tile output time (uncoupled writes are not ours)', () => {
+    const drifted = stat('Y', T - 2_000, T - 5_000);
+    expect(pickDriftedSessionId([oldX, drifted], { ...base, lastDataAtMs: T - 25_000 })).toBeNull();
+  });
+  it('ignores files not written since the last check', () => {
+    const stale = stat('Y', T - 31_000, T - 40_000);
+    expect(pickDriftedSessionId([oldX, stale], base)).toBeNull();
+  });
+  it('no tile output since the last check → nothing can have moved on our behalf', () => {
+    expect(pickDriftedSessionId([oldX, hotY], { ...base, lastDataAtMs: T - 31_000 })).toBeNull();
+  });
+  it('a missing current file (fresh pinned id not yet written) still adopts an unambiguous newborn', () => {
+    expect(pickDriftedSessionId([hotY], base)).toBe('Y');
+  });
+  it('never adopts the current id itself', () => {
+    expect(pickDriftedSessionId([stat('X', T - 2_000, T - 5_000)], { ...base, sinceMs: T - 30_000 })).toBeNull();
   });
 });
 

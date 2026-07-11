@@ -66,6 +66,7 @@ declare global {
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
         sessionMeta(projectPath: string, sessionId: string): Promise<{ model: string | null; activeMs: number; contextTokens: number }>;
         sessionIds(projectPath: string): Promise<string[]>;
+        liveSessionId(projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number }): Promise<string | null>;
         gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
         openLink(url: string): Promise<void>;
         openImage(projectPath: string, imagePath: string): Promise<string>;

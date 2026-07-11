@@ -66,6 +66,8 @@ contextBridge.exposeInMainWorld('devdeck', {
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
     sessionMeta: (projectPath: string, sessionId: string) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId),
     sessionIds: (projectPath: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath),
+    liveSessionId: (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number }) =>
+      ipcRenderer.invoke('cockpit:liveSessionId', projectPath, opts),
     gitInfo: (projectPath: string) => ipcRenderer.invoke('cockpit:gitInfo', projectPath),
     openLink: (url: string) => ipcRenderer.invoke('cockpit:openLink', url),
     openImage: (projectPath: string, imagePath: string) => ipcRenderer.invoke('cockpit:openImage', projectPath, imagePath),
