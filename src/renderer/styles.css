@@ -217,7 +217,10 @@ button.primary:hover { background: var(--accent-hover); }
 .tk-row:hover { background: var(--surface-hover); border-color: var(--border-strong); }
 .tk-check { flex: 0 0 auto; cursor: pointer; }
 .tk-proj { flex: 0 0 auto; font-size: 11px; font-weight: 600; color: var(--text-faint); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-text { flex: 1; min-width: 0; font-size: 13px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
+/* Long task texts wrap to a 2nd line before clamping — nowrap+ellipsis cut same-prefix tasks at the
+   same spot, so they read identically in the list ("…으로 구분이 안 됨"). overflow-wrap covers unbroken
+   CJK/URL strings; the title tooltip (set in nextView) still carries the full text. */
+.tk-text { flex: 1; min-width: 0; font-size: 13px; line-height: 1.35; color: var(--text); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; cursor: text; }
 .tk-edit { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--accent); border-radius: 6px; padding: 4px 8px; font-size: 13px; }
 .tk-due { flex: 0 0 auto; background: transparent; border: 1px solid var(--border-strong); border-radius: 12px; color: var(--text-dim); font-size: 11px; padding: 2px 8px; cursor: pointer; }
 .tk-due.tk-over { color: #e0623f; border-color: #e0623f; }
