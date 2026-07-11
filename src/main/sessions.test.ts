@@ -6,7 +6,7 @@ import { listSessions, lastUserMessageForSession } from './sessions';
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'devdeck-sess-')); });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })); // retry: Windows file-handle release race → ENOTEMPTY
 
 const userLine = (text: string) => JSON.stringify({ type: 'user', message: { content: text } });
 

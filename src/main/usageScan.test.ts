@@ -6,7 +6,9 @@ import { scanUsage, _cacheHasFile, _clearFileCache, _setCacheBudget } from './us
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'devdeck-usage-')); _clearFileCache(); });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+// maxRetries/retryDelay: Windows lags releasing file handles after a stream closes, so a bare
+// recursive rmSync intermittently throws ENOTEMPTY on CI. Node's built-in retry rides out the race.
+afterEach(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
 
 function asst(model: string, u: Record<string, number>, ts = '2026-06-01T10:00:00.000Z') {
   return JSON.stringify({ type: 'assistant', timestamp: ts, message: { model, usage: u } });

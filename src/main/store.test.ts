@@ -11,7 +11,7 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'devdeck-'));
   file = join(dir, 'state.json');
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })); // retry: Windows file-handle release race → ENOTEMPTY
 
 describe('Store', () => {
   it('returns a default entry for an unknown project', () => {

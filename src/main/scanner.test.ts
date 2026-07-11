@@ -12,7 +12,7 @@ beforeEach(() => {
   mkdirSync(join(base, 'notARepo'), { recursive: true });          // no .git
   mkdirSync(join(base, '__pycache__', '.git'), { recursive: true }); // ignored name
 });
-afterEach(() => rmSync(base, { recursive: true, force: true }));
+afterEach(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })); // retry: Windows file-handle release race → ENOTEMPTY
 
 describe('scanRepos', () => {
   it('returns only git repos, excluding ignored names', async () => {

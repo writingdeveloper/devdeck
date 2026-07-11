@@ -20,7 +20,7 @@ function writeSession(id: string, cwd: string, transcript?: string) {
 }
 
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'agy-')); });
-afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }); // retry: Windows file-handle release race → ENOTEMPTY
 
 describe('antigravitySessions', () => {
   it('antigravityAvailable is true only when conversations/ exists', () => {

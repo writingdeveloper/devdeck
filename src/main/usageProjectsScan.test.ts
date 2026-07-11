@@ -6,7 +6,7 @@ import { listClaudeProjectDirs } from './usageProjectsScan';
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'devdeck-cproj-')); });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })); // retry: Windows file-handle release race → ENOTEMPTY
 
 describe('listClaudeProjectDirs', () => {
   it('recovers {path,name} from each dir via the session cwd; skips dirs without cwd', async () => {

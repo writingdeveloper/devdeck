@@ -12,7 +12,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'devdeck-create-'));
   folders = [{ path: root, kind: 'root' }];
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })); // retry: Windows file-handle release race → ENOTEMPTY
 
 // A git stub that records where it was invoked, so tests stay fast and offline.
 function gitSpy() {
