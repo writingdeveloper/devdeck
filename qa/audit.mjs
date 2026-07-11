@@ -39,8 +39,14 @@ ipc.langRoundTrip = await win.evaluate(async () => {
 });
 // cockpit.gitInfo must resolve the real branch by project path — the fix for restored cockpit
 // sessions (and in-terminal branch switches) showing "-" instead of the live branch.
-// The handler is allowlist-guarded, so register this checkout as an allowed folder first
-// (on CI the checkout lives outside the default ~/Documents/GitHub scan root).
+// The handler is allowlist-guarded, so register this checkout as an allowed folder first (on CI the
+// checkout lives outside the default ~/Documents/GitHub scan root). addFolder only accepts a directory
+// blessed by the native pickFolder dialog (a renderer can't self-add one), so stub the dialog to "pick"
+// this checkout, then drive the real pickFolder → addFolder handshake.
+await app.evaluate(({ dialog }, p) => {
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+}, root);
+await win.evaluate(async () => window.devdeck.pickFolder());
 await win.evaluate(async (p) => window.devdeck.addFolder(p), root);
 const gitInfoRaw = await win.evaluate(async (p) => (await window.devdeck.cockpit.gitInfo(p)) ?? null, root);
 ipc.cockpitGitInfo = typeof gitInfoRaw?.branch === 'string' && gitInfoRaw.branch.length > 0;
