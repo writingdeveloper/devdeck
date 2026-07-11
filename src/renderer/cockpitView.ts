@@ -11,6 +11,7 @@ import { findUrlLinks, findImagePathLinks, type BufferRow } from '../shared/link
 import { sanitizePersistedList, resolveRestoreSessionId, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import type { AgentId, StaleLevel } from '../shared/types';
 import { tr, currentLang } from './i18n-runtime';
+import { toast } from './loadError';
 
 interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; customLabel: string | null; meta: { model: string | null; activeMs: number; contextTokens: number } | null; pinned: boolean; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; pinned?: boolean; }
@@ -230,7 +231,13 @@ async function createSession(p: OpenReq): Promise<boolean> {
     if (action === 'copy') { window.devdeck.clipboard.writeText(unwrapCopiedUrl(term.getSelection())); return false; }
     if (action === 'paste') {
       e.preventDefault(); // cancel the native paste gesture so xterm's own paste can't double with our IPC paste
-      window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
+      // Prefer a clipboard IMAGE (screenshot): main writes it to a temp PNG and returns the path, which
+      // we inject as text — Claude Code reads an image off a path even where native clipboard-image paste
+      // can't (e.g. Windows). No image on the clipboard → fall back to the normal text paste.
+      window.devdeck.clipboard.readImage().then((imgPath) => {
+        if (imgPath) { term.paste(imgPath + ' '); toast(tr('cockpit.image_pasted')); return; }
+        window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
+      });
       return false;
     }
     if (action === 'find') { e.preventDefault(); openFindBar(); return false; } // Ctrl+F searches scrollback, never reaches the PTY

@@ -50,6 +50,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   clipboard: {
     writeText: (text: string) => ipcRenderer.send('clipboard:writeText', text),
     readText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
+    readImage: (): Promise<string | null> => ipcRenderer.invoke('clipboard:readImage'),
   },
   cockpit: {
     open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }) =>

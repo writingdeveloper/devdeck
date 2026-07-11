@@ -384,6 +384,17 @@ export function registerIpc(cfg: IpcConfig): void {
   // navigator.clipboard reliably). Used so Ctrl+C copies a selection instead of sending SIGINT.
   ipcMain.on('clipboard:writeText', (_e, text: string) => clipboard.writeText(String(text ?? '')));
   ipcMain.handle('clipboard:readText', () => clipboard.readText());
+  // Paste a CLIPBOARD IMAGE (e.g. a screenshot) into the terminal: Claude Code can't read the OS
+  // clipboard (esp. native Windows), but it DOES read an image off a file path. So on Ctrl+V with an
+  // image on the clipboard, write it to a temp PNG and return the path for the renderer to inject as
+  // text — the one image-input method that works cross-platform. null when the clipboard has no image.
+  ipcMain.handle('clipboard:readImage', () => {
+    const img = clipboard.readImage();
+    if (img.isEmpty()) return null;
+    const file = join(tmpdir(), `devdeck-paste-${randomUUID()}.png`);
+    try { writeFileSync(file, img.toPNG()); } catch { return null; }
+    return file;
+  });
 
   // Open a clicked terminal link. Terminal output is arbitrary, so (unlike shell:openExternal, which is
   // locked to DevDeck's own repo) any host is allowed — but only the http/https scheme, never file:/etc.

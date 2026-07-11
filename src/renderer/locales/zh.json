@@ -166,6 +166,7 @@
   "cockpit.grp_idle": "空闲 / 已退出",
   "cockpit.context": "上下文用量",
   "cockpit.notify_attention": "会话正在等待您的回复",
+  "cockpit.image_pasted": "📎 已粘贴图片",
   "set.context_window": "上下文窗口大小",
   "cockpit.grp_pinned": "置顶",
   "cockpit.pin": "置顶",

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 
 // Capture handler registrations instead of a real ipcMain so each channel can be invoked directly.
 const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, (...args: unknown[]) => unknown>() }));
@@ -11,7 +13,7 @@ vi.mock('electron', () => ({
   },
   dialog: { showOpenDialog: vi.fn() },
   shell: {},
-  clipboard: {},
+  clipboard: { readImage: vi.fn() },
   app: { getPath: () => '', getVersion: () => '0.0.0', isPackaged: false },
 }));
 
@@ -23,7 +25,7 @@ vi.mock('./gitInfo', () => ({
 
 import { registerIpc, type IpcConfig } from './ipc';
 import { getGitBranchDirty } from './gitInfo';
-import { dialog } from 'electron';
+import { dialog, clipboard } from 'electron';
 
 const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
 const sendError = vi.fn();
@@ -147,5 +149,23 @@ describe('settings:addFolder picker handshake', () => {
     storeSpies.addFolder.mockClear();
     await handlers.get('settings:addFolder')!(null, process.cwd());
     expect(storeSpies.addFolder).not.toHaveBeenCalled();
+  });
+});
+
+describe('clipboard:readImage (paste a screenshot into the terminal)', () => {
+  it('returns null when the clipboard holds no image', async () => {
+    vi.mocked(clipboard.readImage).mockReturnValue({ isEmpty: () => true } as never);
+    expect(await handlers.get('clipboard:readImage')!(null)).toBeNull();
+  });
+
+  it('writes the clipboard image to a temp .png under tmpdir and returns its path', async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]); // PNG magic bytes
+    vi.mocked(clipboard.readImage).mockReturnValue({ isEmpty: () => false, toPNG: () => png } as never);
+    const p = (await handlers.get('clipboard:readImage')!(null)) as string;
+    expect(p).toMatch(/devdeck-paste-.+\.png$/);
+    expect(p.startsWith(tmpdir())).toBe(true);
+    expect(existsSync(p)).toBe(true);
+    expect(readFileSync(p)).toEqual(png); // renderer will inject this path; Claude Code reads the image off it
+    rmSync(p, { force: true }); // clean up the temp file the handler wrote
   });
 });

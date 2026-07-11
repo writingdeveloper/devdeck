@@ -166,6 +166,7 @@
   "cockpit.grp_idle": "유휴 / 종료",
   "cockpit.context": "컨텍스트 사용량",
   "cockpit.notify_attention": "세션이 응답을 기다리고 있습니다",
+  "cockpit.image_pasted": "📎 이미지 붙여넣음",
   "set.context_window": "컨텍스트 창 크기",
   "cockpit.grp_pinned": "고정",
   "cockpit.pin": "상단 고정",
