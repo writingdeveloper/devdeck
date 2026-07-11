@@ -111,7 +111,7 @@ export function registerIpc(cfg: IpcConfig): void {
     const scanned = await memoScan();
     // Reconcile the live deck with ~/.claude so DELETED projects (folder gone, usage still on disk)
     // remain visible and counted in the totals — honest "where did my tokens go" accounting.
-    const claudeProjects = listClaudeProjectDirs(CLAUDE_PROJECTS);
+    const claudeProjects = await listClaudeProjectDirs(CLAUDE_PROJECTS);
     const all = classifyUsageProjects({ scanned, claudeProjects, exists: existsSync });
     return scanUsage(all, CLAUDE_PROJECTS, ms);
   });

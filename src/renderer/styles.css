@@ -304,7 +304,6 @@ button.primary:hover { background: var(--accent-hover); }
    contrast (axe color-contrast, serious). #8f96a3 keeps the greyed-out look at ~6.5:1. */
 .usage-table tr.pu-deleted td { color: #8f96a3; }
 .pu-badge { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 6px; font-size: 10px; color: #8f96a3; border: 1px solid var(--border-strong); font-family: system-ui, sans-serif; }
-.usage-deleted-hint { padding: 0 16px 12px; color: var(--text-faint); font-size: 11px; }
 
 #settings-form { padding: 18px 20px; max-width: 640px; }
 .set-title { font-size: 16px; margin: 0 0 16px; }

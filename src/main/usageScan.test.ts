@@ -184,6 +184,21 @@ describe('scanUsage', () => {
     expect(r.byProject[0].activeMs).toBe(4 * 60_000);
   });
 
+  it('counts only sessions with activity in the selected range (session count is date-scoped, not lifetime)', async () => {
+    // Regression: projSessions used to increment per FILE regardless of sinceMs, so a project whose
+    // sessions were all outside the range still rendered as a 0-value row (and inflated the summary's
+    // "sessions" stat). A session must count only when it has in-range activity.
+    const d = join(root, 'C--g-scope');
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, 'old.jsonl'), asst('claude-opus-4-8', { input_tokens: 3 }, '2026-05-01T10:00:00.000Z'));
+    writeFileSync(join(d, 'new.jsonl'), asst('claude-opus-4-8', { input_tokens: 4 }, '2026-06-10T10:00:00.000Z'));
+    const cut = new Date('2026-06-01T00:00:00.000Z').getTime();
+    const r = await scanUsage([{ path: 'C:\\g\\scope', name: 'scope' }], root, cut);
+    expect(r.byProject[0].sessions).toBe(1); // only new.jsonl had in-range activity
+    expect(r.sessions).toBe(1);              // summary "sessions" is range-scoped like every other stat
+    expect(r.global.input).toBe(4);
+  });
+
   it('sinceMs filtering served from the CACHED digest matches a fresh parse (day-granular)', async () => {
     const d = join(root, 'C--g-since');
     mkdirSync(d, { recursive: true });

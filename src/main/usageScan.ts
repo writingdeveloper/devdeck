@@ -152,9 +152,10 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
           digest = parsed;
           cacheSet(full, digest);
         }
-        projSessions++;
+        let contributed = false;
         for (const e of digest.entries) {
           if (!inRange(e.dayMs)) continue;
+          contributed = true;
           if (e.unknown) { hasUnknownModel = true; projUnknown = true; }
           Object.assign(global, addTotals(global, e.totals));
           Object.assign(projTotals, addTotals(projTotals, e.totals));
@@ -166,6 +167,10 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
         }
         const stampsInRange = sinceMs === Infinity ? digest.stamps : digest.stamps.filter((_, i) => digest!.stampDayMs[i] >= sinceMs);
         projActiveMs += activeMsFromTimestamps(stampsInRange);
+        // Count a session only when it had activity in the selected range (an in-range usage entry, or
+        // any in-range message). Counting every file regardless of range let long-dead projects render
+        // as 0-value rows and inflated the summary's range-scoped "sessions" stat with lifetime files.
+        if (contributed || stampsInRange.length > 0) projSessions++;
       }
     }
 

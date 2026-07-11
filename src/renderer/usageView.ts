@@ -2,7 +2,8 @@ import { barChart, shareBar } from './charts';
 import { formatDuration } from '../shared/usage';
 import { tr, localeTag } from './i18n-runtime';
 import { renderLoadError } from './loadError';
-import { filterProjectRows } from '../shared/usageFilter';
+import { filterProjectRows, aggregateDeleted } from '../shared/usageFilter';
+import type { ProjectUsage } from '../shared/types';
 
 type UsageReport = Awaited<ReturnType<Window['devdeck']['usageReport']>>;
 
@@ -18,7 +19,7 @@ let viewEl: HTMLElement;
 let activeRange = '30d';
 let sortKey: 'cost' | 'input' | 'output' | 'sessions' | 'active' = 'cost';
 let sortDir: 'desc' | 'asc' = 'desc';
-let showDeleted = true; // deleted projects (folder gone, usage remains) shown by default; totals always include them
+let expandDeleted = false; // deleted projects collapse into one '🗑 N deleted' row by default; check to expand. Totals always include them.
 let searchQuery = ''; // filters the project table only — the summary above always reflects the full range
 
 function fmt(n: number): string { return new Intl.NumberFormat(localeTag()).format(n); }
@@ -100,20 +101,24 @@ function render(r: UsageReport): void {
     tableWrap.replaceChildren();
     const allRows = [...r.byProject].filter((p) => p.sessions > 0);
     const searched = filterProjectRows(allRows, searchQuery);
-    const deletedTotal = searched.filter((p) => p.status === 'deleted').length;
-    const rows = searched.filter((p) => showDeleted || p.status !== 'deleted').sort((a, b) => {
+    // Deleted projects (folder gone, ~/.claude usage remains) collapse into ONE '🗑 N deleted projects'
+    // row by default so they never pile up as an ever-growing list; the checkbox expands them back into
+    // individual rows. Totals always include them regardless.
+    const group = aggregateDeleted(searched);
+    const sortCmp = (a: ProjectUsage, b: ProjectUsage): number => {
       // Active projects first, deleted (🗑) grouped below; then by the chosen sort key within each group.
       if ((a.status === 'deleted') !== (b.status === 'deleted')) return a.status === 'deleted' ? 1 : -1;
-      const val = (p: typeof a): number =>
+      const val = (p: ProjectUsage): number =>
         sortKey === 'cost' ? (p.costEstimate ?? -1) : sortKey === 'sessions' ? p.sessions : sortKey === 'active' ? p.activeMs : p.totals[sortKey];
       const av = val(a), bv = val(b);
       return sortDir === 'desc' ? bv - av : av - bv;
-    });
-    if (deletedTotal > 0) {
+    };
+    const rows = (expandDeleted ? [...searched] : searched.filter((p) => p.status !== 'deleted')).sort(sortCmp);
+    if (group) {
       const ctl = document.createElement('label'); ctl.className = 'usage-show-deleted';
-      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = showDeleted;
-      cb.addEventListener('change', () => { showDeleted = cb.checked; renderTable(); });
-      const sp = document.createElement('span'); sp.textContent = tr('usage.show_deleted');
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = expandDeleted;
+      cb.addEventListener('change', () => { expandDeleted = cb.checked; renderTable(); });
+      const sp = document.createElement('span'); sp.textContent = tr('usage.expand_deleted');
       ctl.append(cb, sp); tableWrap.appendChild(ctl);
     }
     const table = document.createElement('table'); table.className = 'usage-table';
@@ -160,12 +165,18 @@ function render(r: UsageReport): void {
       }
       table.appendChild(tr2);
     }
-    tableWrap.appendChild(table);
-    if (deletedTotal > 0 && !showDeleted) {
-      const hint = document.createElement('div'); hint.className = 'usage-deleted-hint';
-      hint.textContent = tr('usage.deleted_hidden').replace('{n}', String(deletedTotal));
-      tableWrap.appendChild(hint);
+    if (group && !expandDeleted) {
+      // Collapsed: a single aggregate row standing in for every deleted project (sorts last, after active).
+      const tr2 = document.createElement('tr'); tr2.className = 'pu-deleted';
+      const nameTd = document.createElement('td');
+      nameTd.append(`🗑 ${tr('usage.deleted_group').replace('{n}', String(group.count))}`);
+      tr2.appendChild(nameTd);
+      for (const c of [usd(group.costEstimate), String(group.sessions), formatDuration(group.activeMs), fmt(group.totals.input), fmt(group.totals.output)]) {
+        const td = document.createElement('td'); td.textContent = c; tr2.appendChild(td);
+      }
+      table.appendChild(tr2);
     }
+    tableWrap.appendChild(table);
   }
   renderTable();
 
