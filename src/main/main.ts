@@ -131,10 +131,17 @@ if (!gotLock) {
     let shutdownLog: ShutdownLog | null = null;
     if (process.platform === 'win32') {
       shutdownLog = new ShutdownLog(path.join(userData, 'shutdown-log.json'));
+      const reportShutdownError = (msg: string): void => {
+        logLine(`[shutdown] ${msg}`);
+        try { if (!w.isDestroyed()) w.webContents.send('devdeck:error', msg); } catch { /* renderer gone */ }
+      };
       const spawnShutdown = (args: string[]): void => {
         // args array + windowsHide; an exec error must surface, not silently strand an "issued" record.
         const p = spawn('shutdown', args, { windowsHide: true, stdio: 'ignore' });
-        p.on('error', (e) => logLine(`[shutdown-exec] ${e.message}`));
+        p.on('error', (e) => reportShutdownError(`shutdown.exe failed to spawn: ${e.message}`));
+        // error never fires for a clean spawn that FAILS (e.g. a shutdown already pending, policy denial)
+        // — that's a non-zero exit, and it means the countdown the user is watching will never fire.
+        p.on('exit', (code) => { if (code !== null && code !== 0) reportShutdownError(`shutdown ${args[0]} exited with code ${code}`); });
       };
       shutdown = new ShutdownScheduler({
         log: shutdownLog,
@@ -147,7 +154,7 @@ if (!gotLock) {
           tray.setShutdownPhase(s.phase);
           try { if (!w.isDestroyed()) w.webContents.send('shutdown:status', s); } catch { /* renderer gone */ }
         },
-        onError: (msg) => { logLine(`[shutdown] ${msg}`); w.webContents.send('devdeck:error', msg); },
+        onError: reportShutdownError,
         schedule: (fn, ms) => { setTimeout(fn, ms); },
       });
     }
