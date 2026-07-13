@@ -9,6 +9,7 @@ import { isCockpitPlatform } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
 import { mountUsageBar, refreshUsageBar } from './usageBar';
+import { mountShutdown } from './shutdown';
 
 const toastHost = document.getElementById('toast-host')!;
 window.devdeck.onError((msg) => {
@@ -82,6 +83,8 @@ function applyStaticLabels(): void {
   if (showHidden?.firstChild) showHidden.firstChild.textContent = '🙈 ' + tr('proj.hidden') + ' ';
   const ckSearch = document.getElementById('ck-search') as HTMLInputElement | null;
   if (ckSearch) ckSearch.placeholder = tr('cockpit.search');
+  const sdBtn = document.getElementById('shutdown-btn');
+  if (sdBtn) { sdBtn.title = tr('shutdown.arm'); sdBtn.setAttribute('aria-label', tr('shutdown.arm')); }
 }
 
 function mountTitlebar(): void {
@@ -179,6 +182,7 @@ async function boot(): Promise<void> {
   mountSettings(() => { applyStaticLabels(); reloadProjects(); void refreshUsageBar(); });
   mountNext();
   mountUsageBar();
+  mountShutdown(settings.platform);
   if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); setCockpitTrayAlert(settings.trayAlert); }
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit(); });
 

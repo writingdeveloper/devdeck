@@ -187,5 +187,21 @@
   "usage.reset_h": "X時間Y分",
   "usage.reset_m": "Y分",
   "common.load_failed": "読み込みに失敗しました",
-  "common.retry": "再試行"
+  "common.retry": "再試行",
+  "shutdown.arm": "アイドル時にPCをシャットダウン",
+  "shutdown.armed_chip": "🌙 監視中 — すべての活動が止まるとPCを終了します",
+  "shutdown.now": "今すぐPCをシャットダウン",
+  "shutdown.cancel": "シャットダウンを取り消す",
+  "shutdown.countdown": "{s}秒後にPCが終了します — すべてのプログラムが強制終了されます",
+  "shutdown.arm_warn": "🌙 予約済み — アイドル時に他プログラムの未保存作業も強制終了されます",
+  "shutdown.banner_confirmed": "✅ {time}に自動シャットダウンしました（アイドル{m}分後）",
+  "shutdown.banner_confirmed_manual": "✅ {time}に手動シャットダウンしました",
+  "shutdown.banner_not_executed": "⚠ {time}にシャットダウンを実行しましたが、実際には電源が切れませんでした",
+  "shutdown.banner_close": "閉じる",
+  "shutdown.idle_minutes": "アイドル判定時間（分）",
+  "shutdown.history": "シャットダウン履歴",
+  "shutdown.hist_empty": "まだ記録がありません",
+  "shutdown.hist_auto": "自動",
+  "shutdown.hist_manual": "手動",
+  "shutdown.hist_cancelled": "取り消し"
 }

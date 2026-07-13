@@ -12,6 +12,7 @@ import { sanitizePersistedList, resolveRestoreSessionId, adoptRestorableMatch, t
 import type { AgentId, StaleLevel } from '../shared/types';
 import { tr, currentLang } from './i18n-runtime';
 import { toast } from './loadError';
+import { reportShutdownActivity } from './shutdown';
 
 interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: { model: string | null; activeMs: number; contextTokens: number } | null; pinned: boolean; }
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; pinned?: boolean; }
@@ -605,6 +606,11 @@ function updateRailBadge(): void {
   // Tray attention indicator: send both counts; the main process reddens the tray per the user's setting.
   const turn = sessions.filter((s) => s.activity === 'turn').length;
   window.devdeck.setTrayCounts({ attention, turn });
+  // Idle-shutdown busy signal + record summary (only crosses IPC when the summary changes).
+  reportShutdownActivity(
+    sessions.filter((s) => s.activity === 'working').length,
+    sessions.map((s) => ({ project: s.name, activity: s.activity })),
+  );
 }
 
 /** Draw the tray icon + a red dot on a canvas and hand it to main for the attention alert (no extra asset/dep). */

@@ -17,6 +17,9 @@
       </div>
       <div class="tb-drag"></div>
       <div class="top-actions">
+        <div class="menu-wrap shutdown-wrap hidden" id="shutdown-wrap">
+          <button id="shutdown-btn" class="iconbtn" title="유휴 시 종료" aria-label="유휴 시 종료" aria-haspopup="menu" aria-expanded="false">🌙</button>
+        </div>
         <button id="refresh" class="iconbtn" title="새로고침" aria-label="새로고침">↻</button>
       </div>
       <div class="win-controls">
@@ -81,6 +84,7 @@
     </div>
     <footer id="usage-bar" class="ub hidden" title="Claude usage"></footer>
     <div id="update-banner" class="hidden" role="status"></div>
+    <div id="shutdown-banner" class="hidden" role="status" aria-live="polite"></div>
     <div id="toast-host" aria-live="assertive"></div>
     <script src="./renderer.js"></script>
   </body>

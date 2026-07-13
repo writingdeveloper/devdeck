@@ -187,5 +187,21 @@
   "usage.reset_h": "Xh Ym",
   "usage.reset_m": "Ym",
   "common.load_failed": "Failed to load",
-  "common.retry": "Retry"
+  "common.retry": "Retry",
+  "shutdown.arm": "Shut down PC when idle",
+  "shutdown.armed_chip": "🌙 Watching — PC shuts down once all activity goes idle",
+  "shutdown.now": "Shut down PC now",
+  "shutdown.cancel": "Cancel shutdown",
+  "shutdown.countdown": "PC shuts down in {s}s — all programs will be force-closed",
+  "shutdown.arm_warn": "🌙 Armed — unsaved work in other programs will be force-closed when idle",
+  "shutdown.banner_confirmed": "✅ Auto shutdown completed at {time} (after {m} min idle)",
+  "shutdown.banner_confirmed_manual": "✅ Manual shutdown completed at {time}",
+  "shutdown.banner_not_executed": "⚠ Shutdown was issued at {time} but the PC did not power off",
+  "shutdown.banner_close": "Dismiss",
+  "shutdown.idle_minutes": "Idle hold (minutes)",
+  "shutdown.history": "Shutdown history",
+  "shutdown.hist_empty": "No shutdown records yet",
+  "shutdown.hist_auto": "auto",
+  "shutdown.hist_manual": "manual",
+  "shutdown.hist_cancelled": "cancelled"
 }

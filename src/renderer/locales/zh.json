@@ -187,5 +187,21 @@
   "usage.reset_h": "X小时Y分",
   "usage.reset_m": "Y分",
   "common.load_failed": "加载失败",
-  "common.retry": "重试"
+  "common.retry": "重试",
+  "shutdown.arm": "空闲时关闭电脑",
+  "shutdown.armed_chip": "🌙 监视中 — 所有活动空闲后将关机",
+  "shutdown.now": "立即关机",
+  "shutdown.cancel": "取消关机",
+  "shutdown.countdown": "{s}秒后关机 — 所有程序将被强制关闭",
+  "shutdown.arm_warn": "🌙 已预约 — 空闲时其他程序未保存的工作也会被强制关闭",
+  "shutdown.banner_confirmed": "✅ 已于{time}自动关机（空闲{m}分钟后）",
+  "shutdown.banner_confirmed_manual": "✅ 已于{time}手动关机",
+  "shutdown.banner_not_executed": "⚠ 于{time}执行了关机命令，但电脑并未真正关闭",
+  "shutdown.banner_close": "知道了",
+  "shutdown.idle_minutes": "空闲判定时间（分钟）",
+  "shutdown.history": "关机记录",
+  "shutdown.hist_empty": "暂无关机记录",
+  "shutdown.hist_auto": "自动",
+  "shutdown.hist_manual": "手动",
+  "shutdown.hist_cancelled": "已取消"
 }

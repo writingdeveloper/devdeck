@@ -187,5 +187,21 @@
   "usage.reset_h": "X시간 Y분",
   "usage.reset_m": "Y분",
   "common.load_failed": "불러오기에 실패했습니다",
-  "common.retry": "다시 시도"
+  "common.retry": "다시 시도",
+  "shutdown.arm": "유휴 시 PC 종료 예약",
+  "shutdown.armed_chip": "🌙 유휴 감시 중 — 모든 활동이 멈추면 PC를 종료합니다",
+  "shutdown.now": "지금 바로 PC 종료",
+  "shutdown.cancel": "종료 취소",
+  "shutdown.countdown": "{s}초 후 PC가 종료됩니다 — 모든 프로그램이 강제 종료됩니다",
+  "shutdown.arm_warn": "🌙 예약됨 — 유휴 시 저장 안 된 다른 프로그램 작업도 강제 종료됩니다",
+  "shutdown.banner_confirmed": "✅ {time}에 자동 종료되었습니다 (유휴 {m}분 후)",
+  "shutdown.banner_confirmed_manual": "✅ {time}에 수동 종료되었습니다",
+  "shutdown.banner_not_executed": "⚠ {time}에 종료 명령을 실행했지만 실제로 꺼지지 않았습니다",
+  "shutdown.banner_close": "확인",
+  "shutdown.idle_minutes": "유휴 판정 시간 (분)",
+  "shutdown.history": "종료 이력",
+  "shutdown.hist_empty": "아직 종료 기록이 없습니다",
+  "shutdown.hist_auto": "자동",
+  "shutdown.hist_manual": "수동",
+  "shutdown.hist_cancelled": "취소됨"
 }

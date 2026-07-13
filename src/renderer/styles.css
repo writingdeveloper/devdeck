@@ -512,4 +512,15 @@ button.primary:hover { background: var(--accent-hover); }
 .ub-val { color: var(--text); opacity: .9; }
 .ub-rst { color: #7d828c; } /* muted but still ~5:1 on #0d0e12 — text-dim at opacity .6 failed WCAG AA (axe color-contrast, serious) */
 .ub-dot { opacity: .35; }
+
+/* 🌙 idle shutdown */
+#shutdown-banner { position: fixed; left: 50%; transform: translateX(-50%); bottom: 44px; z-index: 60;
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-radius: 10px;
+  background: #1b2333; border: 1px solid #2e3b55; color: #dbe4f8; font-size: 14px; }
+#shutdown-banner.hidden { display: none; }
+#shutdown-banner.shutdown-warn { border-color: #7a4a1d; background: #2b2013; }
+#shutdown-banner[data-mode="countdown"] { border-color: #8a2d2d; background: #2d1517; font-weight: 600; }
+#shutdown-btn.shutdown-armed { color: #ffd479; text-shadow: 0 0 8px rgba(255, 212, 121, .5); }
+#shutdown-btn.shutdown-counting { color: #ff7b72; }
+.shutdown-menu { right: 0; top: 34px; min-width: 220px; }
 .ub-msg { opacity: .8; }
