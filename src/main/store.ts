@@ -6,7 +6,7 @@ import { sanitizeTodos, type Todo } from '../shared/tasks';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number };
 }
 
 const EMPTY: StoreEntry = {
@@ -132,6 +132,16 @@ export class Store {
 
   getTrayAlert(): 'off' | 'attention' | 'all' { const t = this.state.settings?.trayAlert; return t === 'off' || t === 'all' ? t : 'attention'; }
   setTrayAlert(t: 'off' | 'attention' | 'all'): void { this.state.settings = { ...(this.state.settings ?? {}), trayAlert: t === 'off' || t === 'all' ? t : 'attention' }; this.save(); }
+
+  // Idle hold (minutes) before the armed shutdown watcher fires — one of IDLE_HOLD_CHOICES.
+  getShutdownIdleMinutes(): number {
+    const v = this.state.settings?.shutdownIdleMinutes;
+    return v === 5 || v === 10 || v === 20 || v === 30 ? v : 10;
+  }
+  setShutdownIdleMinutes(m: number): void {
+    this.state.settings = { ...(this.state.settings ?? {}), shutdownIdleMinutes: m === 5 || m === 20 || m === 30 ? m : 10 };
+    this.save();
+  }
 
 
   setNote(path: string, note: string): void { this.mutate(path, { note }); }

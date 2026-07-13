@@ -30,6 +30,10 @@ import { listSessionStats } from './sessions';
 import { readClaudeSessionMeta } from './sessionMeta';
 import type { TrayController } from './tray';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
+import type { ShutdownScheduler } from './shutdownScheduler';
+import { pendingBootBanner } from './shutdownScheduler';
+import type { ShutdownLog } from './shutdownLog';
+import type { ShutdownSessionSummary } from '../shared/shutdownIdle';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
@@ -42,6 +46,10 @@ export interface IpcConfig {
   defaultLanguage: string;
   ptyHost: PtyHost;
   tray: TrayController;
+  /** Idle-shutdown feature (win32 only) — null elsewhere, which skips channel registration. */
+  shutdown: ShutdownScheduler | null;
+  shutdownLog: ShutdownLog | null;
+  bootTimeMs: () => number;
 }
 
 export function registerIpc(cfg: IpcConfig): void {
@@ -128,6 +136,7 @@ export function registerIpc(cfg: IpcConfig): void {
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
     openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform,
     viewMode: cfg.store.getViewMode(), trayAlert: cfg.store.getTrayAlert(), contextWindow: cfg.store.getContextWindow(),
+    shutdownIdleMinutes: cfg.store.getShutdownIdleMinutes(),
   }));
   ipcMain.handle('settings:setContextWindow', (_e, w: number) => cfg.store.setContextWindow(w === 200_000 ? 200_000 : 1_000_000));
   ipcMain.handle('settings:setTrayAlert', (_e, mode: string) => {
@@ -295,7 +304,7 @@ export function registerIpc(cfg: IpcConfig): void {
       cfg.ptyHost.create(
         id, shellPath, ['-NoExit', '-Command', resolved.command], req.projectPath,
         Math.max(20, req.cols | 0), Math.max(5, req.rows | 0),
-        (chunk) => ptyBatch.push(id, chunk),
+        (chunk) => { cfg.shutdown?.noteBusy(); ptyBatch.push(id, chunk); },
         (e) => { ptyBatch.flush(); sendToWin('cockpit:exit', { id, exitCode: e.exitCode }); }, // flush buffered output before the exit notice
       );
       cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
@@ -305,7 +314,7 @@ export function registerIpc(cfg: IpcConfig): void {
       return { id: '', agentId: a.id, sessionId: null };
     }
   });
-  ipcMain.on('cockpit:input', (_e, id: string, data: string) => cfg.ptyHost.write(String(id), String(data)));
+  ipcMain.on('cockpit:input', (_e, id: string, data: string) => { cfg.shutdown?.noteBusy(); cfg.ptyHost.write(String(id), String(data)); });
   ipcMain.on('cockpit:resize', (_e, id: string, cols: number, rows: number) => cfg.ptyHost.resize(String(id), Math.max(1, cols | 0), Math.max(1, rows | 0)));
   ipcMain.on('cockpit:close', (_e, id: string) => { ptyBatch.drop(String(id)); cfg.ptyHost.kill(String(id)); });
 
@@ -437,6 +446,36 @@ export function registerIpc(cfg: IpcConfig): void {
     if (err) { cfg.sendError(`Could not open file: ${err}`); return 'error'; }
     return 'ok';
   });
+
+  // One-shot idle shutdown (win32 only — cfg.shutdown is null elsewhere so none of this registers).
+  // Lifecycle invokes return the fresh status so the renderer can update without a round-trip race.
+  if (cfg.shutdown && cfg.shutdownLog) {
+    const sd = cfg.shutdown;
+    const sdLog = cfg.shutdownLog;
+    ipcMain.handle('shutdown:arm', () => { sd.arm(); return sd.status(); });
+    ipcMain.handle('shutdown:disarm', () => { sd.disarm(); return sd.status(); });
+    ipcMain.handle('shutdown:now', () => { sd.shutdownNow(); return sd.status(); });
+    ipcMain.handle('shutdown:cancel', () => { sd.cancel(); return sd.status(); });
+    ipcMain.handle('shutdown:status', () => sd.status());
+    ipcMain.handle('shutdown:history', () => sdLog.read().slice().reverse()); // newest first for the settings list
+    ipcMain.handle('shutdown:bootBanner', () => pendingBootBanner(sdLog.read(), cfg.bootTimeMs()));
+    ipcMain.handle('shutdown:ackBanner', () => sdLog.updateLast({ acknowledged: true }));
+    ipcMain.handle('shutdown:setIdleMinutes', (_e, m: number) => cfg.store.setShutdownIdleMinutes(Number(m)));
+    // The renderer's activity report: working count (busy signal) + session summary (recorded at issue
+    // time so tomorrow's banner can say what was on the deck). Sanitized — renderer input is untrusted.
+    ipcMain.on('shutdown:report', (_e, p: { working?: unknown; sessions?: unknown }) => {
+      const working = Math.max(0, Number(p && typeof p === 'object' ? p.working : 0) | 0);
+      const sessions: ShutdownSessionSummary[] = Array.isArray(p && typeof p === 'object' ? p.sessions : null)
+        ? (p.sessions as unknown[]).flatMap((s) => {
+            if (!s || typeof s !== 'object') return [];
+            const o = s as Record<string, unknown>;
+            return typeof o.project === 'string' && typeof o.activity === 'string'
+              ? [{ project: o.project.slice(0, 500), activity: o.activity.slice(0, 20) }] : [];
+          }).slice(0, 50)
+        : [];
+      sd.noteReport(working, sessions);
+    });
+  }
 
   // Frameless-window controls (the title bar draws its own buttons).
   ipcMain.handle('win:minimize', () => cfg.win.minimize());

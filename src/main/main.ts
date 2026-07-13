@@ -1,6 +1,8 @@
 import { app, BrowserWindow, globalShortcut, crashReporter } from 'electron';
 import * as path from 'node:path';
 import { appendFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { uptime, homedir } from 'node:os';
 import { Store } from './store';
 import { registerIpc } from './ipc';
 import { PtyHost, type PtySpawn } from './ptyHost';
@@ -8,6 +10,9 @@ import { setupTray } from './tray';
 import { registerUpdater } from './updater';
 import { applyOpenAtLogin } from './autostart';
 import { installGlobalErrorHandlers, installAppCrashHandlers, makeCrashRecovery } from './errorGuard';
+import { ShutdownLog } from './shutdownLog';
+import { ShutdownScheduler } from './shutdownScheduler';
+import { latestTranscriptMtime } from './transcriptFreshness';
 
 // Local-only crash capture (no upload — nothing is ever sent anywhere) so a NATIVE crash (a fault
 // inside node-pty/conpty or Chromium itself) writes an inspectable minidump instead of vanishing —
@@ -114,6 +119,31 @@ if (!gotLock) {
     const w = createWindow();
     win = w;
     const tray = setupTray(w);
+    // One-shot idle shutdown (🌙) — win32 only: shutdown.exe semantics and the cockpit itself are Windows-scoped.
+    let shutdown: ShutdownScheduler | null = null;
+    let shutdownLog: ShutdownLog | null = null;
+    if (process.platform === 'win32') {
+      shutdownLog = new ShutdownLog(path.join(userData, 'shutdown-log.json'));
+      const spawnShutdown = (args: string[]): void => {
+        // args array + windowsHide; an exec error must surface, not silently strand an "issued" record.
+        const p = spawn('shutdown', args, { windowsHide: true, stdio: 'ignore' });
+        p.on('error', (e) => logLine(`[shutdown-exec] ${e.message}`));
+      };
+      shutdown = new ShutdownScheduler({
+        log: shutdownLog,
+        now: Date.now,
+        execShutdown: (sec) => spawnShutdown(['/s', '/f', '/t', String(sec), '/c', 'DevDeck idle auto-shutdown']),
+        execAbort: () => spawnShutdown(['/a']),
+        transcriptMtime: () => latestTranscriptMtime(path.join(homedir(), '.claude', 'projects')),
+        idleHoldMs: () => store.getShutdownIdleMinutes() * 60_000,
+        onStatus: (s) => {
+          // tray.setShutdownPhase(s.phase); // Task 6 uncomments this
+          try { if (!w.isDestroyed()) w.webContents.send('shutdown:status', s); } catch { /* renderer gone */ }
+        },
+        onError: (msg) => { logLine(`[shutdown] ${msg}`); w.webContents.send('devdeck:error', msg); },
+        schedule: (fn, ms) => { setTimeout(fn, ms); },
+      });
+    }
     registerIpc({
       win: w,
       defaultBaseDir: path.join(app.getPath('home'), 'Documents', 'GitHub'),
@@ -122,6 +152,9 @@ if (!gotLock) {
       defaultLanguage: app.getLocale().split('-')[0] || 'en',
       ptyHost,
       tray,
+      shutdown,
+      shutdownLog,
+      bootTimeMs: () => Date.now() - uptime() * 1000,
     });
     registerUpdater(w);
     globalShortcut.register('Control+Alt+D', showWindow);

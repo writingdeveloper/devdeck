@@ -16,7 +16,7 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number }>;
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
       setContextWindow(w: number): Promise<void>;
       setTrayCounts(counts: { attention?: number; turn?: number; overdue?: number }): void;
@@ -70,6 +70,19 @@ declare global {
         gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
         openLink(url: string): Promise<void>;
         openFile(projectPath: string, filePath: string): Promise<string>;
+      };
+      shutdown: {
+        arm(): Promise<import('../main/shutdownScheduler').ShutdownStatus>;
+        disarm(): Promise<import('../main/shutdownScheduler').ShutdownStatus>;
+        now(): Promise<import('../main/shutdownScheduler').ShutdownStatus>;
+        cancel(): Promise<import('../main/shutdownScheduler').ShutdownStatus>;
+        status(): Promise<import('../main/shutdownScheduler').ShutdownStatus>;
+        history(): Promise<import('../shared/shutdownIdle').ShutdownRecord[]>;
+        bootBanner(): Promise<{ record: import('../shared/shutdownIdle').ShutdownRecord; verdict: 'confirmed' | 'not-executed' } | null>;
+        ackBanner(): Promise<boolean>;
+        setIdleMinutes(m: number): Promise<void>;
+        report(p: { working: number; sessions: { project: string; activity: string }[] }): void;
+        onStatus(cb: (s: import('../main/shutdownScheduler').ShutdownStatus) => void): void;
       };
     };
   }

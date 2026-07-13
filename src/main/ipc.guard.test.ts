@@ -30,7 +30,13 @@ import { dialog, clipboard } from 'electron';
 const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
 const sendError = vi.fn();
 const applyCounts = vi.fn();
-const storeSpies = { setNote: vi.fn(), setTodos: vi.fn(), setPinned: vi.fn(), setHidden: vi.fn(), addFolder: vi.fn() };
+const storeSpies = { setNote: vi.fn(), setTodos: vi.fn(), setPinned: vi.fn(), setHidden: vi.fn(), addFolder: vi.fn(), setShutdownIdleMinutes: vi.fn() };
+const shutdownSpies = {
+  arm: vi.fn(), disarm: vi.fn(), shutdownNow: vi.fn(), cancel: vi.fn(),
+  noteBusy: vi.fn(), noteReport: vi.fn(),
+  status: vi.fn(() => ({ phase: 'disarmed', lastBusyAt: 0, scheduledAt: null, kind: null })),
+};
+const shutdownLogSpies = { read: vi.fn(() => []), updateLast: vi.fn(() => true), append: vi.fn(() => true) };
 
 beforeAll(() => {
   const cfg = {
@@ -38,12 +44,16 @@ beforeAll(() => {
     defaultBaseDir: ALLOWED_ROOT,
     store: {
       getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getTrayAlert: () => 'attention',
+      getShutdownIdleMinutes: () => 10,
       ...storeSpies,
     },
     sendError,
     defaultLanguage: 'en',
     ptyHost: {},
     tray: { applyCounts, setAlertImage: vi.fn() },
+    shutdown: shutdownSpies,
+    shutdownLog: shutdownLogSpies,
+    bootTimeMs: () => 123,
   } as unknown as IpcConfig;
   registerIpc(cfg);
 });
@@ -167,5 +177,38 @@ describe('clipboard:readImage (paste a screenshot into the terminal)', () => {
     expect(existsSync(p)).toBe(true);
     expect(readFileSync(p)).toEqual(png); // renderer will inject this path; Claude Code reads the image off it
     rmSync(p, { force: true }); // clean up the temp file the handler wrote
+  });
+});
+
+describe('shutdown channels', () => {
+  it('routes lifecycle invokes to the scheduler and returns its status', () => {
+    expect(handlers.get('shutdown:arm')!(null)).toMatchObject({ phase: 'disarmed' });
+    expect(shutdownSpies.arm).toHaveBeenCalled();
+    handlers.get('shutdown:disarm')!(null);
+    handlers.get('shutdown:now')!(null);
+    handlers.get('shutdown:cancel')!(null);
+    expect(shutdownSpies.disarm).toHaveBeenCalled();
+    expect(shutdownSpies.shutdownNow).toHaveBeenCalled();
+    expect(shutdownSpies.cancel).toHaveBeenCalled();
+  });
+
+  it('sanitizes shutdown:report before it reaches the scheduler', () => {
+    handlers.get('shutdown:report')!(null, { working: -3, sessions: [{ project: 'p', activity: 'working' }, { junk: 1 }, null] });
+    expect(shutdownSpies.noteReport).toHaveBeenCalledWith(0, [{ project: 'p', activity: 'working' }]);
+    handlers.get('shutdown:report')!(null, 'garbage');
+    expect(shutdownSpies.noteReport).toHaveBeenLastCalledWith(0, []);
+  });
+
+  it('setIdleMinutes forwards to the store setter (clamping is store.test.ts concern)', () => {
+    storeSpies.setShutdownIdleMinutes.mockClear();
+    handlers.get('shutdown:setIdleMinutes')!(null, 20);
+    handlers.get('shutdown:setIdleMinutes')!(null, '7');
+    expect(storeSpies.setShutdownIdleMinutes).toHaveBeenNthCalledWith(1, 20);
+    expect(storeSpies.setShutdownIdleMinutes).toHaveBeenNthCalledWith(2, 7); // Number() coerced before the store
+  });
+
+  it('ackBanner marks the last record acknowledged', () => {
+    handlers.get('shutdown:ackBanner')!(null);
+    expect(shutdownLogSpies.updateLast).toHaveBeenCalledWith({ acknowledged: true });
   });
 });

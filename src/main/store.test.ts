@@ -209,3 +209,16 @@ describe('Store', () => {
     expect(existsSync(file + '.corrupt')).toBe(true); // still preserved for manual recovery
   });
 });
+
+describe('shutdownIdleMinutes setting', () => {
+  it('defaults to 10, persists allowed choices, clamps junk to the default', () => {
+    const store = new Store(file);
+    expect(store.getShutdownIdleMinutes()).toBe(10);
+    store.setShutdownIdleMinutes(20);
+    expect(store.getShutdownIdleMinutes()).toBe(20);
+    // survives a reload (persisted in settings)
+    expect(new Store(file).getShutdownIdleMinutes()).toBe(20);
+    store.setShutdownIdleMinutes(7); // junk → clamp to default
+    expect(store.getShutdownIdleMinutes()).toBe(10);
+  });
+});
