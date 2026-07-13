@@ -1,6 +1,7 @@
 import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i18n-runtime';
 import { setCockpitContextWindow, setCockpitTrayAlert } from './cockpitView';
 import type { Folder } from '../shared/types';
+import { IDLE_HOLD_CHOICES } from '../shared/shutdownIdle';
 
 let host: HTMLElement;
 let onChangedCb: () => void = () => {};
@@ -83,6 +84,31 @@ async function render(): Promise<void> {
     }
     ctxWin.addEventListener('change', () => { const w = Number(ctxWin.value); void window.devdeck.setContextWindow(w); setCockpitContextWindow(w); });
     host.appendChild(field('set.context_window', ctxWin, ctxWin));
+
+    // Idle-shutdown: hold duration + history (feature itself is armed from the 🌙 topbar/tray menu).
+    const hold = document.createElement('select'); hold.className = 'set-input';
+    for (const m of IDLE_HOLD_CHOICES) {
+      const o = document.createElement('option'); o.value = String(m); o.textContent = `${m}`;
+      if (m === s.shutdownIdleMinutes) o.selected = true; hold.appendChild(o);
+    }
+    hold.addEventListener('change', () => void window.devdeck.shutdown.setIdleMinutes(Number(hold.value)));
+    host.appendChild(field('shutdown.idle_minutes', hold, hold));
+
+    const hist = document.createElement('div'); hist.className = 'shutdown-hist';
+    const records = await window.devdeck.shutdown.history();
+    if (!records.length) {
+      const empty = document.createElement('div'); empty.className = 'shutdown-hist-empty'; empty.textContent = tr('shutdown.hist_empty');
+      hist.appendChild(empty);
+    }
+    for (const r of records.slice(0, 10)) {
+      const row = document.createElement('div'); row.className = 'shutdown-hist-row';
+      const when = new Date(r.scheduledAt).toLocaleString();
+      const kind = tr(r.kind === 'auto' ? 'shutdown.hist_auto' : 'shutdown.hist_manual');
+      const state = r.status === 'cancelled' ? ` · ${tr('shutdown.hist_cancelled')}` : '';
+      row.textContent = `⏻ ${when} · ${kind}${state}`;
+      hist.appendChild(row);
+    }
+    host.appendChild(field('shutdown.history', hist));
   }
 
   const info = await window.devdeck.getAppInfo();
