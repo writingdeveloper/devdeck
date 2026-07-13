@@ -525,4 +525,4 @@ button.primary:hover { background: var(--accent-hover); }
 .shutdown-menu { right: 0; top: 34px; min-width: 220px; }
 .ub-msg { opacity: .8; }
 .shutdown-hist { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #9aa7c0; }
-.shutdown-hist-empty { color: #6b7690; font-style: italic; }
+.shutdown-hist-empty { color: #9aa7c0; font-style: italic; } /* same tone as rows — #6b7690 failed axe color-contrast (serious) */
