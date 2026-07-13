@@ -113,6 +113,17 @@ describe('ShutdownScheduler auto path', () => {
     expect(h.deps.execShutdown).not.toHaveBeenCalled();
     expect(h.s.status().phase).toBe('disarmed');
   });
+
+  it('disarm during an in-flight tick ends the loop so a re-arm starts fresh (no 30s stall)', async () => {
+    const h = makeHarness();
+    h.s.arm();
+    h.s.disarm();          // lands while the arm-time tick is suspended at transcriptMtime
+    await h.tick();        // the suspended iteration resumes: must NOT reschedule a stale tick
+    h.s.arm();             // re-arm must start its own loop immediately
+    h.advance(HOLD + 1);
+    await h.tick();
+    expect(h.deps.execShutdown).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('manual + cancel', () => {

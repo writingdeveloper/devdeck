@@ -135,6 +135,9 @@ export class ShutdownScheduler {
         this.ticking = false;
         return;
       }
+      // A disarm can land while we were suspended at the await above — end the loop NOW
+      // instead of rescheduling a stale tick that would block a re-arm's fresh loop for 30s.
+      if (this.phase !== 'armed') { this.ticking = false; return; }
       this.push(); // keeps the renderer chip's "last activity N min ago" fresh
       this.deps.schedule(() => void loop(), TICK_MS);
     };
