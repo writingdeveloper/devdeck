@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { trayState } from './trayState';
+import { trayState, shutdownMenuShape } from './trayState';
 
 describe('trayState', () => {
   it('reddens per mode: attention-only by default, attention+turn for "all", never for "off"', () => {
@@ -25,5 +25,20 @@ describe('trayState', () => {
 
   it('overdue still shows in the tooltip when alerts are off (the red dot is what "off" disables)', () => {
     expect(trayState({ attention: 1, turn: 0, overdue: 3 }, 'off').tooltip).toBe('DevDeck — 3 overdue');
+  });
+});
+
+describe('shutdownMenuShape', () => {
+  it('hides everything when the feature is off (null phase — non-win32)', () => {
+    expect(shutdownMenuShape(null)).toEqual([]);
+  });
+  it('disarmed: unchecked toggle + shutdown-now', () => {
+    expect(shutdownMenuShape('disarmed')).toEqual([{ key: 'toggle', checked: false }, { key: 'now' }]);
+  });
+  it('armed: checked toggle + shutdown-now', () => {
+    expect(shutdownMenuShape('armed')).toEqual([{ key: 'toggle', checked: true }, { key: 'now' }]);
+  });
+  it('countdown: cancel only (the OS timer is running — arm/now would double-issue)', () => {
+    expect(shutdownMenuShape('countdown')).toEqual([{ key: 'cancel' }]);
   });
 });

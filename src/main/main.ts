@@ -118,9 +118,16 @@ if (!gotLock) {
     applyOpenAtLogin(store.getOpenAtLogin());
     const w = createWindow();
     win = w;
-    const tray = setupTray(w);
     // One-shot idle shutdown (🌙) — win32 only: shutdown.exe semantics and the cockpit itself are Windows-scoped.
+    // `shutdown` is declared before setupTray so the tray's hook closures can late-bind to it —
+    // the scheduler itself is constructed further below, after the tray (it needs the tray's
+    // setShutdownPhase, wired via onStatus) — see the `shutdown = new ShutdownScheduler(...)` below.
     let shutdown: ShutdownScheduler | null = null;
+    const tray = setupTray(w, process.platform === 'win32' ? {
+      toggle: () => { if (!shutdown) return; shutdown.status().phase === 'armed' ? shutdown.disarm() : shutdown.arm(); },
+      now: () => shutdown?.shutdownNow(),
+      cancel: () => shutdown?.cancel(),
+    } : undefined);
     let shutdownLog: ShutdownLog | null = null;
     if (process.platform === 'win32') {
       shutdownLog = new ShutdownLog(path.join(userData, 'shutdown-log.json'));
@@ -137,7 +144,7 @@ if (!gotLock) {
         transcriptMtime: () => latestTranscriptMtime(path.join(homedir(), '.claude', 'projects')),
         idleHoldMs: () => store.getShutdownIdleMinutes() * 60_000,
         onStatus: (s) => {
-          // tray.setShutdownPhase(s.phase); // Task 6 uncomments this
+          tray.setShutdownPhase(s.phase);
           try { if (!w.isDestroyed()) w.webContents.send('shutdown:status', s); } catch { /* renderer gone */ }
         },
         onError: (msg) => { logLine(`[shutdown] ${msg}`); w.webContents.send('devdeck:error', msg); },

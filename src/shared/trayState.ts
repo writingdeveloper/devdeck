@@ -1,5 +1,7 @@
 // Tray icon + tooltip state, pure so it's unit-testable without electron.
 
+import type { ShutdownPhase } from './shutdownIdle';
+
 export type TrayAlertMode = 'off' | 'attention' | 'all';
 export interface TrayCounts { attention: number; turn: number; overdue: number; }
 
@@ -14,4 +16,11 @@ export function trayState(counts: TrayCounts, mode: TrayAlertMode): { red: numbe
   if (red > 0) parts.push(`${red} waiting`);
   if (counts.overdue > 0) parts.push(`${counts.overdue} overdue`);
   return { red, tooltip: parts.length ? `DevDeck — ${parts.join(' · ')}` : 'DevDeck' };
+}
+
+/** Which idle-shutdown items the tray context menu shows per phase (pure — tray.ts maps to MenuItems). */
+export function shutdownMenuShape(phase: ShutdownPhase | null): Array<{ key: 'toggle' | 'now' | 'cancel'; checked?: boolean }> {
+  if (phase === null) return [];
+  if (phase === 'countdown') return [{ key: 'cancel' }];
+  return [{ key: 'toggle', checked: phase === 'armed' }, { key: 'now' }];
 }
