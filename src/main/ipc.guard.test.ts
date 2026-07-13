@@ -212,3 +212,34 @@ describe('shutdown channels', () => {
     expect(shutdownLogSpies.updateLast).toHaveBeenCalledWith({ acknowledged: true });
   });
 });
+
+// First run must never auto-scan a guessed folder (~/Documents/GitHub) — not everyone
+// organizes repos there, and a compromised/confused renderer shouldn't get an implicit
+// allowlisted root the user never chose. The empty-deck hint (Settings) is the only path in.
+describe('effFolders fallback when no folders are configured', () => {
+  it('stays empty even when the guessed default base dir exists on disk', () => {
+    const existingDefault = process.cwd();
+    expect(existsSync(existingDefault)).toBe(true);
+
+    registerIpc({
+      win: { on: () => {}, isDestroyed: () => true, webContents: { send: () => {} } },
+      defaultBaseDir: existingDefault,
+      store: {
+        getFolders: () => [], getTrayAlert: () => 'attention',
+        getShutdownIdleMinutes: () => 10,
+        ...storeSpies,
+      },
+      sendError,
+      defaultLanguage: 'en',
+      ptyHost: {},
+      tray: { applyCounts, setAlertImage: vi.fn() },
+      shutdown: shutdownSpies,
+      shutdownLog: shutdownLogSpies,
+      bootTimeMs: () => 123,
+    } as unknown as IpcConfig);
+
+    expect(handlers.get('settings:getFolders')!(null)).toEqual([]);
+    const res = handlers.get('project:create')!(null, existingDefault, 'my-new-app');
+    expect(res).toMatchObject({ ok: false, error: 'parent_not_allowed' });
+  });
+});

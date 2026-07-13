@@ -57,10 +57,11 @@ export function registerIpc(cfg: IpcConfig): void {
   // Legacy single-base value, retained only for the settings:get response (back-compat); not used for scanning or the security guard.
   const effBaseDir = () => cfg.store.getBaseDir() ?? cfg.defaultBaseDir;
   const effThresholds = () => cfg.store.getThresholds() ?? DEFAULT_THRESHOLDS;
-  const effFolders = (): Folder[] => {
-    const f = cfg.store.getFolders();
-    return f.length ? f : [{ path: cfg.defaultBaseDir, kind: 'root' }];
-  };
+  // No implicit scan root: ~/Documents/GitHub is a guess that doesn't hold for every
+  // machine or every user's repo layout, and open-sourced software shouldn't start
+  // walking a folder the user never chose. An empty deck's hint sends them to Settings
+  // to add one explicitly (settings:addFolder), which is the only way folders get here.
+  const effFolders = (): Folder[] => cfg.store.getFolders();
   // One deck reload() calls both projects:list and usage:report; each used to run scanFolders
   // independently (double disk walk + .git probes). Share one in-flight scan for ~8s (well under the
   // ~45s auto-refresh) keyed by the folder set, so the two handlers await the same Promise.
