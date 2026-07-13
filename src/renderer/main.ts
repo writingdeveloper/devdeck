@@ -9,7 +9,7 @@ import { isCockpitPlatform } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
 import { mountUsageBar, refreshUsageBar } from './usageBar';
-import { mountShutdown } from './shutdown';
+import { mountShutdown, refreshShutdownLabels } from './shutdown';
 
 const toastHost = document.getElementById('toast-host')!;
 window.devdeck.onError((msg) => {
@@ -83,8 +83,7 @@ function applyStaticLabels(): void {
   if (showHidden?.firstChild) showHidden.firstChild.textContent = '🙈 ' + tr('proj.hidden') + ' ';
   const ckSearch = document.getElementById('ck-search') as HTMLInputElement | null;
   if (ckSearch) ckSearch.placeholder = tr('cockpit.search');
-  const sdBtn = document.getElementById('shutdown-btn');
-  if (sdBtn) { sdBtn.title = tr('shutdown.arm'); sdBtn.setAttribute('aria-label', tr('shutdown.arm')); }
+  refreshShutdownLabels(); // 🌙 labels are phase-aware — let shutdown.ts re-derive them in the new language
 }
 
 function mountTitlebar(): void {

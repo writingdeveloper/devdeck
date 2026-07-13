@@ -118,6 +118,11 @@ export function reportShutdownActivity(working: number, sessions: { project: str
   window.devdeck.shutdown.report({ working, sessions });
 }
 
+/** Re-apply the phase-aware button labels after a language switch (safe no-op before mount). */
+export function refreshShutdownLabels(): void {
+  if (btnEl) applyStatus(status);
+}
+
 export function mountShutdown(platform: string): void {
   if (platform !== 'win32') return; // feature (and shutdown.exe semantics) are Windows-only
   bannerEl = document.getElementById('shutdown-banner')!;
