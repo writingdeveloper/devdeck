@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
-import { openProjects, resolveShell, resolveWtPath, detectLinuxTerminal, editorSpec, openInEditor, resolveShellPath } from './launcher';
+import { openProjects, resolveShell, resolveWtPath, detectLinuxTerminal, editorSpec, openInEditor, resolveShellPath, makeCliGuard } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 
 type Call = { file: string; args: string[] };
@@ -101,5 +101,42 @@ describe('resolveWtPath', () => {
 describe('resolveShellPath', () => {
   it.skipIf(process.platform !== 'win32')('returns an existing PowerShell executable on Windows', () => {
     expect(existsSync(resolveShellPath())).toBe(true);
+  });
+});
+
+describe('makeCliGuard', () => {
+  it('resolves null when the command binary is on PATH', async () => {
+    const guard = makeCliGuard(() => true);
+    await expect(guard('claude --resume abc')).resolves.toBeNull();
+  });
+  it('returns an actionable message naming the missing binary', async () => {
+    const guard = makeCliGuard(() => false);
+    const msg = await guard('claude -c');
+    expect(msg).toContain("'claude'");
+    expect(msg).toContain('PATH');
+  });
+  it('includes the install command for the claude CLI specifically', async () => {
+    const guard = makeCliGuard(() => false);
+    await expect(guard('claude')).resolves.toContain('npm install -g @anthropic-ai/claude-code');
+    await expect(guard('agy')).resolves.not.toContain('npm install');
+  });
+  it('caches a found binary but re-probes a missing one (installing mid-session clears the warning)', async () => {
+    let onPath = false;
+    let probes = 0;
+    const guard = makeCliGuard(() => { probes++; return onPath; });
+    await expect(guard('claude -c')).resolves.toContain('PATH'); // miss — must NOT be cached
+    onPath = true; // user ran the install command from the toast
+    await expect(guard('claude --resume x')).resolves.toBeNull(); // re-probed, now found
+    await guard('claude'); // found is cached — no third probe
+    expect(probes).toBe(2);
+  });
+  it('supports an async probe', async () => {
+    const guard = makeCliGuard(async () => false);
+    await expect(guard('agy')).resolves.toContain("'agy'");
+  });
+  it('is silent for an empty command', async () => {
+    const guard = makeCliGuard(() => false);
+    await expect(guard('')).resolves.toBeNull();
+    await expect(guard('   ')).resolves.toBeNull();
   });
 });

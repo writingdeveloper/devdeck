@@ -4,8 +4,8 @@ import { mountNav } from './nav';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert } from './cockpitView';
-import { isCockpitPlatform } from '../shared/cockpitModel';
+import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar } from './cockpitView';
+import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
 import { mountUsageBar, refreshUsageBar } from './usageBar';
@@ -84,6 +84,7 @@ function applyStaticLabels(): void {
   const ckSearch = document.getElementById('ck-search') as HTMLInputElement | null;
   if (ckSearch) ckSearch.placeholder = tr('cockpit.search');
   refreshShutdownLabels(); // 🌙 labels are phase-aware — let shutdown.ts re-derive them in the new language
+  refreshCockpitSidebar(); // collapse/expand titles are state-aware — re-derive in the new language
 }
 
 function mountTitlebar(): void {
@@ -170,9 +171,10 @@ function mountLangMenu(): void {
 async function boot(): Promise<void> {
   mountTitlebar();
   setLanguage(await window.devdeck.getLanguage());
-  // Cockpit (embedded node-pty terminals) is Windows-only for now; elsewhere "open" uses the external terminal.
+  // Cockpit (embedded node-pty terminals) is Windows-only for now — and needs the node-pty native
+  // binding to have loaded; elsewhere/otherwise "open" uses the external terminal.
   const settings = await window.devdeck.getSettings();
-  const cockpitOn = isCockpitPlatform(settings.platform);
+  const cockpitOn = isCockpitAvailable(settings.platform, settings.ptyAvailable);
   setCockpitEnabled(cockpitOn);
   if (!cockpitOn) document.querySelector('.rail-item[data-view="cockpit"]')?.remove();
   applyStaticLabels();
@@ -182,7 +184,7 @@ async function boot(): Promise<void> {
   mountNext();
   mountUsageBar();
   mountShutdown(settings.platform);
-  if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); setCockpitTrayAlert(settings.trayAlert); }
+  if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); setCockpitTrayAlert(settings.trayAlert); setCockpitSidebarCollapsed(settings.cockpitSidebarCollapsed); }
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit(); });
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;

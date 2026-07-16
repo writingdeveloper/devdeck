@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { wireUpdater, type UpdaterLike, type UpdatePayload } from './update';
+import { wireUpdater, shouldAutoCheck, type UpdaterLike, type UpdatePayload } from './update';
 
 /** Fake autoUpdater: records listeners so tests can emit events. */
 function fakeUpdater(over: Partial<UpdaterLike> = {}) {
@@ -87,5 +87,15 @@ describe('wireUpdater', () => {
     wireUpdater(u, (p) => sent.push(p), () => {});
     emit('update-not-available', { version: '1.2.3' });
     expect(sent).toEqual([{ status: 'none' }]);
+  });
+});
+
+describe('shouldAutoCheck', () => {
+  it('auto-checks on Windows and Linux', () => {
+    expect(shouldAutoCheck('win32')).toBe(true);
+    expect(shouldAutoCheck('linux')).toBe(true);
+  });
+  it('skips the launch check on macOS (unsigned builds cannot apply updates)', () => {
+    expect(shouldAutoCheck('darwin')).toBe(false);
   });
 });

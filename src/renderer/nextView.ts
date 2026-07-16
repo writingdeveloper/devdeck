@@ -227,12 +227,21 @@ function render(): void {
   const doneItems = showDone ? visible.filter((i) => i.todo.done) : [];
   if (groups.length === 0 && doneItems.length === 0) {
     const e = document.createElement('div'); e.className = 'empty';
-    const msg = document.createElement('div'); msg.textContent = tr('next.empty');
-    const cta = document.createElement('button'); cta.className = 'primary tk-empty-cta'; cta.textContent = tr('tasks.empty_cta');
-    // Mirror addControls' zero-projects guard: with no projects the .tk-add-text input is
-    // disabled, so focusing it would be a no-op — disable the CTA too instead of doing nothing.
-    if (projects.length === 0) cta.disabled = true;
-    cta.addEventListener('click', () => viewEl.querySelector<HTMLInputElement>('.tk-add-text')?.focus());
+    const msg = document.createElement('div');
+    const cta = document.createElement('button'); cta.className = 'primary tk-empty-cta';
+    if (projects.length === 0) {
+      // Zero projects: the add controls above are disabled, so a "add your first task" CTA would
+      // be a dead-end — explain why and route to Settings (where scan folders are added) instead.
+      msg.textContent = tr('next.no_projects');
+      cta.textContent = tr('proj.empty_hint');
+      cta.addEventListener('click', () => {
+        document.querySelector<HTMLElement>('.rail-item[data-view=settings]')?.click();
+      });
+    } else {
+      msg.textContent = tr('next.empty');
+      cta.textContent = tr('tasks.empty_cta');
+      cta.addEventListener('click', () => viewEl.querySelector<HTMLInputElement>('.tk-add-text')?.focus());
+    }
     e.append(msg, cta);
     viewEl.appendChild(e);
     return;

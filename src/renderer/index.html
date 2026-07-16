@@ -61,16 +61,22 @@
             <span id="deck-pulse" class="deck-pulse"></span>
             <button id="open-selected" class="primary" disabled>▶ 선택 열기</button>
           </div>
-          <div id="cards">로딩 중…</div>
+          <!-- Intentionally empty pre-JS: mountProjects() shows the localized first-load skeleton;
+               any hardcoded text here would flash in the wrong language before boot. -->
+          <div id="cards"></div>
         </section>
         <section id="view-usage" class="view"></section>
         <section id="view-cockpit" class="view">
           <div class="ck-wrap">
             <aside class="ck-list">
-              <button id="ck-new-session" class="ck-new" disabled><span class="ck-new-plus">+</span> <span id="ck-new-label"></span></button>
-              <div class="ck-search"><span>🔎</span><input id="ck-search" type="text" placeholder="세션 검색…" aria-label="Search sessions" /></div>
+              <div class="ck-side-head">
+                <button id="ck-new-session" class="ck-new" disabled><span class="ck-new-plus">+</span> <span id="ck-new-label"></span></button>
+                <button id="ck-collapse" class="ck-collapse" aria-expanded="true">◀</button>
+              </div>
+              <div class="ck-search"><span>🔎</span><input id="ck-search" type="text" placeholder="" aria-label="Search sessions" /></div>
               <div id="ck-groups" class="ck-groups"></div>
             </aside>
+            <button id="ck-expand" class="ck-expand" aria-expanded="false">▶</button>
             <section class="ck-main">
               <div id="ck-header" class="ck-header"></div>
               <div id="ck-terms" class="ck-terms"></div>

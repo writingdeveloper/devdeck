@@ -47,6 +47,17 @@ function render(r: UsageReport): void {
     b.addEventListener('click', () => { activeRange = rg.key; load(); });
     bar.appendChild(b);
   }
+  // Nothing recorded in this range (fresh install, or a quiet week): a friendly message beats a
+  // wall of $0.00/0/0 stats and an empty table. The range chips stay usable; the search input is
+  // omitted (there is no table to search — and its handler must not run without one).
+  if (r.sessions === 0) {
+    viewEl.appendChild(bar);
+    const e = document.createElement('div'); e.className = 'empty';
+    e.textContent = tr('usage.empty');
+    viewEl.appendChild(e);
+    return;
+  }
+
   const search = document.createElement('input'); search.type = 'search'; search.className = 'usage-search';
   search.placeholder = tr('usage.search_ph');
   search.setAttribute('aria-label', tr('usage.search_ph'));

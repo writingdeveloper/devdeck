@@ -60,12 +60,14 @@ Grab the latest from [**Releases**](https://github.com/writingdeveloper/devdeck/
 
 | OS | Download | First run (unsigned build) |
 |----|----------|----------------------------|
-| **Windows** | `DevDeck-…-Setup.exe` — or `DevDeck-…-win.zip` (portable, no installer) | SmartScreen → **More info → Run anyway** |
-| **macOS** — Apple Silicon | `DevDeck-…-arm64.dmg` | Right-click the app → **Open** (Gatekeeper) |
-| **macOS** — Intel | `DevDeck-…-x64.dmg` | Right-click the app → **Open** |
+| **Windows** | `DevDeck-…-Setup.exe` | SmartScreen → **More info → Run anyway** |
+| **macOS** — Apple Silicon | `DevDeck-…-arm64.dmg` | Open once → **System Settings → Privacy & Security → Open Anyway** (see below) |
+| **macOS** — Intel | `DevDeck-…-x64.dmg` | Same as above |
 | **Linux** | `DevDeck-…-x86_64.AppImage` (portable) or `…-amd64.deb` | `chmod +x` the AppImage, then run |
 
-Builds are **unsigned** (no code-signing certificate yet), so the first launch needs the bypass above. On Windows, if `Setup.exe` won't launch, use the **portable `…-win.zip`** instead — extract it anywhere and run `DevDeck.exe` (no installer involved). Then open **Settings** and add the folders that hold your git repos (defaults to `~/Documents/GitHub`); you can add several scan locations or pin individual repos.
+Builds are **unsigned** (no code-signing certificate yet), so the first launch needs the bypass above. Then open **Settings** and add the folders that hold your git repos — DevDeck scans nothing until you choose them; you can add several scan locations or pin individual repos.
+
+**macOS notes:** on macOS 15 (Sequoia) and later, right-click → Open no longer bypasses Gatekeeper for unsigned apps. Launch the app once (it will be blocked), then go to **System Settings → Privacy & Security** and click **Open Anyway** — macOS may ask you to repeat this once more. Also, the first time you open a project, macOS asks for permission to control **Terminal.app** ("DevDeck wants to control Terminal") — allow it, or opening sessions will silently do nothing. If you denied it, re-enable it under **System Settings → Privacy & Security → Automation**.
 
 ## Platform support
 

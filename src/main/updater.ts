@@ -1,5 +1,5 @@
 import { app, ipcMain, type BrowserWindow } from 'electron';
-import { wireUpdater } from '../shared/update';
+import { wireUpdater, shouldAutoCheck } from '../shared/update';
 
 /** Wire electron-updater to the renderer. Inert in dev (unpackaged). Errors are logged, never surfaced. */
 export function registerUpdater(win: BrowserWindow): void {
@@ -21,5 +21,5 @@ export function registerUpdater(win: BrowserWindow): void {
     win.webContents.send('devdeck:update', { status: 'checking' });
     api.check();
   });
-  win.webContents.once('did-finish-load', () => api.check());
+  if (shouldAutoCheck(process.platform)) win.webContents.once('did-finish-load', () => api.check());
 }

@@ -1,4 +1,5 @@
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFile, execFileSync } from 'node:child_process';
+import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { win32 as pathWin32 } from 'node:path';
 import { buildWtArgs, type WtTab } from '../shared/wtArgs';
@@ -34,14 +35,52 @@ function whichProbe(probe: string): ExistsProbe {
   };
 }
 const defaultPwshExists = whichProbe('where');
+const execFileAsync = promisify(execFile);
 
-/** Absolute path to a PowerShell executable for node-pty (which needs a resolvable path, unlike child_process). Windows-targeted. */
+/** Async PATH probe (never blocks the main process, unlike whichProbe's execFileSync). */
+export type CliProbe = (cmd: string) => boolean | Promise<boolean>;
+const defaultCliProbe: CliProbe = async (cmd) => {
+  try {
+    await execFileAsync(process.platform === 'win32' ? 'where' : 'which', [cmd], { windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Warn-only guard for the agent CLI a terminal is about to run. DevDeck never resolves the
+ * binary itself (the shell does), so a missing CLI otherwise surfaces only as the shell's raw
+ * "command not recognized" — confusing on a fresh machine that never installed Claude Code.
+ * Resolves to an actionable message when the command's binary is not on PATH, else null.
+ * Warn-only by design: a PATH probe can't see shell-profile aliases/functions, so the terminal
+ * still opens either way and the shell stays the source of truth. Only FOUND binaries are
+ * cached — a miss re-probes, so installing the CLI mid-session clears the warning without a
+ * restart (the toast tells the user to reopen the session, and that must be enough).
+ */
+export function makeCliGuard(exists: CliProbe = defaultCliProbe): (command: string) => Promise<string | null> {
+  const found = new Set<string>();
+  return async (command) => {
+    const bin = command.trim().split(/\s+/)[0] ?? '';
+    if (!bin || found.has(bin)) return null;
+    if (await exists(bin)) { found.add(bin); return null; }
+    const hint = bin === 'claude'
+      ? ' Install Claude Code first: npm install -g @anthropic-ai/claude-code (see https://claude.com/claude-code), then reopen the session.'
+      : ' Install it or check your PATH, then reopen the session.';
+    return `The '${bin}' CLI was not found on PATH — the terminal will show a command-not-found error.${hint}`;
+  };
+}
+
+/** Absolute path to a PowerShell executable for node-pty (which needs a resolvable path, unlike child_process). Windows-targeted.
+ * Memoized: the result is constant for the process lifetime, and the sync `where` spawn otherwise stalls the main process on every cockpit open. */
+let cachedShellPath: string | null = null;
 export function resolveShellPath(): string {
+  if (cachedShellPath) return cachedShellPath;
   try {
     const found = execFileSync('where', ['pwsh'], { windowsHide: true }).toString().trim().split(/\r?\n/)[0];
-    if (found && existsSync(found)) return found;
+    if (found && existsSync(found)) return (cachedShellPath = found);
   } catch { /* pwsh not on PATH — fall back to Windows PowerShell */ }
-  return pathWin32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  return (cachedShellPath = pathWin32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
 }
 
 /** Prefer PowerShell 7 (`pwsh`) if it is on PATH, else fall back to Windows PowerShell. */

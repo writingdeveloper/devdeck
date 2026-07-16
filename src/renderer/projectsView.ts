@@ -475,18 +475,25 @@ function render(): void {
   if (visible.length === 0) {
     cardCache.clear();
     cardsEl.replaceChildren();
+    // First-run (no folders scanned yet, no filter active) gets a real welcome — the plain
+    // "No projects to show." reads like an empty filter result, not an empty-by-design deck.
+    if (!showHidden && deckFilter !== 'neglected' && projects.length === 0) {
+      const hero = document.createElement('div'); hero.className = 'empty deck-welcome';
+      const title = document.createElement('div'); title.className = 'welcome-title'; title.textContent = tr('proj.welcome_title');
+      const body = document.createElement('div'); body.textContent = tr('proj.welcome_body');
+      const go = document.createElement('button');
+      go.className = 'primary';
+      go.textContent = tr('proj.empty_hint');
+      go.addEventListener('click', () => {
+        document.querySelector<HTMLElement>('.rail-item[data-view=settings]')?.click();
+      });
+      hero.append(title, body, go);
+      cardsEl.appendChild(hero);
+      return;
+    }
     const e = document.createElement('div'); e.className = 'empty';
     e.textContent = deckFilter === 'neglected' ? tr('proj.empty_neglected') : (showHidden ? tr('proj.empty_hidden') : tr('proj.empty_none'));
     cardsEl.appendChild(e);
-    if (!showHidden && deckFilter !== 'neglected' && projects.length === 0) {
-      const hint = document.createElement('button');
-      hint.className = 'chip';
-      hint.textContent = tr('proj.empty_hint');
-      hint.addEventListener('click', () => {
-        document.querySelector<HTMLElement>('.rail-item[data-view=settings]')?.click();
-      });
-      cardsEl.appendChild(hint);
-    }
     return;
   }
 

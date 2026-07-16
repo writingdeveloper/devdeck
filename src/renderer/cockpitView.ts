@@ -33,6 +33,21 @@ let trayAlertMode: 'off' | 'attention' | 'all' = 'attention';
 export function setCockpitTrayAlert(mode: 'off' | 'attention' | 'all'): void { trayAlertMode = mode; }
 let searchEl: HTMLInputElement, groupsEl: HTMLElement, headerEl: HTMLElement, termsEl: HTMLElement, emptyEl: HTMLElement, mainEl: HTMLElement;
 let mounted = false;
+// Session-sidebar collapse (terminal gets the full width) — set from settings at boot + on toggle.
+let sidebarCollapsed = false;
+/** Re-apply the collapsed state to the DOM (class + localized button labels). Called on toggle,
+ * on boot restore, and after a language switch; safe to call before mount (no-ops). */
+export function refreshCockpitSidebar(): void {
+  const wrap = document.querySelector<HTMLElement>('#view-cockpit .ck-wrap');
+  if (!wrap) return;
+  wrap.classList.toggle('list-collapsed', sidebarCollapsed);
+  const collapse = document.getElementById('ck-collapse');
+  const expand = document.getElementById('ck-expand');
+  if (collapse) { collapse.title = tr('cockpit.sidebar_hide'); collapse.setAttribute('aria-label', tr('cockpit.sidebar_hide')); collapse.setAttribute('aria-expanded', String(!sidebarCollapsed)); }
+  if (expand) { expand.title = tr('cockpit.sidebar_show'); expand.setAttribute('aria-label', tr('cockpit.sidebar_show')); expand.setAttribute('aria-expanded', String(!sidebarCollapsed)); }
+}
+/** Restore the persisted sidebar state (called from boot, after mountCockpit). */
+export function setCockpitSidebarCollapsed(collapsed: boolean): void { sidebarCollapsed = collapsed === true; refreshCockpitSidebar(); }
 
 export function mountCockpit(): void {
   if (mounted) return; // idempotent — register the bridge listeners exactly once
@@ -49,6 +64,15 @@ export function mountCockpit(): void {
   document.getElementById('ck-new-label')!.textContent = tr('cockpit.new_session');
   newBtn.title = tr('cockpit.new_session');
   newBtn.addEventListener('click', () => void addSessionToCurrentProject());
+  // Sidebar collapse/expand: the session list folds away so the terminal gets the full width.
+  // The choice persists (store) and the termsEl ResizeObserver below re-fits the terminal.
+  const toggleSidebar = (collapsed: boolean): void => {
+    setCockpitSidebarCollapsed(collapsed);
+    void window.devdeck.setCockpitSidebar(collapsed);
+  };
+  document.getElementById('ck-collapse')!.addEventListener('click', () => toggleSidebar(true));
+  document.getElementById('ck-expand')!.addEventListener('click', () => toggleSidebar(false));
+  refreshCockpitSidebar();
 
   window.devdeck.cockpit.onData(({ id, chunk }) => {
     const l = live.get(id); if (!l) return;

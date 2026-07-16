@@ -78,6 +78,10 @@ button[disabled]:hover { background: var(--surface); border-color: var(--border-
 
 .empty { color: var(--text-faint); padding: 24px; }
 .empty:has(.tk-empty-cta) { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+/* First-run hero on the empty deck: a welcome, not a filter result. Spans the whole card grid
+   (not one auto-fill column) and wraps CJK at word boundaries. */
+.deck-welcome { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 560px; word-break: keep-all; }
+.deck-welcome .welcome-title { color: var(--text); font-size: 18px; font-weight: 600; }
 
 button {
   background: var(--surface); color: var(--text);
@@ -405,6 +409,16 @@ button.primary:hover { background: var(--accent-hover); }
 #view-cockpit { height: 100%; overflow: hidden; }
 .ck-wrap { display: flex; height: 100%; }
 .ck-list { width: 250px; flex: 0 0 250px; border-right: 1px solid var(--border); background: #101218; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+/* Top row of the session list: "+ New session" + the sidebar collapse toggle. */
+.ck-side-head { display: flex; align-items: stretch; gap: 7px; margin: 11px 11px 0; }
+.ck-side-head .ck-new { flex: 1 1 auto; margin: 0; }
+.ck-collapse { flex: 0 0 auto; background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-dim); border-radius: 8px; padding: 0 9px; font: inherit; cursor: pointer; }
+.ck-collapse:hover { background: var(--surface-hover); color: var(--text); }
+/* Collapsed: the list is hidden and a slim strip re-expands it — the terminal gets the width. */
+.ck-expand { display: none; flex: 0 0 22px; align-items: center; justify-content: center; background: #101218; border: 0; border-right: 1px solid var(--border); color: var(--text-dim); font: inherit; cursor: pointer; }
+.ck-expand:hover { background: var(--surface-hover); color: var(--text); }
+.ck-wrap.list-collapsed .ck-list { display: none; }
+.ck-wrap.list-collapsed .ck-expand { display: flex; }
 /* Prominent "+ New session" button at the top of the session list (discoverable entry point). */
 .ck-new { margin: 11px 11px 0; display: flex; align-items: center; justify-content: center; gap: 7px; background: #1b1e3a; border: 1px solid var(--accent); color: var(--accent-hover); border-radius: 8px; padding: 8px 10px; font: inherit; font-weight: 600; cursor: pointer; }
 .ck-new:hover:not(:disabled) { background: #232861; }

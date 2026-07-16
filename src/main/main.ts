@@ -2,7 +2,7 @@ import { app, BrowserWindow, globalShortcut, crashReporter } from 'electron';
 import * as path from 'node:path';
 import { appendFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { uptime, homedir } from 'node:os';
+import { uptime, homedir, tmpdir } from 'node:os';
 import { Store } from './store';
 import { registerIpc } from './ipc';
 import { PtyHost, type PtySpawn } from './ptyHost';
@@ -13,6 +13,7 @@ import { installGlobalErrorHandlers, installAppCrashHandlers, makeCrashRecovery 
 import { ShutdownLog } from './shutdownLog';
 import { ShutdownScheduler } from './shutdownScheduler';
 import { latestTranscriptMtime } from './transcriptFreshness';
+import { cleanupPasteImages } from './tempClean';
 
 // Local-only crash capture (no upload — nothing is ever sent anywhere) so a NATIVE crash (a fault
 // inside node-pty/conpty or Chromium itself) writes an inspectable minidump instead of vanishing —
@@ -112,6 +113,12 @@ if (!gotLock) {
     // correctly. Without this the running process uses Electron's default ID and
     // the taskbar falls back to the generic Electron icon.
     if (process.platform === 'win32') app.setAppUserModelId('com.soursea.devdeck');
+    // Sweep stale clipboard-paste temp PNGs (best-effort, async, off the startup critical path).
+    // Also on a slow interval: DevDeck is a tray app that can run for weeks, so a startup-only
+    // sweep would never fire for exactly the long-lived sessions that accumulate the most pastes.
+    const sweepPasteImages = (): void => { void cleanupPasteImages(tmpdir(), Date.now()); };
+    sweepPasteImages();
+    setInterval(sweepPasteImages, 6 * 3_600_000);
     const store = new Store(path.join(userData, 'state.json'));
     // Reconcile the OS login item with the saved preference (e.g. after a
     // reinstall/update the registered exe path may be stale). No-op in dev / off Windows.
@@ -165,6 +172,7 @@ if (!gotLock) {
       sendError: (msg) => w.webContents.send('devdeck:error', msg),
       defaultLanguage: app.getLocale().split('-')[0] || 'en',
       ptyHost,
+      ptyAvailable: nodePty !== null,
       tray,
       shutdown,
       shutdownLog,

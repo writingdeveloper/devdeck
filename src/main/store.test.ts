@@ -221,4 +221,24 @@ describe('shutdownIdleMinutes setting', () => {
     store.setShutdownIdleMinutes(7); // junk → clamp to default
     expect(store.getShutdownIdleMinutes()).toBe(10);
   });
+  it('round-trips every allowed choice, including the default 10', () => {
+    const store = new Store(file);
+    for (const m of [5, 10, 20, 30]) {
+      store.setShutdownIdleMinutes(m);
+      expect(store.getShutdownIdleMinutes()).toBe(m);
+    }
+  });
+});
+
+describe('cockpitSidebarCollapsed setting', () => {
+  it('defaults to false (sidebar open), persists, and coerces junk to false', () => {
+    const store = new Store(file);
+    expect(store.getCockpitSidebarCollapsed()).toBe(false);
+    store.setCockpitSidebarCollapsed(true);
+    expect(store.getCockpitSidebarCollapsed()).toBe(true);
+    // survives a reload (persisted in settings)
+    expect(new Store(file).getCockpitSidebarCollapsed()).toBe(true);
+    store.setCockpitSidebarCollapsed('yes' as unknown as boolean); // junk → strict boolean
+    expect(store.getCockpitSidebarCollapsed()).toBe(false);
+  });
 });

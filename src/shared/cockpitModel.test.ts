@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, isCockpitAvailable, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -91,6 +91,17 @@ describe('isCockpitPlatform', () => {
     expect(isCockpitPlatform('win32')).toBe(true);
     expect(isCockpitPlatform('darwin')).toBe(false);
     expect(isCockpitPlatform('linux')).toBe(false);
+  });
+});
+
+describe('isCockpitAvailable', () => {
+  it('needs both the platform and a loaded node-pty binding', () => {
+    expect(isCockpitAvailable('win32', true)).toBe(true);
+    expect(isCockpitAvailable('win32', false)).toBe(false); // prebuilt failed to load — every open would only toast an error
+    expect(isCockpitAvailable('darwin', true)).toBe(false);
+  });
+  it('treats a missing flag (older main process) as available', () => {
+    expect(isCockpitAvailable('win32', undefined)).toBe(true);
   });
 });
 

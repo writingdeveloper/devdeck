@@ -17,6 +17,15 @@ export interface UpdaterLike {
 
 export interface UpdaterApi { check(): void; download(): void; install(): void; }
 
+/**
+ * Whether the on-launch update check should run at all. macOS ships unsigned (no notarization),
+ * so electron-updater can never APPLY an update there — the automatic check could only ever end
+ * in a user-visible "check failed" in About. Manual checks stay available on every platform.
+ */
+export function shouldAutoCheck(platform: string): boolean {
+  return platform !== 'darwin';
+}
+
 /** Attach listeners translating updater events into UpdatePayloads sent to the renderer. */
 export function wireUpdater(
   u: UpdaterLike,

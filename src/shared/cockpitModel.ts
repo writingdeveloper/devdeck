@@ -74,6 +74,16 @@ export function isCockpitPlatform(platform: string): boolean {
   return platform === 'win32';
 }
 
+/**
+ * Whether the cockpit can actually work: right platform AND the node-pty native binding loaded.
+ * When the prebuilt fails to load (e.g. unsupported arch), every open could only toast the same
+ * error — hide the cockpit up front instead. An undefined flag (older main process) counts as
+ * available so the check degrades to the plain platform gate.
+ */
+export function isCockpitAvailable(platform: string, ptyAvailable: boolean | undefined): boolean {
+  return isCockpitPlatform(platform) && ptyAvailable !== false;
+}
+
 export interface CockpitRowSig {
   id: string; activity: string; label: string; dirty: number;
   branch: string | null; model: string | null; agentId: string; selected: boolean; pinned: boolean;

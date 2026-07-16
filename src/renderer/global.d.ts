@@ -16,7 +16,7 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean }>;
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
       setContextWindow(w: number): Promise<void>;
       setTrayCounts(counts: { attention?: number; turn?: number; overdue?: number }): void;
@@ -33,6 +33,7 @@ declare global {
       openRepo(path: string): Promise<void>;
       createProject(parent: string, name: string): Promise<import('../main/createProject').CreateProjectResult>;
       setViewMode(mode: 'cards' | 'list'): Promise<void>;
+      setCockpitSidebar(collapsed: boolean): Promise<void>;
       usageWindows(): Promise<import('../shared/usageWindows').UsageResult>;
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
       downloadUpdate(): Promise<void>;

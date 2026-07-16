@@ -18,9 +18,10 @@ import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../
 import { makeTtlCache } from '../shared/ttlCache';
 import { buildProjectList } from './projects';
 import { createProject } from './createProject';
-import { openProjects, openInEditor, resolveShellPath } from './launcher';
+import { openProjects, openInEditor, resolveShellPath, makeCliGuard } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
+import { PASTE_IMAGE_PREFIX } from './tempClean';
 import { listClaudeProjectDirs } from './usageProjectsScan';
 import { classifyUsageProjects } from '../shared/usageProjects';
 import { sanitizeTodos } from '../shared/tasks';
@@ -45,6 +46,8 @@ export interface IpcConfig {
   sendError: (msg: string) => void;
   defaultLanguage: string;
   ptyHost: PtyHost;
+  /** False when the node-pty native binding failed to load — the renderer then hides the cockpit entirely. */
+  ptyAvailable: boolean;
   tray: TrayController;
   /** Idle-shutdown feature (win32 only) — null elsewhere, which skips channel registration. */
   shutdown: ShutdownScheduler | null;
@@ -75,6 +78,17 @@ export function registerIpc(cfg: IpcConfig): void {
     const p = scanFolders(folders);
     scanCache.set(key, now, p);
     return p;
+  };
+
+  // First-run guidance: if the agent CLI the terminal is about to run isn't on PATH, toast an
+  // install hint alongside the shell's own error. Windows-only: a GUI-launched app on macOS/Linux
+  // sees a truncated PATH (no /opt/homebrew/bin, ~/.npm-global/bin, …) while the login-shell
+  // terminal that actually runs the command resolves it fine — probing there would false-alarm on
+  // every open. Async + fire-and-forget so the probe never delays or blocks the actual launch.
+  const cliGuard = makeCliGuard();
+  const warnIfCliMissing = (command: string): void => {
+    if (process.platform !== 'win32') return;
+    void cliGuard(command).then((warn) => { if (warn) cfg.sendError(warn); });
   };
 
   const activeAgent = (): AgentId => {
@@ -135,10 +149,12 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('settings:get', () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
-    openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform,
+    openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform, ptyAvailable: cfg.ptyAvailable,
     viewMode: cfg.store.getViewMode(), trayAlert: cfg.store.getTrayAlert(), contextWindow: cfg.store.getContextWindow(),
     shutdownIdleMinutes: cfg.store.getShutdownIdleMinutes(),
+    cockpitSidebarCollapsed: cfg.store.getCockpitSidebarCollapsed(),
   }));
+  ipcMain.handle('settings:setCockpitSidebar', (_e, collapsed: boolean) => cfg.store.setCockpitSidebarCollapsed(collapsed)); // store setter owns the strict-boolean coercion
   ipcMain.handle('settings:setContextWindow', (_e, w: number) => cfg.store.setContextWindow(w === 200_000 ? 200_000 : 1_000_000));
   ipcMain.handle('settings:setTrayAlert', (_e, mode: string) => {
     cfg.store.setTrayAlert(mode === 'off' || mode === 'all' ? mode : 'attention');
@@ -225,6 +241,8 @@ export function registerIpc(cfg: IpcConfig): void {
       // Record lastOpened only for accepted (validated) projects.
       cfg.store.setLastOpened(it.path, now);
     }
+    // All tabs run the same agent binary — one warning covers the batch.
+    if (tabs.length > 0) warnIfCliMissing(tabs[0].command);
     openProjects(tabs, { onError: cfg.sendError });
   });
 
@@ -300,6 +318,7 @@ export function registerIpc(cfg: IpcConfig): void {
         latestId: req.fresh ? null : (await a.listSessions(req.projectPath, 1))[0]?.id ?? null,
         genId: () => randomUUID(),
       });
+      warnIfCliMissing(resolved.command);
       const shellPath = resolveShellPath();
       const id = `${req.projectPath}#${++cockpitSeq}`;
       cfg.ptyHost.create(
@@ -417,7 +436,7 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('clipboard:readImage', () => {
     const img = clipboard.readImage();
     if (img.isEmpty()) return null;
-    const file = join(tmpdir(), `devdeck-paste-${randomUUID()}.png`);
+    const file = join(tmpdir(), `${PASTE_IMAGE_PREFIX}${randomUUID()}.png`);
     try { writeFileSync(file, img.toPNG()); } catch { return null; }
     return file;
   });
