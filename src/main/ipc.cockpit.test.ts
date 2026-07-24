@@ -1,5 +1,47 @@
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { join } from 'node:path';
+
+const { handlers, claudeStats, codexStats } = vi.hoisted(() => ({
+  handlers: new Map<string, (...args: unknown[]) => unknown>(),
+  claudeStats: vi.fn(() => []),
+  codexStats: vi.fn(() => []),
+}));
+
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: (channel: string, handler: (...args: unknown[]) => unknown) => { handlers.set(channel, handler); },
+    on: (channel: string, handler: (...args: unknown[]) => unknown) => { handlers.set(channel, handler); },
+  },
+  dialog: { showOpenDialog: vi.fn() },
+  shell: {},
+  clipboard: { readImage: vi.fn() },
+  app: { getPath: () => '', getVersion: () => '0.0.0', isPackaged: false },
+}));
+
+vi.mock('./sessions', () => ({ listSessionStats: claudeStats }));
+vi.mock('./codexSessions', () => ({ listCodexSessionStats: codexStats }));
+
+import { registerIpc, type IpcConfig } from './ipc';
 import { getProvider, resolveOpenSession } from './agents';
+
+const ALLOWED_ROOT = join(process.cwd(), 'cockpit-allowed-root');
+let storedAgent = 'claude';
+
+beforeAll(() => {
+  registerIpc({
+    win: { on: () => {}, isDestroyed: () => true, webContents: { send: () => {} } },
+    defaultBaseDir: ALLOWED_ROOT,
+    store: { getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getAgent: () => storedAgent },
+    sendError: vi.fn(),
+    defaultLanguage: 'en',
+    ptyHost: {},
+    ptyAvailable: true,
+    tray: {},
+    shutdown: null,
+    shutdownLog: null,
+    bootTimeMs: () => 0,
+  } as unknown as IpcConfig);
+});
 
 describe('resolveOpenSession', () => {
   const claude = getProvider('claude');
@@ -26,5 +68,32 @@ describe('resolveOpenSession', () => {
   it('antigravity fresh: no --session-id support => plain new, id not pinned', () => {
     expect(resolveOpenSession(antigravity, { fresh: true, sessionId: null, sessionCount: 0, latestId: null, genId: gen }))
       .toEqual({ command: 'agy', sessionId: null });
+  });
+});
+
+describe('cockpit:liveSessionId', () => {
+  const projectPath = join(ALLOWED_ROOT, 'project');
+  const opts = { currentId: 'current', claimedIds: [], openedAtMs: 1, sinceMs: 2, lastDataAtMs: 3 };
+
+  it('uses the active provider\'s session store only when it supports drift detection', () => {
+    const liveSessionId = handlers.get('cockpit:liveSessionId')!;
+
+    storedAgent = 'claude';
+    claudeStats.mockClear(); codexStats.mockClear();
+    liveSessionId(null, projectPath, opts);
+    expect(claudeStats).toHaveBeenCalledOnce();
+    expect(codexStats).not.toHaveBeenCalled();
+
+    storedAgent = 'codex';
+    claudeStats.mockClear(); codexStats.mockClear();
+    liveSessionId(null, projectPath, opts);
+    expect(codexStats).toHaveBeenCalledOnce();
+    expect(claudeStats).not.toHaveBeenCalled();
+
+    storedAgent = 'antigravity';
+    claudeStats.mockClear(); codexStats.mockClear();
+    expect(liveSessionId(null, projectPath, opts)).toBeNull();
+    expect(claudeStats).not.toHaveBeenCalled();
+    expect(codexStats).not.toHaveBeenCalled();
   });
 });
