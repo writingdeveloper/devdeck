@@ -14,7 +14,7 @@ Its launch commands are:
 - Latest conversation: `codex resume --last`
 - Specific conversation: `codex resume <session-id>`
 
-Codex does not accept an app-generated session ID for a new conversation. Therefore it follows the same non-pinned new-session flow as Antigravity: launch normally, then persist the discovered session ID once it is available.
+Codex does not accept an app-generated session ID for a new conversation. It launches normally, then Cockpit adopts its ID only when one unclaimed rollout file was created after that tile opened and its modification time matches the tile's output. This is the existing evidence-gated session-ID adoption rule used for Claude drift detection, extended to Codex. It lets a new Codex tile be restored to its own conversation without accidentally adopting another concurrently running tile's rollout.
 
 ## Session discovery
 
@@ -37,10 +37,9 @@ No new renderer controls are needed: the project view already reads the active p
 
 ## Cockpit behavior and non-goals
 
-Codex uses the existing generic Cockpit PTY lifecycle, status timing fallback, and saved-session schema. Claude-specific enrichments remain Claude-only:
+Codex uses the existing generic Cockpit PTY lifecycle, status timing fallback, saved-session schema, and evidence-gated live session-ID adoption. The Codex reader exposes all matching rollout IDs and their file creation/modification times for that adoption check. Claude-specific enrichments remain Claude-only:
 
 - model, active-working-time, and context-window metadata return their neutral values for Codex;
-- live session-ID drift detection remains Claude-only until Codex exposes a reliable equivalent;
 - Claude usage analytics remain unchanged and do not claim to represent Codex usage.
 
 The generic PATH warning will recognize the `codex` binary and give a Codex-specific installation hint if it is unavailable on Windows.
