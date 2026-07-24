@@ -66,7 +66,9 @@ export function makeCliGuard(exists: CliProbe = defaultCliProbe): (command: stri
     if (await exists(bin)) { found.add(bin); return null; }
     const hint = bin === 'claude'
       ? ' Install Claude Code first: npm install -g @anthropic-ai/claude-code (see https://claude.com/claude-code), then reopen the session.'
-      : ' Install it or check your PATH, then reopen the session.';
+      : bin === 'codex'
+        ? ' Install Codex CLI first: npm install -g @openai/codex (see https://developers.openai.com/codex/cli), then reopen the session.'
+        : ' Install it or check your PATH, then reopen the session.';
     return `The '${bin}' CLI was not found on PATH — the terminal will show a command-not-found error.${hint}`;
   };
 }

@@ -1,7 +1,7 @@
 {
   "name": "devdeck",
   "version": "1.21.0",
-  "description": "Project command deck — at-a-glance state + claude -c resume",
+  "description": "Project command deck — at-a-glance state + Claude Code, Codex, and Antigravity resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
   "license": "MIT",
@@ -14,6 +14,9 @@
   "keywords": [
     "claude-code",
     "claude",
+    "codex",
+    "openai-codex",
+    "antigravity",
     "electron",
     "developer-tools",
     "git",

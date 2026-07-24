@@ -27,6 +27,7 @@
   "agent.label": "代理",
   "agent.claude": "Claude",
   "agent.antigravity": "Antigravity",
+  "agent.codex": "Codex",
   "next.title": "任务（所有项目）",
   "next.empty": "没有未完成的任务 — 在下方添加。",
   "next.no_projects": "看板按项目列出任务 — 请先添加扫描文件夹。",

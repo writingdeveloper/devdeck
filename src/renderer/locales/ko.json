@@ -27,6 +27,7 @@
   "agent.label": "에이전트",
   "agent.claude": "Claude",
   "agent.antigravity": "Antigravity",
+  "agent.codex": "Codex",
   "next.title": "할 일 (전체 프로젝트)",
   "next.empty": "열린 할 일이 없습니다 — 아래에서 추가하세요.",
   "next.no_projects": "보드는 프로젝트별 작업을 보여줍니다 — 먼저 스캔 폴더를 추가하세요.",

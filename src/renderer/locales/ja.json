@@ -27,6 +27,7 @@
   "agent.label": "エージェント",
   "agent.claude": "Claude",
   "agent.antigravity": "Antigravity",
+  "agent.codex": "Codex",
   "next.title": "タスク（全プロジェクト）",
   "next.empty": "未完了のタスクはありません — 下で追加してください。",
   "next.no_projects": "ボードはプロジェクトごとのタスクを表示します — まずスキャンフォルダーを追加してください。",
