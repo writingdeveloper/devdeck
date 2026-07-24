@@ -30,7 +30,11 @@ import { dialog, clipboard } from 'electron';
 const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
 const sendError = vi.fn();
 const applyCounts = vi.fn();
-const storeSpies = { setNote: vi.fn(), setTodos: vi.fn(), setPinned: vi.fn(), setHidden: vi.fn(), addFolder: vi.fn(), setShutdownIdleMinutes: vi.fn() };
+let storedAgent: string | null = null;
+const storeSpies = {
+  getAgent: vi.fn(() => storedAgent), setAgent: vi.fn((id: string) => { storedAgent = id; }),
+  setNote: vi.fn(), setTodos: vi.fn(), setPinned: vi.fn(), setHidden: vi.fn(), addFolder: vi.fn(), setShutdownIdleMinutes: vi.fn(),
+};
 const shutdownSpies = {
   arm: vi.fn(), disarm: vi.fn(), shutdownNow: vi.fn(), cancel: vi.fn(),
   noteBusy: vi.fn(), noteReport: vi.fn(),
@@ -73,6 +77,20 @@ describe('cockpit:gitInfo path guard', () => {
     const out = handlers.get('cockpit:gitInfo')!(null, p);
     expect(out).toEqual({ branch: 'main', dirty: 2 });
     expect(getGitBranchDirty).toHaveBeenCalledWith(p);
+  });
+});
+
+describe('settings agent selection', () => {
+  it('keeps a stored Codex selection active, accepts Codex changes, and falls back unknown values to Claude', () => {
+    storedAgent = 'codex';
+    expect(handlers.get('settings:getAgent')!(null)).toBe('codex');
+
+    storeSpies.setAgent.mockClear();
+    handlers.get('settings:setAgent')!(null, 'codex');
+    expect(storeSpies.setAgent).toHaveBeenCalledWith('codex');
+
+    storedAgent = 'unknown-agent';
+    expect(handlers.get('settings:getAgent')!(null)).toBe('claude');
   });
 });
 
