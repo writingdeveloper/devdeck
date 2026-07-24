@@ -5,3 +5,4 @@ release/
 qa/shots/
 docs/superpowers/
 .superpowers/
+.worktrees/
