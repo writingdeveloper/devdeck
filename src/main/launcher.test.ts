@@ -120,6 +120,12 @@ describe('makeCliGuard', () => {
     await expect(guard('claude')).resolves.toContain('npm install -g @anthropic-ai/claude-code');
     await expect(guard('agy')).resolves.not.toContain('npm install');
   });
+  it('gives Codex its named installation and PATH hint without changing other CLI hints', async () => {
+    const guard = makeCliGuard(() => false);
+    await expect(guard('codex resume')).resolves.toContain('Install Codex CLI first: npm install -g @openai/codex');
+    await expect(guard('claude')).resolves.toContain('npm install -g @anthropic-ai/claude-code');
+    await expect(guard('agy')).resolves.not.toContain('npm install');
+  });
   it('caches a found binary but re-probes a missing one (installing mid-session clears the warning)', async () => {
     let onPath = false;
     let probes = 0;

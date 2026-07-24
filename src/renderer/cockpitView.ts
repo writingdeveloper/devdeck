@@ -332,7 +332,7 @@ async function refreshMeta(id: string): Promise<void> {
  *  main): adopts a new id only when this tile streamed output, its own file did not move, and exactly
  *  one unclaimed file born after the tile opened moved in lockstep with the tile's output. */
 async function refreshSessionId(id: string): Promise<void> {
-  const l = live.get(id); if (!l || l.session.agentId !== 'claude' || l.session.status === 'exited') return;
+  const l = live.get(id); if (!l || (l.session.agentId !== 'claude' && l.session.agentId !== 'codex') || l.session.status === 'exited') return;
   const since = l.idCheckAt;
   if (l.lastDataAt <= since) return; // no output since the last check — nothing moved on our behalf
   l.idCheckAt = Date.now(); // advance BEFORE the async hop so overlapping calls can't double-adopt

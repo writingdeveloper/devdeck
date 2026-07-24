@@ -28,6 +28,7 @@ import { sanitizeTodos } from '../shared/tasks';
 import { getUsageWindows, readClaudeCredentials, fetchUsageApi, type CacheEntry } from './claudeUsage';
 import { pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
 import { listSessionStats } from './sessions';
+import { listCodexSessionStats } from './codexSessions';
 import { readClaudeSessionMeta } from './sessionMeta';
 import type { TrayController } from './tray';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
@@ -37,6 +38,7 @@ import type { ShutdownLog } from './shutdownLog';
 import type { ShutdownSessionSummary } from '../shared/shutdownIdle';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
+const CODEX_SESSIONS = join(homedir(), '.codex', 'sessions');
 const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
 
 export interface IpcConfig {
@@ -93,7 +95,7 @@ export function registerIpc(cfg: IpcConfig): void {
 
   const activeAgent = (): AgentId => {
     const a = cfg.store.getAgent();
-    return a === 'antigravity' || a === 'claude' ? a : 'claude';
+    return a === 'antigravity' || a === 'claude' || a === 'codex' ? a : 'claude';
   };
   const agent = () => getProvider(activeAgent());
 
@@ -144,7 +146,7 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('settings:getAgent', () => activeAgent());
   ipcMain.handle('settings:availableAgents', () => availableAgents());
   ipcMain.handle('settings:setAgent', (_e, id: string) => {
-    if (id === 'claude' || id === 'antigravity') cfg.store.setAgent(id);
+    if (id === 'claude' || id === 'antigravity' || id === 'codex') cfg.store.setAgent(id);
   });
 
   ipcMain.handle('settings:get', () => ({
@@ -366,11 +368,17 @@ export function registerIpc(cfg: IpcConfig): void {
   // Live session-id drift check (/clear starts a brand-new session id in the same terminal — the
   // open-time id then goes stale and a restart would restore the PAST conversation). The renderer
   // sends the tile's timing evidence; this stats the project's session files and adopts a new id only
-  // when unambiguous (pickDriftedSessionId). Claude-only: antigravity has no per-file session store.
+  // when unambiguous (pickDriftedSessionId). Claude and Codex have per-file session stores;
+  // Antigravity does not.
   ipcMain.handle('cockpit:liveSessionId', (_e, projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number }) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return null;
-    if (agent().id !== 'claude' || !opts || typeof opts !== 'object') return null;
-    return pickDriftedSessionId(listSessionStats(String(projectPath), CLAUDE_PROJECTS), {
+    if (!opts || typeof opts !== 'object') return null;
+    const a = agent().id;
+    const stats = a === 'claude' ? listSessionStats(String(projectPath), CLAUDE_PROJECTS)
+      : a === 'codex' ? listCodexSessionStats(String(projectPath), CODEX_SESSIONS)
+        : null;
+    if (!stats) return null;
+    return pickDriftedSessionId(stats, {
       currentId: typeof opts.currentId === 'string' ? opts.currentId : null,
       claimedIds: Array.isArray(opts.claimedIds) ? opts.claimedIds.filter((x): x is string => typeof x === 'string') : [],
       openedAtMs: Number(opts.openedAtMs) || 0,

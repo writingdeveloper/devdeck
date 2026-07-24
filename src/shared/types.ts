@@ -1,7 +1,7 @@
 import type { UsageTotals } from './usage';
 import type { Todo } from './tasks';
 
-export type AgentId = 'claude' | 'antigravity';
+export type AgentId = 'claude' | 'antigravity' | 'codex';
 
 export type Language = 'ko' | 'en' | 'ja' | 'zh';
 

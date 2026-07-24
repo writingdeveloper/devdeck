@@ -27,6 +27,7 @@
   "agent.label": "Agent",
   "agent.claude": "Claude",
   "agent.antigravity": "Antigravity",
+  "agent.codex": "Codex",
   "next.title": "Tasks — all projects",
   "next.empty": "No open tasks — add one below.",
   "tasks.empty_cta": "+ Add your first task",

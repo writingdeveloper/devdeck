@@ -4,10 +4,12 @@ import { existsSync } from 'node:fs';
 import type { AgentId, SessionMeta } from '../shared/types';
 import { listSessions, listSessionIds, lastUserMessageForSession } from './sessions';
 import { listAntigravitySessions, listAntigravitySessionIds, lastUserMessageForAntigravitySession, antigravityAvailable } from './antigravitySessions';
+import { codexAvailable, listCodexSessions, listCodexSessionIds, lastUserMessageForCodexSession } from './codexSessions';
 import { SESSION_ID_RE } from '../shared/paths';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
+const CODEX_SESSIONS = join(homedir(), '.codex', 'sessions');
 
 export type LaunchKind = 'new' | 'continue' | 'resume';
 
@@ -55,15 +57,33 @@ const antigravityProvider: AgentProvider = {
   },
 };
 
-const PROVIDERS: Record<AgentId, AgentProvider> = { claude: claudeProvider, antigravity: antigravityProvider };
+const codexProvider: AgentProvider = {
+  id: 'codex',
+  label: 'Codex',
+  supportsSessionId: false,
+  isAvailable: () => codexAvailable(CODEX_SESSIONS),
+  listSessions: async (p, limit) => listCodexSessions(p, CODEX_SESSIONS, limit),
+  listSessionIds: (p) => listCodexSessionIds(p, CODEX_SESSIONS),
+  lastUserMessage: async (p, id) => lastUserMessageForCodexSession(p, id, CODEX_SESSIONS),
+  buildCommand: (kind, id) => {
+    if (kind === 'resume' && id && SESSION_ID_RE.test(id)) return `codex resume ${id}`;
+    return kind === 'new' ? 'codex' : 'codex resume --last';
+  },
+};
+
+const PROVIDERS: Record<AgentId, AgentProvider> = {
+  claude: claudeProvider,
+  antigravity: antigravityProvider,
+  codex: codexProvider,
+};
 
 export function getProvider(id: AgentId): AgentProvider {
   return PROVIDERS[id] ?? claudeProvider;
 }
 
-/** Installed agents (claude always; antigravity if ~/.gemini/antigravity exists). `probe` overridable for tests. */
+/** Installed agents (claude, antigravity, and Codex when their session directories exist). `probe` overridable for tests. */
 export function availableAgents(probe?: (id: AgentId) => boolean): AgentId[] {
-  const ids: AgentId[] = ['claude', 'antigravity'];
+  const ids: AgentId[] = ['claude', 'antigravity', 'codex'];
   const isAvail = probe ?? ((id) => PROVIDERS[id].isAvailable());
   return ids.filter(isAvail);
 }
