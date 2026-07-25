@@ -180,6 +180,59 @@ const ckOk = await win.evaluate(() => {
 console.log(`cockpit structure + new-session button present: ${ckOk}`);
 if (!ckOk) { console.error('QA FAILED — cockpit structure / + New session button missing'); await closeApp(); process.exit(1); }
 
+// Provider marks + two-line names: the sidebar must stay 250px, a very long ASCII name and an
+// unbroken CJK name must clamp at two lines (never widen the sidebar or spill), and the hover-only
+// row actions must reserve no width while hidden. The harness can't spawn a live PTY session, so
+// inject representative row markup and measure the real CSS.
+const sidebar = await win.evaluate(async () => {
+  const groups = document.getElementById('ck-groups');
+  const long = 'devdeck-monorepo-frontend-experimental-feature-branch-session-42-x';
+  const cjk = '데브덱코크핏세션이름아주아주긴한글이름테스트용으로만든것';
+  const rowHtml = (name, logo) => `<div class="ck-row act-idle">
+    <span class="ck-ind"><span class="ck-dot"></span></span>
+    <img class="ck-provider-logo" src="./assets/provider-${logo}.svg" alt="${logo}">
+    <div class="ck-row-main"><div class="ck-line1"><span class="nm" tabindex="0" aria-label="${name}" data-full-name="${name}">${name}</span><span class="ck-ctx-col">🧠41%</span></div><div class="mt">main · Opus</div></div>
+    <span class="ck-row-acts"><button class="ck-pin">📌</button><button class="ck-rename">✎</button><button class="ck-close">✕</button></span></div>`;
+  groups.innerHTML = rowHtml(long, 'claude') + rowHtml(cjk, 'codex')
+    + `<div class="ck-row ck-row-prev"><span class="ck-ind"><span class="ck-dot"></span></span><img class="ck-provider-logo" src="./assets/provider-antigravity.svg" alt="antigravity"><div class="ck-row-main"><div class="nm" tabindex="0" aria-label="${long}" data-full-name="${long}">${long}</div><div class="mt">Restore</div></div><span class="ck-prev-acts"><button class="ck-pin">📌</button><button class="ck-forget">✕</button></span></div>`;
+  await new Promise((r) => setTimeout(r, 250));
+  const list = document.querySelector('#view-cockpit .ck-list').getBoundingClientRect();
+  const names = [...document.querySelectorAll('#ck-groups .nm')];
+  const lh = parseFloat(getComputedStyle(names[0]).lineHeight);
+  const logos = document.querySelectorAll('#ck-groups .ck-provider-logo');
+  const loaded = [...logos].every((i) => i.complete && i.naturalWidth > 0);
+  return {
+    sidebarWidth: Math.round(list.width),
+    twoLines: names.every((n) => n.getBoundingClientRect().height <= lh * 2 + 1),
+    inside: names.every((n) => n.getBoundingClientRect().right <= list.right + 1),
+    logos: logos.length,
+    loaded,
+    actsHidden: getComputedStyle(document.querySelector('#ck-groups .ck-row-acts')).opacity === '0',
+  };
+});
+await shot('cockpit-provider-sidebar');
+console.log(`cockpit sidebar: width=${sidebar.sidebarWidth}px twoLines=${sidebar.twoLines} inside=${sidebar.inside} logos=${sidebar.logos} svgLoaded=${sidebar.loaded} actionsHiddenByDefault=${sidebar.actsHidden}`);
+if (sidebar.sidebarWidth !== 250 || !sidebar.twoLines || !sidebar.inside || sidebar.logos !== 3 || !sidebar.loaded || !sidebar.actsHidden) {
+  console.error('QA FAILED — cockpit sidebar geometry / provider marks regressed (expect 250px, 2-line clamp, contained names, 3 loaded SVG marks, hidden row actions).');
+  await closeApp();
+  process.exit(1);
+}
+// The full-name tooltip must be reachable by KEYBOARD, not only pointer.
+const tooltip = await win.evaluate(async () => {
+  const nm = document.querySelector('#ck-groups .nm');
+  nm.focus();
+  await new Promise((r) => setTimeout(r, 150));
+  return { focused: document.activeElement === nm, hasFullName: !!nm.dataset.fullName, labelled: nm.getAttribute('aria-label') === nm.dataset.fullName };
+});
+await shot('cockpit-provider-tooltip');
+console.log(`cockpit name help: keyboardFocusable=${tooltip.focused} fullName=${tooltip.hasFullName} ariaLabel=${tooltip.labelled}`);
+if (!tooltip.focused || !tooltip.hasFullName) {
+  console.error('QA FAILED — the complete session name is not reachable by keyboard.');
+  await closeApp();
+  process.exit(1);
+}
+await win.evaluate(() => { document.getElementById('ck-groups').innerHTML = ''; });
+
 // Usage bar fill — regression guard for the inline-span bug where the fill (width/height
 // ignored on an inline box) rendered empty. window.devdeck is a frozen contextBridge object
 // (can't stub the IPC) and CI has no Claude creds, so we test the CSS mechanism directly:

@@ -427,13 +427,30 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-search { margin: 11px; display: flex; align-items: center; gap: 7px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 8px; padding: 7px 9px; color: var(--text-faint); }
 .ck-search input { flex: 1; background: transparent; border: 0; color: var(--text); font: inherit; outline: none; }
 .ck-grp { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--text-faint); padding: 6px 15px 4px; }
-.ck-row { display: flex; align-items: center; gap: 9px; padding: 8px 12px; margin: 1px 8px; border-radius: 8px; border-left: 3px solid transparent; cursor: pointer; }
+/* Fixed scan order in a 250px sidebar: activity · provider mark · content. Grid (not flex) so the two
+   leading columns never shrink and the content column is the only flexible one. */
+.ck-row { position: relative; display: grid; grid-template-columns: 16px 22px minmax(0, 1fr); column-gap: 7px; align-items: center; padding: 8px 12px; margin: 1px 8px; border-radius: 8px; border-left: 3px solid transparent; cursor: pointer; }
 .ck-row:hover { background: var(--surface-hover); }
 .ck-row.sel { background: #16182b; border-left-color: var(--accent); box-shadow: inset 0 0 0 1px rgba(85,88,239,.35); }
-/* Row body: line 1 = name + right-aligned context %, line 2 = branch/agent/model meta. */
-.ck-row-main { flex: 1 1 auto; min-width: 0; }
-.ck-line1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.ck-row .nm { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: var(--fs-row); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-provider-logo { width: 20px; height: 20px; align-self: center; display: block; }
+.ck-provider-logo.sm { width: 13px; height: 13px; }
+.ck-pill-provider { display: inline-flex; align-items: center; gap: 5px; }
+/* Row body: line 1 = name + right-aligned context %, line 2 = branch/model meta (the provider now
+   lives in its own logo column, so it is no longer repeated as text). */
+.ck-row-main { min-width: 0; }
+.ck-line1 { display: flex; align-items: start; gap: 6px; min-width: 0; }
+/* Two-line clamp instead of a single ellipsized line: long session names stay readable without
+   widening the sidebar, and the FULL name is exposed via aria-label + the hover/focus tooltip below. */
+.ck-row .nm { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: var(--fs-row); line-height: 1.3; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; outline: none; }
+.ck-row .nm:focus-visible { box-shadow: 0 0 0 2px var(--accent); border-radius: 4px; }
+/* Full-name help for pointer AND keyboard. position: fixed escapes .ck-list's overflow; the anchor
+   comes from custom properties the row sets on pointerenter/focus. */
+.ck-row .nm[data-full-name]:hover::after, .ck-row .nm[data-full-name]:focus-visible::after {
+  content: attr(data-full-name); position: fixed; left: var(--tt-x, 0); top: var(--tt-y, 0); z-index: 80;
+  max-width: 360px; padding: 5px 8px; border-radius: 6px; background: #0d0e12; border: 1px solid var(--border-strong);
+  color: var(--text); font-weight: 500; font-size: 11.5px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
+  box-shadow: 0 6px 18px rgba(0,0,0,.5); pointer-events: none;
+}
 .ck-row .mt { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-dim); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Per-session context % — now on line 1 (next to the name), tinted as it nears compaction (≥80 warn,
    ≥95 crit) — with many concurrent sessions this answers "which one is about to compact" at a glance. */
@@ -461,7 +478,7 @@ button.primary:hover { background: var(--accent-hover); }
 .rail-item { position: relative; }
 .rail-badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--warn); color: var(--bg); font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #101218; }
 .rail-badge.hidden { display: none; }
-.ck-ind { width: 16px; flex: 0 0 16px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.ck-ind { width: 16px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
 .ck-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
 .ck-spin { width: 10px; height: 10px; border: 1.6px solid #3fb950; border-right-color: transparent; border-radius: 50%; animation: ck-spin .7s linear infinite; }
 @keyframes ck-spin { to { transform: rotate(360deg); } }
@@ -480,11 +497,21 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row-prev:hover { opacity: 1; }
 .ck-row-prev .ck-dot { background: transparent; border: 1.5px dashed var(--text-faint); }
 .ck-row-prev .mt { font-family: inherit; }
-.ck-prev-acts { margin-left: auto; display: flex; align-items: center; }
+.ck-prev-acts { display: flex; align-items: center; }
 .ck-forget { background: transparent; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 2px 4px; border-radius: 6px; line-height: 1; }
 .ck-forget:hover { background: var(--bad); color: #fff; }
 /* Rename: a ✎ revealed on row hover, plus double-click the name. */
-.ck-row-acts { margin-left: auto; display: flex; align-items: center; }
+.ck-row-acts { display: flex; align-items: center; }
+/* Row actions are OVERLAID on the trailing edge, so while hidden they reserve no width from the name
+   (the whole point of the 250px sidebar staying fixed). The fade keeps them legible over text. */
+.ck-row-acts, .ck-prev-acts {
+  position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%);
+  opacity: 0; pointer-events: none; padding-left: 18px; border-radius: 6px;
+  background: linear-gradient(90deg, transparent, #14161d 24%);
+}
+.ck-row.sel .ck-row-acts { background: linear-gradient(90deg, transparent, #16182b 24%); }
+.ck-row:hover .ck-row-acts, .ck-row:focus-within .ck-row-acts,
+.ck-row:hover .ck-prev-acts, .ck-row:focus-within .ck-prev-acts { opacity: 1; pointer-events: auto; }
 .ck-rename { background: transparent; border: 0; color: var(--text-faint); font-size: 12px; cursor: pointer; padding: 2px 5px; border-radius: 6px; line-height: 1; opacity: 0; }
 .ck-row:hover .ck-rename { opacity: 1; }
 .ck-rename:hover { background: var(--surface-hover); color: var(--text); }
@@ -498,6 +525,8 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row:hover .ck-pin { opacity: .55; }
 .ck-pin:hover { background: var(--surface-hover); opacity: 1; }
 .ck-row.pinned .ck-pin { opacity: 1; filter: none; }
+/* A pinned row keeps its 📌 visible (the other actions inside stay hover-only via their own opacity). */
+.ck-row.pinned .ck-row-acts, .ck-row.pinned .ck-prev-acts { opacity: 1; pointer-events: auto; }
 /* + New session: keep the target-project label on one line with ellipsis. */
 #ck-new-session { min-width: 0; }
 #ck-new-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

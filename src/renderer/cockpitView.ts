@@ -10,6 +10,7 @@ import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
 import { sanitizePersistedList, resolveRestoreSessionId, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import { toAgentId, type AgentId, type StaleLevel } from '../shared/types';
+import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
 import { toast } from './loadError';
 import { reportShutdownActivity } from './shutdown';
@@ -537,12 +538,32 @@ function renderList(): void {
   }
 }
 
+/** Long names are clamped to two lines (the sidebar stays 250px), so the COMPLETE name must stay
+ *  reachable without resizing: expose it to assistive tech via aria-label and to sighted pointer AND
+ *  keyboard users via a CSS tooltip. The tooltip is `position: fixed` (it must escape .ck-list's
+ *  overflow), so its anchor is measured here and handed to CSS as custom properties. */
+function applyFullName(nm: HTMLElement, fullName: string): void {
+  nm.textContent = fullName;
+  nm.tabIndex = 0;
+  nm.dataset.fullName = fullName;
+  nm.setAttribute('aria-label', fullName);
+  const place = (): void => {
+    const r = nm.getBoundingClientRect();
+    nm.style.setProperty('--tt-x', `${Math.round(r.left)}px`);
+    nm.style.setProperty('--tt-y', `${Math.round(r.bottom + 4)}px`);
+  };
+  nm.addEventListener('pointerenter', place);
+  nm.addEventListener('focus', place);
+}
+
 function prevRow(r: PersistedSession, label: string): HTMLElement {
   const isPinned = r.pinned === true;
   const el = document.createElement('div'); el.className = `ck-row ck-row-prev${isPinned ? ' pinned' : ''}`;
   el.innerHTML = `<span class="ck-ind"><span class="ck-dot"></span></span><div class="ck-row-main"><div class="nm"></div><div class="mt"></div></div><span class="ck-prev-acts"></span>`;
-  el.querySelector('.nm')!.textContent = label;
-  el.querySelector('.mt')!.textContent = `${tr('cockpit.restore')} · ${r.agentId}`;
+  applyFullName(el.querySelector('.nm') as HTMLElement, label);
+  // The provider is now shown as a mark in its own column, so the metadata line no longer repeats it.
+  el.insertBefore(createProviderLogo(toAgentId(r.agentId) ?? 'claude'), el.querySelector('.ck-row-main'));
+  el.querySelector('.mt')!.textContent = tr('cockpit.restore');
   el.title = tr('cockpit.restore');
   // Same 📌 affordance as live rows: a not-yet-restored entry can be (un)pinned without opening it.
   const pin = document.createElement('button'); pin.className = 'ck-pin'; pin.textContent = '📌'; pin.title = tr(isPinned ? 'cockpit.unpin' : 'cockpit.pin');
@@ -563,6 +584,7 @@ function row(s: CockpitSession): HTMLElement {
   // Line 1 = name + right-aligned context % (ck-ctx-col); line 2 (.mt) = branch/agent/model only — the
   // 🧠 context indicator moved up to line 1, so it's no longer appended to .mt.
   el.innerHTML = `<span class="ck-ind"></span><div class="ck-row-main"><div class="ck-line1"><span class="nm"></span><span class="ck-ctx-col"></span></div><div class="mt"></div></div><span class="ck-row-acts"></span>`;
+  el.insertBefore(createProviderLogo(s.agentId), el.querySelector('.ck-row-main'));
   const ind = el.querySelector('.ck-ind')!;
   if (a === 'working') ind.innerHTML = '<span class="ck-spin"></span>';
   else if (a === 'attention') ind.textContent = '❓';
@@ -571,12 +593,12 @@ function row(s: CockpitSession): HTMLElement {
   if (s.id === editingId) {
     nm.replaceChildren(renameInput(s.id, live.get(s.id)?.customLabel ?? s.name));
   } else {
-    nm.textContent = liveLabels.get(s.id) ?? s.name;
+    applyFullName(nm, liveLabels.get(s.id) ?? s.name);
     nm.addEventListener('dblclick', (e) => { e.stopPropagation(); beginRename(s.id); }); // rename: double-click the name…
   }
   const rowModel = friendlyModel(live.get(s.id)?.meta?.model ?? null);
   const mt = el.querySelector('.mt') as HTMLElement;
-  mt.textContent = `${s.branch ?? '-'}${dirty} · ${s.agentId}${rowModel ? ` · ${rowModel}` : ''}`;
+  mt.textContent = `${s.branch ?? '-'}${dirty}${rowModel ? ` · ${rowModel}` : ''}`; // provider moved to its logo column
   // Per-session context % on line 1 (next to the name), tinted as it nears compaction — with many
   // concurrent sessions this answers "which one is about to compact" at a glance (the header shows it
   // only for the selected one).
@@ -663,11 +685,16 @@ function renderHeader(): void {
   const l = selectedId ? live.get(selectedId) : null;
   if (!l) return;
   const s = l.session;
-  const title = document.createElement('span'); title.className = 'title'; title.textContent = liveLabels.get(s.id) ?? s.name;
+  const title = document.createElement('span'); title.className = 'title';
+  const fullName = liveLabels.get(s.id) ?? s.name;
+  title.textContent = fullName; title.setAttribute('aria-label', fullName);
   title.title = tr('cockpit.rename');
   title.addEventListener('dblclick', () => beginRename(s.id)); // edits in the session's list row (single editor, survives re-render)
   const branch = document.createElement('span'); branch.className = 'ck-pill'; branch.textContent = `⎇ ${s.branch ?? '-'}${s.dirty > 0 ? ` ✎${s.dirty}` : ''}`;
-  const ag = document.createElement('span'); ag.className = 'ck-pill'; ag.textContent = `✦ ${s.agentId}`;
+  // Same mark component as the rows; the localized provider name rides along as alt/title, so identity
+  // never depends on the logo's color alone.
+  const ag = document.createElement('span'); ag.className = 'ck-pill ck-pill-provider';
+  ag.append(createProviderLogo(s.agentId, 'ck-provider-logo sm'), providerName(s.agentId));
   const pills: HTMLElement[] = [title, branch, ag];
   const model = friendlyModel(l.meta?.model ?? null);
   if (model) { const mp = document.createElement('span'); mp.className = 'ck-pill'; mp.textContent = model; pills.push(mp); }

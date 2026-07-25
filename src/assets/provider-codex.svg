@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-hidden="true">
+  <!-- Codex: terminal-style chevron + rule inside a ring. Fixed strokes (no currentColor) for #101218. -->
+  <circle cx="12" cy="12" r="9.2" fill="none" stroke="#10a37f" stroke-width="1.6"/>
+  <path d="M8.4 9.2 11.2 12l-2.8 2.8" fill="none" stroke="#e6f4ef" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12.8 15.1h3.2" fill="none" stroke="#e6f4ef" stroke-width="1.7" stroke-linecap="round"/>
+</svg>
