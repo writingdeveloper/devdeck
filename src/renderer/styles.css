@@ -561,6 +561,11 @@ button.primary:hover { background: var(--accent-hover); }
 .ub-providers .ck-provider-logo { opacity: .45; }
 .ub-providers .ck-provider-logo.active { opacity: 1; }
 .ub-summary { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
+/* One group per window (5h, weekly, …). The separator is a border rather than a character so it
+   never gets read out or copied, and the meters shrink when more than one window is shown. */
+.ub-limit { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.ub-summary.multi .ub-limit + .ub-limit { margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--border); }
+.ub-summary.multi .ub-track { width: 48px; }
 .ub-sp { flex: 1; }
 .ub-stale { color: #7d828c; }
 .ub-all { background: transparent; border: 1px solid var(--border-strong); color: var(--text-dim); font: inherit; font-size: 10.5px; border-radius: 6px; padding: 1px 8px; cursor: pointer; }

@@ -162,3 +162,43 @@ describe('parseClaudeUsageResponse', () => {
     expect(r.limits).toEqual([]); // an entry with no recognizable window type is dropped
   });
 });
+
+// Pinned to a REAL /api/oauth/usage payload (2026-07-25): the dynamic entries call themselves
+// `weekly_all` / `weekly_scoped`, carry the model under `scope.model`, and credits ride in
+// `extra_usage` with `is_enabled` / `used_credits`.
+describe('parseClaudeUsageResponse — live payload shape', () => {
+  const ISO_5H = '2026-06-15T14:32:00Z';
+  const ISO_WEEK = '2026-06-20T00:00:00Z';
+  const live = {
+    five_hour: { utilization: 2, resets_at: ISO_5H },
+    seven_day: { utilization: 9, resets_at: ISO_WEEK },
+    limits: [
+      { kind: 'session', group: 'session', percent: 2, resets_at: ISO_5H, scope: null, is_active: true },
+      { kind: 'weekly_all', group: 'weekly', percent: 9, resets_at: ISO_WEEK, scope: null, is_active: false },
+      { kind: 'weekly_scoped', group: 'weekly', percent: 40, resets_at: null, scope: { model: { id: null, display_name: 'Fable' }, surface: null } },
+    ],
+    extra_usage: { is_enabled: true, used_credits: 4.5, currency: 'USD' },
+  };
+
+  it('keeps both base windows and the model-scoped weekly quota', () => {
+    const r = parseClaudeUsageResponse(live)!;
+    expect(r.limits.map((l) => [l.id, l.kind, l.percent])).toEqual([
+      ['claude:session', 'session', 2],
+      ['claude:weekly', 'weekly', 9],
+      ['claude:seven_day:Fable', 'model-weekly', 40],
+    ]);
+    expect(r.limits[2].modelLabel).toBe('Fable');
+  });
+
+  it('reads the weekly window even without the legacy seven_day field', () => {
+    const { seven_day: _drop, ...noLegacy } = live;
+    const r = parseClaudeUsageResponse(noLegacy)!;
+    expect(r.limits.find((l) => l.id === 'claude:weekly')?.percent).toBe(9);
+  });
+
+  it('reads extra_usage credits, but says nothing when the account never enabled them', () => {
+    expect(parseClaudeUsageResponse(live)!.credits).toEqual({ hasCredits: true, balance: null, spent: 4.5, currency: 'USD' });
+    const off = parseClaudeUsageResponse({ ...live, extra_usage: { is_enabled: false, used_credits: null, currency: null } })!;
+    expect(off.credits).toBeNull();
+  });
+});

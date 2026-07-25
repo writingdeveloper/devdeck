@@ -198,6 +198,7 @@
   "usage.limit_model_weekly": "Weekly (model)",
   "usage.limit_primary": "Primary",
   "usage.limit_secondary": "Secondary",
+  "usage.limit_daily": "Daily",
   "usage.all_usage": "All usage",
   "usage.modal_title": "Live limits by provider",
   "usage.modal_refresh": "Refresh",

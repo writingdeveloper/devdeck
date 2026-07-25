@@ -91,29 +91,46 @@ export interface ClaudeUsageParse { limits: UsageLimit[]; credits: UsageCredits 
 
 const WINDOW_KIND: Record<string, 'session' | 'weekly'> = {
   five_hour: 'session', fiveHour: 'session', session: 'session',
-  seven_day: 'weekly', sevenDay: 'weekly', weekly: 'weekly',
+  // `weekly_all` / `weekly_scoped` are what the live `limits[]` entries call themselves; `group` says
+  // plain `weekly` for both. Without these, a server that drops the legacy `seven_day` field would
+  // silently lose the whole weekly row.
+  seven_day: 'weekly', sevenDay: 'weekly', weekly: 'weekly', weekly_all: 'weekly', weekly_scoped: 'weekly',
 };
 
 function windowKind(entry: Record<string, unknown>): 'session' | 'weekly' | null {
-  for (const field of ['type', 'kind', 'name', 'window']) {
+  for (const field of ['type', 'kind', 'name', 'window', 'group']) {
     const v = entry[field];
     if (typeof v === 'string' && WINDOW_KIND[v]) return WINDOW_KIND[v];
   }
   return null;
 }
 
-/** A model discriminator makes the id (and the row) unique per model — Fable is NOT special-cased. */
+/** The model a scoped window belongs to, wherever the server put it: flat on the entry (older shape)
+ *  or nested under `scope.model` (current shape). */
+function scopeModel(entry: Record<string, unknown>): Record<string, unknown> | null {
+  const scope = entry.scope as Record<string, unknown> | undefined;
+  const model = scope && typeof scope === 'object' ? scope.model : undefined;
+  return model && typeof model === 'object' ? model as Record<string, unknown> : null;
+}
+
+/** A model discriminator makes the id (and the row) unique per model — Fable is NOT special-cased.
+ *  The display name is the last resort: a scoped window with a null model id still needs a stable id. */
 function modelKey(entry: Record<string, unknown>): string | null {
-  for (const field of ['model', 'model_id', 'modelId']) {
-    const v = entry[field];
+  const model = scopeModel(entry);
+  const candidates = [entry.model, entry.model_id, entry.modelId, model?.id, model?.display_name, model?.displayName];
+  for (const v of candidates) {
     if (typeof v === 'string' && v.trim()) return v.trim().slice(0, 60).replace(/[^\w.:-]/g, '_');
   }
   return null;
 }
 
 function modelDisplay(entry: Record<string, unknown>): string | null {
-  for (const field of ['model_display_name', 'modelDisplayName', 'display_name', 'displayName']) {
-    const v = entry[field];
+  const model = scopeModel(entry);
+  const candidates = [
+    entry.model_display_name, entry.modelDisplayName, entry.display_name, entry.displayName,
+    model?.display_name, model?.displayName,
+  ];
+  for (const v of candidates) {
     if (typeof v === 'string' && v.trim()) return v.trim().slice(0, 80);
   }
   return null;
@@ -127,9 +144,9 @@ function toLimit(entry: unknown): UsageLimit | null {
   const model = modelKey(e);
   const utilization = e.utilization ?? e.used_percent ?? e.usedPercent ?? e.percent;
   const resets = e.resets_at ?? e.resetsAt ?? e.reset_at;
-  if (model) {
+  if (model && base === 'weekly') { // a model discriminator only ever scopes the weekly quota today
     return {
-      id: `claude:${base === 'weekly' ? 'seven_day' : 'five_hour'}:${model}`,
+      id: `claude:seven_day:${model}`,
       kind: 'model-weekly',
       label: 'usage.limit_model_weekly',
       percent: clampPercent(utilization),
@@ -150,17 +167,21 @@ function toLimit(entry: unknown): UsageLimit | null {
 function parseCredits(body: Record<string, unknown>): UsageCredits | null {
   const raw = (body.extra_usage ?? body.extraUsage ?? body.credits ?? body.usage_credits) as Record<string, unknown> | undefined;
   if (!raw || typeof raw !== 'object') return null;
+  // `is_enabled` / `used_credits` are the live `extra_usage` field names; the others are older shapes.
   const hasCredits = typeof raw.has_credits === 'boolean' ? raw.has_credits
     : typeof raw.hasCredits === 'boolean' ? raw.hasCredits
-      : typeof raw.enabled === 'boolean' ? raw.enabled : null;
+      : typeof raw.enabled === 'boolean' ? raw.enabled
+        : typeof raw.is_enabled === 'boolean' ? raw.is_enabled : null;
   const credits: UsageCredits = {
     hasCredits,
     balance: finiteNumber(raw.balance ?? raw.remaining ?? raw.credit_balance),
-    spent: finiteNumber(raw.spent ?? raw.used ?? raw.amount_spent),
+    spent: finiteNumber(raw.spent ?? raw.used ?? raw.amount_spent ?? raw.used_credits),
     currency: typeof raw.currency === 'string' ? raw.currency.trim().slice(0, 8) : null,
   };
-  // Nothing usable → don't render an empty credits block.
-  return credits.hasCredits == null && credits.balance == null && credits.spent == null ? null : credits;
+  // Nothing usable → don't render an empty credits block. Explicitly-off with no numbers is also
+  // nothing to say: an account that never enabled extra usage gets no row rather than a "none" row.
+  return credits.balance == null && credits.spent == null && (credits.hasCredits == null || credits.hasCredits === false)
+    ? null : credits;
 }
 
 /**

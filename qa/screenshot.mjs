@@ -274,6 +274,38 @@ const SNAPSHOT = {
   ],
 };
 
+// Footer, rendered through its REAL path from the same snapshot: Claude has two independent windows
+// (5h + weekly) and both must be on the row — showing only the higher one hid the 5h limit entirely.
+// The model-scoped quota is warn+ here, so it earns the third slot; Codex shows its own two windows.
+const footer = await win.evaluate(async (snapshot) => {
+  const read = async (providerId) => {
+    document.dispatchEvent(new CustomEvent('devdeck:usage-snapshot', { detail: { snapshot } }));
+    document.dispatchEvent(new CustomEvent('devdeck:usage-active-provider', { detail: { providerId } }));
+    await new Promise((r) => setTimeout(r, 150));
+    const bar = document.getElementById('usage-bar');
+    return {
+      labels: Array.from(bar.querySelectorAll('.ub-limit .ub-lab')).map((e) => e.textContent),
+      values: Array.from(bar.querySelectorAll('.ub-limit .ub-val')).map((e) => e.textContent),
+      // Clipping is the designed degradation for a narrow window (the dialog has the full list), so
+      // this is reported, not enforced; the 26px height is what must never move.
+      clipped: (() => { const s = bar.querySelector('.ub-summary'); return !!s && s.scrollWidth > s.clientWidth + 1; })(),
+      height: Math.round(bar.getBoundingClientRect().height),
+    };
+  };
+  const claude = await read('claude');
+  const codex = await read('codex');
+  const antigravity = await read('antigravity');
+  document.dispatchEvent(new CustomEvent('devdeck:usage-active-provider', { detail: { providerId: null } }));
+  return { claude, codex, antigravity };
+}, SNAPSHOT);
+console.log(`usage footer: claude=${JSON.stringify(footer.claude.values)} codex=${JSON.stringify(footer.codex.values)} antigravity=${footer.antigravity.values.length} clipped=${footer.claude.clipped} height=${footer.claude.height}`);
+if (footer.claude.values.join() !== '42%,76%,91%' || footer.codex.values.join() !== '18%,4%'
+  || footer.antigravity.values.length !== 0 || footer.claude.height !== 26) {
+  console.error(`QA FAILED — usage footer does not show every window of the reported provider: ${JSON.stringify(footer)}`);
+  await closeApp();
+  process.exit(1);
+}
+
 const geometry = () => win.evaluate(() => {
   const r = (sel) => { const el = document.querySelector(sel); if (!el) return null; const b = el.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]; };
   return { shell: r('#shell'), content: r('#content'), terms: r('.ck-terms'), xterm: r('.xterm'), footer: r('#usage-bar') };

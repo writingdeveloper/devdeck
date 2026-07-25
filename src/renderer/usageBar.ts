@@ -40,6 +40,13 @@ export function mountUsageBar(): void {
   });
   // Same shape of seam as above: the QA harness can point the footer at a provider without having to
   // spawn a real agent session (the cockpit does this via setActiveUsageProvider on every selection).
+  // Same seam again, one level up: the QA harness needs the FOOTER rendered from a known snapshot
+  // (CI has no provider credentials), and the footer's data arrives over a frozen contextBridge that
+  // cannot be stubbed. Providing the snapshot here exercises the real render path.
+  document.addEventListener('devdeck:usage-snapshot', (e) => {
+    const s = (e as CustomEvent<{ snapshot?: UsageSnapshot }>).detail?.snapshot;
+    if (s) { snapshot = s; render(); renderUsageModal(s); }
+  });
   document.addEventListener('devdeck:usage-active-provider', (e) => {
     setActiveUsageProvider((e as CustomEvent<{ providerId?: AgentId | null }>).detail?.providerId ?? null);
   });
@@ -87,19 +94,28 @@ function render(): void {
 
   const box = document.createElement('span'); box.className = 'ub-summary';
   if (summary.providerId) box.title = providerName(summary.providerId);
-  if (summary.kind === 'limit' && summary.limit) {
-    const pct = summary.limit.percent!;
-    const lab = document.createElement('span'); lab.className = 'ub-lab';
-    lab.textContent = summary.limit.modelLabel ?? tr(summary.limit.label);
-    const track = document.createElement('span'); track.className = 'ub-track';
-    const fill = document.createElement('span'); fill.className = `ub-fill ${usageSeverity(pct)}`; fill.style.width = `${pct}%`;
-    track.appendChild(fill);
-    const val = document.createElement('span'); val.className = 'ub-val'; val.textContent = `${pct}%`;
-    box.append(lab, track, val);
-    if (summary.limit.resetAt) {
-      const rst = document.createElement('span'); rst.className = 'ub-rst';
-      rst.textContent = `↻ ${formatReset(summary.limit.resetAt, Date.now(), tr)}`;
-      box.appendChild(rst);
+  if (summary.kind === 'limit' && summary.limits.length > 0) {
+    // One group per reported window — Claude's 5h and weekly are independent limits, so showing only
+    // the higher one hides the other from the user until it is already the problem.
+    const now = Date.now();
+    if (summary.limits.length > 1) box.classList.add('multi');
+    for (const l of summary.limits) {
+      const pct = l.percent!;
+      const grp = document.createElement('span'); grp.className = 'ub-limit';
+      const lab = document.createElement('span'); lab.className = 'ub-lab';
+      lab.textContent = l.modelLabel ?? tr(l.label);
+      const track = document.createElement('span'); track.className = 'ub-track';
+      const fill = document.createElement('span'); fill.className = `ub-fill ${usageSeverity(pct)}`; fill.style.width = `${pct}%`;
+      track.appendChild(fill);
+      const val = document.createElement('span'); val.className = 'ub-val'; val.textContent = `${pct}%`;
+      grp.append(lab, track, val);
+      if (l.resetAt) {
+        const rst = document.createElement('span'); rst.className = 'ub-rst';
+        rst.textContent = `↻ ${formatReset(l.resetAt, now, tr)}`;
+        rst.title = `${new Date(l.resetAt).toLocaleString()} ${tr('usage.bar_reset')}`;
+        grp.appendChild(rst);
+      }
+      box.appendChild(grp);
     }
     if (summary.stale) { const st = document.createElement('span'); st.className = 'ub-stale'; st.textContent = tr('usage.state_stale'); box.appendChild(st); }
   } else {

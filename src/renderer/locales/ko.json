@@ -198,6 +198,7 @@
   "usage.limit_model_weekly": "모델 주간",
   "usage.limit_primary": "기본 한도",
   "usage.limit_secondary": "보조 한도",
+  "usage.limit_daily": "일간",
   "usage.all_usage": "전체 사용량",
   "usage.modal_title": "프로바이더별 사용 한도",
   "usage.modal_refresh": "새로고침",

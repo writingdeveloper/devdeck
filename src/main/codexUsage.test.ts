@@ -112,6 +112,24 @@ describe('parseCodexRateLimits', () => {
     expect(parseCodexRateLimits(null, NOW)).toBeNull();
     expect(parseCodexRateLimits('x', NOW)).toBeNull();
   });
+
+  // Pinned to a REAL `account/rateLimits/read` result (2026-07-25): one window, 10080 min = weekly.
+  it('labels a window by its reported duration instead of its position', () => {
+    const live = parseCodexRateLimits({
+      rateLimits: {
+        primary: { usedPercent: 12, windowDurationMins: 10080, resetsAt: 1785612762 },
+        secondary: null, credits: { hasCredits: false, unlimited: false, balance: '0' }, planType: 'plus',
+      },
+    }, NOW)!;
+    expect(live.limits).toHaveLength(1);
+    expect(live.limits[0]).toMatchObject({ id: 'codex:primary', kind: 'primary', label: 'usage.limit_weekly', percent: 12 });
+    expect(live.planLabel).toBe('plus');
+  });
+
+  it('falls back to the positional label for a duration with no name of its own', () => {
+    const r = parseCodexRateLimits({ rateLimits: { primary: { usedPercent: 1, windowDurationMins: 300 }, secondary: { usedPercent: 2, windowDurationMins: 77 } } }, NOW)!;
+    expect(r.limits.map((l) => l.label)).toEqual(['usage.limit_session', 'usage.limit_secondary']);
+  });
 });
 
 describe('getCodexUsage protocol', () => {

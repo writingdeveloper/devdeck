@@ -198,6 +198,7 @@
   "usage.limit_model_weekly": "週間（モデル別）",
   "usage.limit_primary": "主要",
   "usage.limit_secondary": "補助",
+  "usage.limit_daily": "1日",
   "usage.all_usage": "すべての使用量",
   "usage.modal_title": "プロバイダー別の利用上限",
   "usage.modal_refresh": "更新",

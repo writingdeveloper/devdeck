@@ -198,6 +198,7 @@
   "usage.limit_model_weekly": "每周（按模型）",
   "usage.limit_primary": "主要",
   "usage.limit_secondary": "次要",
+  "usage.limit_daily": "每日",
   "usage.all_usage": "全部用量",
   "usage.modal_title": "各提供方实时额度",
   "usage.modal_refresh": "刷新",

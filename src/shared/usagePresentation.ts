@@ -1,14 +1,18 @@
 // src/shared/usagePresentation.ts
 // Pure helpers behind the one-line usage footer. Kept out of the renderer so the "which number does
 // the user most need to see" rule is unit-tested rather than tangled with DOM code.
-import { usageSeverity, usageStateKey, type ProviderUsage, type Severity, type UsageLimit, type UsageSnapshot } from './usageWindows';
+import { usageSeverity, usageStateKey, type ProviderUsage, type Severity, type UsageLimit, type UsageLimitKind, type UsageSnapshot } from './usageWindows';
 import type { AgentId } from './types';
 
 export interface UsageSummary {
   /** 'limit' = a real number to show; 'guidance' = only unsupported providers; 'none' = nothing known. */
   kind: 'limit' | 'guidance' | 'none';
   providerId: AgentId | null;
+  /** The single most urgent window (severity + the one-window callers). */
   limit: UsageLimit | null;
+  /** EVERY window the footer shows for the reported provider, in canonical order — Claude has two
+   *  independent windows (5h + weekly) and hiding one because the other is higher loses real signal. */
+  limits: UsageLimit[];
   severity: Severity | null;
   /** True when the winning provider's data is last-good rather than current. */
   stale: boolean;
@@ -31,6 +35,28 @@ export function criticalUsageLimit(providers: ProviderUsage[]): { provider: Prov
     }
   }
   return best;
+}
+
+/** Canonical display order: the rolling/short window first, then the long one, then model-scoped
+ *  quotas — so Claude always reads "5h, weekly" and Codex "primary, secondary", regardless of which
+ *  one happens to be higher at the moment. */
+const KIND_ORDER: Record<UsageLimitKind, number> = { session: 0, primary: 1, weekly: 2, secondary: 3, 'model-weekly': 4 };
+
+/** How many windows fit on the one-line footer before the rest is left to the “all usage” dialog. */
+export const FOOTER_LIMIT_COUNT = 3;
+
+/** The windows the footer renders for one provider: every reported percentage, canonically ordered
+ *  and capped. Ties inside a kind (several model-weekly quotas) go to the most urgent one. */
+export function footerLimits(provider: ProviderUsage): UsageLimit[] {
+  if (!NUMERIC_STATES.has(provider.state)) return [];
+  return provider.limits
+    // Base windows always show. A model-scoped quota only earns a slot on the 26px row once it is
+    // actually pressing (warn+) — otherwise a mostly-idle per-model quota crowds out the two windows
+    // the user steers by. It is always listed in full in the "all usage" dialog.
+    .filter((l) => l.percent != null && (l.kind !== 'model-weekly' || usageSeverity(l.percent) !== 'ok'))
+    .slice()
+    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || b.percent! - a.percent!)
+    .slice(0, FOOTER_LIMIT_COUNT);
 }
 
 /** The most urgent limit WITHIN one provider (highest percentage; a null percentage never wins). */
@@ -60,29 +86,29 @@ export function summarizeProviderUsage(snapshot: UsageSnapshot | null, activePro
     const limit = mostUrgentLimit(active);
     if (limit) {
       return {
-        kind: 'limit', providerId: active.providerId, limit,
+        kind: 'limit', providerId: active.providerId, limit, limits: footerLimits(active),
         severity: usageSeverity(limit.percent!), stale: active.state === 'stale', messageKey: null,
       };
     }
     // No number for the active provider: say WHY in its own terms (login required, CLI-only, …)
     // instead of silently showing another provider's percentage under this session's mark.
     return active.state === 'unsupported'
-      ? { kind: 'guidance', providerId: active.providerId, limit: null, severity: null, stale: false, messageKey: 'usage.summary_guidance' }
-      : { kind: 'none', providerId: active.providerId, limit: null, severity: null, stale: active.state === 'stale', messageKey: usageStateKey(active.state) };
+      ? { kind: 'guidance', providerId: active.providerId, limit: null, limits: [], severity: null, stale: false, messageKey: 'usage.summary_guidance' }
+      : { kind: 'none', providerId: active.providerId, limit: null, limits: [], severity: null, stale: active.state === 'stale', messageKey: usageStateKey(active.state) };
   }
   const best = criticalUsageLimit(providers);
   if (best) {
     return {
-      kind: 'limit', providerId: best.provider.providerId, limit: best.limit,
+      kind: 'limit', providerId: best.provider.providerId, limit: best.limit, limits: footerLimits(best.provider),
       severity: usageSeverity(best.limit.percent!), stale: best.provider.state === 'stale', messageKey: null,
     };
   }
   // No numbers anywhere: if some provider can only be checked from its own CLI, say so instead of
   // implying an outage; otherwise stay neutral (signed out, not applicable, or nothing installed).
   if (providers.some((p) => p.state === 'unsupported')) {
-    return { kind: 'guidance', providerId: null, limit: null, severity: null, stale: false, messageKey: 'usage.summary_guidance' };
+    return { kind: 'guidance', providerId: null, limit: null, limits: [], severity: null, stale: false, messageKey: 'usage.summary_guidance' };
   }
-  return { kind: 'none', providerId: null, limit: null, severity: null, stale: false, messageKey: 'usage.summary_none' };
+  return { kind: 'none', providerId: null, limit: null, limits: [], severity: null, stale: false, messageKey: 'usage.summary_none' };
 }
 
 /** How old last-good data is, in whole minutes (for the "stale · Nm" label). */

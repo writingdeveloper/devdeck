@@ -1,13 +1,13 @@
 // src/shared/usagePresentation.test.ts
 import { describe, it, expect } from 'vitest';
-import { criticalUsageLimit, mostUrgentLimit, summarizeProviderUsage, staleAgeMinutes } from './usagePresentation';
-import type { ProviderUsage, UsageLimit } from './usageWindows';
+import { criticalUsageLimit, footerLimits, mostUrgentLimit, summarizeProviderUsage, staleAgeMinutes } from './usagePresentation';
+import type { ProviderUsage, UsageLimit, UsageLimitKind } from './usageWindows';
 import type { AgentId } from './types';
 
 const NOW = 1_700_000_000_000;
 
-const limit = (id: string, percent: number | null): UsageLimit =>
-  ({ id, kind: 'session', label: 'usage.limit_session', percent, resetAt: NOW + 60_000, modelLabel: null });
+const limit = (id: string, percent: number | null, kind: UsageLimitKind = 'session'): UsageLimit =>
+  ({ id, kind, label: `usage.limit_${kind}`, percent, resetAt: NOW + 60_000, modelLabel: null });
 
 const provider = (providerId: AgentId, over: Partial<ProviderUsage> = {}): ProviderUsage =>
   ({ providerId, state: 'ready', planLabel: null, limits: [], credits: null, guidance: null, fetchedAt: NOW, ...over });
@@ -113,6 +113,44 @@ describe("summarizeProviderUsage with an active provider (the selected session's
       fetchedAt: NOW,
     }, 'antigravity');
     expect(s).toMatchObject({ kind: 'guidance', providerId: 'antigravity', messageKey: 'usage.summary_guidance' });
+  });
+});
+
+describe('footerLimits', () => {
+  it("keeps BOTH of Claude's windows, short one first, regardless of which is higher", () => {
+    const p = provider('claude', { limits: [limit('claude:weekly', 63, 'weekly'), limit('claude:session', 12, 'session')] });
+    expect(footerLimits(p).map((l) => l.id)).toEqual(['claude:session', 'claude:weekly']);
+    // the summary the footer actually renders carries both, while `limit` stays the most urgent one
+    const s = summarizeProviderUsage({ providers: [p], fetchedAt: NOW }, 'claude');
+    expect(s.limits.map((l) => l.percent)).toEqual([12, 63]);
+    expect(s.limit!.percent).toBe(63);
+    expect(s.severity).toBe('ok');
+  });
+
+  it('orders Codex primary before secondary', () => {
+    const p = provider('codex', { limits: [limit('codex:secondary', 80, 'secondary'), limit('codex:primary', 5, 'primary')] });
+    expect(footerLimits(p).map((l) => l.id)).toEqual(['codex:primary', 'codex:secondary']);
+  });
+
+  it('drops null percentages and caps the row at three windows', () => {
+    const p = provider('claude', {
+      limits: [
+        limit('s', 10, 'session'), limit('w', 20, 'weekly'), limit('n', null, 'weekly'),
+        limit('m1', 30, 'model-weekly'), limit('m2', 70, 'model-weekly'),
+      ],
+    });
+    expect(footerLimits(p).map((l) => l.id)).toEqual(['s', 'w', 'm2']); // the more urgent model quota wins the last slot
+  });
+
+  it('an idle model-scoped quota stays in the dialog, a pressing one reaches the footer', () => {
+    const base = [limit('s', 10, 'session'), limit('w', 20, 'weekly')];
+    expect(footerLimits(provider('claude', { limits: [...base, limit('fable', 0, 'model-weekly')] })).map((l) => l.id)).toEqual(['s', 'w']);
+    expect(footerLimits(provider('claude', { limits: [...base, limit('fable', 88, 'model-weekly')] })).map((l) => l.id)).toEqual(['s', 'w', 'fable']);
+  });
+
+  it('a non-numeric state has nothing to show', () => {
+    expect(footerLimits(provider('claude', { state: 'offline', limits: [limit('a', 50)] }))).toEqual([]);
+    expect(summarizeProviderUsage({ providers: [provider('antigravity', { state: 'unsupported' })], fetchedAt: NOW }).limits).toEqual([]);
   });
 });
 

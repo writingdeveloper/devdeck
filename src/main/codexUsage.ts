@@ -39,6 +39,20 @@ function numberish(v: unknown): number | null {
   return null;
 }
 
+/** Codex names its windows only by position ("primary"/"secondary"), but it also reports how long each
+ *  one lasts — so when the duration is a window the user already has a word for, use that word. The
+ *  live `primary` is 10080 min, i.e. weekly: "기본 한도" told the user nothing that "주간" doesn't. */
+const DURATION_LABEL: Record<number, string> = {
+  300: 'usage.limit_session',   // 5h
+  1440: 'usage.limit_daily',    // 24h
+  10080: 'usage.limit_weekly',  // 7d
+};
+
+function durationLabel(w: Record<string, unknown>): string | null {
+  const mins = w.window_duration_mins ?? w.windowDurationMins ?? w.window_minutes ?? w.windowMinutes;
+  return typeof mins === 'number' && Number.isFinite(mins) ? DURATION_LABEL[mins] ?? null : null;
+}
+
 function windowLimit(raw: unknown, kind: 'primary' | 'secondary', now: number): UsageLimit | null {
   if (!raw || typeof raw !== 'object') return null;
   const w = raw as Record<string, unknown>;
@@ -52,7 +66,7 @@ function windowLimit(raw: unknown, kind: 'primary' | 'secondary', now: number): 
   return {
     id: `codex:${kind}`,
     kind,
-    label: kind === 'primary' ? 'usage.limit_primary' : 'usage.limit_secondary',
+    label: durationLabel(w) ?? (kind === 'primary' ? 'usage.limit_primary' : 'usage.limit_secondary'),
     percent,
     resetAt,
     modelLabel: null,
