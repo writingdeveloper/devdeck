@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     readImage: (): Promise<string | null> => ipcRenderer.invoke('clipboard:readImage'),
   },
   cockpit: {
-    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }) =>
+    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean; agentId?: string }) =>
       ipcRenderer.invoke('cockpit:open', req),
     input: (id: string, data: string) => ipcRenderer.send('cockpit:input', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('cockpit:resize', id, cols, rows),
@@ -65,9 +65,9 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
     loadSessions: () => ipcRenderer.invoke('cockpit:loadSessions'),
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
-    sessionMeta: (projectPath: string, sessionId: string) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId),
-    sessionIds: (projectPath: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath),
-    liveSessionId: (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number }) =>
+    sessionMeta: (projectPath: string, sessionId: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId, agentId),
+    sessionIds: (projectPath: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath, agentId),
+    liveSessionId: (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: string }) =>
       ipcRenderer.invoke('cockpit:liveSessionId', projectPath, opts),
     gitInfo: (projectPath: string) => ipcRenderer.invoke('cockpit:gitInfo', projectPath),
     openLink: (url: string) => ipcRenderer.invoke('cockpit:openLink', url),

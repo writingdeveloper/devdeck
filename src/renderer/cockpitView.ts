@@ -9,13 +9,16 @@ import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
 import { sanitizePersistedList, resolveRestoreSessionId, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
-import type { AgentId, StaleLevel } from '../shared/types';
+import { toAgentId, type AgentId, type StaleLevel } from '../shared/types';
 import { tr, currentLang } from './i18n-runtime';
 import { toast } from './loadError';
 import { reportShutdownActivity } from './shutdown';
 
 interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: { model: string | null; activeMs: number; contextTokens: number } | null; pinned: boolean; }
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; pinned?: boolean; }
+/** `agentId` = the provider this session BELONGS to (restore/restart/sibling of an existing tile).
+ *  Omitted only when the request has no session context yet (a deck open), where main falls back to
+ *  the globally selected agent. */
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; fresh?: boolean; label?: string | null; pinned?: boolean; agentId?: AgentId; }
 
 const live = new Map<string, Live>();
 let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
@@ -292,7 +295,7 @@ async function createSession(p: OpenReq): Promise<boolean> {
   // itself too, so a reject can't leak the terminal we already mounted or abort a restore-all loop.
   let res: { id: string; agentId: AgentId; sessionId: string | null };
   try {
-    res = await window.devdeck.cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, fresh: !!p.fresh });
+    res = await window.devdeck.cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, fresh: !!p.fresh, agentId: p.agentId });
   } catch {
     res = { id: '', agentId: 'claude', sessionId: null };
   }
@@ -320,7 +323,7 @@ async function createSession(p: OpenReq): Promise<boolean> {
 async function refreshMeta(id: string): Promise<void> {
   const l = live.get(id); if (!l || !l.openedSessionId) return;
   let meta: { model: string | null; activeMs: number; contextTokens: number };
-  try { meta = await window.devdeck.cockpit.sessionMeta(l.session.projectPath, l.openedSessionId); } catch { return; }
+  try { meta = await window.devdeck.cockpit.sessionMeta(l.session.projectPath, l.openedSessionId, l.session.agentId); } catch { return; }
   if (l.meta?.model === meta.model && l.meta?.activeMs === meta.activeMs && l.meta?.contextTokens === meta.contextTokens) return; // unchanged → no re-render
   l.meta = meta;
   if (!editingId) renderList();
@@ -340,7 +343,7 @@ async function refreshSessionId(id: string): Promise<void> {
   let next: string | null = null;
   try {
     next = await window.devdeck.cockpit.liveSessionId(l.session.projectPath, {
-      currentId: l.openedSessionId, claimedIds, openedAtMs: l.openedAt, sinceMs: since, lastDataAtMs: l.lastDataAt,
+      currentId: l.openedSessionId, claimedIds, openedAtMs: l.openedAt, sinceMs: since, lastDataAtMs: l.lastDataAt, agentId: l.session.agentId,
     });
   } catch { return; }
   if (!next || next === l.openedSessionId || !live.has(id)) return; // tile may have closed mid-await
@@ -683,7 +686,7 @@ function renderHeader(): void {
 async function addSessionToCurrentProject(): Promise<void> {
   const l = selectedId ? live.get(selectedId) : null; if (!l) return;
   const s = l.session;
-  await createSession({ path: s.projectPath, name: s.name, staleLevel: s.staleLevel, branch: s.branch, dirty: s.dirty, fresh: true });
+  await createSession({ path: s.projectPath, name: s.name, staleLevel: s.staleLevel, branch: s.branch, dirty: s.dirty, fresh: true, agentId: s.agentId });
 }
 
 function actBtn(glyph: string, title: string, onClick: () => void): HTMLButtonElement {
@@ -693,7 +696,7 @@ function actBtn(glyph: string, title: string, onClick: () => void): HTMLButtonEl
 async function restartSession(id: string): Promise<void> {
   const l = live.get(id); if (!l) return;
   // Carry the user-given label + pin into the re-created session — ⟳ must not silently reset them.
-  const p: OpenReq = { path: l.session.projectPath, name: l.session.name, staleLevel: l.session.staleLevel, branch: l.session.branch, dirty: l.session.dirty, label: l.customLabel, pinned: l.pinned };
+  const p: OpenReq = { path: l.session.projectPath, name: l.session.name, staleLevel: l.session.staleLevel, branch: l.session.branch, dirty: l.session.dirty, label: l.customLabel, pinned: l.pinned, agentId: l.session.agentId };
   closeSession(id); await createSession(p);
 }
 
@@ -742,25 +745,23 @@ function closeSession(id: string): void {
   } else renderList();
 }
 
-/** Bring a previous session back to life via its resume command. If the active agent differs from
- *  the one it was opened with, drop the saved sessionId (don't resume one agent's id under another). */
+/** Bring a previous session back to life via its resume command — under the SAME provider it was
+ *  opened with, whatever the globally selected agent is now (a Claude conversation must never be
+ *  handed to `codex`). Unrecognized legacy ids fall back to the active agent, as they always did. */
 async function restoreSession(entry: PersistedSession): Promise<void> {
   restorable = restorable.filter((r) => r !== entry);
   try {
-    const active = await window.devdeck.getAgent();
+    const owner = toAgentId(entry.agentId) ?? await window.devdeck.getAgent();
     // Reopen the tile's OWN conversation when it still exists on disk — so a project's distinct
     // conversations each keep their own tile instead of every tile collapsing onto the newest one or
     // two (the "3rd session vanished" bug). Only when the saved id is gone (deleted) or already open in
     // another tile do we fall back to the project's newest not-live session. A null result (no sessions
     // on disk) falls through to the main process's continue/new resolution.
-    let sessionId: string | null = null;
-    if (entry.agentId === active) {
-      const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
-      let ids: string[] = [];
-      try { ids = await window.devdeck.cockpit.sessionIds(entry.projectPath); } catch { ids = []; }
-      sessionId = resolveRestoreSessionId(entry.sessionId, ids, liveIds);
-    }
-    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId, label: entry.label ?? null, pinned: entry.pinned });
+    const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
+    let ids: string[] = [];
+    try { ids = await window.devdeck.cockpit.sessionIds(entry.projectPath, owner); } catch { ids = []; }
+    const sessionId = resolveRestoreSessionId(entry.sessionId, ids, liveIds);
+    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId, label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
     if (ok) return;
   } catch { /* fall through to re-list the entry */ }
   // A failed restore must NOT silently drop the entry (it was removed above so a success doesn't

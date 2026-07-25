@@ -11,7 +11,7 @@ import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession } from './agents';
-import type { AgentId, Folder } from '../shared/types';
+import { toAgentId, type AgentId, type Folder } from '../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../shared/pathGuard';
 import { basename } from '../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
@@ -98,6 +98,12 @@ export function registerIpc(cfg: IpcConfig): void {
     return a === 'antigravity' || a === 'claude' || a === 'codex' ? a : 'claude';
   };
   const agent = () => getProvider(activeAgent());
+  // A session belongs to the provider it was OPENED with. Every session-scoped handler resolves that
+  // provider from the request's agentId; the globally selected agent is the fallback only for callers
+  // with no session context (a brand-new open from the deck). Without this, flipping the selection to
+  // Codex made a Claude tile restore/restart/`+ new session` relaunch under `codex` — a different agent
+  // reading a conversation it doesn't own.
+  const agentFor = (id: unknown) => getProvider(toAgentId(id) ?? activeAgent());
 
   ipcMain.handle('projects:list', async () => {
     return buildProjectList({
@@ -298,13 +304,13 @@ export function registerIpc(cfg: IpcConfig): void {
   // Coalesce pty output (~one frame) before it crosses IPC so many streaming sessions don't flood the
   // renderer's single UI thread; input is never batched, and a big burst flushes immediately via the cap.
   const ptyBatch = new PtyBatcher((id, chunk) => sendToWin('cockpit:data', { id, chunk }), (flush) => { setTimeout(flush, 16); });
-  ipcMain.handle('cockpit:open', async (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }) => {
+  ipcMain.handle('cockpit:open', async (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean; agentId?: AgentId }) => {
     const folders = effFolders();
     if (!isAllowedPath(folders, req.projectPath)) {
       cfg.sendError(`Path outside allowed folders: ${req.projectPath}`);
-      return { id: '', agentId: agent().id, sessionId: null };
+      return { id: '', agentId: agentFor(req?.agentId).id, sessionId: null };
     }
-    const a = agent();
+    const a = agentFor(req.agentId);
     // A failed open must come back as the same refusal shape the allowlist path returns (id: '') —
     // node-pty's spawn throws synchronously (e.g. the project folder was deleted since the session
     // was saved), and an unguarded throw here rejects the invoke, leaking the renderer's
@@ -353,27 +359,27 @@ export function registerIpc(cfg: IpcConfig): void {
   // Per-session model + active working time (read from the Claude session log) for the cockpit header/list.
   // Allowlist-guarded like cockpit:gitInfo below — don't read session model/time/context (or ids) for
   // projects outside a scanned folder if a compromised renderer asks. Return each handler's neutral shape.
-  ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string) => {
+  ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string, agentId?: AgentId) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return { model: null, activeMs: 0, contextTokens: 0 };
-    if (agent().id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0, contextTokens: 0 };
+    if (agentFor(agentId).id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0, contextTokens: 0 };
     return readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
   });
   // ALL of the project's on-disk session ids (mtime-desc) — the restore resolver needs the full set so
   // an older-but-valid saved id is still recognized as existing (listSessions caps at 5, which would
   // hide it and wrongly fall the tile back to the newest conversation).
-  ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string) => {
+  ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string, agentId?: AgentId) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return [];
-    return agent().listSessionIds(String(projectPath));
+    return agentFor(agentId).listSessionIds(String(projectPath));
   });
   // Live session-id drift check (/clear starts a brand-new session id in the same terminal — the
   // open-time id then goes stale and a restart would restore the PAST conversation). The renderer
   // sends the tile's timing evidence; this stats the project's session files and adopts a new id only
   // when unambiguous (pickDriftedSessionId). Claude and Codex have per-file session stores;
   // Antigravity does not.
-  ipcMain.handle('cockpit:liveSessionId', (_e, projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number }) => {
+  ipcMain.handle('cockpit:liveSessionId', (_e, projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: AgentId }) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return null;
     if (!opts || typeof opts !== 'object') return null;
-    const a = agent().id;
+    const a = agentFor(opts.agentId).id;
     const stats = a === 'claude' ? listSessionStats(String(projectPath), CLAUDE_PROJECTS)
       : a === 'codex' ? listCodexSessionStats(String(projectPath), CODEX_SESSIONS)
         : null;

@@ -26,6 +26,7 @@ import { getProvider, resolveOpenSession } from './agents';
 
 const ALLOWED_ROOT = join(process.cwd(), 'cockpit-allowed-root');
 let storedAgent = 'claude';
+const ptyCreate = vi.fn();
 
 beforeAll(() => {
   registerIpc({
@@ -34,7 +35,7 @@ beforeAll(() => {
     store: { getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getAgent: () => storedAgent },
     sendError: vi.fn(),
     defaultLanguage: 'en',
-    ptyHost: {},
+    ptyHost: { create: ptyCreate },
     ptyAvailable: true,
     tray: {},
     shutdown: null,
@@ -71,11 +72,45 @@ describe('resolveOpenSession', () => {
   });
 });
 
+// A session belongs to the provider it was opened with: flipping the global selection must NOT hand a
+// Claude conversation to `codex` on restore/restart/"+ new session" (the multi-provider mix-up bug).
+describe('session-scoped provider', () => {
+  const projectPath = join(ALLOWED_ROOT, 'project');
+  const launchCommand = () => String((ptyCreate.mock.calls.at(-1)![2] as string[])[2]);
+
+  it('cockpit:open honors the request\'s agentId over the globally selected agent', async () => {
+    const open = handlers.get('cockpit:open')!;
+    storedAgent = 'codex';
+
+    ptyCreate.mockClear();
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, fresh: true, agentId: 'claude' });
+    expect(launchCommand()).toMatch(/^claude --session-id /);
+
+    ptyCreate.mockClear();
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, fresh: true, agentId: 'antigravity' });
+    expect(launchCommand()).toBe('agy');
+
+    // No agentId (a plain deck open) still follows the global selection.
+    ptyCreate.mockClear();
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, fresh: true });
+    expect(launchCommand()).toBe('codex');
+  });
+
+  it('cockpit:liveSessionId reads the OWNING provider\'s session store', () => {
+    const liveSessionId = handlers.get('cockpit:liveSessionId')!;
+    storedAgent = 'codex';
+    claudeStats.mockClear(); codexStats.mockClear();
+    liveSessionId(null, projectPath, { currentId: null, claimedIds: [], openedAtMs: 1, sinceMs: 2, lastDataAtMs: 3, agentId: 'claude' });
+    expect(claudeStats).toHaveBeenCalledOnce();
+    expect(codexStats).not.toHaveBeenCalled();
+  });
+});
+
 describe('cockpit:liveSessionId', () => {
   const projectPath = join(ALLOWED_ROOT, 'project');
   const opts = { currentId: 'current', claimedIds: [], openedAtMs: 1, sinceMs: 2, lastDataAtMs: 3 };
 
-  it('uses the active provider\'s session store only when it supports drift detection', () => {
+  it('falls back to the active provider when the caller has no session context', () => {
     const liveSessionId = handlers.get('cockpit:liveSessionId')!;
 
     storedAgent = 'claude';

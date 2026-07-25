@@ -57,7 +57,7 @@ declare global {
         readImage(): Promise<string | null>;
       };
       cockpit: {
-        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
+        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean; agentId?: import('../shared/types').AgentId }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
         input(id: string, data: string): void;
         resize(id: string, cols: number, rows: number): void;
         close(id: string): void;
@@ -65,9 +65,9 @@ declare global {
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
-        sessionMeta(projectPath: string, sessionId: string): Promise<{ model: string | null; activeMs: number; contextTokens: number }>;
-        sessionIds(projectPath: string): Promise<string[]>;
-        liveSessionId(projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number }): Promise<string | null>;
+        sessionMeta(projectPath: string, sessionId: string, agentId?: import('../shared/types').AgentId): Promise<{ model: string | null; activeMs: number; contextTokens: number }>;
+        sessionIds(projectPath: string, agentId?: import('../shared/types').AgentId): Promise<string[]>;
+        liveSessionId(projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: import('../shared/types').AgentId }): Promise<string | null>;
         gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
         openLink(url: string): Promise<void>;
         openFile(projectPath: string, filePath: string): Promise<string>;

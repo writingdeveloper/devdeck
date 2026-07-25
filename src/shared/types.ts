@@ -3,6 +3,13 @@ import type { Todo } from './tasks';
 
 export type AgentId = 'claude' | 'antigravity' | 'codex';
 
+/** Narrow an untrusted value (persisted state, IPC payload) to an AgentId; null when it isn't one.
+ *  Session-scoped IPC uses this so a tile always acts through the provider that OWNS it — falling back
+ *  to the globally selected agent only when the caller genuinely has no session context. */
+export function toAgentId(v: unknown): AgentId | null {
+  return v === 'claude' || v === 'antigravity' || v === 'codex' ? v : null;
+}
+
 export type Language = 'ko' | 'en' | 'ja' | 'zh';
 
 export interface Folder {
