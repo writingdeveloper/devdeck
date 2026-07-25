@@ -24,7 +24,7 @@
   "nav.language": "Language",
   "nav.next": "Next",
   "nav.cockpit": "Cockpit",
-  "agent.label": "Agent",
+  "agent.label": "Default agent for new sessions",
   "agent.claude": "Claude",
   "agent.antigravity": "Antigravity",
   "agent.codex": "Codex",

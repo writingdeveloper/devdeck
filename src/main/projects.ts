@@ -1,14 +1,17 @@
-import type { GitInfo, ProjectViewModel, StoreEntry, SessionMeta, StaleThresholds, ResumeCue } from '../shared/types';
+import type { GitInfo, ProjectViewModel, StoreEntry, ProjectSession, StaleThresholds, ResumeCue } from '../shared/types';
 import type { RawProject } from './scanner';
 import { classifyStaleness } from '../shared/staleness';
+import { providerOrderFromSessions } from './sessionScan';
 
 export interface BuildDeps {
   nowMs: number;
   thresholds: StaleThresholds;
   scan: () => Promise<RawProject[]>;
   git: (dir: string) => Promise<GitInfo>;
-  sessions: (projectPath: string) => Promise<SessionMeta[]>;
-  resumeCue: (projectPath: string, sessionId: string) => Promise<string | null>;
+  /** Sessions from every installed provider, newest-first, each tagged with its owning agent. */
+  sessions: (projectPath: string) => Promise<ProjectSession[]>;
+  /** Reads the cue through the provider that OWNS the session — never the globally selected one. */
+  resumeCue: (projectPath: string, session: ProjectSession) => Promise<string | null>;
   getEntry: (path: string) => StoreEntry;
 }
 
@@ -44,7 +47,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
     async (r): Promise<ProjectViewModel> => {
       const git = await deps.git(r.path);
       const sessions = await deps.sessions(r.path);
-      const cueText = sessions[0] ? await deps.resumeCue(r.path, sessions[0].id) : null;
+      const cueText = sessions[0] ? await deps.resumeCue(r.path, sessions[0]) : null;
       const lastSessionMs = sessions[0]?.mtimeMs ?? null;
       const activityMs = maxMs(git.lastCommitMs, lastSessionMs);
       const entry = deps.getEntry(r.path);
@@ -59,6 +62,7 @@ export async function buildProjectList(deps: BuildDeps): Promise<ProjectViewMode
         lastSessionMs,
         sessions,
         sessionCount: sessions.length,
+        agentIds: providerOrderFromSessions(sessions),
         activityMs,
         stale: classifyStaleness(activityMs, deps.nowMs, deps.thresholds),
         note: entry.note,

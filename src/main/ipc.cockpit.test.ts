@@ -1,10 +1,11 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 
-const { handlers, claudeStats, codexStats } = vi.hoisted(() => ({
+const { handlers, claudeStats, codexStats, codexIndex } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   claudeStats: vi.fn(() => []),
   codexStats: vi.fn(() => []),
+  codexIndex: vi.fn(() => new Map<string, { id: string; mtimeMs: number; firstMessage: string | null }[]>()),
 }));
 
 vi.mock('electron', () => ({
@@ -18,11 +19,34 @@ vi.mock('electron', () => ({
   app: { getPath: () => '', getVersion: () => '0.0.0', isPackaged: false },
 }));
 
-vi.mock('./sessions', () => ({ listSessionStats: claudeStats }));
-vi.mock('./codexSessions', () => ({ listCodexSessionStats: codexStats }));
+vi.mock('./sessions', () => ({
+  listSessionStats: claudeStats,
+  // Stubbed reads (see the Codex mock below): the Claude provider is exercised for its launch commands,
+  // never against a real ~/.claude store.
+  listSessions: async () => [],
+  listSessionIds: () => [],
+  lastUserMessageForSession: async () => null,
+}));
+vi.mock('./codexSessions', () => ({
+  listCodexSessionStats: codexStats,
+  indexCodexSessionsByCwd: codexIndex,
+  // The Codex provider itself is exercised through agents.ts (launch-command resolution) — stub its
+  // reads so the test never depends on a real ~/.codex store.
+  codexAvailable: () => true,
+  listCodexSessions: () => [{ id: 'x1', mtimeMs: 10, firstMessage: null }],
+  listCodexSessionIds: () => ['x1'],
+  lastUserMessageForCodexSession: () => null,
+}));
+vi.mock('./antigravitySessions', () => ({ indexAntigravitySessionsByCwd: () => new Map() }));
+// Which agents are "installed" must not depend on the test machine's home directory.
+vi.mock('./agents', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./agents')>()),
+  availableAgents: () => ['claude', 'codex'],
+}));
 
 import { registerIpc, type IpcConfig } from './ipc';
 import { getProvider, resolveOpenSession } from './agents';
+import { cwdKey } from '../shared/paths';
 
 const ALLOWED_ROOT = join(process.cwd(), 'cockpit-allowed-root');
 let storedAgent = 'claude';
@@ -94,6 +118,25 @@ describe('session-scoped provider', () => {
     ptyCreate.mockClear();
     await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, fresh: true });
     expect(launchCommand()).toBe('codex');
+  });
+
+  // A caller with NO session context (the task board's ▶, a freshly created project) used to launch
+  // whatever the header selector said — which handed one provider's project to another agent. The
+  // project's own most recent conversation decides instead.
+  it('infers the project\'s own provider when the caller sends no agentId', async () => {
+    const open = handlers.get('cockpit:open')!;
+    storedAgent = 'claude'; // selection says Claude, but this project's history is Codex
+    codexIndex.mockReturnValue(new Map([[cwdKey(projectPath), [{ id: 'x1', mtimeMs: 10, firstMessage: null }]]]));
+
+    ptyCreate.mockClear();
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24 });
+    expect(launchCommand()).toBe('codex resume --last');
+
+    // An explicit agentId still wins over the inference.
+    ptyCreate.mockClear();
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, agentId: 'claude' });
+    expect(launchCommand()).toMatch(/^claude/);
+    codexIndex.mockReturnValue(new Map());
   });
 
   it('cockpit:liveSessionId reads the OWNING provider\'s session store', () => {

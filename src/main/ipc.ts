@@ -11,7 +11,7 @@ import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession } from './agents';
-import { toAgentId, type AgentId, type Folder } from '../shared/types';
+import { toAgentId, type AgentId, type Folder, type SessionMeta } from '../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../shared/pathGuard';
 import { basename } from '../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
@@ -30,7 +30,9 @@ import { getCodexUsage, spawnCodexAppServer } from './codexUsage';
 import { UsageCoordinator, antigravityUsage } from './usageProviders';
 import { pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
 import { listSessionStats } from './sessions';
-import { listCodexSessionStats } from './codexSessions';
+import { listCodexSessionStats, indexCodexSessionsByCwd } from './codexSessions';
+import { indexAntigravitySessionsByCwd } from './antigravitySessions';
+import { makeProjectSessionScan } from './sessionScan';
 import { readClaudeSessionMeta } from './sessionMeta';
 import type { TrayController } from './tray';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
@@ -41,6 +43,7 @@ import type { ShutdownSessionSummary } from '../shared/shutdownIdle';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const CODEX_SESSIONS = join(homedir(), '.codex', 'sessions');
+const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
 const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
 
 export interface IpcConfig {
@@ -106,15 +109,59 @@ export function registerIpc(cfg: IpcConfig): void {
   // Codex made a Claude tile restore/restart/`+ new session` relaunch under `codex` — a different agent
   // reading a conversation it doesn't own.
   const agentFor = (id: unknown) => getProvider(toAgentId(id) ?? activeAgent());
+  // The deck reads EVERY installed provider (not the selected one): a project's history belongs to
+  // whichever agents wrote it, and each session carries its owner so the card's mark and the agent
+  // "open" launches are both true to disk. One scan per use — the flat Codex/Antigravity stores are
+  // indexed once and shared by all projects of that scan instead of re-read per project.
+  // …and shared briefly ACROSS scans: the deck refreshes on a 45s timer AND on every window focus, so
+  // an alt-tab burst would otherwise re-walk both stores each time. Shorter than the refresh cycle, so
+  // a normal refresh still sees current data.
+  const INDEX_TTL_MS = 30_000;
+  const codexIndexCache = makeTtlCache<Map<string, SessionMeta[]>>(INDEX_TTL_MS);
+  const antigravityIndexCache = makeTtlCache<Map<string, SessionMeta[]>>(INDEX_TTL_MS);
+  const cachedIndex = (
+    cache: ReturnType<typeof makeTtlCache<Map<string, SessionMeta[]>>>,
+    dir: string,
+    build: () => Map<string, SessionMeta[]>,
+  ): Map<string, SessionMeta[]> => {
+    const now = Date.now();
+    const hit = cache.get(dir, now);
+    if (hit) return hit;
+    const built = build();
+    cache.set(dir, now, built);
+    return built;
+  };
+  const makeDeckScan = () => makeProjectSessionScan({
+    installed: availableAgents(),
+    perProject: { claude: (p, limit) => getProvider('claude').listSessions(p, limit) },
+    indexed: {
+      codex: () => cachedIndex(codexIndexCache, CODEX_SESSIONS, () => indexCodexSessionsByCwd(CODEX_SESSIONS)),
+      antigravity: () => cachedIndex(antigravityIndexCache, ANTIGRAVITY_DIR, () => indexAntigravitySessionsByCwd(ANTIGRAVITY_DIR)),
+    },
+  });
+  /**
+   * Which provider to launch for a project when the caller carries NO session context (the task board's
+   * ▶, a just-created project): the one that wrote its most recent conversation, so a "continue" never
+   * hands a Claude project's history to another agent just because the header selector was flipped.
+   * Falls back to the global selection for a project with no history at all.
+   */
+  const agentForProject = async (id: unknown, projectPath: string) => {
+    const requested = toAgentId(id);
+    if (requested) return getProvider(requested);
+    let owner: AgentId | null = null;
+    try { owner = (await makeDeckScan().sessions(projectPath, 1))[0]?.agentId ?? null; } catch { owner = null; }
+    return getProvider(owner ?? activeAgent());
+  };
 
   ipcMain.handle('projects:list', async () => {
+    const scan = makeDeckScan();
     return buildProjectList({
       nowMs: Date.now(),
       thresholds: effThresholds(),
       scan: memoScan,
       git: (dir) => getGitInfo(dir),
-      sessions: (p) => agent().listSessions(p),
-      resumeCue: (p, sessionId) => agent().lastUserMessage(p, sessionId),
+      sessions: (p) => scan.sessions(p),
+      resumeCue: (p, session) => getProvider(session.agentId).lastUserMessage(p, session.id),
       getEntry: (p) => cfg.store.get(p),
     });
   });
@@ -229,7 +276,7 @@ export function registerIpc(cfg: IpcConfig): void {
     else cfg.sendError(`Blocked external URL: ${u}`);
   });
 
-  ipcMain.handle('projects:open', async (_e, items: { path: string; sessionId: string | null }[]) => {
+  ipcMain.handle('projects:open', async (_e, items: { path: string; sessionId: string | null; agentId?: AgentId }[]) => {
     const now = new Date().toISOString();
     const folders = effFolders();
     const tabs: WtTab[] = [];
@@ -238,7 +285,10 @@ export function registerIpc(cfg: IpcConfig): void {
         cfg.sendError(`Path outside allowed folders: ${it.path}`);
         continue;
       }
-      const a = agent();
+      // Resume the conversation under the provider that OWNS it (the deck sends the session's agent);
+      // with no agent given, the project's own most recent provider decides — the global selection is
+      // the fallback only for a project with no history at all.
+      const a = await agentForProject(it.agentId, it.path);
       let command: string;
       if (typeof it.sessionId === 'string') command = a.buildCommand('resume', it.sessionId);
       else if ((await a.listSessions(it.path)).length > 0) command = a.buildCommand('continue');
@@ -251,8 +301,9 @@ export function registerIpc(cfg: IpcConfig): void {
       // Record lastOpened only for accepted (validated) projects.
       cfg.store.setLastOpened(it.path, now);
     }
-    // All tabs run the same agent binary — one warning covers the batch.
-    if (tabs.length > 0) warnIfCliMissing(tabs[0].command);
+    // A batch can now span providers (each project resumes under its own agent), so probe one command
+    // per distinct binary rather than assuming the whole batch runs the same one.
+    for (const command of new Set(tabs.map((t) => t.command.split(' ')[0]))) warnIfCliMissing(command);
     openProjects(tabs, { onError: cfg.sendError });
   });
 
@@ -312,7 +363,9 @@ export function registerIpc(cfg: IpcConfig): void {
       cfg.sendError(`Path outside allowed folders: ${req.projectPath}`);
       return { id: '', agentId: agentFor(req?.agentId).id, sessionId: null };
     }
-    const a = agentFor(req.agentId);
+    // The tile's own provider when the renderer knows it (restore / restart / + new session / a deck
+    // card), otherwise the provider that owns this project's most recent conversation.
+    const a = req.fresh ? agentFor(req.agentId) : await agentForProject(req.agentId, req.projectPath);
     // A failed open must come back as the same refusal shape the allowlist path returns (id: '') —
     // node-pty's spawn throws synchronously (e.g. the project folder was deleted since the session
     // was saved), and an unguarded throw here rejects the invoke, leaking the renderer's

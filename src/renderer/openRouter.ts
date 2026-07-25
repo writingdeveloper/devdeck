@@ -13,5 +13,7 @@ export function setCockpitEnabled(enabled: boolean): void { cockpitEnabled = ena
 /** Route "open" to the embedded cockpit (Windows) or the external terminal (other OSes). */
 export function openInTerminal(reqs: OpenReq[]): void {
   if (cockpitEnabled) { void openProjectsInCockpit(reqs); return; }
-  void window.devdeck.open(reqs.map((r) => ({ path: r.path, sessionId: r.sessionId ?? null })));
+  // agentId travels to the external terminal too — a resumed conversation must be handed to the
+  // provider that owns it, not to whatever agent is globally selected.
+  void window.devdeck.open(reqs.map((r) => ({ path: r.path, sessionId: r.sessionId ?? null, agentId: r.agentId })));
 }

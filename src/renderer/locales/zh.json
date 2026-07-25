@@ -24,7 +24,7 @@
   "nav.language": "语言",
   "nav.next": "待办",
   "nav.cockpit": "控制台",
-  "agent.label": "代理",
+  "agent.label": "新会话的默认代理",
   "agent.claude": "Claude",
   "agent.antigravity": "Antigravity",
   "agent.codex": "Codex",

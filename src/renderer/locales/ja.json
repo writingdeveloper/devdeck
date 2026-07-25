@@ -24,7 +24,7 @@
   "nav.language": "言語",
   "nav.next": "次に",
   "nav.cockpit": "コックピット",
-  "agent.label": "エージェント",
+  "agent.label": "新規セッションの既定エージェント",
   "agent.claude": "Claude",
   "agent.antigravity": "Antigravity",
   "agent.codex": "Codex",

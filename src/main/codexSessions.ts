@@ -2,7 +2,7 @@ import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from
 import { join } from 'node:path';
 import type { SessionMeta } from '../shared/types';
 import { codexFirstUserMessage, codexLastUserMessage, codexSessionMeta } from '../shared/codexParse';
-import { SESSION_ID_RE } from '../shared/paths';
+import { SESSION_ID_RE, cwdKey } from '../shared/paths';
 
 const HEAD_BYTES = 64 * 1024;
 const TAIL_CHUNK_BYTES = 1024 * 1024;
@@ -11,6 +11,7 @@ const TAIL_MAX_BYTES = 8 * 1024 * 1024;
 interface RolloutHead {
   file: string;
   id: string;
+  cwd: string;
   mtimeMs: number;
   birthtimeMs: number;
   firstMessage: string | null;
@@ -49,23 +50,46 @@ function rolloutFiles(dir: string): string[] {
   return files;
 }
 
-function rolloutHeads(projectPath: string, dir: string): RolloutHead[] {
+/** Every readable rollout's head, whatever project it belongs to (one bounded read per file). */
+function allRolloutHeads(dir: string): RolloutHead[] {
   if (!existsSync(dir)) return [];
   const heads: RolloutHead[] = [];
   for (const file of rolloutFiles(dir)) {
     const raw = readHead(file);
     if (raw === null) continue;
     const meta = codexSessionMeta(raw);
-    // Match CWD exactly: a rollout for a similarly named project must never leak into this project.
-    if (!meta || meta.cwd !== projectPath || !SESSION_ID_RE.test(meta.id)) continue;
+    if (!meta || !meta.cwd || !SESSION_ID_RE.test(meta.id)) continue;
     try {
       const { mtimeMs, birthtimeMs } = statSync(file);
-      heads.push({ file, id: meta.id, mtimeMs, birthtimeMs, firstMessage: codexFirstUserMessage(raw) });
+      heads.push({ file, id: meta.id, cwd: meta.cwd, mtimeMs, birthtimeMs, firstMessage: codexFirstUserMessage(raw) });
     } catch {
       // Concurrent cleanup can remove a rollout after the bounded head read.
     }
   }
   return heads;
+}
+
+function rolloutHeads(projectPath: string, dir: string): RolloutHead[] {
+  // Match the recorded CWD as a canonical key: a rollout for a similarly named project must never
+  // leak in, while the same project spelled with other separators / drive case still matches.
+  const key = cwdKey(projectPath);
+  return allRolloutHeads(dir).filter((h) => cwdKey(h.cwd) === key);
+}
+
+/**
+ * ALL Codex sessions grouped by canonical project cwd, newest-first — ONE pass over the rollout store.
+ * The deck asks for every scanned project on each refresh; doing the per-project scan above 100× meant
+ * re-reading the whole store 100 times, so the aggregate deck path uses this index instead.
+ */
+export function indexCodexSessionsByCwd(dir: string): Map<string, SessionMeta[]> {
+  const out = new Map<string, SessionMeta[]>();
+  for (const h of newestFirst(allRolloutHeads(dir))) {
+    const key = cwdKey(h.cwd);
+    const list = out.get(key) ?? [];
+    list.push({ id: h.id, mtimeMs: h.mtimeMs, firstMessage: h.firstMessage });
+    out.set(key, list);
+  }
+  return out;
 }
 
 function newestFirst<T extends { mtimeMs: number }>(rows: T[]): T[] {

@@ -8,6 +8,8 @@ import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
 import { basename } from '../shared/paths';
 import { renderLoadError } from './loadError';
+import { createProviderLogo, providerName } from './providerLogo';
+import type { AgentId } from '../shared/types';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -16,7 +18,9 @@ type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[n
 const selected = new Set<string>();
 const expanded = new Set<string>();
 let projects: ProjectViewModel[] = [];
-let agentLabel = 'claude';
+/** Default provider for a project that has NO session yet (the header selector). Never used to label
+ *  existing history — that always comes from the session's own `agentId`. */
+let defaultAgentId: AgentId = 'claude';
 let showHidden = false;
 // Per-project estimated cost, filled asynchronously after the list renders so a
 // (potentially slow) full token scan never blocks the project list.
@@ -72,8 +76,25 @@ function taskBadge(p: ProjectViewModel): HTMLElement | null {
   });
   return b;
 }
-function toOpenReq(p: ProjectViewModel, sessionId: string | null = null): OpenReq {
-  return { path: p.path, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted, sessionId };
+/**
+ * Build an open request. `agentId` is the provider that OWNS the session being opened — the deck sends
+ * it so a Claude conversation is never handed to another agent (and vice versa). With no session to
+ * resume, the project's most recent provider is used, falling back to the header selection for a
+ * project with no history at all.
+ */
+function toOpenReq(p: ProjectViewModel, session: { id: string; agentId: AgentId } | null = null): OpenReq {
+  return {
+    path: p.path, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted,
+    sessionId: session?.id ?? null,
+    agentId: session?.agentId ?? p.agentIds[0] ?? defaultAgentId,
+  };
+}
+
+/** The provider mark(s) a project's session line shows: its own agents, newest-active first. */
+function providerMarks(p: ProjectViewModel): HTMLElement {
+  const wrap = document.createElement('span'); wrap.className = 'proj-providers';
+  for (const id of p.agentIds) wrap.appendChild(createProviderLogo(id, 'ck-provider-logo sm'));
+  return wrap;
 }
 
 
@@ -157,8 +178,11 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
   const wrap = document.createElement('div'); wrap.className = 'sessions';
   const head = document.createElement('div');
   head.className = 'sessions-head' + (expanded.has(p.path) ? ' open' : '');
+  // The provider is the project's OWN (from its sessions), shown as a mark rather than the globally
+  // selected agent's name — that label made every project read as whatever agent was selected.
+  if (p.agentIds.length) head.appendChild(providerMarks(p));
   const label = document.createElement('span');
-  label.textContent = `${agentLabel} ${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} ${tr('proj.sessions')}` : ''}${usdShort(costByPath.get(p.path))}`;
+  label.textContent = `${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} ${tr('proj.sessions')}` : ''}${usdShort(costByPath.get(p.path))}`;
   head.appendChild(label);
   if (p.sessionCount > 1) {
     const caret = document.createElement('span'); caret.className = 'caret'; caret.textContent = '⌄';
@@ -176,11 +200,15 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
       const list = document.createElement('div'); list.className = 'session-list'; list.setAttribute('role', 'list');
       for (const s of p.sessions) {
         const row = document.createElement('div'); row.className = 'session-row'; row.setAttribute('role', 'listitem');
+        // Each conversation carries its own provider mark: a project can hold Claude AND Codex history,
+        // and the row's ▶ resumes it under the agent that wrote it.
+        const mark = createProviderLogo(s.agentId, 'ck-provider-logo sm');
         const when = document.createElement('span'); when.className = 'when'; when.textContent = fmtTime(s.mtimeMs);
         const msg = document.createElement('span'); msg.className = 'msg'; msg.textContent = s.firstMessage ?? tr('proj.no_message');
-        const open = document.createElement('button'); open.className = 'chip'; open.textContent = tr('proj.open'); open.setAttribute('aria-label', 'open session');
-        open.addEventListener('click', () => openInTerminal([toOpenReq(p, s.id)]));
-        row.append(when, msg, open); list.appendChild(row);
+        const open = document.createElement('button'); open.className = 'chip'; open.textContent = tr('proj.open');
+        open.setAttribute('aria-label', `${tr('proj.open')} · ${providerName(s.agentId)}`);
+        open.addEventListener('click', () => openInTerminal([toOpenReq(p, s)]));
+        row.append(mark, when, msg, open); list.appendChild(row);
       }
       wrap.appendChild(list);
     }
@@ -379,7 +407,9 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   // No per-project context % is available on ProjectViewModel (that's a cockpit/session-level
   // stat) — show just the session count here rather than inventing a number.
   const sess = document.createElement('span'); sess.className = 'prow-sess';
-  sess.textContent = p.sessionCount ? String(p.sessionCount) : '—';
+  if (p.agentIds.length) sess.appendChild(providerMarks(p)); // which agent(s) wrote this project's history
+  const sessN = document.createElement('span'); sessN.textContent = p.sessionCount ? String(p.sessionCount) : '—';
+  sess.appendChild(sessN);
 
   const actions = document.createElement('span'); actions.className = 'prow-actions';
   const tb = taskBadge(p);
@@ -616,7 +646,7 @@ async function reload(): Promise<void> {
     if (!hasRenderedOnce) renderLoadError(cardsEl, () => void reload());
     return;
   }
-  projects = proj; agentLabel = agent;
+  projects = proj; defaultAgentId = agent;
   viewMode = settings.viewMode === 'list' ? 'list' : 'cards';
   syncViewToggle();
   render();

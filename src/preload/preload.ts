@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   setTodos: (path: string, todos: unknown) => ipcRenderer.invoke('project:setTodos', path, todos),
   setPinned: (path: string, pinned: boolean) => ipcRenderer.invoke('project:setPinned', path, pinned),
   setHidden: (path: string, hidden: boolean) => ipcRenderer.invoke('project:setHidden', path, hidden),
-  open: (items: { path: string; sessionId: string | null }[]) => ipcRenderer.invoke('projects:open', items),
+  open: (items: { path: string; sessionId: string | null; agentId?: string }[]) => ipcRenderer.invoke('projects:open', items),
   onError: (cb: (msg: string) => void) =>
     ipcRenderer.on('devdeck:error', (_e, msg: string) => cb(msg)),
   usageReport: (sinceMs: number) => ipcRenderer.invoke('usage:report', sinceMs),

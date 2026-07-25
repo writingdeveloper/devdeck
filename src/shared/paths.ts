@@ -22,6 +22,18 @@ export function isValidSessionId(id: string): boolean {
 }
 
 /**
+ * Canonical key for matching a session's RECORDED cwd against a project path. Providers store the cwd
+ * exactly as the launching shell spelled it, so `C:\Users\me\proj`, `C:/Users/me/proj/` and
+ * `c:\users\me\proj` all denote the same project and must group together. Separators are unified and
+ * trailing ones dropped; case is folded only for Windows-style paths (a drive letter), since POSIX
+ * paths are genuinely case-sensitive. Grouping only — never a security decision (see pathGuard).
+ */
+export function cwdKey(p: string): string {
+  const unified = p.replace(/[\\/]+/g, '\\').replace(/\\+$/, '');
+  return /^[a-zA-Z]:/.test(unified) ? unified.toLowerCase() : unified;
+}
+
+/**
  * Cross-platform basename: the last non-empty segment of a Windows OR POSIX path
  * (a cwd may be a Windows path read on any OS). Tolerates trailing separators —
  * `split(...).pop()` alone yields '' for a trailing-slash path, so filter first.

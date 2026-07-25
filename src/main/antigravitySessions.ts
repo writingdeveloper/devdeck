@@ -2,7 +2,7 @@ import { readdirSync, statSync, existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { SessionMeta } from '../shared/types';
 import { extractCwdFromDbBuffer, firstUserMessageFromTranscript, lastUserMessageFromTranscript } from '../shared/antigravityParse';
-import { SESSION_ID_RE } from '../shared/paths';
+import { SESSION_ID_RE, cwdKey } from '../shared/paths';
 
 /** Antigravity (agy CLI + IDE) stores conversations under <dir>/conversations/<uuid>.db. */
 export function antigravityAvailable(antigravityDir: string): boolean {
@@ -47,6 +47,25 @@ export function listAntigravitySessions(projectPath: string, antigravityDir: str
       const tr = readTranscript(antigravityDir, h.id);
       return { id: h.id, mtimeMs: h.mtimeMs, firstMessage: tr ? firstUserMessageFromTranscript(tr) : null };
     });
+}
+
+/**
+ * ALL Antigravity sessions grouped by canonical project cwd, newest-first — ONE pass over the
+ * conversation store (the deck asks for every scanned project on each refresh; the per-project
+ * function above would re-read every .db once per project). Transcripts are read only for the first
+ * `previewLimit` conversations of each project, since only those can reach the card.
+ */
+export function indexAntigravitySessionsByCwd(antigravityDir: string, previewLimit = 5): Map<string, SessionMeta[]> {
+  const out = new Map<string, SessionMeta[]>();
+  for (const h of conversationHeads(antigravityDir).sort((a, b) => b.mtimeMs - a.mtimeMs)) {
+    if (!h.cwd) continue;
+    const key = cwdKey(h.cwd);
+    const list = out.get(key) ?? [];
+    const tr = list.length < previewLimit ? readTranscript(antigravityDir, h.id) : null;
+    list.push({ id: h.id, mtimeMs: h.mtimeMs, firstMessage: tr ? firstUserMessageFromTranscript(tr) : null });
+    out.set(key, list);
+  }
+  return out;
 }
 
 /** ALL Antigravity conversation ids for a project, mtime-desc — no transcript read (for the restore resolver). */

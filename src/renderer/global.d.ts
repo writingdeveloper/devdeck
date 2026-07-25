@@ -8,7 +8,7 @@ declare global {
       setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
       setPinned(path: string, pinned: boolean): Promise<void>;
       setHidden(path: string, hidden: boolean): Promise<void>;
-      open(items: { path: string; sessionId: string | null }[]): Promise<void>;
+      open(items: { path: string; sessionId: string | null; agentId?: import('../shared/types').AgentId }[]): Promise<void>;
       onError(cb: (msg: string) => void): void;
       usageReport(sinceMs: number): Promise<import('../shared/types').UsageReport>;
       getLanguage(): Promise<string>;

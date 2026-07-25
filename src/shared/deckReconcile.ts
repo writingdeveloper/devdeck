@@ -15,6 +15,10 @@ export interface SignatureInput {
   lastSubject: string | null;
   lastSessionMs: number | null;
   sessionCount: number;
+  /** Provider marks the card/row shows (and, when expanded, each session's own mark). */
+  agentIds?: string[];
+  /** Per-session provider, so an expanded card rebuilds when a conversation's owner set changes. */
+  sessions?: { id: string; agentId: string }[];
   activityMs: number | null;
   note: string;
   resumeCue: { text: string } | null;
@@ -59,6 +63,10 @@ export function projectSignature(p: SignatureInput, ui: SignatureUiState): strin
     p.lastSubject ?? '',
     p.lastSessionMs ?? '',
     p.sessionCount,
+    // Provider marks are rendered state: a project whose newest session moved from Claude to Codex
+    // looks different even when every timestamp above is unchanged.
+    (p.agentIds ?? []).join(','),
+    (p.sessions ?? []).map((s) => `${s.id}:${s.agentId}`).join('|'),
     p.activityMs ?? '',
     p.note,
     p.resumeCue?.text ?? '',

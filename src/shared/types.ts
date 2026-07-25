@@ -58,6 +58,17 @@ export interface SessionMeta {
   firstMessage: string | null;
 }
 
+/**
+ * A project's session as the DECK sees it: the provider that OWNS it travels with it. The deck used to
+ * read sessions through the single globally selected agent and label them with it, so flipping the
+ * selection made every project's history read as that agent's — and opening one handed a Claude
+ * conversation to `codex`. Sessions are aggregated across installed providers instead, each carrying
+ * its owner so the mark shown and the agent launched are both the truth on disk.
+ */
+export interface ProjectSession extends SessionMeta {
+  agentId: AgentId;
+}
+
 export interface GitInfo {
   branch: string | null;
   lastCommitMs: number | null;
@@ -91,8 +102,10 @@ export interface ProjectViewModel {
   lastCommitMs: number | null;
   lastSubject: string | null;
   lastSessionMs: number | null;
-  sessions: SessionMeta[];
+  sessions: ProjectSession[];
   sessionCount: number;
+  /** Providers that have sessions here, ordered by their newest session (owner of `sessions[0]` first). */
+  agentIds: AgentId[];
   activityMs: number | null; // max(lastCommitMs, lastSessionMs)
   stale: StaleInfo;
   note: string;
