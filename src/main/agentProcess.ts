@@ -11,7 +11,6 @@
 // terminal), but the process tree can: whatever agent binary is a descendant of THIS tile's shell is
 // what the user is talking to. One process listing per probe window is shared by every tile.
 import { execFile } from 'node:child_process';
-import { basename } from 'node:path';
 import type { AgentId } from '../shared/types';
 
 export interface ProcRow {
@@ -43,9 +42,11 @@ const PACKAGE_PATH_RULES: { re: RegExp; id: AgentId }[] = [
 const MAX_DEPTH = 6;
 const CMD_CHARS = 400;
 
-/** `claude.exe`, `/usr/bin/codex`, `agy.cmd` → the agent id; null for shells, node, anything else. */
+/** `claude.exe`, `/usr/bin/codex`, `agy.cmd` → the agent id; null for shells, node, anything else.
+ *  Splits on BOTH separators rather than using path.basename: a Windows-shaped path is read on the
+ *  host that asks (tests, and a listing is not guaranteed to use the local separator). */
 export function agentFromExe(name: string): AgentId | null {
-  const base = basename(String(name ?? '')).toLowerCase().replace(/\.(exe|cmd|bat|ps1|js)$/, '');
+  const base = (String(name ?? '').split(/[\\/]/).pop() ?? '').toLowerCase().replace(/\.(exe|cmd|bat|ps1|js)$/, '');
   return EXE_TO_AGENT[base] ?? null;
 }
 
