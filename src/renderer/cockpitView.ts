@@ -13,6 +13,7 @@ import { toAgentId, type AgentId, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
 import { toast } from './loadError';
+import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 
 interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: { model: string | null; activeMs: number; contextTokens: number } | null; pinned: boolean; }
@@ -379,6 +380,9 @@ function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of l
 function select(id: string): void {
   if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
   selectedId = id;
+  // The always-on usage footer reports the provider of the session you're working in — hand it over
+  // on every selection change (a Claude tile must not be captioned with Codex's percentage).
+  setActiveUsageProvider(live.get(id)?.session.agentId ?? null);
   for (const [lid, l] of live) l.el.classList.toggle('show', lid === id);
   mainEl.classList.toggle('has-session', live.size > 0);
   renderList(); renderHeader();
@@ -768,7 +772,7 @@ function closeSession(id: string): void {
     const next = [...live.keys()][0] ?? null;
     selectedId = null;
     if (next) select(next);
-    else { renderAll(); mainEl.classList.toggle('has-session', false); }
+    else { setActiveUsageProvider(null); renderAll(); mainEl.classList.toggle('has-session', false); } // no session → footer goes back to the cross-provider max
   } else renderList();
 }
 

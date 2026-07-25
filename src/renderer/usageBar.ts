@@ -1,14 +1,25 @@
 import { tr } from './i18n-runtime';
-import { createProviderLogo } from './providerLogo';
+import { createProviderLogo, providerName } from './providerLogo';
 import { openUsageModal, renderUsageModal, isUsageModalOpen } from './usageModal';
 import { summarizeProviderUsage } from '../shared/usagePresentation';
 import { usageSeverity, formatReset, type UsageSnapshot } from '../shared/usageWindows';
+import type { AgentId } from '../shared/types';
 
 const POLL_MS = 5 * 60_000;
 let el: HTMLElement;
 let timer: ReturnType<typeof setInterval> | null = null;
 let snapshot: UsageSnapshot | null = null;
 let refreshInFlight: Promise<UsageSnapshot> | null = null;
+/** Provider of the session the user is working in (set by the cockpit on every selection change).
+ *  The footer's number follows it, so switching sessions switches which provider is being reported. */
+let activeProviderId: AgentId | null = null;
+
+/** Point the footer at the selected cockpit session's provider (null = no session → cross-provider max). */
+export function setActiveUsageProvider(id: AgentId | null): void {
+  if (activeProviderId === id) return;
+  activeProviderId = id;
+  render();
+}
 
 /** The last snapshot the renderer received — language switches re-render THIS instead of re-polling. */
 export function currentUsageSnapshot(): UsageSnapshot | null { return snapshot; }
@@ -26,6 +37,11 @@ export function mountUsageBar(): void {
   document.addEventListener('devdeck:usage-open', (e) => {
     const detail = (e as CustomEvent<{ snapshot?: UsageSnapshot }>).detail;
     openUsageModal(detail?.snapshot ?? snapshot, null);
+  });
+  // Same shape of seam as above: the QA harness can point the footer at a provider without having to
+  // spawn a real agent session (the cockpit does this via setActiveUsageProvider on every selection).
+  document.addEventListener('devdeck:usage-active-provider', (e) => {
+    setActiveUsageProvider((e as CustomEvent<{ providerId?: AgentId | null }>).detail?.providerId ?? null);
   });
 }
 
@@ -57,12 +73,20 @@ function render(): void {
   el.classList.remove('hidden');
   el.replaceChildren();
 
+  const summary = summarizeProviderUsage(snapshot, activeProviderId);
+
   const cluster = document.createElement('span'); cluster.className = 'ub-providers';
-  for (const p of providers) cluster.appendChild(createProviderLogo(p.providerId, 'ck-provider-logo sm'));
+  for (const p of providers) {
+    // Which provider the number belongs to must be visible, not inferred: the reported provider's
+    // mark is highlighted (and named via aria-current), the others stay dimmed.
+    const logo = createProviderLogo(p.providerId, 'ck-provider-logo sm');
+    if (p.providerId === summary.providerId) { logo.classList.add('active'); logo.setAttribute('aria-current', 'true'); }
+    cluster.appendChild(logo);
+  }
   el.appendChild(cluster);
 
-  const summary = summarizeProviderUsage(snapshot);
   const box = document.createElement('span'); box.className = 'ub-summary';
+  if (summary.providerId) box.title = providerName(summary.providerId);
   if (summary.kind === 'limit' && summary.limit) {
     const pct = summary.limit.percent!;
     const lab = document.createElement('span'); lab.className = 'ub-lab';
