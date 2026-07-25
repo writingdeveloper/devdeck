@@ -69,6 +69,7 @@ declare global {
         sessionMeta(projectPath: string, sessionId: string, agentId?: import('../shared/types').AgentId): Promise<{ model: string | null; activeMs: number; contextTokens: number }>;
         sessionIds(projectPath: string, agentId?: import('../shared/types').AgentId): Promise<string[]>;
         liveSessionId(projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: import('../shared/types').AgentId }): Promise<string | null>;
+        liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;
         gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
         openLink(url: string): Promise<void>;
         openFile(projectPath: string, filePath: string): Promise<string>;

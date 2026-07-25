@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePersistedList, pickRestoreSessionId, resolveRestoreSessionId, adoptRestorableMatch, pickDriftedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+import { sanitizePersistedList, pickRestoreSessionId, resolveRestoreSessionId, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
 
 describe('sanitizePersistedList', () => {
   it('returns [] for non-arrays', () => {
@@ -154,6 +154,34 @@ describe('pickDriftedSessionId', () => {
   });
   it('never adopts the current id itself', () => {
     expect(pickDriftedSessionId([stat('X', T - 2_000, T - 5_000)], { ...base, sinceMs: T - 30_000 })).toBeNull();
+  });
+});
+
+describe('pickAdoptedSessionId', () => {
+  // After a tile's provider is re-detected (the user ran a different agent in the tile's shell), the
+  // tile has NO id: the old one named a conversation in the old provider's store. Birth time can't gate
+  // here — `claude -c` continues a file born long before the tile opened — so coupling + uniqueness do.
+  const T = 1_000_000_000;
+  const stat = (id: string, mtimeMs: number, birthtimeMs: number): SessionFileStat => ({ id, mtimeMs, birthtimeMs });
+  const base = { claimedIds: [] as string[], sinceMs: T - 30_000, lastDataAtMs: T - 1_000 };
+
+  it('adopts a continued conversation born long before the tile opened', () => {
+    expect(pickAdoptedSessionId([stat('C', T - 2_000, T - 900_000)], base)).toBe('C');
+  });
+  it('adopts a brand-new conversation too', () => {
+    expect(pickAdoptedSessionId([stat('N', T - 2_000, T - 4_000)], base)).toBe('N');
+  });
+  it('ignores files claimed by another live tile', () => {
+    expect(pickAdoptedSessionId([stat('C', T - 2_000, T - 900_000)], { ...base, claimedIds: ['C'] })).toBeNull();
+  });
+  it('ignores an uncoupled writer (a session streaming in an external terminal)', () => {
+    expect(pickAdoptedSessionId([stat('E', T - 25_000, T - 900_000)], base)).toBeNull();
+  });
+  it('ambiguous — two coupled candidates → adopt nothing', () => {
+    expect(pickAdoptedSessionId([stat('A', T - 2_000, T - 9_000), stat('B', T - 2_500, T - 8_000)], base)).toBeNull();
+  });
+  it('no tile output since the last check → nothing was written on our behalf', () => {
+    expect(pickAdoptedSessionId([stat('C', T - 2_000, T - 900_000)], { ...base, lastDataAtMs: T - 31_000 })).toBeNull();
   });
 });
 

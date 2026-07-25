@@ -25,6 +25,8 @@ export class PtyHost {
     proc.onExit((e) => { this.procs.delete(id); onExit(e); });
   }
 
+  /** OS pid of a session's shell — the root for "which agent is actually running in this tile". */
+  pid(id: string): number | null { return this.procs.get(id)?.pid ?? null; }
   write(id: string, data: string): void { this.procs.get(id)?.write(data); }
   resize(id: string, cols: number, rows: number): void { this.procs.get(id)?.resize(cols, rows); }
   kill(id: string): void { const p = this.procs.get(id); if (p) { p.kill(); this.procs.delete(id); } }

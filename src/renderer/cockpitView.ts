@@ -354,10 +354,31 @@ async function refreshSessionId(id: string): Promise<void> {
   void refreshMeta(id); // model/context % must now read the NEW conversation, not the stale file
 }
 
-/** Await a drift check for every live tile — the update-restart path calls this right before it
- *  snapshots liveSessionsForPersist, so the relaunch restores the post-/clear conversations. */
+/** Re-detect WHICH AGENT a live tile is running. The tile's shell outlives the agent (`-NoExit`), so a
+ *  user can finish one agent and type another at the leftover prompt — the tile then kept its launch-time
+ *  provider forever, mislabeling the conversation and sending its usage/session reads to the wrong
+ *  store. Main answers from the pty's process tree; null (bare prompt / probe failed) keeps what we have.
+ *  On a change the tile's session id is dropped: it named a conversation in the OLD provider's store,
+ *  and the id probe re-adopts the new provider's live one on the next tick. */
+async function refreshProvider(id: string): Promise<void> {
+  const l = live.get(id); if (!l || l.session.status === 'exited') return;
+  let actual: AgentId | null = null;
+  try { actual = await window.devdeck.cockpit.liveAgent(id); } catch { return; }
+  if (!actual || actual === l.session.agentId || !live.has(id)) return; // tile may have closed mid-await
+  l.session.agentId = actual;
+  l.openedSessionId = null;
+  l.meta = null;
+  persist();
+  if (selectedId === id) setActiveUsageProvider(actual); // the footer must follow the tile's REAL provider
+  if (!editingId) renderList();
+  renderHeader();
+}
+
+/** Await a provider + drift check for every live tile — the update-restart path calls this right before
+ *  it snapshots liveSessionsForPersist, so the relaunch restores each tile under the agent it is
+ *  ACTUALLY running, pointed at the post-/clear conversation. */
 export async function refreshLiveSessionIds(): Promise<void> {
-  await Promise.all([...live.keys()].map((id) => refreshSessionId(id)));
+  await Promise.all([...live.keys()].map(async (id) => { await refreshProvider(id); await refreshSessionId(id); }));
 }
 
 /** Pull a session's CURRENT git branch + dirty count by project path, so a RESTORED session — which is
@@ -375,7 +396,9 @@ async function refreshGit(id: string): Promise<void> {
 }
 // The 30s tick: skip exited sessions — their model/branch can't change, so re-reading their log +
 // re-spawning git every tick is pure waste (matters most with many concurrent sessions).
-function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshSessionId(id); void refreshMeta(id); void refreshGit(id); } }
+// The provider check runs BEFORE the id check so a re-attributed tile resolves its new id against the
+// right store on the same tick (one process listing in main is shared by every tile).
+function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshProvider(id).then(() => refreshSessionId(id)); void refreshMeta(id); void refreshGit(id); } }
 
 function select(id: string): void {
   if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
@@ -388,6 +411,9 @@ function select(id: string): void {
   renderList(); renderHeader();
   void refreshMeta(id);
   void refreshGit(id);
+  // Selecting a tile is when its provider is most visible (header mark + usage footer) — re-check it
+  // here too instead of waiting up to 30s for the tick. Main's listing is cached, so this is cheap.
+  void refreshProvider(id);
   requestAnimationFrame(() => { fitSelected(); live.get(id)?.term.focus(); });
 }
 

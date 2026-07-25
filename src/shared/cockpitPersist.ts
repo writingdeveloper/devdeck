@@ -76,6 +76,29 @@ export function pickDriftedSessionId(
 }
 
 /**
+ * Which conversation a tile that has NO id yet is writing to. Used after the tile's provider is
+ * re-detected (the user ran a different agent in the tile's shell, so the old id belonged to the old
+ * provider and was dropped): there is nothing to compare against, so the birth-time gate above can't
+ * apply — a `claude -c` picks up a file born long before the tile opened.
+ *
+ * The coupling + uniqueness gates still stand, so a session streaming in an external terminal for the
+ * same project can't be adopted: exactly one unclaimed file must have moved since the last check, in
+ * lockstep with this tile's own output.
+ */
+export function pickAdoptedSessionId(
+  stats: SessionFileStat[],
+  opts: { claimedIds: string[]; sinceMs: number; lastDataAtMs: number },
+): string | null {
+  if (opts.lastDataAtMs <= opts.sinceMs) return null; // no output since the last check
+  const claimed = new Set(opts.claimedIds);
+  const candidates = stats.filter((s) =>
+    !claimed.has(s.id)
+    && s.mtimeMs > opts.sinceMs
+    && Math.abs(s.mtimeMs - opts.lastDataAtMs) <= DRIFT_COUPLING_MS);
+  return candidates.length === 1 ? candidates[0].id : null;
+}
+
+/**
  * A newly-opened session that lands on a conversation a saved (restorable) entry already points at
  * CONSUMES that entry — and must inherit its user-given pin + label unless the open request carries
  * its own. Without this, opening a project from the deck / task board / ⟳ restart (none of which

@@ -28,7 +28,8 @@ import { sanitizeTodos } from '../shared/tasks';
 import { getClaudeUsage, readClaudeCredentials, fetchUsageApi } from './claudeUsage';
 import { getCodexUsage, spawnCodexAppServer } from './codexUsage';
 import { UsageCoordinator, antigravityUsage } from './usageProviders';
-import { pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
+import { pickAdoptedSessionId, pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
+import { makeAgentProbe } from './agentProcess';
 import { listSessionStats } from './sessions';
 import { listCodexSessionStats, indexCodexSessionsByCwd } from './codexSessions';
 import { indexAntigravitySessionsByCwd } from './antigravitySessions';
@@ -439,13 +440,33 @@ export function registerIpc(cfg: IpcConfig): void {
       : a === 'codex' ? listCodexSessionStats(String(projectPath), CODEX_SESSIONS)
         : null;
     if (!stats) return null;
+    const currentId = typeof opts.currentId === 'string' && opts.currentId ? opts.currentId : null;
+    const claimedIds = Array.isArray(opts.claimedIds) ? opts.claimedIds.filter((x): x is string => typeof x === 'string') : [];
+    const sinceMs = Number(opts.sinceMs) || 0;
+    const lastDataAtMs = Number(opts.lastDataAtMs) || 0;
+    // No id at all (the tile's provider was just re-detected, so its old id went with the old
+    // provider): nothing to drift FROM, and a `-c` resume writes a file born before the tile opened.
+    if (!currentId) return pickAdoptedSessionId(stats, { claimedIds, sinceMs, lastDataAtMs });
     return pickDriftedSessionId(stats, {
-      currentId: typeof opts.currentId === 'string' ? opts.currentId : null,
-      claimedIds: Array.isArray(opts.claimedIds) ? opts.claimedIds.filter((x): x is string => typeof x === 'string') : [],
+      currentId,
+      claimedIds,
       openedAtMs: Number(opts.openedAtMs) || 0,
-      sinceMs: Number(opts.sinceMs) || 0,
-      lastDataAtMs: Number(opts.lastDataAtMs) || 0,
+      sinceMs,
+      lastDataAtMs,
     });
+  });
+
+  // WHICH agent is actually running in a tile right now, read from the pty's process tree. The tile's
+  // provider was previously fixed at launch, but its shell outlives the agent (`-NoExit`): running a
+  // different agent at the leftover prompt (`codex resume …` ends → the user types `claude`) left the
+  // tile — its mark, its session-store reads and the usage footer — attributing the new conversation
+  // to the OLD provider. Null when the shell is at a bare prompt or the probe fails: the caller then
+  // keeps what it has (an absent answer must never be read as "the provider changed").
+  const probeAgent = makeAgentProbe();
+  ipcMain.handle('cockpit:liveAgent', async (_e, id: string) => {
+    const pid = cfg.ptyHost.pid(String(id));
+    if (!pid) return null;
+    try { return await probeAgent(pid); } catch { return null; }
   });
 
   // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a

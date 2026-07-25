@@ -1,11 +1,14 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 
-const { handlers, claudeStats, codexStats, codexIndex } = vi.hoisted(() => ({
+const { handlers, claudeStats, codexStats, codexIndex, probe } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   claudeStats: vi.fn(() => []),
   codexStats: vi.fn(() => []),
   codexIndex: vi.fn(() => new Map<string, { id: string; mtimeMs: number; firstMessage: string | null }[]>()),
+  // The real prober spawns a process listing; the handler's contract (resolve the tile's pid, answer
+  // null when there is no pty) is what this file checks.
+  probe: vi.fn(async (_pid: number): Promise<string | null> => 'claude'),
 }));
 
 vi.mock('electron', () => ({
@@ -38,6 +41,7 @@ vi.mock('./codexSessions', () => ({
   lastUserMessageForCodexSession: () => null,
 }));
 vi.mock('./antigravitySessions', () => ({ indexAntigravitySessionsByCwd: () => new Map() }));
+vi.mock('./agentProcess', () => ({ makeAgentProbe: () => probe }));
 // Which agents are "installed" must not depend on the test machine's home directory.
 vi.mock('./agents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./agents')>()),
@@ -59,7 +63,7 @@ beforeAll(() => {
     store: { getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getAgent: () => storedAgent },
     sendError: vi.fn(),
     defaultLanguage: 'en',
-    ptyHost: { create: ptyCreate },
+    ptyHost: { create: ptyCreate, pid: (id: string) => (id === 'live#1' ? 4321 : null) },
     ptyAvailable: true,
     tray: {},
     shutdown: null,
@@ -146,6 +150,29 @@ describe('session-scoped provider', () => {
     liveSessionId(null, projectPath, { currentId: null, claimedIds: [], openedAtMs: 1, sinceMs: 2, lastDataAtMs: 3, agentId: 'claude' });
     expect(claudeStats).toHaveBeenCalledOnce();
     expect(codexStats).not.toHaveBeenCalled();
+  });
+});
+
+// A tile's shell outlives the agent it was opened with (`-NoExit`), so the provider has to be re-read
+// from what is RUNNING — otherwise a tile where the user typed `claude` after `codex resume` finished
+// keeps reporting Codex, and its usage/session reads go to the wrong store.
+describe('cockpit:liveAgent', () => {
+  it('probes the tile\'s own pty process, and answers null when the tile has no pty', async () => {
+    const liveAgent = handlers.get('cockpit:liveAgent')!;
+
+    probe.mockClear();
+    expect(await liveAgent(null, 'live#1')).toBe('claude');
+    expect(probe).toHaveBeenCalledWith(4321);
+
+    probe.mockClear();
+    expect(await liveAgent(null, 'gone#9')).toBeNull();
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('a failing probe is null, never a wrong provider', async () => {
+    const liveAgent = handlers.get('cockpit:liveAgent')!;
+    probe.mockRejectedValueOnce(new Error('no process listing'));
+    expect(await liveAgent(null, 'live#1')).toBeNull();
   });
 });
 

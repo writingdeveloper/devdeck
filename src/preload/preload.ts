@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     sessionIds: (projectPath: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath, agentId),
     liveSessionId: (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: string }) =>
       ipcRenderer.invoke('cockpit:liveSessionId', projectPath, opts),
+    liveAgent: (id: string) => ipcRenderer.invoke('cockpit:liveAgent', id),
     gitInfo: (projectPath: string) => ipcRenderer.invoke('cockpit:gitInfo', projectPath),
     openLink: (url: string) => ipcRenderer.invoke('cockpit:openLink', url),
     openFile: (projectPath: string, filePath: string) => ipcRenderer.invoke('cockpit:openFile', projectPath, filePath),
