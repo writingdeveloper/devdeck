@@ -25,7 +25,9 @@ import { PASTE_IMAGE_PREFIX } from './tempClean';
 import { listClaudeProjectDirs } from './usageProjectsScan';
 import { classifyUsageProjects } from '../shared/usageProjects';
 import { sanitizeTodos } from '../shared/tasks';
-import { getUsageWindows, readClaudeCredentials, fetchUsageApi, type CacheEntry } from './claudeUsage';
+import { getClaudeUsage, readClaudeCredentials, fetchUsageApi } from './claudeUsage';
+import { getCodexUsage, spawnCodexAppServer } from './codexUsage';
+import { UsageCoordinator, antigravityUsage } from './usageProviders';
 import { pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
 import { listSessionStats } from './sessions';
 import { listCodexSessionStats } from './codexSessions';
@@ -418,26 +420,23 @@ export function registerIpc(cfg: IpcConfig): void {
     cfg.tray.applyCounts(lastTrayCounts, cfg.store.getTrayAlert());
   });
 
-  // Opt-in usage monitor. Token is read + used ONLY in the main process (claudeUsage);
-  // only computed percentages/plan/reset cross IPC.
+  // Live subscription limits for every INSTALLED provider. Credentials are read and used only inside
+  // the main-process adapters (Claude's OAuth token; Codex's own app-server owns its auth) — nothing
+  // but normalized plan/percent/reset/credit/state values crosses IPC.
   const usageCachePath = () => join(app.getPath('userData'), 'usage-cache.json');
-  ipcMain.handle('usage:windows', async () => {
-    // Always-on: the bar self-hides when there are no Claude credentials (no network call made in that case).
-    return getUsageWindows({
-      now: () => Date.now(),
-      env: process.env,
-      readCredentials: () => readClaudeCredentials(),
-      fetchUsage: (token) => fetchUsageApi(token),
-      cacheRead: () => {
-        // Validate shape so an externally-corrupted cache file can't yield {data: undefined} (which would crash the renderer).
-        try {
-          const c = JSON.parse(readFileSync(usageCachePath(), 'utf8'));
-          return (c && typeof c.timestamp === 'number' && c.data && typeof c.data === 'object') ? (c as CacheEntry) : null;
-        } catch { return null; }
-      },
-      cacheWrite: (e) => { try { writeFileSync(usageCachePath(), JSON.stringify(e), 'utf8'); } catch { /* ignore */ } },
-    });
+  const usage = new UsageCoordinator({
+    now: () => Date.now(),
+    load: () => { try { return JSON.parse(readFileSync(usageCachePath(), 'utf8')); } catch { return null; } },
+    save: (values) => { try { writeFileSync(usageCachePath(), JSON.stringify(values), 'utf8'); } catch { /* ignore */ } },
+    providers: {
+      claude: () => getClaudeUsage({ now: () => Date.now(), env: process.env, readCredentials: () => readClaudeCredentials(), fetchUsage: (token) => fetchUsageApi(token) }),
+      codex: () => getCodexUsage({ now: () => Date.now(), spawnAppServer: spawnCodexAppServer, clientVersion: app.getVersion() }),
+      antigravity: async () => antigravityUsage(Date.now()), // documented CLI guidance only — no I/O
+    },
   });
+  // Only providers the user actually has installed are polled or rendered.
+  ipcMain.handle('usage:snapshot', () => usage.cached(availableAgents()));
+  ipcMain.handle('usage:refresh', (_e, opts?: { force?: boolean }) => usage.refresh(availableAgents(), opts?.force === true));
 
   // Clipboard bridge for the embedded terminal (the sandboxed file:// renderer can't reach
   // navigator.clipboard reliably). Used so Ctrl+C copies a selection instead of sending SIGINT.

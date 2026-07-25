@@ -3,22 +3,19 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import * as https from 'node:https';
-import { parseUsageResponse, type UsageResult, type UsageWindows } from '../shared/usageWindows';
+import { parseClaudeUsageResponse, type ProviderUsage } from '../shared/usageWindows';
 
-const CACHE_TTL_MS = 5 * 60_000;
 const API_TIMEOUT_MS = 15_000;
+const MAX_RESPONSE_BYTES = 256 * 1024;
 
 export interface Credentials { accessToken: string; subscriptionType: string; expiresAt: number | null; }
 export interface FetchResult { ok: boolean; body?: unknown; status?: number; }
-export interface CacheEntry { timestamp: number; data: UsageWindows; }
 
 export interface UsageDeps {
   now: () => number;
   env: Record<string, string | undefined>;
   readCredentials: () => Credentials | null;
   fetchUsage: (accessToken: string) => Promise<FetchResult>;
-  cacheRead: () => CacheEntry | null;
-  cacheWrite: (e: CacheEntry) => void;
 }
 
 function planName(subscriptionType: string): string | null {
@@ -42,42 +39,37 @@ function usesCustomEndpoint(env: Record<string, string | undefined>): boolean {
   try { return new URL(base).origin !== 'https://api.anthropic.com'; } catch { return true; }
 }
 
-export async function getUsageWindows(deps: UsageDeps): Promise<UsageResult> {
-  const now = deps.now();
-  if (usesCustomEndpoint(deps.env)) return { enabled: true, error: 'not-applicable' };
+function result(state: ProviderUsage['state'], now: number, over: Partial<ProviderUsage> = {}): ProviderUsage {
+  return { providerId: 'claude', state, planLabel: null, limits: [], credits: null, guidance: null, fetchedAt: now, ...over };
+}
 
-  const fresh = deps.cacheRead();
-  if (fresh && now - fresh.timestamp < CACHE_TTL_MS) return { enabled: true, data: fresh.data };
+/**
+ * One live read of Claude's subscription limits, normalized. Caching, staleness, and cross-provider
+ * orchestration belong to the usage coordinator — this stays a pure "what is true right now" call so
+ * a failure can never overwrite last-good data on its own.
+ *
+ * The OAuth token never leaves this module: it goes straight from `readCredentials` into the request
+ * headers, and only normalized numbers cross back.
+ */
+export async function getClaudeUsage(deps: UsageDeps): Promise<ProviderUsage> {
+  const now = deps.now();
+  if (usesCustomEndpoint(deps.env)) return result('not-applicable', now);
 
   const creds = deps.readCredentials();
-  if (!creds) return { enabled: true, error: 'no-credentials' };
-  // Token expired locally: Claude Code refreshes the file on its own, but there's a brief gap. Keep
-  // showing the last-good numbers through it (they don't change) instead of blanking the bar; only
-  // report 'expired' if we have nothing cached at all.
-  if (creds.expiresAt != null && creds.expiresAt <= now) {
-    return fresh ? { enabled: true, data: fresh.data } : { enabled: true, error: 'expired' };
-  }
+  if (!creds) return result('login-required', now);
+  if (creds.expiresAt != null && creds.expiresAt <= now) return result('expired', now);
 
   const plan = planName(creds.subscriptionType);
-  if (!plan) return { enabled: true, error: 'not-applicable' };
+  if (!plan) return result('not-applicable', now); // API / custom-key mode has no subscription windows
 
   const res = await deps.fetchUsage(creds.accessToken);
   if (!res.ok) {
-    // On any failure, fall back to last-good cache (even if stale) so the bar stays useful.
-    if (fresh) return { enabled: true, data: fresh.data };
-    // 401 = the token was rejected server-side (expired/invalid) → tell the user to re-login, same as
-    // a locally-expired token; 429 = usage-API rate limit; everything else = offline/transient.
-    const error = res.status === 401 ? 'expired' : res.status === 429 ? 'rate-limited' : 'offline';
-    return { enabled: true, error };
+    // 401 = token rejected server-side (expired/invalid) → re-login; 429 = usage-API rate limit.
+    return result(res.status === 401 ? 'expired' : res.status === 429 ? 'rate-limited' : 'offline', now, { planLabel: plan });
   }
-  const parsed = parseUsageResponse(res.body);
-  if (!parsed) {
-    if (fresh) return { enabled: true, data: fresh.data };
-    return { enabled: true, error: 'offline' };
-  }
-  const data: UsageWindows = { planName: plan, ...parsed };
-  deps.cacheWrite({ timestamp: now, data });
-  return { enabled: true, data };
+  const parsed = parseClaudeUsageResponse(res.body);
+  if (!parsed) return result('offline', now, { planLabel: plan });
+  return result('ready', now, { planLabel: plan, limits: parsed.limits, credits: parsed.credits });
 }
 
 // ---- Production deps (not unit-tested; thin I/O wrappers) ----
@@ -103,7 +95,13 @@ export function fetchUsageApi(accessToken: string): Promise<FetchResult> {
       headers: { Authorization: `Bearer ${accessToken}`, 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'claude-code/2.1' },
     }, (res) => {
       let data = '';
-      res.on('data', (c) => { data += c.toString(); });
+      let bytes = 0;
+      res.on('data', (c) => {
+        bytes += c.length;
+        // A runaway/hostile response must not be buffered without bound.
+        if (bytes > MAX_RESPONSE_BYTES) { req.destroy(); resolve({ ok: false, status: 0 }); return; }
+        data += c.toString();
+      });
       res.on('end', () => {
         if (res.statusCode !== 200) { resolve({ ok: false, status: res.statusCode }); return; }
         try { resolve({ ok: true, body: JSON.parse(data) }); } catch { resolve({ ok: false, status: 0 }); }

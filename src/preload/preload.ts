@@ -29,7 +29,8 @@ contextBridge.exposeInMainWorld('devdeck', {
   createProject: (parent: string, name: string) => ipcRenderer.invoke('project:create', parent, name),
   setViewMode: (mode: 'cards' | 'list') => ipcRenderer.invoke('settings:setViewMode', mode),
   setCockpitSidebar: (collapsed: boolean) => ipcRenderer.invoke('settings:setCockpitSidebar', collapsed),
-  usageWindows: () => ipcRenderer.invoke('usage:windows'),
+  usageSnapshot: () => ipcRenderer.invoke('usage:snapshot'),
+  refreshUsageProviders: (opts?: { force?: boolean }) => ipcRenderer.invoke('usage:refresh', { force: opts?.force === true }),
   onUpdate: (cb: (p: import('../shared/update').UpdatePayload) => void) =>
     ipcRenderer.on('devdeck:update', (_e, p) => cb(p as import('../shared/update').UpdatePayload)),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),

@@ -97,6 +97,49 @@ for (const view of ['projects', 'usage', 'settings', 'next', 'cockpit']) {
   }));
 }
 
+// The all-provider usage dialog is a modal surface — audit it OPEN, with a representative snapshot
+// (the harness cannot supply real provider credentials, and an empty dialog would audit nothing).
+{
+  const snapshot = {
+    fetchedAt: Date.now(),
+    providers: [
+      { providerId: 'claude', state: 'ready', planLabel: 'Max 20x', credits: { hasCredits: true, balance: 12.5, spent: 3.25, currency: 'USD' }, guidance: null, fetchedAt: Date.now(), limits: [
+        { id: 'claude:session', kind: 'session', label: 'usage.limit_session', percent: 42, resetAt: Date.now() + 7200_000, modelLabel: null },
+        { id: 'claude:seven_day:fable-5', kind: 'model-weekly', label: 'usage.limit_model_weekly', percent: 91, resetAt: Date.now() + 259200_000, modelLabel: 'Fable 5' },
+      ] },
+      { providerId: 'codex', state: 'stale', planLabel: 'plus', credits: null, guidance: null, fetchedAt: Date.now(), staleSince: Date.now() - 480_000, limits: [
+        { id: 'codex:primary', kind: 'primary', label: 'usage.limit_primary', percent: 18, resetAt: Date.now() + 18000_000, modelLabel: null },
+      ] },
+      { providerId: 'antigravity', state: 'unsupported', planLabel: null, credits: null, fetchedAt: Date.now(), limits: [], guidance: { commands: ['/usage', '/quota', '/credits'] } },
+    ],
+  };
+  await win.evaluate(async (s) => {
+    document.dispatchEvent(new CustomEvent('devdeck:usage-open', { detail: { snapshot: s } }));
+    await new Promise((r) => setTimeout(r, 300));
+  }, snapshot);
+  const dialog = await win.evaluate(() => {
+    const d = document.querySelector('.usage-modal');
+    return {
+      present: !!d,
+      role: d?.getAttribute('role') === 'dialog',
+      ariaModal: d?.getAttribute('aria-modal') === 'true',
+      closeLabelled: !!document.querySelector('.um-close')?.getAttribute('aria-label'),
+      sections: document.querySelectorAll('.um-provider').length,
+    };
+  });
+  ipc.usageDialog = dialog;
+  await win.evaluate(axeCore.source);
+  const res = await win.evaluate(async () =>
+    // eslint-disable-next-line no-undef
+    await window.axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] }),
+  );
+  a11y['usage-dialog'] = res.violations.map((v) => ({
+    id: v.id, impact: v.impact, n: v.nodes.length, help: v.help,
+    targets: v.nodes.slice(0, 5).map((n) => n.target.join(' ')),
+  }));
+  await win.evaluate(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+}
+
 writeFileSync(join(out, '_audit.json'), JSON.stringify({ ipc, a11y }, null, 2));
 console.log('IPC:', JSON.stringify(ipc));
 for (const v of Object.keys(a11y)) console.log(`a11y ${v}: ${a11y[v].length} violations`, a11y[v].map((x) => `${x.id}(${x.impact},${x.n})`).join(', '));
@@ -108,13 +151,15 @@ const criticalViolations = Object.entries(a11y).flatMap(([view, viols]) =>
 const surfaceFails = Object.entries(ipc.surface).filter(([, v]) => v === false);
 const titlebarFails = Object.entries(ipc.titlebar).filter(([, v]) => v === false);
 const gitInfoFail = ipc.cockpitGitInfo !== true;
+const dialogFails = Object.entries(ipc.usageDialog ?? {}).filter(([k, v]) => (k === 'sections' ? v !== 3 : v === false));
 
-if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail) {
+if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0) {
   console.error('QA FAILED:');
   if (criticalViolations.length > 0) console.error('  a11y critical/serious:', JSON.stringify(criticalViolations, null, 2));
   if (surfaceFails.length > 0) console.error('  ipc.surface checks failed:', surfaceFails.map(([k]) => k).join(', '));
   if (titlebarFails.length > 0) console.error('  ipc.titlebar checks failed:', titlebarFails.map(([k]) => k).join(', '));
   if (gitInfoFail) console.error('  cockpit.gitInfo did not resolve a branch for the repo root:', ipc.cockpitGitInfo, '· raw gitInfo:', JSON.stringify(gitInfoRaw));
+  if (dialogFails.length > 0) console.error('  usage dialog checks failed:', JSON.stringify(ipc.usageDialog));
   process.exit(1);
 }
 console.log('done');

@@ -41,6 +41,15 @@ async function load(): Promise<void> {
 function render(r: UsageReport): void {
   viewEl.replaceChildren();
 
+  // This page is Claude-only LOCAL log analytics — say so explicitly, so it is never mistaken for
+  // cross-provider accounting. Live subscription limits for every provider live in the footer's
+  // "All usage" dialog instead.
+  const head = document.createElement('div'); head.className = 'usage-scope';
+  const h = document.createElement('h2'); h.className = 'usage-scope-title'; h.textContent = tr('usage.local_title');
+  const p = document.createElement('p'); p.className = 'usage-scope-note'; p.textContent = tr('usage.local_explainer');
+  head.append(h, p);
+  viewEl.appendChild(head);
+
   const bar = document.createElement('div'); bar.className = 'usage-toolbar';
   for (const rg of RANGES) {
     const b = document.createElement('button'); b.className = 'chip' + (rg.key === activeRange ? ' active' : ''); b.textContent = rg.key === 'all' ? tr('usage.range_all') : rg.label;

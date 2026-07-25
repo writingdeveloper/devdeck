@@ -34,7 +34,8 @@ declare global {
       createProject(parent: string, name: string): Promise<import('../main/createProject').CreateProjectResult>;
       setViewMode(mode: 'cards' | 'list'): Promise<void>;
       setCockpitSidebar(collapsed: boolean): Promise<void>;
-      usageWindows(): Promise<import('../shared/usageWindows').UsageResult>;
+      usageSnapshot(): Promise<import('../shared/usageWindows').UsageSnapshot | null>;
+      refreshUsageProviders(opts?: { force?: boolean }): Promise<import('../shared/usageWindows').UsageSnapshot>;
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
       downloadUpdate(): Promise<void>;
       installUpdate(): Promise<void>;

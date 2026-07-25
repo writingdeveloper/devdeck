@@ -1,100 +1,82 @@
 // src/main/claudeUsage.test.ts
 import { describe, it, expect } from 'vitest';
-import { getUsageWindows, type UsageDeps } from './claudeUsage';
+import { getClaudeUsage, type UsageDeps } from './claudeUsage';
 
 const ISO = '2026-06-15T14:32:00Z';
 const baseCreds = { accessToken: 'tok-secret', subscriptionType: 'max', expiresAt: 9_999_999_999_999 };
 
 function deps(over: Partial<UsageDeps> = {}): UsageDeps {
-  let cache: any = null;
   return {
     now: () => 1000,
     env: {},
     readCredentials: () => baseCreds,
     fetchUsage: async () => ({ ok: true, body: { five_hour: { utilization: 18, resets_at: ISO }, seven_day: { utilization: 31, resets_at: ISO } } }),
-    cacheRead: () => cache,
-    cacheWrite: (c: any) => { cache = c; },
     ...over,
   };
 }
 
-describe('getUsageWindows', () => {
-  it('returns data + plan from a fresh fetch', async () => {
-    const r = await getUsageWindows(deps());
-    expect(r).toEqual({ enabled: true, data: { planName: 'Max', fiveHour: 18, sevenDay: 31, fiveHourResetAt: Date.parse(ISO), sevenDayResetAt: Date.parse(ISO) } });
+describe('getClaudeUsage', () => {
+  it('returns normalized limits + plan from a fresh fetch', async () => {
+    const r = await getClaudeUsage(deps());
+    expect(r.providerId).toBe('claude');
+    expect(r.state).toBe('ready');
+    expect(r.planLabel).toBe('Max');
+    expect(r.limits.map((l) => [l.kind, l.percent])).toEqual([['session', 18], ['weekly', 31]]);
+    expect(r.fetchedAt).toBe(1000);
   });
 
   it('never leaks the access token in the result', async () => {
-    const r = await getUsageWindows(deps());
-    expect(JSON.stringify(r)).not.toContain('tok-secret');
+    expect(JSON.stringify(await getClaudeUsage(deps()))).not.toContain('tok-secret');
   });
 
   it('surfaces the Max tier from subscriptionType when encoded', async () => {
-    const r20 = await getUsageWindows(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max_20x' }) }));
-    expect((r20 as { data: { planName: string } }).data.planName).toBe('Max 20x');
-    const r5 = await getUsageWindows(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max5x' }) }));
-    expect((r5 as { data: { planName: string } }).data.planName).toBe('Max 5x');
-    const rplain = await getUsageWindows(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max' }) }));
-    expect((rplain as { data: { planName: string } }).data.planName).toBe('Max');
+    expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max_20x' }) }))).planLabel).toBe('Max 20x');
+    expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max5x' }) }))).planLabel).toBe('Max 5x');
+    expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'max' }) }))).planLabel).toBe('Max');
   });
 
-  it('no credentials => error no-credentials', async () => {
-    const r = await getUsageWindows(deps({ readCredentials: () => null }));
-    expect(r).toEqual({ enabled: true, error: 'no-credentials' });
+  it('carries model-scoped weekly limits and credits through', async () => {
+    const r = await getClaudeUsage(deps({
+      fetchUsage: async () => ({ ok: true, body: {
+        limits: [
+          { type: 'five_hour', utilization: 9, resets_at: ISO },
+          { type: 'seven_day', utilization: 55, resets_at: ISO, model: 'fable-5', model_display_name: 'Fable 5' },
+        ],
+        extra_usage: { has_credits: true, balance: 8, spent: 2, currency: 'USD' },
+      } }),
+    }));
+    expect(r.limits.find((l) => l.kind === 'model-weekly')?.modelLabel).toBe('Fable 5');
+    expect(r.credits).toEqual({ hasCredits: true, balance: 8, spent: 2, currency: 'USD' });
   });
 
-  it('expired token => error expired', async () => {
-    const r = await getUsageWindows(deps({ readCredentials: () => ({ ...baseCreds, expiresAt: 500 }) }));
-    expect(r).toEqual({ enabled: true, error: 'expired' });
+  it('no credentials => login-required', async () => {
+    expect((await getClaudeUsage(deps({ readCredentials: () => null }))).state).toBe('login-required');
+  });
+
+  it('locally expired token => expired (the coordinator keeps showing last-good)', async () => {
+    expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, expiresAt: 500 }) }))).state).toBe('expired');
   });
 
   it('api subscription => not-applicable', async () => {
-    const r = await getUsageWindows(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'api' }) }));
-    expect(r).toEqual({ enabled: true, error: 'not-applicable' });
+    expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'api' }) }))).state).toBe('not-applicable');
   });
 
-  it('custom endpoint => not-applicable (no fetch)', async () => {
+  it('custom endpoint => not-applicable and no fetch at all', async () => {
     let fetched = false;
-    const r = await getUsageWindows(deps({ env: { ANTHROPIC_BASE_URL: 'https://proxy.example' }, fetchUsage: async () => { fetched = true; return { ok: false, status: 0 }; } }));
+    const r = await getClaudeUsage(deps({ env: { ANTHROPIC_BASE_URL: 'https://proxy.example' }, fetchUsage: async () => { fetched = true; return { ok: false, status: 0 }; } }));
     expect(fetched).toBe(false);
-    expect(r).toEqual({ enabled: true, error: 'not-applicable' });
+    expect(r.state).toBe('not-applicable');
   });
 
-  it('serves cache when fresh (<5min) without fetching', async () => {
-    let calls = 0;
-    const cached = { timestamp: 1000, data: { planName: 'Max', fiveHour: 5, sevenDay: 5, fiveHourResetAt: 1, sevenDayResetAt: 1 } };
-    const r = await getUsageWindows(deps({ now: () => 1000 + 4 * 60_000, cacheRead: () => cached, fetchUsage: async () => { calls++; return { ok: true, body: {} }; } }));
-    expect(calls).toBe(0);
-    expect(r).toEqual({ enabled: true, data: cached.data });
+  it('maps HTTP failures: 401 => expired, 429 => rate-limited, other => offline', async () => {
+    expect((await getClaudeUsage(deps({ fetchUsage: async () => ({ ok: false, status: 401 }) }))).state).toBe('expired');
+    expect((await getClaudeUsage(deps({ fetchUsage: async () => ({ ok: false, status: 429 }) }))).state).toBe('rate-limited');
+    expect((await getClaudeUsage(deps({ fetchUsage: async () => ({ ok: false, status: 500 }) }))).state).toBe('offline');
   });
 
-  it('rate-limited => serves last-good if present else error', async () => {
-    const cached = { timestamp: 1000, data: { planName: 'Max', fiveHour: 7, sevenDay: 9, fiveHourResetAt: 1, sevenDayResetAt: 1 } };
-    const r = await getUsageWindows(deps({ now: () => 1000 + 10 * 60_000, cacheRead: () => cached, fetchUsage: async () => ({ ok: false, status: 429 }) }));
-    expect(r).toEqual({ enabled: true, data: cached.data });
-  });
-
-  it('offline with no cache => error offline', async () => {
-    const r = await getUsageWindows(deps({ fetchUsage: async () => ({ ok: false, status: 0 }) }));
-    expect(r).toEqual({ enabled: true, error: 'offline' });
-  });
-
-  it('expired token but last-good cache present => serves last-good (no blank "unavailable")', async () => {
-    // token expired AND the cache is stale (>5min) so the fresh-TTL path doesn't fire — must still
-    // keep showing the recent numbers through the brief Claude-Code token-refresh gap, not blank out.
-    const cached = { timestamp: 1000, data: { planName: 'Max', fiveHour: 12, sevenDay: 20, fiveHourResetAt: 1, sevenDayResetAt: 1 } };
-    const r = await getUsageWindows(deps({ now: () => 1000 + 10 * 60_000, cacheRead: () => cached, readCredentials: () => ({ ...baseCreds, expiresAt: 500 }) }));
-    expect(r).toEqual({ enabled: true, data: cached.data });
-  });
-
-  it('401 from the usage API => error expired (token rejected → re-login), not offline', async () => {
-    const r = await getUsageWindows(deps({ fetchUsage: async () => ({ ok: false, status: 401 }) }));
-    expect(r).toEqual({ enabled: true, error: 'expired' });
-  });
-
-  it('401 but last-good cache present => serves last-good', async () => {
-    const cached = { timestamp: 1000, data: { planName: 'Max', fiveHour: 4, sevenDay: 6, fiveHourResetAt: 1, sevenDayResetAt: 1 } };
-    const r = await getUsageWindows(deps({ now: () => 1000 + 10 * 60_000, cacheRead: () => cached, fetchUsage: async () => ({ ok: false, status: 401 }) }));
-    expect(r).toEqual({ enabled: true, data: cached.data });
+  it('unparseable body => offline with no partial limits', async () => {
+    const r = await getClaudeUsage(deps({ fetchUsage: async () => ({ ok: true, body: 'nonsense' }) }));
+    expect(r.state).toBe('offline');
+    expect(r.limits).toEqual([]);
   });
 });

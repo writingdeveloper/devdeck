@@ -8,7 +8,7 @@ import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, re
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
-import { mountUsageBar, refreshUsageBar } from './usageBar';
+import { mountUsageBar, refreshUsageBar, rerenderUsageBar } from './usageBar';
 import { mountShutdown, refreshShutdownLabels } from './shutdown';
 
 const toastHost = document.getElementById('toast-host')!;
@@ -105,7 +105,7 @@ async function applyLanguage(lang: string): Promise<void> {
   await window.devdeck.setLanguage(lang);
   setLanguage(lang);
   applyStaticLabels();
-  void refreshUsageBar();
+  rerenderUsageBar(); // re-render the cached snapshot; a language switch must not re-poll providers
   if (lastUpdatePayload) renderUpdate(lastUpdatePayload);
   renderProjects();
   if (document.getElementById('view-usage')!.classList.contains('active')) showUsage();

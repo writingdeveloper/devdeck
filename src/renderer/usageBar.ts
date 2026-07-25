@@ -1,70 +1,94 @@
 import { tr } from './i18n-runtime';
-import { severity, formatReset, usageErrorKey, type UsageResult, type UsageWindows } from '../shared/usageWindows';
+import { createProviderLogo } from './providerLogo';
+import { openUsageModal, renderUsageModal, isUsageModalOpen } from './usageModal';
+import { summarizeProviderUsage } from '../shared/usagePresentation';
+import { usageSeverity, formatReset, type UsageSnapshot } from '../shared/usageWindows';
 
 const POLL_MS = 5 * 60_000;
 let el: HTMLElement;
 let timer: ReturnType<typeof setInterval> | null = null;
+let snapshot: UsageSnapshot | null = null;
+let refreshInFlight: Promise<UsageSnapshot> | null = null;
+
+/** The last snapshot the renderer received — language switches re-render THIS instead of re-polling. */
+export function currentUsageSnapshot(): UsageSnapshot | null { return snapshot; }
 
 export function mountUsageBar(): void {
   el = document.getElementById('usage-bar')!;
-  el.addEventListener('click', () => document.querySelector<HTMLButtonElement>('.rail-item[data-view="usage"]')?.click());
-  void refreshUsageBar();
+  // Render whatever is cached first (instant), then refresh in the background.
+  void window.devdeck.usageSnapshot()
+    .then((s) => { if (s) { snapshot = s; render(); } })
+    .catch(() => { /* first paint just waits for the refresh */ })
+    .finally(() => { void refreshUsageBar(); });
   window.addEventListener('focus', () => { void refreshUsageBar(); });
+  // Opening the all-usage dialog from outside the footer (QA harness today, a keyboard shortcut
+  // later): `detail.snapshot` overrides what is rendered, otherwise the live one is used.
+  document.addEventListener('devdeck:usage-open', (e) => {
+    const detail = (e as CustomEvent<{ snapshot?: UsageSnapshot }>).detail;
+    openUsageModal(detail?.snapshot ?? snapshot, null);
+  });
 }
 
-/** Re-fetch + re-render. Called on mount, focus, the 5-min timer, and after the settings toggle changes. */
-export async function refreshUsageBar(): Promise<void> {
-  let res: UsageResult;
-  try { res = await window.devdeck.usageWindows(); } catch { res = { enabled: true, error: 'offline' }; }
-  if (!res.enabled) { el.classList.add('hidden'); stopTimer(); return; }
-  if ('error' in res) {
-    // null = not a Claude subscriber / not logged in → hide (no nagging); otherwise a specific,
-    // actionable message (expired→re-login / rate-limited / offline).
-    const key = usageErrorKey(res.error);
-    if (key) renderMsg(key); else el.classList.add('hidden');
-    startTimer();
-    return;
-  }
-  renderData(res.data);
-  startTimer();
+/**
+ * Re-fetch every installed provider and re-render the footer (and the modal, if open).
+ * One shared promise: a focus event, the timer, and a manual refresh arriving together do ONE round.
+ */
+export function refreshUsageBar(force = false): Promise<UsageSnapshot> {
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = window.devdeck.refreshUsageProviders({ force })
+    .then((s) => { snapshot = s; render(); renderUsageModal(s); return s; })
+    .catch(() => { render(); return snapshot ?? { providers: [], fetchedAt: Date.now() }; })
+    .finally(() => { refreshInFlight = null; startTimer(); });
+  return refreshInFlight;
+}
+
+/** Re-render from the cached snapshot (language change) without asking providers for anything. */
+export function rerenderUsageBar(): void {
+  if (el) { render(); renderUsageModal(snapshot); }
 }
 
 function startTimer(): void { if (!timer) timer = setInterval(() => { void refreshUsageBar(); }, POLL_MS); }
-function stopTimer(): void { if (timer) { clearInterval(timer); timer = null; } }
 
-function renderMsg(key: string): void {
+function render(): void {
+  if (!el) return;
+  const providers = snapshot?.providers ?? [];
+  // Hide only when there is NOTHING to say — a single unavailable provider must not blank the row.
+  if (providers.length === 0) { el.classList.add('hidden'); el.replaceChildren(); return; }
   el.classList.remove('hidden');
   el.replaceChildren();
-  const m = document.createElement('span'); m.className = 'ub-msg'; m.textContent = tr(key);
-  el.appendChild(m);
-}
 
-function meter(labelKey: string, pct: number | null, resetAt: number | null): HTMLElement {
-  const wrap = document.createElement('span'); wrap.className = 'ub-meter';
-  const lab = document.createElement('span'); lab.className = 'ub-lab'; lab.textContent = tr(labelKey);
-  const track = document.createElement('span'); track.className = 'ub-track';
-  const fill = document.createElement('span'); fill.className = 'ub-fill';
-  const val = document.createElement('span'); val.className = 'ub-val';
-  if (pct == null) { val.textContent = '—'; }
-  else { fill.classList.add(severity(pct)); fill.style.width = `${pct}%`; val.textContent = `${pct}%`; }
-  track.appendChild(fill);
-  wrap.append(lab, track, val);
-  // Each window shows ITS OWN reset (↻ countdown) so 5h vs weekly is never ambiguous;
-  // the tooltip names the window and the exact reset clock time.
-  if (resetAt) {
-    const rst = document.createElement('span'); rst.className = 'ub-rst';
-    rst.textContent = `↻ ${formatReset(resetAt, Date.now(), tr)}`;
-    wrap.appendChild(rst);
-    wrap.title = `${tr(labelKey)} ${pct ?? '—'}% · ${new Date(resetAt).toLocaleString()} ${tr('usage.bar_reset')}`;
+  const cluster = document.createElement('span'); cluster.className = 'ub-providers';
+  for (const p of providers) cluster.appendChild(createProviderLogo(p.providerId, 'ck-provider-logo sm'));
+  el.appendChild(cluster);
+
+  const summary = summarizeProviderUsage(snapshot);
+  const box = document.createElement('span'); box.className = 'ub-summary';
+  if (summary.kind === 'limit' && summary.limit) {
+    const pct = summary.limit.percent!;
+    const lab = document.createElement('span'); lab.className = 'ub-lab';
+    lab.textContent = summary.limit.modelLabel ?? tr(summary.limit.label);
+    const track = document.createElement('span'); track.className = 'ub-track';
+    const fill = document.createElement('span'); fill.className = `ub-fill ${usageSeverity(pct)}`; fill.style.width = `${pct}%`;
+    track.appendChild(fill);
+    const val = document.createElement('span'); val.className = 'ub-val'; val.textContent = `${pct}%`;
+    box.append(lab, track, val);
+    if (summary.limit.resetAt) {
+      const rst = document.createElement('span'); rst.className = 'ub-rst';
+      rst.textContent = `↻ ${formatReset(summary.limit.resetAt, Date.now(), tr)}`;
+      box.appendChild(rst);
+    }
+    if (summary.stale) { const st = document.createElement('span'); st.className = 'ub-stale'; st.textContent = tr('usage.state_stale'); box.appendChild(st); }
+  } else {
+    const m = document.createElement('span'); m.className = 'ub-msg'; m.textContent = tr(summary.messageKey!);
+    box.appendChild(m);
   }
-  return wrap;
-}
+  el.appendChild(box);
 
-function renderData(d: UsageWindows): void {
-  el.classList.remove('hidden');
-  el.replaceChildren();
-  if (d.planName) { const p = document.createElement('span'); p.className = 'ub-plan'; p.textContent = `✦ ${d.planName}`; el.appendChild(p); }
-  el.appendChild(meter('usage.bar_5h', d.fiveHour, d.fiveHourResetAt));
-  const dot = document.createElement('span'); dot.className = 'ub-dot'; dot.textContent = '·'; el.appendChild(dot);
-  el.appendChild(meter('usage.bar_week', d.sevenDay, d.sevenDayResetAt));
+  const sp = document.createElement('span'); sp.className = 'ub-sp'; el.appendChild(sp);
+  // A real button (not the whole bar) — the footer must not navigate to the Claude-only analytics page.
+  const all = document.createElement('button'); all.className = 'ub-all'; all.type = 'button';
+  all.textContent = tr('usage.all_usage');
+  all.addEventListener('click', () => openUsageModal(snapshot, all));
+  el.appendChild(all);
+  if (isUsageModalOpen()) renderUsageModal(snapshot);
 }

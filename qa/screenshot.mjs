@@ -254,6 +254,91 @@ if (usageFill.fillWidth <= 0 || usageFill.trackWidth <= 0) {
   process.exit(1);
 }
 
+// All-provider usage dialog. window.devdeck is a frozen contextBridge object and CI has no provider
+// credentials, so the deterministic snapshot is delivered through the documented open event. The key
+// guarantee under test: opening/closing the overlay changes NO other geometry (the cockpit terminal
+// must never resize), and the dialog is fully keyboard-operable.
+const SNAPSHOT = {
+  fetchedAt: Date.now(),
+  providers: [
+    { providerId: 'claude', state: 'ready', planLabel: 'Max 20x', credits: { hasCredits: true, balance: 12.5, spent: 3.25, currency: 'USD' }, guidance: null, fetchedAt: Date.now(), limits: [
+      { id: 'claude:session', kind: 'session', label: 'usage.limit_session', percent: 42, resetAt: Date.now() + 2 * 3600_000, modelLabel: null },
+      { id: 'claude:weekly', kind: 'weekly', label: 'usage.limit_weekly', percent: 76, resetAt: Date.now() + 3 * 86400_000, modelLabel: null },
+      { id: 'claude:seven_day:fable-5', kind: 'model-weekly', label: 'usage.limit_model_weekly', percent: 91, resetAt: Date.now() + 3 * 86400_000, modelLabel: 'Fable 5' },
+    ] },
+    { providerId: 'codex', state: 'stale', planLabel: 'plus', credits: null, guidance: null, fetchedAt: Date.now(), staleSince: Date.now() - 8 * 60_000, limits: [
+      { id: 'codex:primary', kind: 'primary', label: 'usage.limit_primary', percent: 18, resetAt: Date.now() + 5 * 3600_000, modelLabel: null },
+      { id: 'codex:secondary', kind: 'secondary', label: 'usage.limit_secondary', percent: 4, resetAt: null, modelLabel: null },
+    ] },
+    { providerId: 'antigravity', state: 'unsupported', planLabel: null, credits: null, fetchedAt: Date.now(), limits: [], guidance: { commands: ['/usage', '/quota', '/credits'] } },
+  ],
+};
+
+const geometry = () => win.evaluate(() => {
+  const r = (sel) => { const el = document.querySelector(sel); if (!el) return null; const b = el.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]; };
+  return { shell: r('#shell'), content: r('#content'), terms: r('.ck-terms'), xterm: r('.xterm'), footer: r('#usage-bar') };
+});
+
+await showView('cockpit');
+const beforeGeo = await geometry();
+const modal = await win.evaluate(async (snapshot) => {
+  document.dispatchEvent(new CustomEvent('devdeck:usage-open', { detail: { snapshot } }));
+  await new Promise((r) => setTimeout(r, 250));
+  const dlg = document.querySelector('.usage-modal');
+  return {
+    open: !!dlg,
+    role: dlg?.getAttribute('role'),
+    modal: dlg?.getAttribute('aria-modal'),
+    labelled: !!dlg?.getAttribute('aria-labelledby') && !!document.getElementById(dlg.getAttribute('aria-labelledby'))?.textContent?.trim(),
+    closeLabelled: !!document.querySelector('.um-close')?.getAttribute('aria-label'),
+    sections: document.querySelectorAll('.um-provider').length,
+    limits: document.querySelectorAll('.um-limit').length,
+    commands: document.querySelectorAll('.um-cmd').length,
+    focusOnClose: document.activeElement?.classList.contains('um-close'),
+  };
+}, SNAPSHOT);
+await shot('all-provider-usage');
+const openGeo = await geometry();
+console.log(`usage modal: open=${modal.open} role=${modal.role} ariaModal=${modal.modal} labelled=${modal.labelled} closeLabelled=${modal.closeLabelled} sections=${modal.sections} limits=${modal.limits} copyCommands=${modal.commands} focusMoved=${modal.focusOnClose}`);
+if (!modal.open || modal.role !== 'dialog' || modal.modal !== 'true' || !modal.labelled || !modal.closeLabelled || modal.sections !== 3 || modal.limits !== 5 || modal.commands !== 3 || !modal.focusOnClose) {
+  console.error('QA FAILED — all-provider usage dialog structure/accessibility regressed.');
+  await closeApp();
+  process.exit(1);
+}
+
+// Keyboard: Tab wraps inside the dialog, Escape closes it, and focus returns to the page.
+const keyboard = await win.evaluate(async () => {
+  const dlg = document.querySelector('.usage-modal');
+  const buttons = Array.from(dlg.querySelectorAll('button:not([disabled])'));
+  buttons[buttons.length - 1].focus();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+  const wrappedForward = document.activeElement === buttons[0];
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+  const wrappedBack = document.activeElement === buttons[buttons.length - 1];
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await new Promise((r) => setTimeout(r, 150));
+  return { wrappedForward, wrappedBack, closed: !document.querySelector('.usage-modal') };
+});
+const afterGeo = await geometry();
+console.log(`usage modal keyboard: tabWrap=${keyboard.wrappedForward} shiftTabWrap=${keyboard.wrappedBack} escapeCloses=${keyboard.closed}`);
+if (!keyboard.wrappedForward || !keyboard.wrappedBack || !keyboard.closed) {
+  console.error('QA FAILED — usage dialog is not fully keyboard-operable (Tab wrap / Escape).');
+  await closeApp();
+  process.exit(1);
+}
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+console.log(`usage modal geometry: unchangedWhileOpen=${same(beforeGeo, openGeo)} unchangedAfterClose=${same(beforeGeo, afterGeo)} footerHeight=${beforeGeo.footer ? beforeGeo.footer[3] : 'hidden'}`);
+if (!same(beforeGeo, openGeo) || !same(beforeGeo, afterGeo)) {
+  console.error(`QA FAILED — opening the usage dialog changed layout geometry (a terminal resize storm). before=${JSON.stringify(beforeGeo)} open=${JSON.stringify(openGeo)} after=${JSON.stringify(afterGeo)}`);
+  await closeApp();
+  process.exit(1);
+}
+if (beforeGeo.footer && beforeGeo.footer[3] !== 26) {
+  console.error(`QA FAILED — usage footer must stay 26px (got ${beforeGeo.footer[3]}px); it would steal terminal height.`);
+  await closeApp();
+  process.exit(1);
+}
+
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));
 console.log(`\nconsole errors: ${consoleErrors.length}, page errors: ${pageErrors.length}`);
 
