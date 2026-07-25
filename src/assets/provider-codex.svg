@@ -1,6 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-hidden="true">
-  <!-- Codex: terminal-style chevron + rule inside a ring. Fixed strokes (no currentColor) for #101218. -->
-  <circle cx="12" cy="12" r="9.2" fill="none" stroke="#10a37f" stroke-width="1.6"/>
-  <path d="M8.4 9.2 11.2 12l-2.8 2.8" fill="none" stroke="#e6f4ef" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M12.8 15.1h3.2" fill="none" stroke="#e6f4ef" stroke-width="1.7" stroke-linecap="round"/>
+  <!-- Codex = OpenAI/ChatGPT: the blossom knot, drawn as three interlocking rings 60° apart.
+       Fixed strokes (no currentColor) so the mark stays legible on #101218; one stroke width that
+       still reads at the 16px row size and at the 24px header size. -->
+  <g fill="none" stroke="#f4f5f7" stroke-width="1.35">
+    <ellipse cx="12" cy="12" rx="9.2" ry="4.6"/>
+    <ellipse cx="12" cy="12" rx="9.2" ry="4.6" transform="rotate(60 12 12)"/>
+    <ellipse cx="12" cy="12" rx="9.2" ry="4.6" transform="rotate(120 12 12)"/>
+  </g>
 </svg>

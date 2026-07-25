@@ -148,6 +148,11 @@ button.primary:hover { background: var(--accent-hover); }
 .session-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
 .session-row { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); }
 .session-row .when { font-family: var(--mono); color: var(--text-faint); }
+/* Provider marks on the deck: which agent(s) wrote this project's history. Flex row so a project with
+   both Claude and Codex conversations shows both marks without shifting the text baseline. */
+.proj-providers { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
+.session-row .ck-provider-logo, .sessions-head .ck-provider-logo { flex: 0 0 auto; }
+.prow-sess { display: inline-flex; align-items: center; justify-content: flex-end; gap: 5px; }
 .session-row .msg { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .note-ghost { color: var(--text-dim); font-size: 12px; margin: 8px 0; cursor: text; }
@@ -550,6 +555,11 @@ button.primary:hover { background: var(--accent-hover); }
 #usage-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; height: 26px; min-height: 26px; max-height: 26px; padding: 0 12px; background: #0d0e12; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); user-select: none; }
 #usage-bar.hidden { display: none; }
 .ub-providers { display: inline-flex; align-items: center; gap: 5px; }
+/* The footer reports ONE provider (the selected session's). Its mark is fully lit; the other
+   installed providers stay dimmed, so the number is never read against the wrong mark. Dimming is a
+   redundant cue — the summary also carries the provider name as its title/aria-current. */
+.ub-providers .ck-provider-logo { opacity: .45; }
+.ub-providers .ck-provider-logo.active { opacity: 1; }
 .ub-summary { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; }
 .ub-sp { flex: 1; }
 .ub-stale { color: #7d828c; }

@@ -25,7 +25,8 @@ describe('provider presentation', () => {
       const svg = readFileSync(file, 'utf8');
       expect(svg).toContain('viewBox="0 0 24 24"');
       expect(svg).not.toMatch(/https?:\/\/(?!www\.w3\.org)/); // xmlns is the only allowed absolute URL
-      expect(svg).not.toMatch(/<script|<image|url\(|@import|data:/i);
+      expect(svg).not.toMatch(/<script|<image|@import|data:/i);
+      expect(svg).not.toMatch(/url\((?!#)/i); // url(#localGradient) is fine; anything else would fetch
     }
   });
 });

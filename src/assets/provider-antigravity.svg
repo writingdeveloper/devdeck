@@ -1,5 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" role="img" aria-hidden="true">
-  <!-- Antigravity: rising chevron over an orbit ring. Fixed fills (no currentColor) for #101218. -->
-  <ellipse cx="12" cy="16.6" rx="7.4" ry="2.9" fill="none" stroke="#8ab4f8" stroke-width="1.4" opacity=".75"/>
-  <path d="M12 3.6l5.2 8.1a.9.9 0 0 1-1.1 1.3L12 11.4l-4.1 1.6a.9.9 0 0 1-1.1-1.3z" fill="#4285f4"/>
+  <!-- Antigravity = Google Gemini: the four-point spark with concave sides. Fixed gradient (no
+       currentColor) so the mark stays legible on #101218. -->
+  <defs>
+    <linearGradient id="dd-gemini" x1="3" y1="20" x2="20" y2="4" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1c7cf5"/>
+      <stop offset=".5" stop-color="#4c8df6"/>
+      <stop offset="1" stop-color="#9b72f2"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#dd-gemini)" d="M12 2.2c.9 4.1 2.6 6.7 5.4 8.1l1.9.9c.3.2.3.6 0 .8l-1.9.9c-2.8 1.4-4.5 4-5.4 8.1-.1.4-.7.4-.8 0-.9-4.1-2.6-6.7-5.4-8.1l-1.9-.9c-.3-.2-.3-.6 0-.8l1.9-.9c2.8-1.4 4.5-4 5.4-8.1.1-.4.7-.4.8 0z"/>
 </svg>
