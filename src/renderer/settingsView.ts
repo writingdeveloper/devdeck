@@ -25,6 +25,10 @@ async function render(): Promise<void> {
   const renderRow = (f: Folder) => {
     const row = document.createElement('div'); row.className = 'folder-row';
     const path = document.createElement('span'); path.className = 'folder-path'; path.textContent = f.path;
+    // Read-only label, not an editable control: 'repo' → 'root' would widen the path allowlist to
+    // every descendant, and the ONE invariant here is that the allowlist only ever changes through
+    // the native picker (which a compromised renderer can't confirm on its own). To switch a folder's
+    // kind, add it again with the other button — store.addFolder updates the existing entry in place.
     const kind = document.createElement('span'); kind.className = 'folder-kind';
     kind.textContent = tr(f.kind === 'repo' ? 'set.kind_repo' : 'set.kind_root');
     const rm = document.createElement('button'); rm.className = 'folder-rm'; rm.textContent = '✕';
@@ -33,12 +37,22 @@ async function render(): Promise<void> {
     row.append(path, kind, rm); return row;
   };
   for (const f of folders) list.appendChild(renderRow(f));
-  const add = document.createElement('button'); add.className = 'chip'; add.textContent = tr('set.add_folder');
-  add.addEventListener('click', async () => {
-    const p = await window.devdeck.pickFolder();
-    if (p) { await window.devdeck.addFolder(p); render(); onChangedCb(); }
-  });
-  const listWrap = document.createElement('div'); listWrap.append(list, add);
+
+  // Two explicit buttons instead of one auto-detecting "+ Add folder": which kind you get was
+  // previously decided by whether the picked folder happened to contain a `.git`, so there was no way
+  // to add a single non-git folder as a project, nor to scan a folder that is itself a repo.
+  const addBtn = (labelKey: string, kind: Folder['kind']) => {
+    const b = document.createElement('button'); b.className = 'chip'; b.textContent = tr(labelKey);
+    b.addEventListener('click', async () => {
+      const p = await window.devdeck.pickFolder();
+      if (p) { await window.devdeck.addFolder(p, kind); render(); onChangedCb(); }
+    });
+    return b;
+  };
+  const adds = document.createElement('div'); adds.className = 'folder-adds';
+  adds.append(addBtn('set.add_scan_root', 'root'), addBtn('set.add_project_folder', 'repo'));
+  const hint = document.createElement('p'); hint.className = 'set-hint'; hint.textContent = tr('set.folder_hint');
+  const listWrap = document.createElement('div'); listWrap.append(list, adds, hint);
   host.appendChild(field('set.scan_locations', listWrap));
 
   const mk = (v: number) => { const n = document.createElement('input'); n.type = 'number'; n.min = '1'; n.className = 'set-num'; n.value = String(v); return n; };

@@ -26,6 +26,40 @@ describe('isAllowedPath', () => {
   it('rejects anything when no folders are configured', () => {
     expect(isAllowedPath([], join(root, 'projA'))).toBe(false);
   });
+
+  // A FILESYSTEM ROOT registered as a scan folder keeps its trailing separator through `resolve`
+  // (`E:\`, `/`), so the old `base + sep` prefix built `E:\\` and rejected every project under the
+  // drive — the deck listed them, then "Path outside allowed folders: E:\studios" on open.
+  it('allows children of a filesystem root registered as a scan folder', () => {
+    const drive = [{ path: resolve(sep), kind: 'root' as const }];
+    expect(isAllowedPath(drive, resolve(sep, 'studios'))).toBe(true);
+    expect(isAllowedPath(drive, resolve(sep, 'studios', 'game'))).toBe(true);
+    expect(isAllowedPath(drive, resolve(sep))).toBe(true);
+  });
+  it('treats a trailing separator on any base as the same folder', () => {
+    const trailing = [{ path: root + sep, kind: 'root' as const }];
+    expect(isAllowedPath(trailing, join(root, 'projA'))).toBe(true);
+    expect(isAllowedPath(trailing, root)).toBe(true);
+    expect(isAllowedPath(trailing, resolve(sep, 'work2', 'projA'))).toBe(false);
+    // Same for an exact-match repo entry saved with a trailing separator.
+    expect(isAllowedPath([{ path: repo + sep, kind: 'repo' }], repo)).toBe(true);
+    expect(isAllowedPath([{ path: repo + sep, kind: 'repo' }], join(repo, 'sub'))).toBe(false);
+  });
+
+  // Windows: same file, different casing. The folder list comes from the native picker while paths
+  // reach the guards from the scanner and from text the agent printed, so the casing genuinely differs.
+  const itWin = process.platform === 'win32' ? it : it.skip;
+  const itPosix = process.platform === 'win32' ? it.skip : it;
+  itWin('matches case-insensitively on Windows', () => {
+    expect(isAllowedPath(folders, join(root, 'projA').toUpperCase())).toBe(true);
+    expect(isAllowedPath([{ path: root.toUpperCase(), kind: 'root' }], join(root, 'projA'))).toBe(true);
+    expect(isAllowedPath([{ path: repo.toUpperCase(), kind: 'repo' }], repo)).toBe(true);
+    // Case folding must not turn a mere prefix into a match.
+    expect(isAllowedPath(folders, resolve(sep, 'WORK2', 'projA'))).toBe(false);
+  });
+  itPosix('stays case-SENSITIVE on a case-sensitive filesystem', () => {
+    expect(isAllowedPath(folders, join(root, 'projA').toUpperCase())).toBe(false);
+  });
 });
 
 describe('isAllowedFilePath', () => {
@@ -51,6 +85,16 @@ describe('isAllowedFilePath', () => {
   });
   it('omitting extraRoots preserves prior behavior exactly', () => {
     expect(isAllowedFilePath(folders, join(root, 'projA', 'img.png'))).toBe(true);
+  });
+  it('allows files under a filesystem root registered as a scan folder', () => {
+    const drive = [{ path: resolve(sep), kind: 'root' as const }];
+    expect(isAllowedFilePath(drive, resolve(sep, 'studios', 'game', 'a.png'))).toBe(true);
+  });
+  // The concrete regression: the agent printed a lowercase drive letter for a file under `E:\`.
+  (process.platform === 'win32' ? it : it.skip)('accepts an agent-printed path whose casing differs', () => {
+    const drive = [{ path: resolve(sep), kind: 'root' as const }];
+    expect(isAllowedFilePath(drive, resolve(sep, 'studios', 'shot.png').toLowerCase())).toBe(true);
+    expect(isAllowedFilePath(folders, join(repo, 'assets', 'img.png').toUpperCase())).toBe(true);
   });
 });
 

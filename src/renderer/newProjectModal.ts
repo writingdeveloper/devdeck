@@ -105,7 +105,10 @@ export function openNewProjectModal(onCreated: (path: string) => void): void {
   addLoc.addEventListener('click', async () => {
     const picked = await window.devdeck.pickFolder();
     if (!picked) return;
-    await window.devdeck.addFolder(picked); // a fresh dir registers as a scan root
+    // Explicitly a scan ROOT: this picker chooses where NEW projects get created, and loadRoots only
+    // lists kind:'root'. Auto-detection silently made it 'repo' when the picked dir happened to have a
+    // `.git`, so the folder was added but never appeared in the dropdown.
+    await window.devdeck.addFolder(picked, 'root');
     await loadRoots(picked);
     nameInput.focus();
   });

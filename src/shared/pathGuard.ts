@@ -1,19 +1,47 @@
 import { resolve, sep } from 'node:path';
 import type { Folder } from './types';
 
+// Windows compares paths case-insensitively; every other platform DevDeck runs on does not. Folding
+// case on win32 is required for correctness, not politeness: the paths these guards receive come from
+// different producers with different casing — the folder list from the native picker, project paths
+// from the scanner, and file paths from whatever text the AGENT printed into the terminal. A file the
+// agent wrote as `e:\studios\shot.png` under a folder registered as `E:\` is the same file, and a
+// case-sensitive compare refused to open it.
+const FOLD_CASE = process.platform === 'win32';
+
+/**
+ * Canonical form for comparison: resolved, stripped of the trailing separator a FILESYSTEM ROOT keeps
+ * (`E:\`, `\\srv\share\`, `/`), and case-folded where the OS is case-insensitive.
+ *
+ * The trailing-separator strip is what makes a whole drive usable as a scan folder. Without it the
+ * containment test built the prefix `E:\` + `\` = `E:\\`, which no real child path can ever start
+ * with, so every project under the drive was rejected with "Path outside allowed folders" even though
+ * the scanner had just listed it. Non-root paths never end in a separator and pass through unchanged.
+ *
+ * A POSIX root canonicalises to '' — intentional: '' + '/' === '/' prefixes every absolute path,
+ * which is exactly what registering `/` means. A Windows drive canonicalises to `E:`, so `E:` + `\`.
+ */
+function canon(p: string): string {
+  const stripped = resolve(p).replace(/[\\/]+$/, '');
+  return FOLD_CASE ? stripped.toLowerCase() : stripped;
+}
+
+/** True when `incoming` is `base` itself or lives underneath it. */
+function isWithin(base: string, incoming: string): boolean {
+  const b = canon(base);
+  const r = canon(incoming);
+  return r === b || r.startsWith(b + sep);
+}
+
 /**
  * PROJECT-identity guard: a renderer-supplied path names a valid project only if it is a child of a
  * root folder or exactly a registered repo — a repo's SUBDIRECTORY is not itself a project, so it
  * doesn't match here.
  */
 export function isAllowedPath(folders: Folder[], incoming: string): boolean {
-  const r = resolve(incoming);
-  return folders.some((f) => {
-    const base = resolve(f.path);
-    return f.kind === 'repo'
-      ? r === base
-      : r === base || r.startsWith(base + sep);
-  });
+  return folders.some((f) => (f.kind === 'repo'
+    ? canon(incoming) === canon(f.path)
+    : isWithin(f.path, incoming)));
 }
 
 /**
@@ -23,12 +51,8 @@ export function isAllowedPath(folders: Folder[], incoming: string): boolean {
  * one of `extraRoots` (e.g. the OS temp dir, where agent tooling writes cross-project scratch files).
  */
 export function isAllowedFilePath(folders: Folder[], incoming: string, extraRoots: string[] = []): boolean {
-  const r = resolve(incoming);
   const bases = [...folders.map((f) => f.path), ...extraRoots];
-  return bases.some((base) => {
-    const b = resolve(base);
-    return r === b || r.startsWith(b + sep);
-  });
+  return bases.some((base) => isWithin(base, incoming));
 }
 
 /**

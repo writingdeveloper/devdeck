@@ -179,6 +179,37 @@ describe('settings:addFolder picker handshake', () => {
     await handlers.get('settings:addFolder')!(null, process.cwd());
     expect(storeSpies.addFolder).not.toHaveBeenCalled();
   });
+
+  // The Settings buttons say which kind they mean; auto-detection (a `.git` here ⇒ single folder)
+  // stays only as the no-argument fallback.
+  it('honours an explicit kind from the caller over auto-detection', async () => {
+    for (const kind of ['root', 'repo'] as const) {
+      vi.mocked(dialog.showOpenDialog).mockResolvedValue({ canceled: false, filePaths: [process.cwd()] } as never);
+      await handlers.get('settings:pickFolder')!(null);
+      storeSpies.addFolder.mockClear();
+      await handlers.get('settings:addFolder')!(null, process.cwd(), kind);
+      expect(storeSpies.addFolder).toHaveBeenCalledWith({ path: process.cwd(), kind });
+    }
+  });
+
+  it('ignores a junk kind and falls back to auto-detection', async () => {
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({ canceled: false, filePaths: [process.cwd()] } as never);
+    await handlers.get('settings:pickFolder')!(null);
+    storeSpies.addFolder.mockClear();
+    await handlers.get('settings:addFolder')!(null, process.cwd(), '../../etc');
+    // process.cwd() is this git checkout, so auto-detection sees a .git and calls it a single folder.
+    expect(storeSpies.addFolder).toHaveBeenCalledWith({ path: process.cwd(), kind: 'repo' });
+  });
+
+  it('refuses a blessed path that is not a directory', async () => {
+    const file = join(process.cwd(), 'package.json');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({ canceled: false, filePaths: [file] } as never);
+    await handlers.get('settings:pickFolder')!(null);
+    storeSpies.addFolder.mockClear(); sendError.mockClear();
+    await handlers.get('settings:addFolder')!(null, file);
+    expect(storeSpies.addFolder).not.toHaveBeenCalled();
+    expect(sendError).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('clipboard:readImage (paste a screenshot into the terminal)', () => {

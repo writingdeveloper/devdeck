@@ -91,16 +91,24 @@ export class Store {
     const b = this.state.settings?.baseDir;
     return b ? [{ path: b, kind: 'root' }] : [];
   }
+  /**
+   * Register a folder, or — when it is already registered — update its kind in place, so re-adding a
+   * path as the other kind switches it (the only way to change "scan for repos" ↔ "this one folder is
+   * a project" without removing the entry first). Position in the list is preserved.
+   */
   addFolder(folder: Folder): void {
     const cur = this.state.settings?.folders ?? this.getFolders();
-    const exists = cur.some((x) => resolve(x.path) === resolve(folder.path));
-    const folders = exists ? cur : [...cur, folder];
+    const same = (p: string) => resolve(p).replace(/[\\/]+$/, '') === resolve(folder.path).replace(/[\\/]+$/, '');
+    const folders = cur.some((x) => same(x.path))
+      ? cur.map((x) => (same(x.path) ? folder : x))
+      : [...cur, folder];
     this.state.settings = { ...(this.state.settings ?? {}), folders };
     this.save();
   }
   removeFolder(path: string): void {
     const cur = this.state.settings?.folders ?? this.getFolders();
-    const folders = cur.filter((x) => resolve(x.path) !== resolve(path));
+    const target = resolve(path).replace(/[\\/]+$/, '');
+    const folders = cur.filter((x) => resolve(x.path).replace(/[\\/]+$/, '') !== target);
     this.state.settings = { ...(this.state.settings ?? {}), folders };
     this.save();
   }

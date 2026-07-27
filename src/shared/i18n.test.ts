@@ -71,4 +71,21 @@ describe('locale parity for provider + usage keys', () => {
   it('keeps the X placeholder in the stale-age template', () => {
     for (const [lang, dict] of Object.entries(DICTS)) expect(dict['usage.stale_age'], lang).toContain('X');
   });
+
+  // Whole-dictionary parity, not just the list above: any key added to one locale and forgotten in
+  // another silently renders as English (or the raw key) for that user. Extras are flagged too, so a
+  // key removed from the UI doesn't rot in three files.
+  it('every locale defines exactly the same key set as English', () => {
+    const enKeys = Object.keys(DICTS.en).sort();
+    for (const [lang, dict] of Object.entries(DICTS)) {
+      const keys = Object.keys(dict).sort();
+      expect(keys.filter((k) => !enKeys.includes(k)), `${lang} has keys English lacks`).toEqual([]);
+      expect(enKeys.filter((k) => !keys.includes(k)), `${lang} is missing keys`).toEqual([]);
+    }
+  });
+  it('no locale has an empty string for any key', () => {
+    for (const [lang, dict] of Object.entries(DICTS)) {
+      for (const [k, v] of Object.entries(dict)) expect(String(v).trim(), `${lang} empty ${k}`).not.toBe('');
+    }
+  });
 });

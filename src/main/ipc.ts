@@ -232,7 +232,10 @@ export function registerIpc(cfg: IpcConfig): void {
   // so it accepts only a directory the user just chose via the native pickFolder dialog (a dialog a
   // compromised renderer can't silently confirm) — never an arbitrary path the renderer names itself.
   const blessedFolderPicks = new Set<string>();
-  ipcMain.handle('settings:addFolder', async (_e, p: string) => {
+  // `kind` is the user's own choice from Settings: 'root' = walk it for repos, 'repo' = this folder
+  // IS one project. Omitting it keeps the legacy auto-detection (a `.git` here ⇒ 'repo'), which the
+  // new-project modal and older callers rely on.
+  ipcMain.handle('settings:addFolder', async (_e, p: string, k?: unknown) => {
     const path = String(p).trim().slice(0, 2000);
     if (!blessedFolderPicks.delete(path)) { // one-time consume; false ⇒ this path never came from pickFolder
       cfg.sendError(`Folder must be chosen via the picker: ${path}`);
@@ -240,10 +243,12 @@ export function registerIpc(cfg: IpcConfig): void {
     }
     let isDir = false;
     try { isDir = (await stat(path)).isDirectory(); } catch { isDir = false; }
-    if (isDir) {
-      const kind: Folder['kind'] = (await isRepo(path)) ? 'repo' : 'root';
-      cfg.store.addFolder({ path, kind });
+    if (!isDir) {
+      cfg.sendError(`Not a folder: ${path}`);
+      return effFolders();
     }
+    const kind: Folder['kind'] = k === 'root' || k === 'repo' ? k : ((await isRepo(path)) ? 'repo' : 'root');
+    cfg.store.addFolder({ path, kind });
     return effFolders();
   });
   ipcMain.handle('settings:removeFolder', (_e, p: string) => {

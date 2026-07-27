@@ -23,7 +23,8 @@ declare global {
       setTrayAlertImage(dataUrl: string): void;
       setBaseDir(dir: string): Promise<void>;
       getFolders(): Promise<import('../shared/types').Folder[]>;
-      addFolder(path: string): Promise<import('../shared/types').Folder[]>;
+      /** `kind` omitted ⇒ auto-detect (a `.git` in the folder makes it a single project). */
+      addFolder(path: string, kind?: import('../shared/types').Folder['kind']): Promise<import('../shared/types').Folder[]>;
       removeFolder(path: string): Promise<import('../shared/types').Folder[]>;
       setThresholds(t: { freshDays: number; warnDays: number; neglectedDays: number }): Promise<void>;
       setOpenAtLogin(enabled: boolean): Promise<void>;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import { scanRepos, scanFolders } from './scanner';
@@ -34,6 +34,17 @@ describe('scanRepos', () => {
     expect(repos).toEqual(['projA', 'projB', 'repoX', 'repoY']);
   });
 
+  it('never descends into Windows system directories at a drive root', async () => {
+    // `E:\` is a legitimate scan folder, and these sit at every drive root: `$RECYCLE.BIN` holds
+    // deleted junk and `System Volume Information` throws EPERM on each refresh. Neither starts with
+    // a dot, so only the explicit ignore list keeps them out.
+    for (const name of ['$RECYCLE.BIN', 'System Volume Information', '$WinREAgent', 'Recovery']) {
+      mkdirSync(join(base, name, 'ghost', '.git'), { recursive: true });
+    }
+    const repos = (await scanRepos(base)).map((p) => p.name).sort();
+    expect(repos).toEqual(['projA', 'projB']);
+  });
+
   it('respects an explicit maxDepth of 1 (top level only)', async () => {
     mkdirSync(join(base, 'org', 'repoX', '.git'), { recursive: true });
     const repos = (await scanRepos(base, 1)).map((p) => p.name).sort();
@@ -63,16 +74,35 @@ describe('scanFolders', () => {
     }
   });
 
-  it('skips a repo entry that has no .git, and a non-existent root', async () => {
+  // A `repo` entry is "the user pointed at ONE folder and said this is a project" — an explicit
+  // choice, so it shows up whether or not git has been initialised in it yet.
+  it('keeps a repo entry that has no .git (an explicitly added single folder)', async () => {
     const noGit = mkdtempSync(join(tmpdir(), 'devdeck-nogit-'));
     try {
-      const out = await scanFolders([
-        { path: noGit, kind: 'repo' },                 // no .git -> skipped
-        { path: join(noGit, 'does-not-exist'), kind: 'root' }, // missing -> skipped
-      ]);
-      expect(out).toEqual([]);
+      const out = await scanFolders([{ path: noGit, kind: 'repo' }]);
+      expect(out).toEqual([{ path: noGit, name: basename(noGit) }]);
     } finally {
       rmSync(noGit, { recursive: true, force: true });
+    }
+  });
+
+  it('skips a repo entry / root that does not exist', async () => {
+    const gone = join(tmpdir(), 'devdeck-does-not-exist-xyz');
+    const out = await scanFolders([
+      { path: gone, kind: 'repo' },   // missing -> skipped
+      { path: gone, kind: 'root' },   // missing -> skipped
+    ]);
+    expect(out).toEqual([]);
+  });
+
+  it('skips a repo entry pointing at a FILE rather than a directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'devdeck-file-'));
+    const file = join(dir, 'notes.txt');
+    writeFileSync(file, 'x');
+    try {
+      expect(await scanFolders([{ path: file, kind: 'repo' }])).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

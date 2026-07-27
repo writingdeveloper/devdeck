@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setBaseDir: (dir: string) => ipcRenderer.invoke('settings:setBaseDir', dir),
   getFolders: () => ipcRenderer.invoke('settings:getFolders'),
-  addFolder: (path: string) => ipcRenderer.invoke('settings:addFolder', path),
+  addFolder: (path: string, kind?: 'root' | 'repo') => ipcRenderer.invoke('settings:addFolder', path, kind),
   removeFolder: (path: string) => ipcRenderer.invoke('settings:removeFolder', path),
   setThresholds: (t: { freshDays: number; warnDays: number; neglectedDays: number }) => ipcRenderer.invoke('settings:setThresholds', t),
   setOpenAtLogin: (enabled: boolean) => ipcRenderer.invoke('settings:setOpenAtLogin', enabled),

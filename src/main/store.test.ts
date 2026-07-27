@@ -108,6 +108,31 @@ describe('Store', () => {
     expect(new Store(file).getFolders()).toEqual([{ path: 'E:\\spike', kind: 'repo' }]);
   });
 
+  // Re-adding an existing path with the other kind is the ONLY way to switch a folder between
+  // "scan it for repos" and "this folder is one project" — the Settings row deliberately has no
+  // editable control, so this update-in-place must work (and must not reorder the list).
+  it('re-adding a registered folder switches its kind in place', () => {
+    const s = new Store(file);
+    s.addFolder({ path: 'C:\\work', kind: 'root' });
+    s.addFolder({ path: 'D:\\other', kind: 'root' });
+    s.addFolder({ path: 'C:\\work', kind: 'repo' });
+    expect(new Store(file).getFolders()).toEqual([
+      { path: 'C:\\work', kind: 'repo' },
+      { path: 'D:\\other', kind: 'root' },
+    ]);
+  });
+
+  // A drive root arrives from the picker as `E:\`; matching it against `E:` (or the reverse) must
+  // not create a second entry for the same folder or leave remove unable to find it.
+  it('treats a trailing separator as the same folder for add and remove', () => {
+    const s = new Store(file);
+    s.addFolder({ path: 'E:\\', kind: 'root' });
+    s.addFolder({ path: 'E:\\', kind: 'repo' }); // same folder -> kind updated, not appended
+    expect(s.getFolders()).toEqual([{ path: 'E:\\', kind: 'repo' }]);
+    s.removeFolder('E:\\');
+    expect(new Store(file).getFolders()).toEqual([]);
+  });
+
   it('migrates a legacy baseDir into a single root folder', () => {
     const s = new Store(file);
     s.setBaseDir('C:\\repos');
