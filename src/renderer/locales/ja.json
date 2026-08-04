@@ -180,7 +180,7 @@
   "cockpit.summary": "現在の作業",
   "set.session_summary": "セッション要約行を表示",
   "set.ai_summary": "AI で要約を整える",
-  "set.ai_summary_hint": "ターンが終わるたびに Haiku が 1 行で要約します (Claude の使用量を消費)。",
+  "set.ai_summary_hint": "ターンが終わるたびに、そのセッション自身のエージェント CLI が 1 行で要約します (該当プロバイダーの使用量を消費)。",
   "cockpit.grp_pinned": "ピン留め",
   "cockpit.pin": "上部に固定",
   "cockpit.unpin": "固定を解除",

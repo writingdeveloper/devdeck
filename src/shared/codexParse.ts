@@ -68,6 +68,22 @@ export function codexLastUserMessage(raw: string): string | null {
   return last;
 }
 
+/**
+ * The agent's final message from `codex exec --json` output (JSONL of thread/turn/item events).
+ * Its schema is NOT the rollout's: `{"type":"item.completed","item":{"type":"agent_message","text":…}}`.
+ */
+export function codexExecFinalMessage(raw: string): string | null {
+  let last: string | null = null;
+  for (const record of rolloutRecords(raw)) {
+    if (record.type !== 'item.completed' || !isRecord(record.item)) continue;
+    const item = record.item;
+    if (item.type !== 'agent_message') continue;
+    const text = trimmedText(item.text);
+    if (text) last = text;
+  }
+  return last;
+}
+
 /** Last path segment, without node:path (this module is bundled into the renderer too). */
 function baseName(p: string): string {
   const parts = String(p).split(/[\\/]/);

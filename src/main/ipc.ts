@@ -455,8 +455,9 @@ export function registerIpc(cfg: IpcConfig): void {
     const summary = cfg.store.getSessionSummary()
       ? pickSessionSummary({
         // Always read the cache (so the line doesn't flicker back to a heuristic mid-turn); only queue
-        // a new generation once the turn has finished.
-        ai: source ? aiSummarizer.get(sessionId, meta.mtimeMs, source, wantAi === true) : null,
+        // a new generation once the turn has finished. A session is summarized by ITS OWN provider's
+        // CLI — never Claude's on a Codex session.
+        ai: source ? aiSummarizer.get(sessionId, meta.mtimeMs, source, { queue: wantAi === true, provider }) : null,
         // Claude Code keeps a task list per session; Codex has no plan/task events to read.
         activeForm: provider === 'claude' ? readActiveTaskForm(sessionId, CLAUDE_TASKS, meta.mtimeMs) : null,
         assistantText: meta.assistantText,

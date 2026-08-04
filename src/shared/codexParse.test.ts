@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { codexFirstUserMessage, codexLastUserMessage, codexSessionMeta, codexSummarySources } from './codexParse';
+import { codexFirstUserMessage, codexLastUserMessage, codexSessionMeta, codexSummarySources, codexExecFinalMessage } from './codexParse';
 
 const ID = '019f91b2-fa6d-7971-b19d-c07092dcfc57';
 
@@ -76,5 +76,25 @@ describe('codexSummarySources', () => {
     const raw = ['not json', line({ type: 'event_msg', payload: { type: 'agent_message', message: 'x'.repeat(5000) } })].join('\n');
     expect(codexSummarySources(raw).assistantText!.length).toBeLessThanOrEqual(400);
     expect(codexSummarySources('').editedFiles).toEqual([]);
+  });
+});
+
+// `codex exec --json` speaks a different schema than the rollout: thread/turn/item events.
+describe('codexExecFinalMessage', () => {
+  it('returns the last agent_message item text', () => {
+    const out = [
+      JSON.stringify({ type: 'thread.started', thread_id: '019fcaad-56ae-7703-9d67-249619dace14' }),
+      JSON.stringify({ type: 'turn.started' }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_0', type: 'reasoning', text: '생각 중' } }),
+      JSON.stringify({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: '  사이드바 요약 추가  ' } }),
+      JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 13271 } }),
+    ].join('\n');
+    expect(codexExecFinalMessage(out)).toBe('사이드바 요약 추가');
+  });
+
+  it('returns null when the run produced no agent message', () => {
+    expect(codexExecFinalMessage(JSON.stringify({ type: 'turn.failed', error: { message: 'nope' } }))).toBeNull();
+    expect(codexExecFinalMessage('not json\n')).toBeNull();
+    expect(codexExecFinalMessage('')).toBeNull();
   });
 });

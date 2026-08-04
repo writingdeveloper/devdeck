@@ -180,7 +180,7 @@
   "cockpit.summary": "Working on",
   "set.session_summary": "Show session summary line",
   "set.ai_summary": "Refine the summary with AI",
-  "set.ai_summary_hint": "Runs Haiku once per finished turn (spends your Claude usage).",
+  "set.ai_summary_hint": "Each finished turn is summarized by that session's own agent CLI (spends that provider's usage).",
   "cockpit.grp_pinned": "Pinned",
   "cockpit.pin": "Pin to top",
   "cockpit.unpin": "Unpin",
