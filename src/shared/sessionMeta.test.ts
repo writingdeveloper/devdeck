@@ -40,8 +40,50 @@ describe('parseSessionMeta', () => {
     expect(parseSessionMeta(raw).contextTokens).toBe(690_643); // 2 + 688867 + 1774 (output excluded)
   });
   it('tolerates blank/garbage lines and an empty file', () => {
-    expect(parseSessionMeta('')).toEqual({ model: null, activeMs: 0, contextTokens: 0 });
-    expect(parseSessionMeta('not json\n\n{bad')).toEqual({ model: null, activeMs: 0, contextTokens: 0 });
+    const neutral = { model: null, activeMs: 0, contextTokens: 0, assistantText: null, editedFiles: [], userText: null };
+    expect(parseSessionMeta('')).toEqual(neutral);
+    expect(parseSessionMeta('not json\n\n{bad')).toEqual(neutral);
+  });
+
+  // The sidebar's "what is this session doing" line is built from these three, at no extra I/O:
+  // the same single pass that already reads the log for model/context now also collects them.
+  it('collects the LAST main-chain assistant text, ignoring sidechain turns', () => {
+    const raw = [
+      line({ type: 'assistant', message: { content: [{ type: 'text', text: '첫 응답' }] } }),
+      line({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: '서브에이전트 응답' }] } }),
+      line({ type: 'assistant', message: { content: [{ type: 'text', text: 'v1.24.0 출시 완료' }] } }),
+    ].join('\n');
+    expect(parseSessionMeta(raw).assistantText).toBe('v1.24.0 출시 완료');
+  });
+
+  it('collects edited files from THIS turn only (a new user message resets them), newest first', () => {
+    const raw = [
+      line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'C:\\p\\old.ts' } }] } }),
+      line({ type: 'user', message: { content: '다음 작업' } }), // new turn → the previous turn's files are stale
+      line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'C:\\p\\src\\store.ts' } }] } }),
+      line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/home/p/styles.css' } }] } }),
+      line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'C:\\p\\src\\store.ts' } }] } }), // same file again — not duplicated
+    ].join('\n');
+    expect(parseSessionMeta(raw).editedFiles).toEqual(['store.ts', 'styles.css']);
+  });
+
+  it('ignores edits made by subagents (sidechain) — they are not what the main session is on', () => {
+    const raw = line({ type: 'assistant', isSidechain: true, message: { content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'C:\\p\\sub.ts' } }] } });
+    expect(parseSessionMeta(raw).editedFiles).toEqual([]);
+  });
+
+  it('collects the last GENUINE user message, skipping harness wrappers', () => {
+    const raw = [
+      line({ type: 'user', message: { content: '사이드바에 요약을 붙여줘' } }),
+      line({ type: 'user', message: { content: '<command-name>/clear</command-name>' } }),
+      line({ type: 'user', message: { content: [{ type: 'tool_result', content: 'ok' }] } }), // tool results aren't prompts
+    ].join('\n');
+    expect(parseSessionMeta(raw).userText).toBe('사이드바에 요약을 붙여줘');
+  });
+
+  it('caps the retained text so a multi-MB turn cannot bloat the meta', () => {
+    const raw = line({ type: 'assistant', message: { content: [{ type: 'text', text: 'x'.repeat(5000) }] } });
+    expect(parseSessionMeta(raw).assistantText!.length).toBeLessThanOrEqual(400);
   });
 });
 

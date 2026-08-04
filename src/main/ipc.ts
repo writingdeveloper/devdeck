@@ -35,6 +35,9 @@ import { listCodexSessionStats, indexCodexSessionsByCwd } from './codexSessions'
 import { indexAntigravitySessionsByCwd } from './antigravitySessions';
 import { makeProjectSessionScan } from './sessionScan';
 import { readClaudeSessionMeta } from './sessionMeta';
+import { readActiveTaskForm } from './claudeTasks';
+import { makeAiSummarizer } from './aiSummary';
+import { pickSessionSummary, buildAiSourceText } from '../shared/sessionSummary';
 import type { TrayController } from './tray';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 import type { ShutdownScheduler } from './shutdownScheduler';
@@ -43,6 +46,7 @@ import type { ShutdownLog } from './shutdownLog';
 import type { ShutdownSessionSummary } from '../shared/shutdownIdle';
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
+const CLAUDE_TASKS = join(homedir(), '.claude', 'tasks');
 const CODEX_SESSIONS = join(homedir(), '.codex', 'sessions');
 const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
 const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
@@ -93,6 +97,11 @@ export function registerIpc(cfg: IpcConfig): void {
   // sees a truncated PATH (no /opt/homebrew/bin, ~/.npm-global/bin, …) while the login-shell
   // terminal that actually runs the command resolves it fine — probing there would false-alarm on
   // every open. Async + fire-and-forget so the probe never delays or blocks the actual launch.
+  // Opt-in AI layer for the cockpit's per-session summary line (see aiSummary.ts). Constructed
+  // regardless of the setting — it is inert while disabled — so toggling it needs no restart.
+  const aiSummarizer = makeAiSummarizer();
+  aiSummarizer.setEnabled(cfg.store.getAiSessionSummary());
+
   const cliGuard = makeCliGuard();
   const warnIfCliMissing = (command: string): void => {
     if (process.platform !== 'win32') return;
@@ -211,7 +220,13 @@ export function registerIpc(cfg: IpcConfig): void {
     viewMode: cfg.store.getViewMode(), trayAlert: cfg.store.getTrayAlert(), contextWindow: cfg.store.getContextWindow(),
     shutdownIdleMinutes: cfg.store.getShutdownIdleMinutes(),
     cockpitSidebarCollapsed: cfg.store.getCockpitSidebarCollapsed(),
+    sessionSummary: cfg.store.getSessionSummary(), aiSessionSummary: cfg.store.getAiSessionSummary(),
   }));
+  ipcMain.handle('settings:setSessionSummary', (_e, on: boolean) => cfg.store.setSessionSummary(on === true));
+  ipcMain.handle('settings:setAiSessionSummary', (_e, on: boolean) => {
+    cfg.store.setAiSessionSummary(on === true);
+    aiSummarizer.setEnabled(on === true); // takes effect on the next meta refresh, no restart
+  });
   ipcMain.handle('settings:setCockpitSidebar', (_e, collapsed: boolean) => cfg.store.setCockpitSidebarCollapsed(collapsed)); // store setter owns the strict-boolean coercion
   ipcMain.handle('settings:setContextWindow', (_e, w: number) => cfg.store.setContextWindow(w === 200_000 ? 200_000 : 1_000_000));
   ipcMain.handle('settings:setTrayAlert', (_e, mode: string) => {
@@ -420,10 +435,31 @@ export function registerIpc(cfg: IpcConfig): void {
   // Per-session model + active working time (read from the Claude session log) for the cockpit header/list.
   // Allowlist-guarded like cockpit:gitInfo below — don't read session model/time/context (or ids) for
   // projects outside a scanned folder if a compromised renderer asks. Return each handler's neutral shape.
-  ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string, agentId?: AgentId) => {
-    if (!isAllowedPath(effFolders(), String(projectPath))) return { model: null, activeMs: 0, contextTokens: 0 };
-    if (agentFor(agentId).id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return { model: null, activeMs: 0, contextTokens: 0 };
-    return readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
+  // `wantAi` is the renderer's "this session just finished a turn" signal: asking while it is still
+  // working would spend a haiku call on every 30s tick and summarize a half-done turn.
+  ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string, agentId?: AgentId, wantAi?: boolean) => {
+    const blank = { model: null, activeMs: 0, contextTokens: 0, summary: null, summarySource: null };
+    if (!isAllowedPath(effFolders(), String(projectPath))) return blank;
+    if (agentFor(agentId).id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return blank;
+    const meta = readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
+    // The summary is assembled HERE, not in the renderer: the raw sources (a 400-char assistant turn,
+    // the user's last prompt) stay in main and only the finished one-liner crosses IPC.
+    const source = buildAiSourceText(meta);
+    const summary = cfg.store.getSessionSummary()
+      ? pickSessionSummary({
+        // Always read the cache (so the line doesn't flicker back to a heuristic mid-turn); only queue
+        // a new generation once the turn has finished.
+        ai: source ? aiSummarizer.get(sessionId, meta.mtimeMs, source, wantAi === true) : null,
+        activeForm: readActiveTaskForm(sessionId, CLAUDE_TASKS, meta.mtimeMs),
+        assistantText: meta.assistantText,
+        editedFiles: meta.editedFiles,
+        userText: meta.userText,
+      })
+      : null;
+    return {
+      model: meta.model, activeMs: meta.activeMs, contextTokens: meta.contextTokens,
+      summary: summary?.text ?? null, summarySource: summary?.source ?? null,
+    };
   });
   // ALL of the project's on-disk session ids (mtime-desc) — the restore resolver needs the full set so
   // an older-but-valid saved id is still recognized as existing (listSessions caps at 5, which would

@@ -1,5 +1,5 @@
 import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i18n-runtime';
-import { setCockpitContextWindow, setCockpitTrayAlert } from './cockpitView';
+import { setCockpitContextWindow, setCockpitTrayAlert, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import type { Folder } from '../shared/types';
 import { IDLE_HOLD_CHOICES } from '../shared/shutdownIdle';
 
@@ -98,6 +98,27 @@ async function render(): Promise<void> {
     }
     ctxWin.addEventListener('change', () => { const w = Number(ctxWin.value); void window.devdeck.setContextWindow(w); setCockpitContextWindow(w); });
     host.appendChild(field('set.context_window', ctxWin, ctxWin));
+
+    // Per-session summary line in the cockpit sidebar, and its opt-in AI refinement. The AI box is
+    // disabled while the line itself is off — there would be nothing for it to refine.
+    const sum = document.createElement('input'); sum.type = 'checkbox'; sum.className = 'set-check';
+    sum.checked = s.sessionSummary;
+    const ai = document.createElement('input'); ai.type = 'checkbox'; ai.className = 'set-check';
+    ai.checked = s.aiSessionSummary; ai.disabled = !s.sessionSummary;
+    sum.addEventListener('change', () => {
+      void window.devdeck.setSessionSummary(sum.checked);
+      setCockpitSessionSummary(sum.checked);
+      ai.disabled = !sum.checked;
+    });
+    ai.addEventListener('change', () => {
+      void window.devdeck.setAiSessionSummary(ai.checked);
+      setCockpitAiSummary(ai.checked);
+    });
+    host.appendChild(field('set.session_summary', sum, sum));
+    const aiWrap = document.createElement('div'); aiWrap.className = 'set-inline';
+    const aiHint = document.createElement('span'); aiHint.className = 'set-hint'; aiHint.textContent = tr('set.ai_summary_hint');
+    aiWrap.append(ai, aiHint);
+    host.appendChild(field('set.ai_summary', aiWrap, ai));
 
     // Idle-shutdown: hold duration + history (feature itself is armed from the 🌙 topbar/tray menu).
     const hold = document.createElement('select'); hold.className = 'set-input';

@@ -60,7 +60,10 @@ beforeAll(() => {
   registerIpc({
     win: { on: () => {}, isDestroyed: () => true, webContents: { send: () => {} } },
     defaultBaseDir: ALLOWED_ROOT,
-    store: { getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getAgent: () => storedAgent },
+    store: {
+      getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getAgent: () => storedAgent,
+      getSessionSummary: () => true, getAiSessionSummary: () => false,
+    },
     sendError: vi.fn(),
     defaultLanguage: 'en',
     ptyHost: { create: ptyCreate, pid: (id: string) => (id === 'live#1' ? 4321 : null) },

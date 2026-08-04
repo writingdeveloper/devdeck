@@ -6,7 +6,7 @@ import { sanitizeTodos, type Todo } from '../shared/tasks';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean };
 }
 
 const EMPTY: StoreEntry = {
@@ -141,6 +141,15 @@ export class Store {
   // Whether the cockpit's session sidebar is collapsed (terminal gets the full width).
   getCockpitSidebarCollapsed(): boolean { return this.state.settings?.cockpitSidebarCollapsed === true; }
   setCockpitSidebarCollapsed(collapsed: boolean): void { this.state.settings = { ...(this.state.settings ?? {}), cockpitSidebarCollapsed: collapsed === true }; this.save(); }
+
+  // The cockpit sidebar's per-session "what's happening" line. On by default: it is the whole point of
+  // not having to rename a long-running session by hand.
+  getSessionSummary(): boolean { return this.state.settings?.sessionSummary !== false; }
+  setSessionSummary(on: boolean): void { this.state.settings = { ...(this.state.settings ?? {}), sessionSummary: on === true }; this.save(); }
+
+  // Opt-in AI refinement of that line (a haiku call per finished turn — it spends usage, so default off).
+  getAiSessionSummary(): boolean { return this.state.settings?.aiSessionSummary === true; }
+  setAiSessionSummary(on: boolean): void { this.state.settings = { ...(this.state.settings ?? {}), aiSessionSummary: on === true }; this.save(); }
 
   getTrayAlert(): 'off' | 'attention' | 'all' { const t = this.state.settings?.trayAlert; return t === 'off' || t === 'all' ? t : 'attention'; }
   setTrayAlert(t: 'off' | 'attention' | 'all'): void { this.state.settings = { ...(this.state.settings ?? {}), trayAlert: t === 'off' || t === 'all' ? t : 'attention' }; this.save(); }

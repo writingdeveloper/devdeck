@@ -463,9 +463,21 @@ button.primary:hover { background: var(--accent-hover); }
   box-shadow: 0 6px 18px rgba(0,0,0,.5); pointer-events: none;
 }
 .ck-row .mt { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-dim); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Line 3: what the session is working on right now, re-derived from its log every turn (see
+   shared/sessionSummary.ts). One clipped line — the row's title carries the full text — so a sidebar
+   full of long-running sessions stays scannable. Proportional (not mono like .mt) so it reads as prose
+   rather than metadata, and it brightens for the rows you're most likely to be looking at. */
+.ck-row .sm { font-size: var(--fs-meta); color: var(--text-dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck-row .sm::before { content: '💬 '; opacity: .7; }
+.ck-row.sel .sm, .ck-row.act-working .sm, .ck-row.act-attention .sm { color: var(--text); }
+/* With the summary line present the name clamps to ONE line: three stacked lines per row would cut the
+   number of visible sessions too far. The full name stays reachable via its hover/focus tooltip. */
+.ck-list.with-summary .ck-row .nm { -webkit-line-clamp: 1; line-clamp: 1; }
 /* Per-session context % — now on line 1 (next to the name), tinted as it nears compaction (≥80 warn,
    ≥95 crit) — with many concurrent sessions this answers "which one is about to compact" at a glance. */
-.ck-ctx-col { margin-left: auto; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); }
+/* Fixed-width and never wrapped: as a shrinkable flex item it broke into "🧠" / "41%" on two lines
+   whenever the name was long, which then dictated the height of line 1. The name yields instead. */
+.ck-ctx-col { margin-left: auto; flex: 0 0 auto; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); }
 .ck-ctx-col.sev-warn { color: var(--warn); }
 .ck-ctx-col.sev-crit { color: var(--bad); font-weight: 700; }
 .ck-main { flex: 1; display: flex; flex-direction: column; background: #0a0b0e; min-width: 0; }

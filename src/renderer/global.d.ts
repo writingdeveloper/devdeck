@@ -16,7 +16,7 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean; sessionSummary: boolean; aiSessionSummary: boolean }>;
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
       setContextWindow(w: number): Promise<void>;
       setTrayCounts(counts: { attention?: number; turn?: number; overdue?: number }): void;
@@ -35,6 +35,8 @@ declare global {
       createProject(parent: string, name: string): Promise<import('../main/createProject').CreateProjectResult>;
       setViewMode(mode: 'cards' | 'list'): Promise<void>;
       setCockpitSidebar(collapsed: boolean): Promise<void>;
+      setSessionSummary(on: boolean): Promise<void>;
+      setAiSessionSummary(on: boolean): Promise<void>;
       usageSnapshot(): Promise<import('../shared/usageWindows').UsageSnapshot | null>;
       refreshUsageProviders(opts?: { force?: boolean }): Promise<import('../shared/usageWindows').UsageSnapshot>;
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
@@ -67,7 +69,7 @@ declare global {
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
-        sessionMeta(projectPath: string, sessionId: string, agentId?: import('../shared/types').AgentId): Promise<{ model: string | null; activeMs: number; contextTokens: number }>;
+        sessionMeta(projectPath: string, sessionId: string, agentId?: import('../shared/types').AgentId, wantAi?: boolean): Promise<{ model: string | null; activeMs: number; contextTokens: number; summary: string | null; summarySource: import('../shared/sessionSummary').SummarySource | null }>;
         sessionIds(projectPath: string, agentId?: import('../shared/types').AgentId): Promise<string[]>;
         liveSessionId(projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: import('../shared/types').AgentId }): Promise<string | null>;
         liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;

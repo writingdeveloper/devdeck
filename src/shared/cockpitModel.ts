@@ -88,6 +88,7 @@ export interface CockpitRowSig {
   id: string; activity: string; label: string; dirty: number;
   branch: string | null; model: string | null; agentId: string; selected: boolean; pinned: boolean;
   ctx?: number | null; // per-session context % shown on the row (null/absent = unknown)
+  summary?: string | null; // the "what's happening" line (null/absent = none shown)
 }
 
 /**
@@ -109,7 +110,7 @@ export function cockpitListSignature(
   search: string,
 ): string {
   return JSON.stringify([
-    rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected, x.pinned, x.ctx ?? null]),
+    rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected, x.pinned, x.ctx ?? null, x.summary ?? null]),
     prev.map((x) => [x.key, x.label, x.agentId, x.pinned === true]),
     lang,
     search,

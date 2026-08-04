@@ -49,6 +49,7 @@ beforeAll(() => {
     store: {
       getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getTrayAlert: () => 'attention',
       getShutdownIdleMinutes: () => 10,
+      getSessionSummary: () => true, getAiSessionSummary: () => false,
       ...storeSpies,
     },
     sendError,
@@ -131,7 +132,7 @@ describe('cockpit read-path guards', () => {
     const outside = join(process.cwd(), 'elsewhere', 'proj');
     expect(handlers.get('cockpit:sessionIds')!(null, outside)).toEqual([]);
     expect(handlers.get('cockpit:sessionMeta')!(null, outside, 'some-sid'))
-      .toEqual({ model: null, activeMs: 0, contextTokens: 0 });
+      .toEqual({ model: null, activeMs: 0, contextTokens: 0, summary: null, summarySource: null });
   });
 });
 
@@ -277,6 +278,7 @@ describe('effFolders fallback when no folders are configured', () => {
       store: {
         getFolders: () => [], getTrayAlert: () => 'attention',
         getShutdownIdleMinutes: () => 10,
+        getSessionSummary: () => true, getAiSessionSummary: () => false,
         ...storeSpies,
       },
       sendError,

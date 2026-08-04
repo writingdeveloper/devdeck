@@ -267,3 +267,26 @@ describe('cockpitSidebarCollapsed setting', () => {
     expect(store.getCockpitSidebarCollapsed()).toBe(false);
   });
 });
+
+describe('session summary settings', () => {
+  it('the summary line is ON by default and can be turned off', () => {
+    const store = new Store(file);
+    expect(store.getSessionSummary()).toBe(true); // the whole point of the feature — no opt-in needed
+    store.setSessionSummary(false);
+    expect(store.getSessionSummary()).toBe(false);
+    expect(new Store(file).getSessionSummary()).toBe(false); // persisted
+    store.setSessionSummary('yes' as unknown as boolean); // junk → strict boolean (anything but true is off)
+    expect(store.getSessionSummary()).toBe(false);
+    store.setSessionSummary(true);
+    expect(store.getSessionSummary()).toBe(true);
+  });
+
+  it('the AI layer is OFF by default (it spends usage) and persists once enabled', () => {
+    const store = new Store(file);
+    expect(store.getAiSessionSummary()).toBe(false);
+    store.setAiSessionSummary(true);
+    expect(new Store(file).getAiSessionSummary()).toBe(true);
+    store.setAiSessionSummary('sure' as unknown as boolean);
+    expect(store.getAiSessionSummary()).toBe(false);
+  });
+});

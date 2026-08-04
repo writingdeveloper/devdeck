@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('devdeck', {
   createProject: (parent: string, name: string) => ipcRenderer.invoke('project:create', parent, name),
   setViewMode: (mode: 'cards' | 'list') => ipcRenderer.invoke('settings:setViewMode', mode),
   setCockpitSidebar: (collapsed: boolean) => ipcRenderer.invoke('settings:setCockpitSidebar', collapsed),
+  setSessionSummary: (on: boolean) => ipcRenderer.invoke('settings:setSessionSummary', on),
+  setAiSessionSummary: (on: boolean) => ipcRenderer.invoke('settings:setAiSessionSummary', on),
   usageSnapshot: () => ipcRenderer.invoke('usage:snapshot'),
   refreshUsageProviders: (opts?: { force?: boolean }) => ipcRenderer.invoke('usage:refresh', { force: opts?.force === true }),
   onUpdate: (cb: (p: import('../shared/update').UpdatePayload) => void) =>
@@ -66,7 +68,7 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
     loadSessions: () => ipcRenderer.invoke('cockpit:loadSessions'),
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
-    sessionMeta: (projectPath: string, sessionId: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId, agentId),
+    sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId, agentId, wantAi),
     sessionIds: (projectPath: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath, agentId),
     liveSessionId: (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: string }) =>
       ipcRenderer.invoke('cockpit:liveSessionId', projectPath, opts),

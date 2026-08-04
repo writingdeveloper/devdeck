@@ -1,4 +1,5 @@
-function textOf(content: unknown): string {
+/** Flatten a message's content (string or block array) to its plain text. Shared with the summary parser. */
+export function textOf(content: unknown): string {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     return content
@@ -12,7 +13,8 @@ function textOf(content: unknown): string {
 
 const WRAPPER_PREFIXES = ['<command-', '<local-command', 'Caveat:', 'Base directory for this skill:', '[SYSTEM NOTIFICATION', '<task-notification'];
 
-function isWrapper(text: string): boolean {
+/** True for harness scaffolding that is not something the user actually typed (commands, reminders, caveats). */
+export function isWrapper(text: string): boolean {
   const t = text.trimStart();
   if (!t) return true;
   if (WRAPPER_PREFIXES.some((p) => t.startsWith(p))) return true;

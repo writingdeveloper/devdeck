@@ -16,7 +16,9 @@ import { toast } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: { model: string | null; activeMs: number; contextTokens: number } | null; pinned: boolean; }
+/** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
+type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; summary: string | null };
+interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; }
 /** `agentId` = the provider this session BELONGS to (restore/restart/sibling of an existing tile).
  *  Omitted only when the request has no session context yet (a deck open), where main falls back to
  *  the globally selected agent. */
@@ -36,6 +38,18 @@ export function setCockpitContextWindow(w: number): void { contextWindow = w ===
 // The tray-alert setting doubles as the gate for the attention OS notification — set from settings at boot + on change.
 let trayAlertMode: 'off' | 'attention' | 'all' = 'attention';
 export function setCockpitTrayAlert(mode: 'off' | 'attention' | 'all'): void { trayAlertMode = mode; }
+// Per-session summary line ("what is this session working on"). Main decides the TEXT (and returns
+// null when the setting is off); the renderer keeps the flag only to lay the row out accordingly.
+let summaryEnabled = true;
+let aiSummaryEnabled = false;
+export function setCockpitSessionSummary(on: boolean): void {
+  summaryEnabled = on !== false;
+  document.getElementById('ck-list')?.classList.toggle('with-summary', summaryEnabled);
+  lastListSig = ''; renderList();
+  for (const id of live.keys()) void refreshMeta(id); // main re-decides the summary per the new setting
+}
+/** The opt-in AI refinement — the renderer needs it only to know whether a result is worth waiting for. */
+export function setCockpitAiSummary(on: boolean): void { aiSummaryEnabled = on === true; }
 let searchEl: HTMLInputElement, groupsEl: HTMLElement, headerEl: HTMLElement, termsEl: HTMLElement, emptyEl: HTMLElement, mainEl: HTMLElement;
 let mounted = false;
 // Session-sidebar collapse (terminal gets the full width) — set from settings at boot + on toggle.
@@ -321,12 +335,16 @@ async function createSession(p: OpenReq): Promise<boolean> {
   return true;
 }
 
-/** Pull a session's model + active-time from its log (for the header/list). Cheap; called on open/select + a slow tick. */
+/** Pull a session's model + active-time + summary from its log (for the header/list). Cheap; called on open/select + a slow tick. */
 async function refreshMeta(id: string): Promise<void> {
   const l = live.get(id); if (!l || !l.openedSessionId) return;
-  let meta: { model: string | null; activeMs: number; contextTokens: number };
-  try { meta = await window.devdeck.cockpit.sessionMeta(l.session.projectPath, l.openedSessionId, l.session.agentId); } catch { return; }
-  if (l.meta?.model === meta.model && l.meta?.activeMs === meta.activeMs && l.meta?.contextTokens === meta.contextTokens) return; // unchanged → no re-render
+  let meta: SessionMetaView;
+  // Only ask the (opt-in, paid) AI summarizer to generate once the turn is over: mid-turn the log is
+  // half-written and every 30s tick would spend another call. Main still returns the cached line.
+  const wantAi = l.session.activity !== 'working';
+  try { meta = await window.devdeck.cockpit.sessionMeta(l.session.projectPath, l.openedSessionId, l.session.agentId, wantAi); } catch { return; }
+  if (l.meta?.model === meta.model && l.meta?.activeMs === meta.activeMs && l.meta?.contextTokens === meta.contextTokens
+    && l.meta?.summary === meta.summary) return; // unchanged → no re-render
   l.meta = meta;
   if (!editingId) renderList();
   renderHeader();
@@ -469,7 +487,15 @@ function tickActivity(): void {
       // isn't stuck on the previous turn's model after a /model switch (only otherwise refreshed on the
       // 30s tick). The drift check rides along so a /clear is adopted within seconds of the next turn,
       // not up to 30s later (a quit inside that window would still have frozen the stale id).
-      if (next === 'turn' && prev === 'working') { void refreshSessionId(l.session.id); void refreshMeta(l.session.id); }
+      if (next === 'turn' && prev === 'working') {
+        void refreshSessionId(l.session.id); void refreshMeta(l.session.id);
+        // The AI summary is generated off this very refresh and takes ~8-10s to come back. Ask once
+        // more when it should be ready, so the row updates now instead of on the next 30s tick.
+        if (aiSummaryEnabled && summaryEnabled) {
+          const sid = l.session.id;
+          setTimeout(() => { if (live.has(sid)) void refreshMeta(sid); }, 15_000);
+        }
+      }
       // The agent just started waiting on the user → OS notification (click = jump to that session).
       if (shouldNotifyAttention({ prev, next, trayAlert: trayAlertMode, windowFocused: document.hasFocus() })) notifyAttention(l);
     }
@@ -503,6 +529,7 @@ function renderList(): void {
       id: l.session.id, activity: l.session.activity, label: liveLabels.get(l.session.id) ?? '', dirty: l.session.dirty,
       branch: l.session.branch, model: friendlyModel(l.meta?.model ?? null), agentId: l.session.agentId, selected: l.session.id === selectedId, pinned: l.pinned,
       ctx: contextPercent(l.meta?.contextTokens ?? 0, contextWindow),
+      summary: l.meta?.summary ?? null,
     })),
     prev.map((r, i) => ({ key: r.sessionId ?? r.projectPath, label: prevLabels[i], agentId: r.agentId, pinned: r.pinned === true })),
     currentLang(), search,
@@ -613,7 +640,7 @@ function row(s: CockpitSession): HTMLElement {
   const dirty = s.dirty > 0 ? ` ✎${s.dirty}` : '';
   // Line 1 = name + right-aligned context % (ck-ctx-col); line 2 (.mt) = branch/agent/model only — the
   // 🧠 context indicator moved up to line 1, so it's no longer appended to .mt.
-  el.innerHTML = `<span class="ck-ind"></span><div class="ck-row-main"><div class="ck-line1"><span class="nm"></span><span class="ck-ctx-col"></span></div><div class="mt"></div></div><span class="ck-row-acts"></span>`;
+  el.innerHTML = `<span class="ck-ind"></span><div class="ck-row-main"><div class="ck-line1"><span class="nm"></span><span class="ck-ctx-col"></span></div><div class="mt"></div><div class="sm"></div></div><span class="ck-row-acts"></span>`;
   el.insertBefore(createProviderLogo(s.agentId), el.querySelector('.ck-row-main'));
   const ind = el.querySelector('.ck-ind')!;
   if (a === 'working') ind.innerHTML = '<span class="ck-spin"></span>';
@@ -638,6 +665,17 @@ function row(s: CockpitSession): HTMLElement {
     ctxCol.textContent = `🧠${rowCtx}%`;
     ctxCol.className = `ck-ctx-col sev-${contextSeverity(rowCtx)}`;
     ctxCol.title = tr('cockpit.context');
+  }
+  // Line 3 = what this session is actually working on, refreshed every turn. This is what keeps a
+  // long-running session readable without renaming it by hand; the row clips it to one line and the
+  // tooltip carries the full text.
+  const summary = live.get(s.id)?.meta?.summary ?? '';
+  const sm = el.querySelector('.sm') as HTMLElement;
+  if (summary) {
+    sm.textContent = summary;
+    sm.title = `${tr('cockpit.summary')}: ${summary}`;
+  } else {
+    sm.remove(); // nothing to say yet — don't reserve the line
   }
   el.title = tr('cockpit.st_' + a);
   el.addEventListener('click', () => { if (editingId !== s.id) select(s.id); });

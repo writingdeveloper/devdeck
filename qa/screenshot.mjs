@@ -188,10 +188,12 @@ const sidebar = await win.evaluate(async () => {
   const groups = document.getElementById('ck-groups');
   const long = 'devdeck-monorepo-frontend-experimental-feature-branch-session-42-x';
   const cjk = '데브덱코크핏세션이름아주아주긴한글이름테스트용으로만든것';
+  // Line 3 (.sm) is the auto summary — deliberately longer than the sidebar so the clamp is exercised.
+  const summary = 'cockpitView.ts에 세션 요약 줄을 붙이고 CSS와 i18n을 정리하는 중';
   const rowHtml = (name, logo) => `<div class="ck-row act-idle">
     <span class="ck-ind"><span class="ck-dot"></span></span>
     <img class="ck-provider-logo" src="./assets/provider-${logo}.svg" alt="${logo}">
-    <div class="ck-row-main"><div class="ck-line1"><span class="nm" tabindex="0" aria-label="${name}" data-full-name="${name}">${name}</span><span class="ck-ctx-col">🧠41%</span></div><div class="mt">main · Opus</div></div>
+    <div class="ck-row-main"><div class="ck-line1"><span class="nm" tabindex="0" aria-label="${name}" data-full-name="${name}">${name}</span><span class="ck-ctx-col">🧠41%</span></div><div class="mt">main · Opus</div><div class="sm" title="${summary}">${summary}</div></div>
     <span class="ck-row-acts"><button class="ck-pin">📌</button><button class="ck-rename">✎</button><button class="ck-close">✕</button></span></div>`;
   groups.innerHTML = rowHtml(long, 'claude') + rowHtml(cjk, 'codex')
     + `<div class="ck-row ck-row-prev"><span class="ck-ind"><span class="ck-dot"></span></span><img class="ck-provider-logo" src="./assets/provider-antigravity.svg" alt="antigravity"><div class="ck-row-main"><div class="nm" tabindex="0" aria-label="${long}" data-full-name="${long}">${long}</div><div class="mt">Restore</div></div><span class="ck-prev-acts"><button class="ck-pin">📌</button><button class="ck-forget">✕</button></span></div>`;
@@ -201,6 +203,8 @@ const sidebar = await win.evaluate(async () => {
   const lh = parseFloat(getComputedStyle(names[0]).lineHeight);
   const logos = document.querySelectorAll('#ck-groups .ck-provider-logo');
   const loaded = [...logos].every((i) => i.complete && i.naturalWidth > 0);
+  const sums = [...document.querySelectorAll('#ck-groups .sm')];
+  const sumLh = sums.length ? parseFloat(getComputedStyle(sums[0]).lineHeight) || 16 : 0;
   return {
     sidebarWidth: Math.round(list.width),
     twoLines: names.every((n) => n.getBoundingClientRect().height <= lh * 2 + 1),
@@ -208,12 +212,24 @@ const sidebar = await win.evaluate(async () => {
     logos: logos.length,
     loaded,
     actsHidden: getComputedStyle(document.querySelector('#ck-groups .ck-row-acts')).opacity === '0',
+    // The summary line must stay ONE clipped line inside the sidebar — it is long by construction here.
+    summaries: sums.length,
+    summaryOneLine: sums.every((s) => s.getBoundingClientRect().height <= sumLh + 1),
+    summaryInside: sums.every((s) => s.getBoundingClientRect().right <= list.right + 1),
+    summaryClipped: sums.every((s) => s.scrollWidth > s.clientWidth), // actually overflowing → ellipsis in play
+    rowHeight: Math.round(document.querySelector('#ck-groups .ck-row').getBoundingClientRect().height),
   };
 });
 await shot('cockpit-provider-sidebar');
 console.log(`cockpit sidebar: width=${sidebar.sidebarWidth}px twoLines=${sidebar.twoLines} inside=${sidebar.inside} logos=${sidebar.logos} svgLoaded=${sidebar.loaded} actionsHiddenByDefault=${sidebar.actsHidden}`);
+console.log(`cockpit summary line: rows=${sidebar.summaries} oneLine=${sidebar.summaryOneLine} inside=${sidebar.summaryInside} clipped=${sidebar.summaryClipped} rowHeight=${sidebar.rowHeight}px`);
 if (sidebar.sidebarWidth !== 250 || !sidebar.twoLines || !sidebar.inside || sidebar.logos !== 3 || !sidebar.loaded || !sidebar.actsHidden) {
   console.error('QA FAILED — cockpit sidebar geometry / provider marks regressed (expect 250px, 2-line clamp, contained names, 3 loaded SVG marks, hidden row actions).');
+  await closeApp();
+  process.exit(1);
+}
+if (sidebar.summaries !== 2 || !sidebar.summaryOneLine || !sidebar.summaryInside || !sidebar.summaryClipped) {
+  console.error('QA FAILED — session summary line regressed (expect one clipped line per live row, contained in the 250px sidebar).');
   await closeApp();
   process.exit(1);
 }
