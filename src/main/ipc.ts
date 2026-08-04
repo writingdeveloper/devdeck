@@ -31,7 +31,7 @@ import { UsageCoordinator, antigravityUsage } from './usageProviders';
 import { pickAdoptedSessionId, pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
 import { makeAgentProbe } from './agentProcess';
 import { listSessionStats } from './sessions';
-import { listCodexSessionStats, indexCodexSessionsByCwd } from './codexSessions';
+import { listCodexSessionStats, indexCodexSessionsByCwd, readCodexSummarySources } from './codexSessions';
 import { indexAntigravitySessionsByCwd } from './antigravitySessions';
 import { makeProjectSessionScan } from './sessionScan';
 import { readClaudeSessionMeta } from './sessionMeta';
@@ -439,9 +439,16 @@ export function registerIpc(cfg: IpcConfig): void {
   // working would spend a haiku call on every 30s tick and summarize a half-done turn.
   ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string, agentId?: AgentId, wantAi?: boolean) => {
     const blank = { model: null, activeMs: 0, contextTokens: 0, summary: null, summarySource: null };
-    if (!isAllowedPath(effFolders(), String(projectPath))) return blank;
-    if (agentFor(agentId).id !== 'claude' || typeof sessionId !== 'string' || !sessionId) return blank;
-    const meta = readClaudeSessionMeta(String(projectPath), sessionId, CLAUDE_PROJECTS);
+    const path = String(projectPath);
+    if (!isAllowedPath(effFolders(), path)) return blank;
+    const provider = agentFor(agentId).id;
+    if (typeof sessionId !== 'string' || !sessionId) return blank;
+    // Model / active time / context % are still Claude-only (they come from its usage records); the
+    // SUMMARY works for Codex too, off a bounded tail read of its rollout.
+    if (provider !== 'claude' && provider !== 'codex') return blank;
+    const meta = provider === 'claude'
+      ? readClaudeSessionMeta(path, sessionId, CLAUDE_PROJECTS)
+      : { ...readCodexSummarySources(path, sessionId, CODEX_SESSIONS), model: null, activeMs: 0, contextTokens: 0 };
     // The summary is assembled HERE, not in the renderer: the raw sources (a 400-char assistant turn,
     // the user's last prompt) stay in main and only the finished one-liner crosses IPC.
     const source = buildAiSourceText(meta);
@@ -450,7 +457,8 @@ export function registerIpc(cfg: IpcConfig): void {
         // Always read the cache (so the line doesn't flicker back to a heuristic mid-turn); only queue
         // a new generation once the turn has finished.
         ai: source ? aiSummarizer.get(sessionId, meta.mtimeMs, source, wantAi === true) : null,
-        activeForm: readActiveTaskForm(sessionId, CLAUDE_TASKS, meta.mtimeMs),
+        // Claude Code keeps a task list per session; Codex has no plan/task events to read.
+        activeForm: provider === 'claude' ? readActiveTaskForm(sessionId, CLAUDE_TASKS, meta.mtimeMs) : null,
         assistantText: meta.assistantText,
         editedFiles: meta.editedFiles,
         userText: meta.userText,

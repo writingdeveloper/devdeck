@@ -8,6 +8,8 @@ import {
   listCodexSessionIds,
   listCodexSessionStats,
   listCodexSessions,
+  readCodexSummarySources,
+  emptyCodexSummary,
 } from './codexSessions';
 
 let dir: string;
@@ -87,5 +89,46 @@ describe('codexSessions', () => {
 
     expect(lastUserMessageForCodexSession(PROJECT, NEW_ID, dir)).toBe('resume the codex rollout');
     expect(lastUserMessageForCodexSession(OTHER_PROJECT, NEW_ID, dir)).toBeNull();
+  });
+});
+
+describe('readCodexSummarySources', () => {
+  const patch = (files: string[]) => JSON.stringify({
+    type: 'event_msg',
+    payload: { type: 'patch_apply_end', changes: Object.fromEntries(files.map((f) => [f, { type: 'update' }])) },
+  });
+  const done = (message: string) => JSON.stringify({ type: 'event_msg', payload: { type: 'task_complete', last_agent_message: message } });
+
+  it('reads the summary sources of a matching session, with the rollout mtime', () => {
+    const file = writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT, [
+      user('요약 붙여줘'), patch(['C:\\repo\\devdeck\\src\\store.ts']), done('설정 저장 로직을 정리했습니다'),
+    ]));
+    utimesSync(file, 4000, 4000);
+
+    const out = readCodexSummarySources(PROJECT, NEW_ID, dir);
+    expect(out).toEqual({
+      assistantText: '설정 저장 로직을 정리했습니다',
+      editedFiles: ['store.ts'],
+      userText: '요약 붙여줘',
+      mtimeMs: 4000 * 1000,
+    });
+  });
+
+  it('refuses a crafted id, another project\'s session, and a missing store', () => {
+    writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT, [done('한 일')]));
+    expect(readCodexSummarySources(PROJECT, '$(evil)', dir)).toEqual(emptyCodexSummary());
+    expect(readCodexSummarySources(OTHER_PROJECT, NEW_ID, dir)).toEqual(emptyCodexSummary());
+    expect(readCodexSummarySources(PROJECT, NEW_ID, join(dir, 'missing'))).toEqual(emptyCodexSummary());
+  });
+
+  // Rollouts reach multiple GB, so only the tail is read — a summary must still come out of one.
+  it('reads only the tail of a large rollout', () => {
+    const filler = JSON.stringify({ type: 'event_msg', payload: { type: 'agent_message', message: 'y'.repeat(200 * 1024) } });
+    const lines = [user('오래된 요청'), ...Array.from({ length: 20 }, () => filler), done('마지막 보고입니다')];
+    writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT, lines));
+
+    const out = readCodexSummarySources(PROJECT, NEW_ID, dir);
+    expect(out.assistantText).toBe('마지막 보고입니다');
+    expect(out.mtimeMs).toBeGreaterThan(0);
   });
 });

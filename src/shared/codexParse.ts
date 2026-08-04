@@ -67,3 +67,64 @@ export function codexLastUserMessage(raw: string): string | null {
   }
   return last;
 }
+
+/** Last path segment, without node:path (this module is bundled into the renderer too). */
+function baseName(p: string): string {
+  const parts = String(p).split(/[\\/]/);
+  return parts[parts.length - 1] || String(p);
+}
+
+/** Retained-text cap — only the opening sentence ever reaches the sidebar row. */
+const TEXT_CAP = 400;
+const EDITED_SHOWN = 4;
+
+/**
+ * Summary sources for a Codex session, read from a TAIL slice of its rollout.
+ *
+ * Rollouts are not like Claude's logs: the largest on this machine is 2.7 GB, so nothing here may
+ * read a whole file. The events we need are all late-in-file anyway:
+ *  - `task_complete.last_agent_message` / `agent_message.message` → what the agent just reported,
+ *  - `patch_apply_end.changes` → the files it actually edited (keyed by absolute path),
+ *  - a user message → resets the edited list, so it describes the CURRENT turn.
+ * Codex has no plan/task-list events, so there is no activeForm equivalent to pick up.
+ */
+export function codexSummarySources(raw: string): { assistantText: string | null; editedFiles: string[]; userText: string | null } {
+  let assistantText: string | null = null;
+  let userText: string | null = null;
+  let edited: string[] = [];
+  for (const record of rolloutRecords(raw)) {
+    const user = userMessage(record);
+    if (user) {
+      userText = user.slice(0, TEXT_CAP);
+      edited = []; // a fresh ask — the previous turn's edits no longer describe the work
+      continue;
+    }
+    const payload = record.payload;
+    if (!isRecord(payload)) continue;
+    if (record.type === 'event_msg') {
+      if (payload.type === 'task_complete') {
+        const text = trimmedText(payload.last_agent_message);
+        if (text) assistantText = text.slice(0, TEXT_CAP);
+      } else if (payload.type === 'agent_message') {
+        const text = trimmedText(payload.message);
+        if (text) assistantText = text.slice(0, TEXT_CAP);
+      } else if (payload.type === 'patch_apply_end' && isRecord(payload.changes)) {
+        for (const file of Object.keys(payload.changes)) {
+          const name = baseName(file);
+          if (name) edited.push(name);
+        }
+      }
+    } else if (record.type === 'response_item' && payload.type === 'message' && payload.role === 'assistant' && Array.isArray(payload.content)) {
+      for (const item of payload.content) {
+        if (!isRecord(item) || (item.type !== 'output_text' && item.type !== 'text')) continue;
+        const text = trimmedText(item.text);
+        if (text) { assistantText = text.slice(0, TEXT_CAP); break; }
+      }
+    }
+  }
+  const editedFiles: string[] = [];
+  for (let i = edited.length - 1; i >= 0 && editedFiles.length < EDITED_SHOWN; i--) {
+    if (!editedFiles.includes(edited[i])) editedFiles.push(edited[i]);
+  }
+  return { assistantText, editedFiles, userText };
+}

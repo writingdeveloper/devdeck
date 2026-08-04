@@ -39,6 +39,7 @@ vi.mock('./codexSessions', () => ({
   listCodexSessions: () => [{ id: 'x1', mtimeMs: 10, firstMessage: null }],
   listCodexSessionIds: () => ['x1'],
   lastUserMessageForCodexSession: () => null,
+  readCodexSummarySources: () => ({ assistantText: '설정 저장 로직을 정리했습니다', editedFiles: ['store.ts'], userText: '계속', mtimeMs: 42 }),
 }));
 vi.mock('./antigravitySessions', () => ({ indexAntigravitySessionsByCwd: () => new Map() }));
 vi.mock('./agentProcess', () => ({ makeAgentProbe: () => probe }));
@@ -203,5 +204,24 @@ describe('cockpit:liveSessionId', () => {
     expect(liveSessionId(null, projectPath, opts)).toBeNull();
     expect(claudeStats).not.toHaveBeenCalled();
     expect(codexStats).not.toHaveBeenCalled();
+  });
+});
+
+// The summary line is provider-aware: Claude reads its .jsonl, Codex a bounded tail of its rollout,
+// and a provider with no readable transcript (Antigravity) simply gets no line.
+describe('cockpit:sessionMeta summary per provider', () => {
+  const projectPath = join(ALLOWED_ROOT, 'project');
+  const SESSION = '019f91b2-fa6d-7971-b19d-c07092dcfc57';
+
+  it('summarizes a Codex session from its rollout', () => {
+    const out = handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'codex') as { summary: string | null; summarySource: string | null; model: string | null };
+    expect(out.summary).toBe('설정 저장 로직을 정리했습니다');
+    expect(out.summarySource).toBe('assistant');
+    expect(out.model).toBeNull(); // model/active-time stay Claude-only
+  });
+
+  it('returns the neutral shape for a provider with no transcript reader', () => {
+    expect(handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'antigravity'))
+      .toEqual({ model: null, activeMs: 0, contextTokens: 0, summary: null, summarySource: null });
   });
 });

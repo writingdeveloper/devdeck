@@ -38,6 +38,7 @@ export function cleanSummaryText(raw: string | null | undefined): string {
     .replace(/^[ \t]*#{1,6}[ \t]*/gm, '') // heading markers
     .replace(/^[ \t]*[>\-*+|][ \t]+/gm, '') // list / quote / table-row markers
     .replace(/[`*~]/g, '') // emphasis + code spans (NOT _, which is common inside identifiers)
+    .replace(/\b[0-9a-f]{40}\b/g, '') // full commit SHAs: 40 characters of the row spent on nothing
     .replace(/\s+/g, ' ')
     .trim();
 }

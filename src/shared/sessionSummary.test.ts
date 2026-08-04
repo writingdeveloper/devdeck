@@ -15,6 +15,13 @@ describe('cleanSummaryText', () => {
     expect(cleanSummaryText('- 첫 항목\n>  인용\n| 표 |')).toBe('첫 항목 인용 표 |');
   });
 
+  // Review-style turns often open with a bare SHA, which would eat two thirds of the row.
+  it('drops full commit SHAs but keeps short hashes and other identifiers', () => {
+    expect(cleanSummaryText('f79aaeced109f256d2e31cedd7338b598d4e958d Verification: 30 items'))
+      .toBe('Verification: 30 items');
+    expect(cleanSummaryText('reverted 8eed599 on main')).toBe('reverted 8eed599 on main');
+  });
+
   it('returns an empty string for empty or whitespace-only input', () => {
     expect(cleanSummaryText('')).toBe('');
     expect(cleanSummaryText('   \n\n ')).toBe('');
