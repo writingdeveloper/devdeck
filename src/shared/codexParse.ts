@@ -94,21 +94,48 @@ function baseName(p: string): string {
 const TEXT_CAP = 400;
 const EDITED_SHOWN = 4;
 
+export interface CodexTailMeta {
+  assistantText: string | null;
+  editedFiles: string[];
+  userText: string | null;
+  /** Model of the most recent turn, e.g. "gpt-5.6-sol" (turn_context.model). */
+  model: string | null;
+  /** Context sent on the last turn (last_token_usage.input_tokens — cached tokens are a subset of it). */
+  contextTokens: number;
+  /** The model's real context window, as Codex recorded it (model_context_window). 0 when unknown. */
+  contextWindow: number;
+}
+
+function positive(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 /**
- * Summary sources for a Codex session, read from a TAIL slice of its rollout.
+ * What a Codex session's rollout TAIL can tell us: the summary sources, plus the model and context
+ * size the sidebar shows.
  *
  * Rollouts are not like Claude's logs: the largest on this machine is 2.7 GB, so nothing here may
  * read a whole file. The events we need are all late-in-file anyway:
  *  - `task_complete.last_agent_message` / `agent_message.message` → what the agent just reported,
  *  - `patch_apply_end.changes` → the files it actually edited (keyed by absolute path),
- *  - a user message → resets the edited list, so it describes the CURRENT turn.
+ *  - a user message → resets the edited list, so it describes the CURRENT turn,
+ *  - `token_count.info` → the last turn's input tokens AND the model's real context window, so a
+ *    Codex row can show the same 🧠 % as a Claude one without guessing the window,
+ *  - `turn_context.model` → the model of the most recent turn.
  * Codex has no plan/task-list events, so there is no activeForm equivalent to pick up.
  */
-export function codexSummarySources(raw: string): { assistantText: string | null; editedFiles: string[]; userText: string | null } {
+export function codexTailMeta(raw: string): CodexTailMeta {
   let assistantText: string | null = null;
   let userText: string | null = null;
+  let model: string | null = null;
+  let contextTokens = 0;
+  let contextWindow = 0;
   let edited: string[] = [];
   for (const record of rolloutRecords(raw)) {
+    if (record.type === 'turn_context' && isRecord(record.payload)) {
+      const m = trimmedText(record.payload.model);
+      if (m) model = m;
+    }
     const user = userMessage(record);
     if (user) {
       userText = user.slice(0, TEXT_CAP);
@@ -129,6 +156,16 @@ export function codexSummarySources(raw: string): { assistantText: string | null
           const name = baseName(file);
           if (name) edited.push(name);
         }
+      } else if (payload.type === 'token_count' && isRecord(payload.info)) {
+        const info = payload.info;
+        // input_tokens is the FULL input of that turn; cached_input_tokens is a subset of it
+        // (input + output == total_tokens in the same record), so it must not be added on top.
+        if (isRecord(info.last_token_usage)) {
+          const used = positive(info.last_token_usage.input_tokens);
+          if (used > 0) contextTokens = used;
+        }
+        const window = positive(info.model_context_window);
+        if (window > 0) contextWindow = window;
       }
     } else if (record.type === 'response_item' && payload.type === 'message' && payload.role === 'assistant' && Array.isArray(payload.content)) {
       for (const item of payload.content) {
@@ -142,5 +179,5 @@ export function codexSummarySources(raw: string): { assistantText: string | null
   for (let i = edited.length - 1; i >= 0 && editedFiles.length < EDITED_SHOWN; i--) {
     if (!editedFiles.includes(edited[i])) editedFiles.push(edited[i]);
   }
-  return { assistantText, editedFiles, userText };
+  return { assistantText, editedFiles, userText, model, contextTokens, contextWindow };
 }

@@ -69,7 +69,7 @@ declare global {
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
-        sessionMeta(projectPath: string, sessionId: string, agentId?: import('../shared/types').AgentId, wantAi?: boolean): Promise<{ model: string | null; activeMs: number; contextTokens: number; summary: string | null; summarySource: import('../shared/sessionSummary').SummarySource | null }>;
+        sessionMeta(projectPath: string, sessionId: string, agentId?: import('../shared/types').AgentId, wantAi?: boolean): Promise<{ model: string | null; activeMs: number; contextTokens: number; contextWindow: number; summary: string | null; summarySource: import('../shared/sessionSummary').SummarySource | null }>;
         sessionIds(projectPath: string, agentId?: import('../shared/types').AgentId): Promise<string[]>;
         liveSessionId(projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: import('../shared/types').AgentId }): Promise<string | null>;
         liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;

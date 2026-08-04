@@ -17,7 +17,7 @@ import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
-type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; summary: string | null };
+type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
 interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; }
 /** `agentId` = the provider this session BELONGS to (restore/restart/sibling of an existing tile).
  *  Omitted only when the request has no session context yet (a deck open), where main falls back to
@@ -35,6 +35,13 @@ let selectedId: string | null = null;
 let contextWindow = 1_000_000;
 /** Update the context-window basis for the 🧠 context % (called from settings + boot). */
 export function setCockpitContextWindow(w: number): void { contextWindow = w === 200_000 ? 200_000 : 1_000_000; renderHeader(); lastListSig = ''; renderList(); }
+/**
+ * The window to measure a session's context against. Codex records the model's REAL window in its
+ * rollout (e.g. 258400), so that beats the global setting; Claude sends 0 and keeps using the setting.
+ */
+function windowFor(meta: SessionMetaView | null | undefined): number {
+  return meta?.contextWindow && meta.contextWindow > 0 ? meta.contextWindow : contextWindow;
+}
 // The tray-alert setting doubles as the gate for the attention OS notification — set from settings at boot + on change.
 let trayAlertMode: 'off' | 'attention' | 'all' = 'attention';
 export function setCockpitTrayAlert(mode: 'off' | 'attention' | 'all'): void { trayAlertMode = mode; }
@@ -528,7 +535,7 @@ function renderList(): void {
     liveLive.map((l) => ({
       id: l.session.id, activity: l.session.activity, label: liveLabels.get(l.session.id) ?? '', dirty: l.session.dirty,
       branch: l.session.branch, model: friendlyModel(l.meta?.model ?? null), agentId: l.session.agentId, selected: l.session.id === selectedId, pinned: l.pinned,
-      ctx: contextPercent(l.meta?.contextTokens ?? 0, contextWindow),
+      ctx: contextPercent(l.meta?.contextTokens ?? 0, windowFor(l.meta)),
       summary: l.meta?.summary ?? null,
     })),
     prev.map((r, i) => ({ key: r.sessionId ?? r.projectPath, label: prevLabels[i], agentId: r.agentId, pinned: r.pinned === true })),
@@ -659,7 +666,7 @@ function row(s: CockpitSession): HTMLElement {
   // Per-session context % on line 1 (next to the name), tinted as it nears compaction — with many
   // concurrent sessions this answers "which one is about to compact" at a glance (the header shows it
   // only for the selected one).
-  const rowCtx = contextPercent(live.get(s.id)?.meta?.contextTokens ?? 0, contextWindow);
+  const rowCtx = contextPercent(live.get(s.id)?.meta?.contextTokens ?? 0, windowFor(live.get(s.id)?.meta));
   const ctxCol = el.querySelector('.ck-ctx-col') as HTMLElement;
   if (rowCtx !== null) {
     ctxCol.textContent = `🧠${rowCtx}%`;
@@ -766,7 +773,7 @@ function renderHeader(): void {
   const pills: HTMLElement[] = [title, branch, ag];
   const model = friendlyModel(l.meta?.model ?? null);
   if (model) { const mp = document.createElement('span'); mp.className = 'ck-pill'; mp.textContent = model; pills.push(mp); }
-  const ctxPct = contextPercent(l.meta?.contextTokens ?? 0, contextWindow);
+  const ctxPct = contextPercent(l.meta?.contextTokens ?? 0, windowFor(l.meta));
   if (ctxPct !== null) { const cp = document.createElement('span'); cp.className = 'ck-pill'; cp.textContent = `🧠 ${ctxPct}%`; cp.title = tr('cockpit.context'); pills.push(cp); }
   if (l.meta && l.meta.activeMs > 0) { const tp = document.createElement('span'); tp.className = 'ck-pill'; tp.textContent = `⏱️ ${formatDuration(l.meta.activeMs)}`; pills.push(tp); }
   const sp = document.createElement('span'); sp.className = 'sp';

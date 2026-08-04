@@ -39,7 +39,10 @@ vi.mock('./codexSessions', () => ({
   listCodexSessions: () => [{ id: 'x1', mtimeMs: 10, firstMessage: null }],
   listCodexSessionIds: () => ['x1'],
   lastUserMessageForCodexSession: () => null,
-  readCodexSummarySources: () => ({ assistantText: '설정 저장 로직을 정리했습니다', editedFiles: ['store.ts'], userText: '계속', mtimeMs: 42 }),
+  readCodexSessionMeta: () => ({
+    assistantText: '설정 저장 로직을 정리했습니다', editedFiles: ['store.ts'], userText: '계속',
+    model: 'gpt-5.6-sol', contextTokens: 130_848, contextWindow: 258_400, mtimeMs: 42,
+  }),
 }));
 vi.mock('./antigravitySessions', () => ({ indexAntigravitySessionsByCwd: () => new Map() }));
 vi.mock('./agentProcess', () => ({ makeAgentProbe: () => probe }));
@@ -213,15 +216,20 @@ describe('cockpit:sessionMeta summary per provider', () => {
   const projectPath = join(ALLOWED_ROOT, 'project');
   const SESSION = '019f91b2-fa6d-7971-b19d-c07092dcfc57';
 
-  it('summarizes a Codex session from its rollout', () => {
-    const out = handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'codex') as { summary: string | null; summarySource: string | null; model: string | null };
-    expect(out.summary).toBe('설정 저장 로직을 정리했습니다');
-    expect(out.summarySource).toBe('assistant');
-    expect(out.model).toBeNull(); // model/active-time stay Claude-only
+  it('summarizes a Codex session from its rollout, with its own model and context window', () => {
+    const out = handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'codex') as Record<string, unknown>;
+    expect(out).toMatchObject({
+      summary: '설정 저장 로직을 정리했습니다',
+      summarySource: 'assistant',
+      model: 'gpt-5.6-sol',
+      contextTokens: 130_848,
+      contextWindow: 258_400, // the renderer measures the 🧠 % against THIS, not the global setting
+      activeMs: 0, // no Codex equivalent
+    });
   });
 
   it('returns the neutral shape for a provider with no transcript reader', () => {
     expect(handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'antigravity'))
-      .toEqual({ model: null, activeMs: 0, contextTokens: 0, summary: null, summarySource: null });
+      .toEqual({ model: null, activeMs: 0, contextTokens: 0, contextWindow: 0, summary: null, summarySource: null });
   });
 });

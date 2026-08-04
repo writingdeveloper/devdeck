@@ -8,8 +8,8 @@ import {
   listCodexSessionIds,
   listCodexSessionStats,
   listCodexSessions,
-  readCodexSummarySources,
-  emptyCodexSummary,
+  readCodexSessionMeta,
+  emptyCodexMeta,
 } from './codexSessions';
 
 let dir: string;
@@ -92,7 +92,7 @@ describe('codexSessions', () => {
   });
 });
 
-describe('readCodexSummarySources', () => {
+describe('readCodexSessionMeta', () => {
   const patch = (files: string[]) => JSON.stringify({
     type: 'event_msg',
     payload: { type: 'patch_apply_end', changes: Object.fromEntries(files.map((f) => [f, { type: 'update' }])) },
@@ -105,20 +105,23 @@ describe('readCodexSummarySources', () => {
     ]));
     utimesSync(file, 4000, 4000);
 
-    const out = readCodexSummarySources(PROJECT, NEW_ID, dir);
+    const out = readCodexSessionMeta(PROJECT, NEW_ID, dir);
     expect(out).toEqual({
       assistantText: '설정 저장 로직을 정리했습니다',
       editedFiles: ['store.ts'],
       userText: '요약 붙여줘',
+      model: null,
+      contextTokens: 0,
+      contextWindow: 0,
       mtimeMs: 4000 * 1000,
     });
   });
 
   it('refuses a crafted id, another project\'s session, and a missing store', () => {
     writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT, [done('한 일')]));
-    expect(readCodexSummarySources(PROJECT, '$(evil)', dir)).toEqual(emptyCodexSummary());
-    expect(readCodexSummarySources(OTHER_PROJECT, NEW_ID, dir)).toEqual(emptyCodexSummary());
-    expect(readCodexSummarySources(PROJECT, NEW_ID, join(dir, 'missing'))).toEqual(emptyCodexSummary());
+    expect(readCodexSessionMeta(PROJECT, '$(evil)', dir)).toEqual(emptyCodexMeta());
+    expect(readCodexSessionMeta(OTHER_PROJECT, NEW_ID, dir)).toEqual(emptyCodexMeta());
+    expect(readCodexSessionMeta(PROJECT, NEW_ID, join(dir, 'missing'))).toEqual(emptyCodexMeta());
   });
 
   // Rollouts reach multiple GB, so only the tail is read — a summary must still come out of one.
@@ -127,7 +130,7 @@ describe('readCodexSummarySources', () => {
     const lines = [user('오래된 요청'), ...Array.from({ length: 20 }, () => filler), done('마지막 보고입니다')];
     writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT, lines));
 
-    const out = readCodexSummarySources(PROJECT, NEW_ID, dir);
+    const out = readCodexSessionMeta(PROJECT, NEW_ID, dir);
     expect(out.assistantText).toBe('마지막 보고입니다');
     expect(out.mtimeMs).toBeGreaterThan(0);
   });

@@ -132,7 +132,7 @@ describe('cockpit read-path guards', () => {
     const outside = join(process.cwd(), 'elsewhere', 'proj');
     expect(handlers.get('cockpit:sessionIds')!(null, outside)).toEqual([]);
     expect(handlers.get('cockpit:sessionMeta')!(null, outside, 'some-sid'))
-      .toEqual({ model: null, activeMs: 0, contextTokens: 0, summary: null, summarySource: null });
+      .toEqual({ model: null, activeMs: 0, contextTokens: 0, contextWindow: 0, summary: null, summarySource: null });
   });
 });
 

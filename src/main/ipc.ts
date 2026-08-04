@@ -31,7 +31,7 @@ import { UsageCoordinator, antigravityUsage } from './usageProviders';
 import { pickAdoptedSessionId, pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
 import { makeAgentProbe } from './agentProcess';
 import { listSessionStats } from './sessions';
-import { listCodexSessionStats, indexCodexSessionsByCwd, readCodexSummarySources } from './codexSessions';
+import { listCodexSessionStats, indexCodexSessionsByCwd, readCodexSessionMeta } from './codexSessions';
 import { indexAntigravitySessionsByCwd } from './antigravitySessions';
 import { makeProjectSessionScan } from './sessionScan';
 import { readClaudeSessionMeta } from './sessionMeta';
@@ -97,16 +97,16 @@ export function registerIpc(cfg: IpcConfig): void {
   // sees a truncated PATH (no /opt/homebrew/bin, ~/.npm-global/bin, …) while the login-shell
   // terminal that actually runs the command resolves it fine — probing there would false-alarm on
   // every open. Async + fire-and-forget so the probe never delays or blocks the actual launch.
-  // Opt-in AI layer for the cockpit's per-session summary line (see aiSummary.ts). Constructed
-  // regardless of the setting — it is inert while disabled — so toggling it needs no restart.
-  const aiSummarizer = makeAiSummarizer();
-  aiSummarizer.setEnabled(cfg.store.getAiSessionSummary());
-
   const cliGuard = makeCliGuard();
   const warnIfCliMissing = (command: string): void => {
     if (process.platform !== 'win32') return;
     void cliGuard(command).then((warn) => { if (warn) cfg.sendError(warn); });
   };
+
+  // Opt-in AI layer for the cockpit's per-session summary line (see aiSummary.ts). Constructed
+  // regardless of the setting — it is inert while disabled — so toggling it needs no restart.
+  const aiSummarizer = makeAiSummarizer();
+  aiSummarizer.setEnabled(cfg.store.getAiSessionSummary());
 
   const activeAgent = (): AgentId => {
     const a = cfg.store.getAgent();
@@ -438,7 +438,7 @@ export function registerIpc(cfg: IpcConfig): void {
   // `wantAi` is the renderer's "this session just finished a turn" signal: asking while it is still
   // working would spend a haiku call on every 30s tick and summarize a half-done turn.
   ipcMain.handle('cockpit:sessionMeta', (_e, projectPath: string, sessionId: string, agentId?: AgentId, wantAi?: boolean) => {
-    const blank = { model: null, activeMs: 0, contextTokens: 0, summary: null, summarySource: null };
+    const blank = { model: null, activeMs: 0, contextTokens: 0, contextWindow: 0, summary: null, summarySource: null };
     const path = String(projectPath);
     if (!isAllowedPath(effFolders(), path)) return blank;
     const provider = agentFor(agentId).id;
@@ -447,8 +447,10 @@ export function registerIpc(cfg: IpcConfig): void {
     // SUMMARY works for Codex too, off a bounded tail read of its rollout.
     if (provider !== 'claude' && provider !== 'codex') return blank;
     const meta = provider === 'claude'
-      ? readClaudeSessionMeta(path, sessionId, CLAUDE_PROJECTS)
-      : { ...readCodexSummarySources(path, sessionId, CODEX_SESSIONS), model: null, activeMs: 0, contextTokens: 0 };
+      ? { ...readClaudeSessionMeta(path, sessionId, CLAUDE_PROJECTS), contextWindow: 0 }
+      // Codex records its own model + real context window per turn, so those come from the rollout
+      // rather than the global 1M/200K setting. Active time has no Codex equivalent.
+      : { ...readCodexSessionMeta(path, sessionId, CODEX_SESSIONS), activeMs: 0 };
     // The summary is assembled HERE, not in the renderer: the raw sources (a 400-char assistant turn,
     // the user's last prompt) stay in main and only the finished one-liner crosses IPC.
     const source = buildAiSourceText(meta);
@@ -467,6 +469,8 @@ export function registerIpc(cfg: IpcConfig): void {
       : null;
     return {
       model: meta.model, activeMs: meta.activeMs, contextTokens: meta.contextTokens,
+      // 0 = "no per-session window known" → the renderer falls back to the global setting (Claude).
+      contextWindow: meta.contextWindow,
       summary: summary?.text ?? null, summarySource: summary?.source ?? null,
     };
   });
