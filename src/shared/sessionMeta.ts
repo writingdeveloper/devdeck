@@ -52,25 +52,43 @@ export interface ParsedSessionMeta {
 }
 
 /**
- * Parse a Claude session .jsonl into { model, activeMs, contextTokens } plus the summary sources:
+ * Everything the parse below carries from one line to the next. Split out from the parse so a session
+ * log can be consumed in PIECES: these files are append-only and reach hundreds of MB, and reading one
+ * whole is both slow and, past Node's 512 MiB string limit, impossible (see main/sessionMeta.ts).
+ * Only `timestamps` grows, and it holds one number per message — a 183 MB log has ~13k of them.
+ */
+export interface SessionMetaState {
+  timestamps: number[];
+  model: string | null;
+  contextTokens: number;
+  assistantText: string | null;
+  userText: string | null;
+  edited: string[];
+}
+
+export function emptySessionMetaState(): SessionMetaState {
+  return { timestamps: [], model: null, contextTokens: 0, assistantText: null, userText: null, edited: [] };
+}
+
+/**
+ * Fold the next slice of a session log into `state`. `chunk` must contain only COMPLETE lines — the
+ * caller owns the boundary, because a half-written last line is normal in a log that is being appended
+ * to right now.
+ *
+ * What each field means, and why it survives being fed in pieces:
  * - model = the last MAIN-chain (non-sidechain) assistant model, ignoring "<synthetic>" (raw id).
- * - activeMs = focused working time from the message timestamps (5-min idle-capped, shared usage logic).
  * - contextTokens = the LAST main-chain assistant turn's input+cache_read+cache_creation usage — the
  *   size of the context sent on the most recent turn (matches Claude Code's own "Context %" numerator).
- * - assistantText / editedFiles / userText = what the sidebar's summary line is picked from. They ride
- *   along in this same pass (the file is already being read for the fields above), so the summary
- *   costs no extra disk I/O. editedFiles resets on each genuine user message so it describes the
- *   CURRENT turn, not everything the session ever touched.
- * Pure (takes the raw file text) so it's unit-testable without the filesystem.
+ * - assistantText / edited / userText = what the sidebar's summary line is picked from. They ride along
+ *   in this same pass (the file is already being read for the fields above), so the summary costs no
+ *   extra disk I/O. `edited` resets on each genuine user message so it describes the CURRENT turn, not
+ *   everything the session ever touched.
+ * All of those are last-wins, so a later chunk simply overwrites what an earlier one set.
  */
-export function parseSessionMeta(raw: string): ParsedSessionMeta {
-  const timestamps: number[] = [];
-  let model: string | null = null;
-  let contextTokens = 0;
-  let assistantText: string | null = null;
-  let userText: string | null = null;
-  let edited: string[] = [];
-  for (const line of raw.split('\n')) {
+export function advanceSessionMeta(state: SessionMetaState, chunk: string): SessionMetaState {
+  const { timestamps } = state;
+  let { model, contextTokens, assistantText, userText, edited } = state;
+  for (const line of chunk.split('\n')) {
     if (!line) continue;
     let o: { type?: unknown; timestamp?: unknown; isSidechain?: unknown; message?: { model?: unknown; usage?: unknown; content?: unknown } };
     try { o = JSON.parse(line); } catch { continue; }
@@ -107,10 +125,32 @@ export function parseSessionMeta(raw: string): ParsedSessionMeta {
       if (edited.length > EDITS_CAP) edited.shift();
     }
   }
+  state.model = model;
+  state.contextTokens = contextTokens;
+  state.assistantText = assistantText;
+  state.userText = userText;
+  state.edited = edited;
+  return state;
+}
+
+/** Turn accumulated state into what the sidebar reads. Safe to call after any number of chunks. */
+export function finalizeSessionMeta(state: SessionMetaState): ParsedSessionMeta {
   // Newest first, deduped (the same file is usually edited many times in one turn).
   const editedFiles: string[] = [];
-  for (let i = edited.length - 1; i >= 0 && editedFiles.length < EDITED_SHOWN; i--) {
-    if (!editedFiles.includes(edited[i])) editedFiles.push(edited[i]);
+  for (let i = state.edited.length - 1; i >= 0 && editedFiles.length < EDITED_SHOWN; i--) {
+    if (!editedFiles.includes(state.edited[i])) editedFiles.push(state.edited[i]);
   }
-  return { model, activeMs: activeMsFromTimestamps(timestamps), contextTokens, assistantText, editedFiles, userText };
+  return {
+    model: state.model,
+    activeMs: activeMsFromTimestamps(state.timestamps),
+    contextTokens: state.contextTokens,
+    assistantText: state.assistantText,
+    editedFiles,
+    userText: state.userText,
+  };
+}
+
+/** Whole-file convenience — the one-shot form of advance + finalize. */
+export function parseSessionMeta(raw: string): ParsedSessionMeta {
+  return finalizeSessionMeta(advanceSessionMeta(emptySessionMetaState(), raw));
 }
