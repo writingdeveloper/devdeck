@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePersistedList, pickRestoreSessionId, resolveRestoreSessionId, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+import { sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
 
 describe('sanitizePersistedList', () => {
   it('returns [] for non-arrays', () => {
@@ -106,6 +106,15 @@ describe('pickRestoreSessionId', () => {
     expect(pickRestoreSessionId([], new Set())).toBeNull();
     expect(pickRestoreSessionId(['a'], new Set(['a']))).toBeNull();
   });
+  // Taking a conversation another saved entry is waiting for makes the open CONSUME that entry
+  // (adoptRestorableMatch), so its user-given name disappears with it.
+  it('prefers a conversation no other saved entry is waiting to restore', () => {
+    expect(pickRestoreSessionId(['new', 'mid', 'old'], new Set(), new Set(['new']))).toBe('mid');
+    expect(pickRestoreSessionId(['new', 'mid', 'old'], new Set(['mid']), new Set(['new']))).toBe('old');
+  });
+  it('still restores something when every free conversation is reserved (preference, not a rule)', () => {
+    expect(pickRestoreSessionId(['new', 'mid'], new Set(), new Set(['new', 'mid']))).toBe('new');
+  });
 });
 
 describe('pickDriftedSessionId', () => {
@@ -185,29 +194,35 @@ describe('pickAdoptedSessionId', () => {
   });
 });
 
-describe('resolveRestoreSessionId', () => {
+describe('resolveRestoreTarget', () => {
   // The tile's OWN conversation is what "restore this session" should reopen — so distinct topics keep
-  // distinct tiles. Only when that conversation is gone (deleted) or already open elsewhere do we fall
-  // back to the project's newest not-live session. (Fixes: a 3rd tile collapsing onto the 2 newest.)
+  // distinct tiles (fixes: a 3rd tile collapsing onto the 2 newest). And when that conversation can't
+  // be reopened, the tile gets a BRAND-NEW one rather than a stranger's: the entry carries the user's
+  // label + pin, so a substitute puts their name on work they never did.
   const disk = ['new', 'mid', 'homepage', 'old']; // newest-first, all on disk
 
   it('reopens the saved id when it still exists on disk and is not already live', () => {
-    expect(resolveRestoreSessionId('homepage', disk, new Set())).toBe('homepage');
-    expect(resolveRestoreSessionId('old', disk, new Set(['new']))).toBe('old'); // not the newest — its own
+    expect(resolveRestoreTarget('homepage', disk, new Set())).toEqual({ sessionId: 'homepage', fresh: false });
+    expect(resolveRestoreTarget('old', disk, new Set(['new']))).toEqual({ sessionId: 'old', fresh: false }); // not the newest — its own
   });
-  it('falls back to newest-not-live when the saved id was deleted from disk', () => {
-    expect(resolveRestoreSessionId('gone', disk, new Set())).toBe('new');
+  // Claude Code deletes transcripts after cleanupPeriodDays, and a session the user never typed in was
+  // never written at all — both leave a named entry pointing at nothing.
+  it('opens a FRESH session when the saved conversation is gone from disk — never a substitute', () => {
+    expect(resolveRestoreTarget('gone', disk, new Set())).toEqual({ sessionId: null, fresh: true });
+    expect(resolveRestoreTarget('gone', [], new Set())).toEqual({ sessionId: null, fresh: true });
   });
-  it('falls back to newest-not-live when the saved id is already open in another tile', () => {
-    expect(resolveRestoreSessionId('homepage', disk, new Set(['homepage']))).toBe('new'); // newest not-live
-    expect(resolveRestoreSessionId('homepage', disk, new Set(['homepage', 'new']))).toBe('mid');
+  it('opens a fresh session when the saved id is already open in another tile', () => {
+    expect(resolveRestoreTarget('homepage', disk, new Set(['homepage']))).toEqual({ sessionId: null, fresh: true });
   });
-  it('null saved id (deck open / new) → newest-not-live', () => {
-    expect(resolveRestoreSessionId(null, disk, new Set())).toBe('new');
-    expect(resolveRestoreSessionId(null, disk, new Set(['new']))).toBe('mid');
+  it('never takes a conversation reserved by another saved entry', () => {
+    expect(resolveRestoreTarget('gone', disk, new Set(), new Set(['new']))).toEqual({ sessionId: null, fresh: true });
   });
-  it('null when nothing is on disk', () => {
-    expect(resolveRestoreSessionId('x', [], new Set())).toBeNull();
-    expect(resolveRestoreSessionId(null, [], new Set())).toBeNull();
+  it('an entry that never named a conversation (legacy / antigravity) → newest not-live, reserved last', () => {
+    expect(resolveRestoreTarget(null, disk, new Set())).toEqual({ sessionId: 'new', fresh: false });
+    expect(resolveRestoreTarget(null, disk, new Set(['new']))).toEqual({ sessionId: 'mid', fresh: false });
+    expect(resolveRestoreTarget(null, disk, new Set(), new Set(['new']))).toEqual({ sessionId: 'mid', fresh: false });
+  });
+  it('an id-less entry with nothing on disk falls through to the main process (continue/new)', () => {
+    expect(resolveRestoreTarget(null, [], new Set())).toEqual({ sessionId: null, fresh: false });
   });
 });

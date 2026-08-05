@@ -8,7 +8,7 @@ import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
-import { sanitizePersistedList, resolveRestoreSessionId, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
+import { sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import { toAgentId, type AgentId, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
@@ -847,25 +847,41 @@ function closeSession(id: string): void {
   } else renderList();
 }
 
+// Restores in flight, keyed by project + saved id. A "Previous" row stays clickable for as long as
+// the PTY takes to spawn, so a second click would restore the SAME entry twice — once as a duplicate
+// tile, and now that an unopenable conversation comes back fresh, as an empty one.
+const restoring = new Set<string>();
+
 /** Bring a previous session back to life via its resume command — under the SAME provider it was
  *  opened with, whatever the globally selected agent is now (a Claude conversation must never be
  *  handed to `codex`). Unrecognized legacy ids fall back to the active agent, as they always did. */
 async function restoreSession(entry: PersistedSession): Promise<void> {
+  const key = `${entry.projectPath}\0${entry.sessionId ?? ''}`;
+  if (restoring.has(key)) return;
+  restoring.add(key);
   restorable = restorable.filter((r) => r !== entry);
   try {
     const owner = toAgentId(entry.agentId) ?? await window.devdeck.getAgent();
-    // Reopen the tile's OWN conversation when it still exists on disk — so a project's distinct
-    // conversations each keep their own tile instead of every tile collapsing onto the newest one or
-    // two (the "3rd session vanished" bug). Only when the saved id is gone (deleted) or already open in
-    // another tile do we fall back to the project's newest not-live session. A null result (no sessions
-    // on disk) falls through to the main process's continue/new resolution.
+    // Reopen the tile's OWN conversation, or — when it is gone from disk / already open elsewhere —
+    // a FRESH one under the same name. Never a substitute: this tile carries the user's own label and
+    // pin, and handing it someone else's conversation is what made a renamed tile come back showing
+    // unrelated work (and silently ate the entry that really owned that conversation).
     const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
+    // Conversations the other not-yet-restored entries are waiting for — an id-less entry must not
+    // take one of those out from under them.
+    const reserved = new Set(restorable.map((r) => r.sessionId).filter((x): x is string => !!x));
     let ids: string[] = [];
     try { ids = await window.devdeck.cockpit.sessionIds(entry.projectPath, owner); } catch { ids = []; }
-    const sessionId = resolveRestoreSessionId(entry.sessionId, ids, liveIds);
-    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId, label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
-    if (ok) return;
-  } catch { /* fall through to re-list the entry */ }
+    const target = resolveRestoreTarget(entry.sessionId, ids, liveIds, reserved);
+    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId: target.sessionId, fresh: target.fresh, label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
+    if (ok) {
+      // Say why the tile is empty. Silence here would read as "my session lost its history".
+      if (target.fresh && entry.sessionId) toast(tr('cockpit.restore_gone', { name: entry.label || entry.name }));
+      return;
+    }
+  } catch { /* fall through to re-list the entry */ } finally {
+    restoring.delete(key);
+  }
   // A failed restore must NOT silently drop the entry (it was removed above so a success doesn't
   // duplicate) — put it back so the user can retry, and persist so a quit doesn't lose it either.
   restorable = [entry, ...restorable];

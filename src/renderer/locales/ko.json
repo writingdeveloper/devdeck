@@ -187,6 +187,7 @@
   "cockpit.prev_sessions": "이전 세션",
   "cockpit.restore": "복원",
   "cockpit.restore_all": "모두 복원",
+  "cockpit.restore_gone": "{name}: 이전 대화가 남아 있지 않아 새 세션으로 열었습니다",
   "cockpit.forget": "지우기",
   "cockpit.empty_prev": "이전 세션을 복원하거나 프로젝트에서 새로 여세요.",
   "usage.bar_5h": "5시간",

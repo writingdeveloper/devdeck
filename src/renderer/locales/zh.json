@@ -187,6 +187,7 @@
   "cockpit.prev_sessions": "上次会话",
   "cockpit.restore": "恢复",
   "cockpit.restore_all": "全部恢复",
+  "cockpit.restore_gone": "{name}：先前的对话已不存在，已改为打开新会话",
   "cockpit.forget": "移除",
   "cockpit.empty_prev": "恢复上次会话，或从项目中打开。",
   "usage.bar_5h": "5小时",

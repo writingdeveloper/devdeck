@@ -187,6 +187,7 @@
   "cockpit.prev_sessions": "Previous",
   "cockpit.restore": "Restore",
   "cockpit.restore_all": "Restore all",
+  "cockpit.restore_gone": "{name}: that conversation is no longer on disk — opened a new session instead",
   "cockpit.forget": "Forget",
   "cockpit.empty_prev": "Restore a previous session, or open one from Projects.",
   "usage.bar_5h": "5h",

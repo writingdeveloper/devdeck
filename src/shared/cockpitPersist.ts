@@ -14,29 +14,56 @@ const MAX_PERSISTED = 50;
 const MAX_LABEL = 60;
 
 /**
- * Choose which session a restored cockpit tile should actually resume. Claude Code appends in place
- * for --resume/-c/compaction, but /clear DOES start a brand-new session id in the same terminal —
- * live tiles track that via pickDriftedSessionId below, so the persisted id stays current. This
- * fallback resumes the NEWEST session (`newestFirstIds` is mtime-desc from listSessions) that isn't
- * already open in another tile, so a stale pin self-heals and multiple tiles of one project each get
- * a distinct recent conversation. null → nothing to resume (caller falls back to continue/new).
+ * Choose which session a restored cockpit tile should resume when it never named one of its own.
+ * Resumes the NEWEST session (`newestFirstIds` is mtime-desc from listSessions) that isn't already
+ * open in another tile, so multiple tiles of one project each get a distinct recent conversation.
+ * `reservedIds` are conversations OTHER saved entries are still waiting to restore: skip those when
+ * anything else is free, or the open consumes that entry (adoptRestorableMatch) and the user's name
+ * for it is gone. A preference, not a rule — an id-less entry must still restore something.
+ * null → nothing to resume (caller falls back to continue/new).
  */
-export function pickRestoreSessionId(newestFirstIds: string[], liveIds: Set<string>): string | null {
-  for (const id of newestFirstIds) if (!liveIds.has(id)) return id;
-  return null;
+export function pickRestoreSessionId(newestFirstIds: string[], liveIds: Set<string>, reservedIds: Set<string> = new Set()): string | null {
+  let reservedFallback: string | null = null;
+  for (const id of newestFirstIds) {
+    if (liveIds.has(id)) continue;
+    if (!reservedIds.has(id)) return id;
+    reservedFallback ??= id;
+  }
+  return reservedFallback;
 }
 
+/** What a restored tile should launch. `fresh` = start a brand-new conversation under the entry's
+ *  name, because the one it named cannot be reopened. */
+export interface RestoreTarget { sessionId: string | null; fresh: boolean; }
+
 /**
- * Which conversation a restored tile should reopen. Prefer the tile's OWN saved id when that
- * conversation still exists on disk and isn't already open in another tile — so a project's several
- * distinct conversations each keep their own tile instead of every tile collapsing onto the newest
- * one or two (the "3rd session vanished" bug). Only fall back to the newest not-live session when the
- * saved id was deleted or is already live. `newestFirstIds` must be ALL of the project's on-disk ids
- * (mtime-desc) so an older-but-valid saved id is still recognized as existing.
+ * Which conversation a restored tile should reopen. A saved entry NAMES one conversation and carries
+ * the user's own label + pin for it, so its own id wins whenever it can still be opened —
+ * `newestFirstIds` must be ALL of the project's on-disk ids (mtime-desc) so an older-but-valid saved
+ * id is still recognized as existing, and each of a project's conversations keeps its own tile
+ * instead of every tile collapsing onto the newest one (the "3rd session vanished" bug).
+ *
+ * When that conversation CANNOT be opened — its transcript is gone (Claude Code deletes transcripts
+ * after `cleanupPeriodDays`; a session the user never typed in was never written at all) or another
+ * tile already holds it — the tile must NOT be handed a different conversation. Substituting the
+ * newest one is what made a renamed tile come back showing a stranger's work under the user's name,
+ * and worse: that open then CONSUMED the saved entry which really owned the substituted conversation,
+ * deleting its label. Such a tile comes back FRESH instead — same name, empty terminal, no lie.
+ *
+ * Only an entry that never named a conversation (legacy entries saved before ids were persisted, and
+ * Antigravity, which has no resumable id) falls back to the project's newest not-live session.
  */
-export function resolveRestoreSessionId(savedId: string | null, newestFirstIds: string[], liveIds: Set<string>): string | null {
-  if (savedId && newestFirstIds.includes(savedId) && !liveIds.has(savedId)) return savedId;
-  return pickRestoreSessionId(newestFirstIds, liveIds);
+export function resolveRestoreTarget(
+  savedId: string | null,
+  newestFirstIds: string[],
+  liveIds: Set<string>,
+  reservedIds: Set<string> = new Set(),
+): RestoreTarget {
+  if (savedId) {
+    const usable = newestFirstIds.includes(savedId) && !liveIds.has(savedId);
+    return usable ? { sessionId: savedId, fresh: false } : { sessionId: null, fresh: true };
+  }
+  return { sessionId: pickRestoreSessionId(newestFirstIds, liveIds, reservedIds), fresh: false };
 }
 
 /** One on-disk session file's identity + timestamps, for the live drift detector below. */
