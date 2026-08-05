@@ -200,29 +200,40 @@ describe('resolveRestoreTarget', () => {
   // be reopened, the tile gets a BRAND-NEW one rather than a stranger's: the entry carries the user's
   // label + pin, so a substitute puts their name on work they never did.
   const disk = ['new', 'mid', 'homepage', 'old']; // newest-first, all on disk
+  const saved = (sessionId: string | null, label: string | null = null, agentId = 'claude') => ({ sessionId, label, agentId });
 
   it('reopens the saved id when it still exists on disk and is not already live', () => {
-    expect(resolveRestoreTarget('homepage', disk, new Set())).toEqual({ sessionId: 'homepage', fresh: false });
-    expect(resolveRestoreTarget('old', disk, new Set(['new']))).toEqual({ sessionId: 'old', fresh: false }); // not the newest — its own
+    expect(resolveRestoreTarget(saved('homepage'), disk, new Set())).toEqual({ sessionId: 'homepage', fresh: false });
+    expect(resolveRestoreTarget(saved('old'), disk, new Set(['new']))).toEqual({ sessionId: 'old', fresh: false }); // not the newest — its own
   });
   // Claude Code deletes transcripts after cleanupPeriodDays, and a session the user never typed in was
   // never written at all — both leave a named entry pointing at nothing.
   it('opens a FRESH session when the saved conversation is gone from disk — never a substitute', () => {
-    expect(resolveRestoreTarget('gone', disk, new Set())).toEqual({ sessionId: null, fresh: true });
-    expect(resolveRestoreTarget('gone', [], new Set())).toEqual({ sessionId: null, fresh: true });
+    expect(resolveRestoreTarget(saved('gone'), disk, new Set())).toEqual({ sessionId: null, fresh: true });
+    expect(resolveRestoreTarget(saved('gone'), [], new Set())).toEqual({ sessionId: null, fresh: true });
   });
   it('opens a fresh session when the saved id is already open in another tile', () => {
-    expect(resolveRestoreTarget('homepage', disk, new Set(['homepage']))).toEqual({ sessionId: null, fresh: true });
+    expect(resolveRestoreTarget(saved('homepage'), disk, new Set(['homepage']))).toEqual({ sessionId: null, fresh: true });
   });
   it('never takes a conversation reserved by another saved entry', () => {
-    expect(resolveRestoreTarget('gone', disk, new Set(), new Set(['new']))).toEqual({ sessionId: null, fresh: true });
+    expect(resolveRestoreTarget(saved('gone'), disk, new Set(), new Set(['new']))).toEqual({ sessionId: null, fresh: true });
   });
-  it('an entry that never named a conversation (legacy / antigravity) → newest not-live, reserved last', () => {
-    expect(resolveRestoreTarget(null, disk, new Set())).toEqual({ sessionId: 'new', fresh: false });
-    expect(resolveRestoreTarget(null, disk, new Set(['new']))).toEqual({ sessionId: 'mid', fresh: false });
-    expect(resolveRestoreTarget(null, disk, new Set(), new Set(['new']))).toEqual({ sessionId: 'mid', fresh: false });
+  // An id-less entry claims nothing beyond "a session in this project" — unless the user typed a name
+  // for it, which is a claim about specific work.
+  it('an unnamed id-less entry → newest not-live, reserved last', () => {
+    expect(resolveRestoreTarget(saved(null), disk, new Set())).toEqual({ sessionId: 'new', fresh: false });
+    expect(resolveRestoreTarget(saved(null), disk, new Set(['new']))).toEqual({ sessionId: 'mid', fresh: false });
+    expect(resolveRestoreTarget(saved(null), disk, new Set(), new Set(['new']))).toEqual({ sessionId: 'mid', fresh: false });
   });
-  it('an id-less entry with nothing on disk falls through to the main process (continue/new)', () => {
-    expect(resolveRestoreTarget(null, [], new Set())).toEqual({ sessionId: null, fresh: false });
+  it('a NAMED id-less claude/codex entry comes back fresh — its tile never wrote a conversation', () => {
+    expect(resolveRestoreTarget(saved(null, '릴리스 준비'), disk, new Set())).toEqual({ sessionId: null, fresh: true });
+    expect(resolveRestoreTarget(saved(null, '릴리스 준비', 'codex'), disk, new Set())).toEqual({ sessionId: null, fresh: true });
+  });
+  // Antigravity records no id for ANY tile, so an absent one says nothing — the guess is its only resume.
+  it('a named Antigravity entry keeps the newest-not-live fallback', () => {
+    expect(resolveRestoreTarget(saved(null, '리팩터링', 'antigravity'), disk, new Set())).toEqual({ sessionId: 'new', fresh: false });
+  });
+  it('an unnamed id-less entry with nothing on disk falls through to the main process (continue/new)', () => {
+    expect(resolveRestoreTarget(saved(null), [], new Set())).toEqual({ sessionId: null, fresh: false });
   });
 });

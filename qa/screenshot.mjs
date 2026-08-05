@@ -196,7 +196,9 @@ const sidebar = await win.evaluate(async () => {
     <div class="ck-row-main"><div class="ck-line1"><span class="nm" tabindex="0" aria-label="${name}" data-full-name="${name}">${name}</span><span class="ck-ctx-col">🧠41%</span></div><div class="mt">main · Opus</div><div class="sm" title="${summary}">${summary}</div></div>
     <span class="ck-row-acts"><button class="ck-pin">📌</button><button class="ck-rename">✎</button><button class="ck-close">✕</button></span></div>`;
   groups.innerHTML = rowHtml(long, 'claude') + rowHtml(cjk, 'codex')
-    + `<div class="ck-row ck-row-prev"><span class="ck-ind"><span class="ck-dot"></span></span><img class="ck-provider-logo" src="./assets/provider-antigravity.svg" alt="antigravity"><div class="ck-row-main"><div class="nm" tabindex="0" aria-label="${long}" data-full-name="${long}">${long}</div><div class="mt">Restore</div></div><span class="ck-prev-acts"><button class="ck-pin">📌</button><button class="ck-forget">✕</button></span></div>`;
+    // A restorable entry whose conversation is gone: its meta line warns in the accent colour, since
+    // restoring it opens a FRESH session under the same name.
+    + `<div class="ck-row ck-row-prev"><span class="ck-ind"><span class="ck-dot"></span></span><img class="ck-provider-logo" src="./assets/provider-antigravity.svg" alt="antigravity"><div class="ck-row-main"><div class="nm" tabindex="0" aria-label="${long}" data-full-name="${long}">${long}</div><div class="mt gone">⚠ conversation gone</div></div><span class="ck-prev-acts"><button class="ck-pin">📌</button><button class="ck-forget">✕</button></span></div>`;
   await new Promise((r) => setTimeout(r, 250));
   const list = document.querySelector('#view-cockpit .ck-list').getBoundingClientRect();
   const names = [...document.querySelectorAll('#ck-groups .nm')];
@@ -218,6 +220,17 @@ const sidebar = await win.evaluate(async () => {
     summaryInside: sums.every((s) => s.getBoundingClientRect().right <= list.right + 1),
     summaryClipped: sums.every((s) => s.scrollWidth > s.clientWidth), // actually overflowing → ellipsis in play
     rowHeight: Math.round(document.querySelector('#ck-groups .ck-row').getBoundingClientRect().height),
+    // The gone warning must be visually distinct from the ordinary dim "Restore" line AND stay inside
+    // the sidebar — a warning that reads like normal metadata is one the user scrolls past.
+    goneTinted: (() => {
+      const g = document.querySelector('#ck-groups .ck-row-prev .mt.gone');
+      const plain = document.querySelector('#ck-groups .ck-row:not(.ck-row-prev) .mt');
+      return !!g && getComputedStyle(g).color !== getComputedStyle(plain).color;
+    })(),
+    goneInside: (() => {
+      const g = document.querySelector('#ck-groups .ck-row-prev .mt.gone');
+      return !!g && g.getBoundingClientRect().right <= list.right + 1;
+    })(),
   };
 });
 await shot('cockpit-provider-sidebar');
@@ -230,6 +243,12 @@ if (sidebar.sidebarWidth !== 250 || !sidebar.twoLines || !sidebar.inside || side
 }
 if (sidebar.summaries !== 2 || !sidebar.summaryOneLine || !sidebar.summaryInside || !sidebar.summaryClipped) {
   console.error('QA FAILED — session summary line regressed (expect one clipped line per live row, contained in the 250px sidebar).');
+  await closeApp();
+  process.exit(1);
+}
+console.log(`cockpit gone marker: tinted=${sidebar.goneTinted} inside=${sidebar.goneInside}`);
+if (!sidebar.goneTinted || !sidebar.goneInside) {
+  console.error('QA FAILED — the "conversation gone" warning on a restorable row is not visually distinct or overflows the sidebar.');
   await closeApp();
   process.exit(1);
 }

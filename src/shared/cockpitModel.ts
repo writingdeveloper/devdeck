@@ -105,13 +105,15 @@ export interface CockpitRowSig {
  */
 export function cockpitListSignature(
   rows: CockpitRowSig[],
-  prev: { key: string; label: string; agentId: string; pinned?: boolean }[],
+  prev: { key: string; label: string; agentId: string; pinned?: boolean; gone?: boolean }[],
   lang: string,
   search: string,
 ): string {
   return JSON.stringify([
     rows.map((x) => [x.id, x.activity, x.label, x.dirty, x.branch, x.model, x.agentId, x.selected, x.pinned, x.ctx ?? null, x.summary ?? null]),
-    prev.map((x) => [x.key, x.label, x.agentId, x.pinned === true]),
+    // `gone` (the entry's conversation is no longer on disk) changes the row's meta line, and it is
+    // answered asynchronously after the list first renders — omit it and that answer never shows.
+    prev.map((x) => [x.key, x.label, x.agentId, x.pinned === true, x.gone === true]),
     lang,
     search,
   ]);

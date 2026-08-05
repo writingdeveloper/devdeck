@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 
-const { handlers, claudeStats, codexStats, codexIndex, probe } = vi.hoisted(() => ({
+const { handlers, claudeStats, codexStats, codexIndex, claudeIds, probe } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   claudeStats: vi.fn(() => []),
   codexStats: vi.fn(() => []),
   codexIndex: vi.fn(() => new Map<string, { id: string; mtimeMs: number; firstMessage: string | null }[]>()),
+  claudeIds: vi.fn((_projectPath: string, _dir: string): string[] => []),
   // The real prober spawns a process listing; the handler's contract (resolve the tile's pid, answer
   // null when there is no pty) is what this file checks.
   probe: vi.fn(async (_pid: number): Promise<string | null> => 'claude'),
@@ -27,7 +28,7 @@ vi.mock('./sessions', () => ({
   // Stubbed reads (see the Codex mock below): the Claude provider is exercised for its launch commands,
   // never against a real ~/.claude store.
   listSessions: async () => [],
-  listSessionIds: () => [],
+  listSessionIds: claudeIds,
   lastUserMessageForSession: async () => null,
 }));
 vi.mock('./codexSessions', () => ({
@@ -231,5 +232,57 @@ describe('cockpit:sessionMeta summary per provider', () => {
   it('returns the neutral shape for a provider with no transcript reader', () => {
     expect(handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'antigravity'))
       .toEqual({ model: null, activeMs: 0, contextTokens: 0, contextWindow: 0, summary: null, summarySource: null });
+  });
+});
+
+// A saved entry names ONE conversation. When that conversation is gone the tile comes back as a fresh
+// session under the same name (resolveRestoreTarget) — so the "Previous" list has to be able to say so
+// BEFORE the click. This answers the whole list at once: per-entry would re-index the flat Codex
+// rollout store once per project.
+describe('cockpit:sessionsExist', () => {
+  const projectPath = join(ALLOWED_ROOT, 'project');
+  const other = join(ALLOWED_ROOT, 'other');
+
+  it('reports only what it is SURE is missing', async () => {
+    const sessionsExist = handlers.get('cockpit:sessionsExist')!;
+    claudeIds.mockImplementation((p: string) => (p === projectPath ? ['kept'] : []));
+    codexIndex.mockReturnValue(new Map([[cwdKey(projectPath), [{ id: 'cx-kept', mtimeMs: 1, firstMessage: null }]]]));
+
+    expect(await sessionsExist(null, [
+      { projectPath, sessionId: 'kept', agentId: 'claude' },
+      { projectPath, sessionId: 'deleted', agentId: 'claude' },
+      { projectPath, sessionId: 'cx-kept', agentId: 'codex' },
+      { projectPath, sessionId: 'cx-gone', agentId: 'codex' },
+      // Antigravity records no per-tile id, and an unlisted path can't be read — neither may be
+      // reported as gone, or the row would warn about something it never checked.
+      { projectPath, sessionId: 'whatever', agentId: 'antigravity' },
+      { projectPath: join(process.cwd(), 'outside'), sessionId: 'x', agentId: 'claude' },
+      { projectPath, sessionId: null, agentId: 'claude' },
+      'not an entry',
+    ])).toEqual([true, false, true, false, true, true, true, true]);
+  });
+
+  it('reads each store once for the whole list, not once per entry', async () => {
+    const sessionsExist = handlers.get('cockpit:sessionsExist')!;
+    claudeIds.mockClear(); codexIndex.mockClear();
+    claudeIds.mockImplementation(() => []);
+    codexIndex.mockReturnValue(new Map());
+
+    await sessionsExist(null, [
+      { projectPath, sessionId: 'a', agentId: 'claude' },
+      { projectPath, sessionId: 'b', agentId: 'claude' }, // same project → memoized
+      { other: 1, projectPath: other, sessionId: 'c', agentId: 'claude' },
+      { projectPath, sessionId: 'd', agentId: 'codex' },
+      { projectPath: other, sessionId: 'e', agentId: 'codex' },
+    ]);
+    expect(claudeIds).toHaveBeenCalledTimes(2); // one per distinct project, not per entry
+    expect(codexIndex).toHaveBeenCalledTimes(1); // the flat store is indexed ONCE for every codex entry
+  });
+
+  it('is bounded and tolerates a non-array payload', async () => {
+    const sessionsExist = handlers.get('cockpit:sessionsExist')!;
+    expect(await sessionsExist(null, null)).toEqual([]);
+    const many = Array.from({ length: 250 }, () => ({ projectPath, sessionId: 'a', agentId: 'claude' }));
+    expect(((await sessionsExist(null, many)) as boolean[]).length).toBe(200);
   });
 });

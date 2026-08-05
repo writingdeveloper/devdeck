@@ -27,6 +27,11 @@ export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; b
 const live = new Map<string, Live>();
 let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
 let restorableLoaded = false; // guard: don't persist (and clobber the on-disk list) until the initial load resolves
+/** Saved entries whose conversation is no longer on disk — their row warns BEFORE it is clicked, since
+ *  restoring one opens a fresh session under the same name (see resolveRestoreTarget). */
+const missingConversations = new Set<string>();
+let missingCheckedAt = 0;
+const prevKey = (r: PersistedSession): string => `${r.projectPath}\0${r.sessionId ?? ''}`;
 let liveLabels = new Map<string, string>(); // live session id -> display label (#N when a project has several sessions)
 let lastListSig = ''; // signature of the last-rendered session list — renderList() skips a rebuild when nothing visible changed
 let editingId: string | null = null; // session being inline-renamed (rendered as an <input> in its row, so re-renders keep it)
@@ -137,6 +142,7 @@ export function mountCockpit(): void {
   window.devdeck.cockpit.loadSessions()
     .then(async (list) => {
       restorable = sanitizePersistedList(list); restorableLoaded = true; renderList(); if (live.size > 0) persist();
+      void refreshMissingConversations(); // mark entries whose conversation is gone before they're clicked
       // Seamless update: if this launch is the relaunch after an update, auto-restore the sessions that
       // were live at restart (consume clears the marker so a later normal launch won't re-trigger).
       const pending = await window.devdeck.consumeAutoRestore().catch(() => [] as PersistedSession[]);
@@ -206,6 +212,27 @@ function persist(): void {
   window.devdeck.cockpit.saveSessions([...fromLive, ...rest]);
 }
 
+// Re-checking costs one pass over the flat Codex rollout store, so it is user-paced, not on a tick.
+const MISSING_RECHECK_MS = 60_000;
+
+/**
+ * Re-check which saved entries' conversations still exist. ONE batched IPC for the whole list — asking
+ * per entry would re-index the flat Codex store once per project. Failures leave the rows as they are:
+ * an unanswered check must never be read as "gone".
+ */
+async function refreshMissingConversations(): Promise<void> {
+  missingCheckedAt = Date.now();
+  const list = restorable.filter((r) => r.sessionId);
+  if (!list.length) { missingConversations.clear(); return; }
+  let exists: boolean[];
+  try {
+    exists = await window.devdeck.cockpit.sessionsExist(list.map((r) => ({ projectPath: r.projectPath, sessionId: r.sessionId, agentId: r.agentId })));
+  } catch { return; }
+  missingConversations.clear();
+  list.forEach((r, i) => { if (exists[i] === false) missingConversations.add(prevKey(r)); });
+  renderList();
+}
+
 /** The currently-live sessions in PersistedSession form (for saving / update auto-restore). */
 export function liveSessionsForPersist(): PersistedSession[] {
   return [...live.values()].map((l) => ({ projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned }));
@@ -221,6 +248,9 @@ export function liveProjectActivity(): Map<string, 'attention' | 'working'> {
 /** Re-fit the active terminal when the cockpit becomes visible (xterm can't size while hidden). */
 export function showCockpit(): void {
   if (selectedId) requestAnimationFrame(() => { fitSelected(); live.get(selectedId!)?.term.focus(); });
+  // Transcripts disappear WHILE the app runs (Claude Code prunes them on its own startup), so re-check
+  // when the user comes back to this view — throttled, since each check re-indexes the Codex store.
+  if (restorableLoaded && Date.now() - missingCheckedAt > MISSING_RECHECK_MS) void refreshMissingConversations();
 }
 
 /** Called by Projects "open": switch to the cockpit FIRST (so terminals fit a visible pane), then create a session per project. */
@@ -538,7 +568,7 @@ function renderList(): void {
       ctx: contextPercent(l.meta?.contextTokens ?? 0, windowFor(l.meta)),
       summary: l.meta?.summary ?? null,
     })),
-    prev.map((r, i) => ({ key: r.sessionId ?? r.projectPath, label: prevLabels[i], agentId: r.agentId, pinned: r.pinned === true })),
+    prev.map((r, i) => ({ key: r.sessionId ?? r.projectPath, label: prevLabels[i], agentId: r.agentId, pinned: r.pinned === true, gone: missingConversations.has(prevKey(r)) })),
     currentLang(), search,
   ) + `\nedit:${editingId ?? ''}`; // a row being renamed becomes an <input> — also part of what the list renders
   if (sig === lastListSig) return;
@@ -627,8 +657,12 @@ function prevRow(r: PersistedSession, label: string): HTMLElement {
   applyFullName(el.querySelector('.nm') as HTMLElement, label);
   // The provider is now shown as a mark in its own column, so the metadata line no longer repeats it.
   el.insertBefore(createProviderLogo(toAgentId(r.agentId) ?? 'claude'), el.querySelector('.ck-row-main'));
-  el.querySelector('.mt')!.textContent = tr('cockpit.restore');
-  el.title = tr('cockpit.restore');
+  // Say up front when this entry's conversation is gone: restoring it opens a FRESH session under the
+  // same name, and finding that out only after the click reads as "my session lost its history".
+  const gone = missingConversations.has(prevKey(r));
+  el.querySelector('.mt')!.textContent = gone ? `⚠ ${tr('cockpit.prev_gone')}` : tr('cockpit.restore');
+  el.querySelector('.mt')!.classList.toggle('gone', gone);
+  el.title = gone ? tr('cockpit.prev_gone_tip') : tr('cockpit.restore');
   // Same 📌 affordance as live rows: a not-yet-restored entry can be (un)pinned without opening it.
   const pin = document.createElement('button'); pin.className = 'ck-pin'; pin.textContent = '📌'; pin.title = tr(isPinned ? 'cockpit.unpin' : 'cockpit.pin');
   pin.addEventListener('click', (e) => { e.stopPropagation(); togglePrevPin(r); });
@@ -872,11 +906,12 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     const reserved = new Set(restorable.map((r) => r.sessionId).filter((x): x is string => !!x));
     let ids: string[] = [];
     try { ids = await window.devdeck.cockpit.sessionIds(entry.projectPath, owner); } catch { ids = []; }
-    const target = resolveRestoreTarget(entry.sessionId, ids, liveIds, reserved);
+    const target = resolveRestoreTarget(entry, ids, liveIds, reserved);
     const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId: target.sessionId, fresh: target.fresh, label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
     if (ok) {
-      // Say why the tile is empty. Silence here would read as "my session lost its history".
-      if (target.fresh && entry.sessionId) toast(tr('cockpit.restore_gone', { name: entry.label || entry.name }));
+      // Say why the tile is empty — whether its conversation was deleted or was never recorded.
+      // Silence here would read as "my session lost its history".
+      if (target.fresh) toast(tr('cockpit.restore_gone', { name: entry.label || entry.name }));
       return;
     }
   } catch { /* fall through to re-list the entry */ } finally {

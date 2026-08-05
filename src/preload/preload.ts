@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
     sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId, agentId, wantAi),
     sessionIds: (projectPath: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath, agentId),
+    sessionsExist: (items: { projectPath: string; sessionId: string | null; agentId?: string }[]) => ipcRenderer.invoke('cockpit:sessionsExist', items),
     liveSessionId: (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: string }) =>
       ipcRenderer.invoke('cockpit:liveSessionId', projectPath, opts),
     liveAgent: (id: string) => ipcRenderer.invoke('cockpit:liveAgent', id),

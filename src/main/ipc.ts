@@ -13,7 +13,7 @@ import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession } from './agents';
 import { toAgentId, type AgentId, type Folder, type SessionMeta } from '../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../shared/pathGuard';
-import { basename } from '../shared/paths';
+import { basename, cwdKey } from '../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
 import { makeTtlCache } from '../shared/ttlCache';
 import { buildProjectList } from './projects';
@@ -30,7 +30,7 @@ import { getCodexUsage, spawnCodexAppServer } from './codexUsage';
 import { UsageCoordinator, antigravityUsage } from './usageProviders';
 import { pickAdoptedSessionId, pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
 import { makeAgentProbe } from './agentProcess';
-import { listSessionStats } from './sessions';
+import { listSessionStats, listSessionIds } from './sessions';
 import { listCodexSessionStats, indexCodexSessionsByCwd, readCodexSessionMeta } from './codexSessions';
 import { indexAntigravitySessionsByCwd } from './antigravitySessions';
 import { makeProjectSessionScan } from './sessionScan';
@@ -480,6 +480,37 @@ export function registerIpc(cfg: IpcConfig): void {
   ipcMain.handle('cockpit:sessionIds', (_e, projectPath: string, agentId?: AgentId) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return [];
     return agentFor(agentId).listSessionIds(String(projectPath));
+  });
+  /**
+   * Which of the saved cockpit entries' conversations still exist on disk, answered as a parallel
+   * boolean array. Lets the "Previous" list mark an entry as gone BEFORE the user clicks it: restoring
+   * one opens a fresh session under the same name, and learning that only afterwards reads as data loss.
+   *
+   * Batched deliberately. Asking per entry would rescan the FLAT Codex rollout store once per project
+   * (~100 bounded head reads each); here one pass builds its cwd index, and each Claude project dir is
+   * read once and memoized for the call. Anything unverifiable — a denied path, an id-less Antigravity
+   * entry, a malformed item — answers `true`: this may only report what it is sure is missing.
+   */
+  ipcMain.handle('cockpit:sessionsExist', (_e, items: unknown) => {
+    const list = (Array.isArray(items) ? items : []).slice(0, 200);
+    const folders = effFolders();
+    const claudeIds = new Map<string, Set<string>>();
+    let codexByCwd: Map<string, SessionMeta[]> | null = null;
+    return list.map((raw) => {
+      const it = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const projectPath = typeof it.projectPath === 'string' ? it.projectPath : '';
+      const sessionId = typeof it.sessionId === 'string' ? it.sessionId : '';
+      if (!sessionId || !projectPath || !isAllowedPath(folders, projectPath)) return true;
+      const owner = agentFor(it.agentId).id;
+      if (owner === 'antigravity') return true; // records no per-tile id — nothing to verify
+      if (owner === 'codex') {
+        codexByCwd ??= indexCodexSessionsByCwd(CODEX_SESSIONS);
+        return (codexByCwd.get(cwdKey(projectPath)) ?? []).some((s) => s.id === sessionId);
+      }
+      let ids = claudeIds.get(projectPath);
+      if (!ids) { ids = new Set(listSessionIds(projectPath, CLAUDE_PROJECTS)); claudeIds.set(projectPath, ids); }
+      return ids.has(sessionId);
+    });
   });
   // Live session-id drift check (/clear starts a brand-new session id in the same terminal — the
   // open-time id then goes stale and a restart would restore the PAST conversation). The renderer

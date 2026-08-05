@@ -50,19 +50,27 @@ export interface RestoreTarget { sessionId: string | null; fresh: boolean; }
  * and worse: that open then CONSUMED the saved entry which really owned the substituted conversation,
  * deleting its label. Such a tile comes back FRESH instead — same name, empty terminal, no lie.
  *
- * Only an entry that never named a conversation (legacy entries saved before ids were persisted, and
- * Antigravity, which has no resumable id) falls back to the project's newest not-live session.
+ * An entry with NO saved id is judged the same way, once you know what the absent id means:
+ *  - Antigravity never records which conversation a tile holds (no `--session-id` to pin, and the live
+ *    id probe doesn't run for it), so ALL its entries are id-less and an absent id says nothing at
+ *    all. The newest-not-live guess is that provider's only resume — keep it.
+ *  - Claude and Codex do record one, so an absent id means the tile never wrote a conversation. If the
+ *    user NAMED that tile, the name is a claim about specific work and a substitute would break it the
+ *    same way — such an entry comes back fresh too. Unnamed, the tile claims nothing beyond "a session
+ *    in this project", which any of its conversations satisfies, so the fallback still applies (two
+ *    concurrent Codex tiles whose ids were never adopted both come back on real conversations).
  */
 export function resolveRestoreTarget(
-  savedId: string | null,
+  entry: Pick<PersistedSession, 'sessionId' | 'label' | 'agentId'>,
   newestFirstIds: string[],
   liveIds: Set<string>,
   reservedIds: Set<string> = new Set(),
 ): RestoreTarget {
-  if (savedId) {
-    const usable = newestFirstIds.includes(savedId) && !liveIds.has(savedId);
-    return usable ? { sessionId: savedId, fresh: false } : { sessionId: null, fresh: true };
+  if (entry.sessionId) {
+    const usable = newestFirstIds.includes(entry.sessionId) && !liveIds.has(entry.sessionId);
+    return usable ? { sessionId: entry.sessionId, fresh: false } : { sessionId: null, fresh: true };
   }
+  if (entry.label && entry.agentId !== 'antigravity') return { sessionId: null, fresh: true };
   return { sessionId: pickRestoreSessionId(newestFirstIds, liveIds, reservedIds), fresh: false };
 }
 

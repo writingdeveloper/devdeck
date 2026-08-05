@@ -463,6 +463,9 @@ button.primary:hover { background: var(--accent-hover); }
   box-shadow: 0 6px 18px rgba(0,0,0,.5); pointer-events: none;
 }
 .ck-row .mt { font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-dim); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A restorable entry whose conversation is no longer on disk: restoring it opens a FRESH session under
+   the same name, so the row has to say so at dim-text weight rather than let the click be a surprise. */
+.ck-row-prev .mt.gone { color: var(--warn); }
 /* Line 3: what the session is working on right now, re-derived from its log every turn (see
    shared/sessionSummary.ts). One clipped line — the row's title carries the full text — so a sidebar
    full of long-running sessions stays scannable. Proportional (not mono like .mt) so it reads as prose
