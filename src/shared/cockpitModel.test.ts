@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, isCockpitAvailable, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, isCockpitAvailable, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, tileHoldingSession, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -150,5 +150,32 @@ describe('foldProjectActivity', () => {
     expect(m.get('C:/g/a')).toBe('attention');
     expect(m.get('C:/g/b')).toBe('working');
     expect(m.has('C:/g/c')).toBe(false); // idle/turn/exited는 신호 아님
+  });
+});
+
+// Opening a project you are ALREADY working in used to spawn a second agent on the same session log:
+// two tiles under two names, one transcript, two writers.
+describe('tileHoldingSession', () => {
+  const tiles = [
+    { id: 'tile#1', sessionId: 'playstore-work', exited: false },
+    { id: 'tile#2', sessionId: 'other-topic', exited: false },
+    { id: 'tile#3', sessionId: 'finished-one', exited: true },
+    { id: 'tile#4', sessionId: null, exited: false }, // id not adopted yet (fresh Codex tile)
+  ];
+
+  it('finds the tile already holding the conversation an open would land on', () => {
+    expect(tileHoldingSession(tiles, 'playstore-work')).toBe('tile#1');
+    expect(tileHoldingSession(tiles, 'other-topic')).toBe('tile#2');
+  });
+  it('an EXITED tile holds nothing — reopening that conversation is a real resume', () => {
+    expect(tileHoldingSession(tiles, 'finished-one')).toBeNull();
+  });
+  it('no target and no match both mean "go ahead and open"', () => {
+    expect(tileHoldingSession(tiles, null)).toBeNull();
+    expect(tileHoldingSession(tiles, 'never-seen')).toBeNull();
+    expect(tileHoldingSession([], 'playstore-work')).toBeNull();
+  });
+  it('an id-less tile is never matched by a null target', () => {
+    expect(tileHoldingSession([{ id: 'x', sessionId: null, exited: false }], null)).toBeNull();
   });
 });

@@ -190,6 +190,7 @@
   "cockpit.restore_gone": "{name}: 이전 대화를 찾을 수 없어 새 세션으로 열었습니다",
   "cockpit.prev_gone": "이전 대화 없음",
   "cockpit.prev_gone_tip": "이 대화가 디스크에 없습니다 — 복원하면 같은 이름으로 새 세션이 열립니다",
+  "cockpit.already_open": "이미 열려 있는 세션으로 이동했습니다: {name}",
   "cockpit.forget": "지우기",
   "cockpit.empty_prev": "이전 세션을 복원하거나 프로젝트에서 새로 여세요.",
   "usage.bar_5h": "5시간",

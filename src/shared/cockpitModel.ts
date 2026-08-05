@@ -128,3 +128,23 @@ export function foldProjectActivity(sessions: { projectPath: string; activity: A
   }
   return m;
 }
+
+/**
+ * The live tile already holding `target`, or null when nothing does.
+ *
+ * "Open" on a deck card resolves to the project's NEWEST conversation (`claude -c` / `codex resume
+ * --last`), and picking one from a card's session history names it outright — either way the answer can
+ * be a conversation that is ALREADY in a cockpit tile. Spawning a second agent on it puts two processes
+ * appending to one session log, shown under two different names, both displaying the same transcript.
+ * Selecting the tile the user already has is what they meant by "open this project".
+ *
+ * An EXITED tile is not holding anything: its agent is gone, so re-opening that conversation is a
+ * legitimate resume, not a duplicate.
+ */
+export function tileHoldingSession(
+  tiles: { id: string; sessionId: string | null; exited: boolean }[],
+  target: string | null,
+): string | null {
+  if (!target) return null;
+  return tiles.find((t) => t.sessionId === target && !t.exited)?.id ?? null;
+}

@@ -1,7 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, type CockpitSession } from '../shared/cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
@@ -253,10 +253,47 @@ export function showCockpit(): void {
   if (restorableLoaded && Date.now() - missingCheckedAt > MISSING_RECHECK_MS) void refreshMissingConversations();
 }
 
+/**
+ * Which live tile this open request would land on top of, if any.
+ *
+ * A deck/board "open" carries no session id, so the main process resolves it to the project's NEWEST
+ * conversation — exactly the one a tile is most likely to already hold. Without this, opening a project
+ * you are already working in spawned a SECOND agent on the same session log: two tiles, two names, one
+ * transcript shown twice, and two processes appending to one file.
+ *
+ * `fresh` ("+ New session") is an explicit fork and never dedupes. If the ids can't be read — including
+ * when the caller sent no provider and the globally selected one owns a different store — this answers
+ * null and the open proceeds as before: a missed dedupe, never a wrong one.
+ */
+async function duplicateTileFor(p: OpenReq): Promise<string | null> {
+  if (p.fresh) return null;
+  const tiles = [...live.entries()]
+    .filter(([, l]) => l.session.projectPath === p.path)
+    .map(([id, l]) => ({ id, sessionId: l.openedSessionId, exited: l.session.status === 'exited' }));
+  if (!tiles.length) return null; // nothing of this project is open — no lookup needed at all
+  let target = p.sessionId ?? null;
+  if (!target) {
+    try {
+      const ids = await window.devdeck.cockpit.sessionIds(p.path, p.agentId);
+      target = ids[0] ?? null; // newest-first — what the main process's continue path resolves to
+    } catch { return null; }
+  }
+  return tileHoldingSession(tiles, target);
+}
+
 /** Called by Projects "open": switch to the cockpit FIRST (so terminals fit a visible pane), then create a session per project. */
 export async function openProjectsInCockpit(projects: OpenReq[]): Promise<void> {
   document.querySelector<HTMLButtonElement>('.rail-item[data-view="cockpit"]')!.click();
-  for (const p of projects) await createSession(p);
+  for (const p of projects) {
+    const dup = await duplicateTileFor(p);
+    if (dup) {
+      // Already open: go to it. Named, because the tile the user renamed no longer says the folder name.
+      select(dup);
+      toast(tr('cockpit.already_open', { name: liveLabels.get(dup) || live.get(dup)?.session.name || p.name }));
+      continue;
+    }
+    await createSession(p);
+  }
 }
 
 /** Open a session for the request; false = refused or failed (already cleaned up + reported via toast). */

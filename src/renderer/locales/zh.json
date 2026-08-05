@@ -190,6 +190,7 @@
   "cockpit.restore_gone": "{name}：找不到先前的对话，已改为打开新会话",
   "cockpit.prev_gone": "对话已不存在",
   "cockpit.prev_gone_tip": "该对话不在磁盘上 — 恢复将以相同名称打开新会话",
+  "cockpit.already_open": "该会话已打开，已切换过去：{name}",
   "cockpit.forget": "移除",
   "cockpit.empty_prev": "恢复上次会话，或从项目中打开。",
   "usage.bar_5h": "5小时",

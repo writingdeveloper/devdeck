@@ -190,6 +190,7 @@
   "cockpit.restore_gone": "{name}: couldn't find that conversation — opened a new session instead",
   "cockpit.prev_gone": "conversation gone",
   "cockpit.prev_gone_tip": "That conversation is not on disk — restoring opens a new session under the same name",
+  "cockpit.already_open": "Already open — switched to it: {name}",
   "cockpit.forget": "Forget",
   "cockpit.empty_prev": "Restore a previous session, or open one from Projects.",
   "usage.bar_5h": "5h",
