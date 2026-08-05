@@ -20,9 +20,11 @@ const HOLD = 2.5, XFADE = 0.55, FPS = 30;
 
 // scene file -> caption
 const SCENES = [
-  ['demo-projects.png', 'Every Claude Code project at a glance'],
+  ['demo-projects.png', 'Every Claude Code, Codex & Antigravity project at a glance'],
   ['demo-sessions.png', 'Resume your last session in one click'],
   ['demo-neglected.png', 'Catch neglected & dirty repos'],
+  // demo-cockpit.png is deliberately NOT a scene: it is the 250px-wide sidebar on its own, and every
+  // scene here is scaled up to ~1200px. It lives in the README at its native size instead.
   ['demo-tasks.png', 'Tasks & deadlines across all projects'],
   ['demo-usage.png', 'Local token & cost analytics'],
   ['demo-settings.png', 'Point it at your repos — that’s it'],

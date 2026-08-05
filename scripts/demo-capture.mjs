@@ -91,5 +91,40 @@ await win.waitForSelector('#view-next .tk-group, #view-next .tk-add', { timeout:
 await win.waitForTimeout(500);
 await shot('demo-tasks');
 
+// 7) cockpit sidebar — the rows are what the README is actually selling (provider mark, model,
+// 🧠 context %, the 💬 auto summary, and a restorable entry whose conversation is gone). A live tile
+// needs a real agent process, which the isolated demo HOME deliberately has none of, so the rows are
+// rendered from representative data — the same technique qa/screenshot.mjs uses to measure them.
+await showView('cockpit');
+await win.evaluate(() => {
+  const groups = document.getElementById('ck-groups');
+  if (!groups) return;
+  const hdr = (t) => `<div class="ck-group-head"><span>${t}</span></div>`;
+  const row = (name, logo, act, meta, ctx, summary) => `<div class="ck-row act-${act}">
+    <span class="ck-ind">${act === 'attention' ? '●' : ''}</span>
+    <img class="ck-provider-logo" src="./assets/provider-${logo}.svg" alt="${logo}">
+    <div class="ck-row-main">
+      <div class="ck-line1"><span class="nm">${name}</span><span class="ck-ctx-col sev-${ctx >= 80 ? 'warn' : 'ok'}">🧠${ctx}%</span></div>
+      <div class="mt">${meta}</div><div class="sm" title="${summary}">${summary}</div></div>
+    <span class="ck-row-acts"><button class="ck-pin">📌</button><button class="ck-rename">✎</button><button class="ck-close">✕</button></span></div>`;
+  groups.innerHTML = hdr('Needs you')
+    + row('checkout-api', 'claude', 'attention', 'main · Opus 5', 84, 'Waiting on: run the migration against staging?')
+    + hdr('Working')
+    + row('storefront', 'codex', 'working', 'feat/cart · gpt-5.6-sol', 31, 'Rewriting the cart reducer tests')
+    + row('design-system', 'claude', 'working', 'main · Sonnet 5', 12, 'Token pipeline: 3 files edited this turn')
+    + hdr('Previous · 1')
+    + `<div class="ck-row ck-row-prev"><span class="ck-ind"><span class="ck-dot"></span></span>
+        <img class="ck-provider-logo" src="./assets/provider-claude.svg" alt="claude">
+        <div class="ck-row-main"><div class="nm">infra-terraform</div><div class="mt gone">⚠ conversation gone</div></div>
+        <span class="ck-prev-acts"><button class="ck-pin">📌</button><button class="ck-forget">✕</button></span></div>`;
+});
+// The ROWS alone are the shot: with no live tile the right-hand pane still shows its "no open
+// sessions" empty state, which would contradict them, and the list element itself runs the full window
+// height. Captured at 2× zoom — the sidebar is only 250 CSS px wide, and the demo reel scales every
+// scene up to ~1200, so at 1× this would be the one blurry frame in it.
+await win.waitForTimeout(350);
+await win.locator('#ck-groups').screenshot({ path: join(out, 'demo-cockpit.png') });
+console.log('shot: demo-cockpit (sidebar rows)');
+
 await closeApp();
 console.log('done — qa/shots/demo-*.png');

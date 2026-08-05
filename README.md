@@ -11,7 +11,7 @@ See every repo's state at a glance — git status, how long it's been neglected,
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-43-47848F)
-![Tests](https://img.shields.io/badge/tests-465%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-778%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 <img src="docs/demo/demo.gif" width="820" alt="DevDeck demo" />
@@ -53,7 +53,8 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 <img src="docs/screenshots/tasks.png" width="600" alt="Cross-project task board" />
 <img src="docs/screenshots/usage.png" width="600" alt="Claude Code local analytics" />
 <img src="docs/screenshots/all-provider-usage.png" width="600" alt="Live limits for every installed provider" />
-<img src="docs/screenshots/cockpit-providers.png" width="600" alt="Cockpit session rows with provider marks" />
+<br />
+<img src="docs/screenshots/cockpit-providers.png" width="250" alt="Cockpit sidebar: sessions grouped by urgency, each with its provider mark, model, context % and a one-line summary of what it is working on" />
 </div>
 
 ## Install
