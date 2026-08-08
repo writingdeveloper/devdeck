@@ -124,13 +124,49 @@ await win.waitForTimeout(400);
 await shot('titlebar-maximized');
 await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
 
-// Next task board: navigate + capture (empty-state render path — add form + no open tasks in the
-// isolated QA profile). Guards the tasks.ts wiring renders without console/page errors.
+// Next task board: seed one isolated-profile task so the provider-aware split Open control is rendered.
+await app.evaluate(({ dialog }, p) => {
+  dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
+}, root);
+await win.evaluate(async () => window.devdeck.pickFolder());
+await win.evaluate(async (p) => window.devdeck.addFolder(p), root);
+const taskSeeded = await win.evaluate(async () => {
+  const project = (await window.devdeck.listProjects())[0];
+  if (!project) return false;
+  await window.devdeck.setTodos(project.path, [{
+    id: 'qa-provider-open', text: 'Provider open QA', done: false, due: null,
+    createdAt: new Date().toISOString(),
+  }]);
+  return true;
+});
 await showView('next');
-await win.waitForSelector('#view-next .tk-bar, #view-next .empty', { timeout: 5000 }).catch(() => {});
+await win.waitForSelector('#view-next .provider-open, #view-next .empty', { timeout: 5000 }).catch(() => {});
 await shot('next-tasks');
 const nextAdd = await win.evaluate(() => !!document.querySelector('#view-next .tk-add-text'));
 console.log('next task-board add form present:', nextAdd);
+if (!taskSeeded) {
+  console.error('QA FAILED — no project was available to seed the provider-open task.');
+  await closeApp(); process.exit(1);
+}
+await win.click('#view-next .provider-open-menu-button');
+await win.waitForSelector('#view-next .provider-open-menu:not(.hidden)', { timeout: 3000 });
+await shot('next-provider-open-menu');
+const providerOpenGeo = await win.evaluate(() => {
+  const row = document.querySelector('#view-next .tk-row')?.getBoundingClientRect();
+  const control = document.querySelector('#view-next .provider-open')?.getBoundingClientRect();
+  const menu = document.querySelector('#view-next .provider-open-menu:not(.hidden)')?.getBoundingClientRect();
+  return {
+    present: !!row && !!control && !!menu,
+    controlInRow: !!row && !!control && control.left >= row.left && control.right <= row.right,
+    menuInViewport: !!menu && menu.left >= 0 && menu.right <= innerWidth && menu.top >= 0 && menu.bottom <= innerHeight,
+  };
+});
+console.log('provider open geometry:', JSON.stringify(providerOpenGeo));
+if (!providerOpenGeo.present || !providerOpenGeo.controlInRow || !providerOpenGeo.menuInViewport) {
+  console.error('QA FAILED — provider Open control or menu escaped its row/viewport.');
+  await closeApp(); process.exit(1);
+}
+await win.keyboard.press('Escape');
 // Calendar mode: toggle to the month grid, click a day, capture (exercises buildMonthGrid + Intl render).
 await win.click('#view-next .tk-vt:nth-child(2)').catch(() => {});
 await win.waitForSelector('#view-next .cal-grid .cal-cell', { timeout: 5000 }).catch(() => {});

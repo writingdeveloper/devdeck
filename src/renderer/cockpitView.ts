@@ -243,6 +243,13 @@ export function liveProjectActivity(): Map<string, 'attention' | 'working'> {
   return foldProjectActivity([...live.values()].map((l) => ({ projectPath: l.session.projectPath, activity: l.session.activity })));
 }
 
+/** Advisory provider presence for open-control copy; click-time routing still rechecks real history. */
+export function liveProjectProviders(projectPath: string): AgentId[] {
+  return [...new Set([...live.values()]
+    .filter((l) => l.session.projectPath === projectPath && l.session.status !== 'exited')
+    .map((l) => l.session.agentId))];
+}
+
 /** Re-fit the active terminal when the cockpit becomes visible (xterm can't size while hidden). */
 export function showCockpit(): void {
   if (selectedId) requestAnimationFrame(() => { fitSelected(); live.get(selectedId!)?.term.focus(); });

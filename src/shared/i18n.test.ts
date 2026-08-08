@@ -45,6 +45,8 @@ describe('languageName', () => {
 describe('locale parity for provider + usage keys', () => {
   const REQUIRED = [
     'agent.claude', 'agent.codex', 'agent.antigravity',
+    'open.with_provider', 'open.choose_provider', 'open.status_focus',
+    'open.status_continue', 'open.status_new', 'open.new_session',
     'usage.all_usage', 'usage.modal_title', 'usage.modal_refresh', 'usage.modal_close',
     'usage.summary_none', 'usage.summary_guidance', 'usage.stale_age',
     'usage.limit_session', 'usage.limit_weekly', 'usage.limit_model_weekly', 'usage.limit_primary', 'usage.limit_secondary',

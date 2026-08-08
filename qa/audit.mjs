@@ -50,6 +50,31 @@ await win.evaluate(async () => window.devdeck.pickFolder());
 await win.evaluate(async (p) => window.devdeck.addFolder(p), root);
 const gitInfoRaw = await win.evaluate(async (p) => (await window.devdeck.cockpit.gitInfo(p)) ?? null, root);
 ipc.cockpitGitInfo = typeof gitInfoRaw?.branch === 'string' && gitInfoRaw.branch.length > 0;
+ipc.providerOpen = await win.evaluate(async (p) => {
+  await window.devdeck.setTodos(p, [{
+    id: 'qa-open', text: 'Provider open QA', done: false, due: null,
+    createdAt: new Date().toISOString(),
+  }]);
+  document.querySelector('.rail-item[data-view="next"]')?.click();
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  const control = document.querySelector('#view-next .provider-open');
+  const primary = control?.querySelector('.provider-open-primary');
+  const menuButton = control?.querySelector('.provider-open-menu-button');
+  menuButton?.click();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const menu = control?.querySelector('.provider-open-menu');
+  const menuOpened = menuButton?.getAttribute('aria-expanded') === 'true' && !menu?.classList.contains('hidden');
+  const menuItems = menu?.querySelectorAll('[role="menuitem"]').length ?? 0;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  return {
+    root: !!control,
+    primaryLabel: primary?.getAttribute('aria-label') ?? '',
+    menuLabel: menuButton?.getAttribute('aria-label') ?? '',
+    menuOpened,
+    menuItems,
+    escapeClosed: menuButton?.getAttribute('aria-expanded') === 'false' && !!menu?.classList.contains('hidden'),
+  };
+}, root);
 ipc.usageShape = await win.evaluate(async () => {
   const r = await window.devdeck.usageReport(0);
   return { hasGlobal: !!r.global, hasByProject: Array.isArray(r.byProject), hasByModel: Array.isArray(r.byModel) };
@@ -152,14 +177,17 @@ const surfaceFails = Object.entries(ipc.surface).filter(([, v]) => v === false);
 const titlebarFails = Object.entries(ipc.titlebar).filter(([, v]) => v === false);
 const gitInfoFail = ipc.cockpitGitInfo !== true;
 const dialogFails = Object.entries(ipc.usageDialog ?? {}).filter(([k, v]) => (k === 'sections' ? v !== 3 : v === false));
+const providerOpenFail = !ipc.providerOpen?.root || !ipc.providerOpen.primaryLabel || !ipc.providerOpen.menuLabel ||
+  !ipc.providerOpen.menuOpened || ipc.providerOpen.menuItems < 2 || !ipc.providerOpen.escapeClosed;
 
-if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0) {
+if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0 || providerOpenFail) {
   console.error('QA FAILED:');
   if (criticalViolations.length > 0) console.error('  a11y critical/serious:', JSON.stringify(criticalViolations, null, 2));
   if (surfaceFails.length > 0) console.error('  ipc.surface checks failed:', surfaceFails.map(([k]) => k).join(', '));
   if (titlebarFails.length > 0) console.error('  ipc.titlebar checks failed:', titlebarFails.map(([k]) => k).join(', '));
   if (gitInfoFail) console.error('  cockpit.gitInfo did not resolve a branch for the repo root:', ipc.cockpitGitInfo, '· raw gitInfo:', JSON.stringify(gitInfoRaw));
   if (dialogFails.length > 0) console.error('  usage dialog checks failed:', JSON.stringify(ipc.usageDialog));
+  if (providerOpenFail) console.error('  provider open control missing or unlabeled:', JSON.stringify(ipc.providerOpen));
   process.exit(1);
 }
 console.log('done');

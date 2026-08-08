@@ -178,7 +178,7 @@ button.primary:hover { background: var(--accent-hover); }
 /* Everything else in the foot keeps its natural size — the shrink budget above comes only
    from the meta text, so the open button (and task badge) never get squeezed or wrapped. */
 .cardfoot > input[type="checkbox"], .cardfoot .task-badge, .cardfoot .iconbtn,
-.cardfoot .gh-btn, .cardfoot .primary { flex-shrink: 0; }
+.cardfoot .gh-btn, .cardfoot .primary, .cardfoot .provider-open { flex-shrink: 0; }
 
 .next-head { padding: 14px 16px 8px; font-size: 14px; font-weight: 600; color: var(--text); }
 /* Task board (Next view) — one control bar: [project][new-todo][date][add] | separator | [filter project][filter][show-done](+clear) | [list|calendar] */
@@ -239,7 +239,7 @@ button.primary:hover { background: var(--accent-hover); }
 .tk-due-input { flex: 0 0 auto; background: var(--surface); color: var(--text); border: 1px solid var(--accent); border-radius: 8px; padding: 3px 6px; font-size: 12px; }
 .tk-del { flex: 0 0 auto; background: transparent; border: 0; color: var(--text-faint); cursor: pointer; font-size: 13px; }
 .tk-del:hover { color: #e0623f; }
-.tk-open { flex: 0 0 auto; padding: 3px 9px; font-size: 12px; }
+.tk-open { flex: 0 0 auto; }
 /* Compact task badge on deck cards / list rows */
 .task-badge { display: inline-flex; align-items: center; gap: 3px; background: transparent; border: 1px solid var(--border-strong); border-radius: 10px; color: var(--text-dim); font-size: 11px; padding: 1px 7px; cursor: pointer; font-family: inherit; }
 .task-badge:hover { border-color: var(--accent); color: var(--text); }
@@ -259,6 +259,25 @@ button.primary:hover { background: var(--accent-hover); }
 .menu.hidden { display: none; }
 .menu-item { background: transparent; border: 0; color: var(--text); text-align: left; padding: 6px 8px; border-radius: 6px; font-size: 12px; cursor: pointer; }
 .menu-item:hover { background: var(--surface-hover); }
+
+/* Provider-aware split Open control. The wrapper owns popup positioning; both halves remain distinct
+   keyboard targets so the default action stays one click while provider/new-session choices are explicit. */
+.provider-open { position: relative; display: inline-flex; align-items: stretch; flex: 0 0 auto; }
+.provider-open-primary { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px 0 0 6px; padding-right: 9px; }
+.provider-open-menu-button { border-left-color: color-mix(in srgb, #fff 28%, transparent); border-radius: 0 6px 6px 0; padding: 5px 7px; min-width: 25px; }
+.provider-open-logo { display: block; width: 15px; height: 15px; flex: 0 0 auto; }
+.provider-open.compact .provider-open-primary { padding: 3px 7px; gap: 4px; }
+.provider-open.compact .provider-open-menu-button { padding: 3px 5px; min-width: 21px; }
+.provider-open.compact .provider-open-logo { width: 13px; height: 13px; }
+.provider-open-menu { top: calc(100% + 5px); right: 0; min-width: 250px; padding: 5px; z-index: 40; }
+.provider-open-row { display: grid; grid-template-columns: minmax(0, 1fr) 34px; align-items: stretch; }
+.provider-open-option, .provider-open-new { border: 0; background: transparent; }
+.provider-open-option { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 8px; text-align: left; }
+.provider-open-copy { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.provider-open-copy strong { font-size: 12px; font-weight: 600; }
+.provider-open-status { color: var(--text-faint); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.provider-open-new { color: var(--text-dim); padding: 5px; font-size: 15px; }
+.provider-open-option:hover, .provider-open-new:hover { background: var(--surface-hover); }
 
 /* Language picker: a popup hanging to the right of the rail, bottom-aligned to the 🌐 button. */
 .lang-menu { right: auto; left: calc(100% + 6px); top: auto; bottom: 0; min-width: 132px; }

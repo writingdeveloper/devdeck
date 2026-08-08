@@ -2,7 +2,7 @@ import { tr, localeTag } from './i18n-runtime';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
 import { projectSignature, diffCards, filterByDeckState, neglectedCount, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
-import { type OpenReq, liveProjectActivity } from './cockpitView';
+import { type OpenReq, liveProjectActivity, liveProjectProviders } from './cockpitView';
 import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
@@ -11,6 +11,7 @@ import { renderLoadError } from './loadError';
 import { createProviderLogo, providerName } from './providerLogo';
 import type { AgentId } from '../shared/types';
 import { selectedAgent } from './agentSelection';
+import { createProviderOpenControl } from './providerOpenControl';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -77,8 +78,7 @@ function taskBadge(p: ProjectViewModel): HTMLElement | null {
 /**
  * Build an open request. `agentId` is the provider that OWNS the session being opened — the deck sends
  * it so a Claude conversation is never handed to another agent (and vice versa). With no session to
- * resume, the project's most recent provider is used, falling back to the header selection for a
- * project with no history at all.
+ * resume, the provider visibly selected in the header is used.
  */
 function toOpenReq(p: ProjectViewModel, session: { id: string; agentId: AgentId } | null = null): OpenReq {
   return {
@@ -87,6 +87,18 @@ function toOpenReq(p: ProjectViewModel, session: { id: string; agentId: AgentId 
     agentId: session?.agentId ?? selectedAgent(),
     mode: 'auto',
   };
+}
+
+function providerOpenControl(p: ProjectViewModel, compact = false): HTMLElement {
+  return createProviderOpenControl({
+    path: p.path,
+    historyAgentIds: p.agentIds,
+    liveAgentIds: liveProjectProviders(p.path),
+    compact,
+    onOpen: (intent) => openInTerminal([{
+      ...intent, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted,
+    }]),
+  });
 }
 
 /** The provider mark(s) a project's session line shows: its own agents, newest-active first. */
@@ -340,8 +352,7 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   const cost = costByPath.get(p.path);
   if (cost != null) footBits.push(`~$${cost.toFixed(2)}`);
   footMeta.textContent = footBits.join(' · ');
-  const open = document.createElement('button'); open.className = 'primary'; open.textContent = '▶ ' + tr('proj.open');
-  open.addEventListener('click', () => openInTerminal([toOpenReq(p)]));
+  const open = providerOpenControl(p);
   foot.append(check);
   const tb = taskBadge(p);
   if (tb) foot.append(tb);
@@ -414,8 +425,7 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   const tb = taskBadge(p);
   if (tb) actions.append(tb);
   if (p.repoUrl) actions.append(githubBtn(p));
-  const open = document.createElement('button'); open.className = 'iconbtn prow-open'; open.textContent = '▶'; open.title = tr('proj.open'); open.setAttribute('aria-label', tr('proj.open'));
-  open.addEventListener('click', () => openInTerminal([toOpenReq(p)]));
+  const open = providerOpenControl(p, true); open.classList.add('prow-open');
   actions.append(open, makeMenuWrap(p));
 
   row.append(check, sig, name, cue, git, sess, actions);

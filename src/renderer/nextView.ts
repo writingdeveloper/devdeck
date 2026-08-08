@@ -7,10 +7,12 @@ import {
   clearDone, filterTaskItems,
   type Todo, type TaskWithProject, type DueBucket,
 } from '../shared/tasks';
-import { selectedAgent } from './agentSelection';
+import { createProviderOpenControl } from './providerOpenControl';
+import { liveProjectProviders } from './cockpitView';
+import type { AgentId } from '../shared/types';
 
 let viewEl: HTMLElement;
-interface Proj { path: string; name: string; todos: Todo[]; }
+interface Proj { path: string; name: string; todos: Todo[]; agentIds: AgentId[]; }
 let projects: Proj[] = [];
 
 // Board filters (view-local; reset only by explicit user action, so a re-render keeps them).
@@ -35,7 +37,7 @@ async function load(): Promise<void> {
     renderLoadError(viewEl, () => void load());
     return;
   }
-  projects = list.map((p) => ({ path: p.path, name: p.name, todos: p.todos ?? [] }));
+  projects = list.map((p) => ({ path: p.path, name: p.name, todos: p.todos ?? [], agentIds: p.agentIds ?? [] }));
   render();
 }
 
@@ -88,11 +90,17 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
   const del = document.createElement('button'); del.className = 'tk-del'; del.textContent = '🗑'; del.title = tr('tasks.delete');
   del.addEventListener('click', () => mutate(projectPath, (ts) => removeTodo(ts, todo.id)));
 
-  const open = document.createElement('button'); open.className = 'primary tk-open'; open.textContent = '▶';
-  open.title = tr('proj.open');
-  // Route through the shared opener so the task board opens in the cockpit (Windows) just like the deck,
-  // instead of always spawning an external PowerShell window.
-  open.addEventListener('click', () => openInTerminal([{ path: projectPath, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0, sessionId: null, mode: 'auto', agentId: selectedAgent() }]));
+  const project = projects.find((p) => p.path === projectPath);
+  const open = createProviderOpenControl({
+    path: projectPath,
+    historyAgentIds: project?.agentIds ?? [],
+    liveAgentIds: liveProjectProviders(projectPath),
+    compact: true,
+    onOpen: (intent) => openInTerminal([{
+      ...intent, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0,
+    }]),
+  });
+  open.classList.add('tk-open');
 
   row.append(cb, proj, text, due, del, open);
   return row;
