@@ -94,7 +94,7 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
   const open = createProviderOpenControl({
     path: projectPath,
     historyAgentIds: project?.agentIds ?? [],
-    liveAgentIds: liveProjectProviders(projectPath),
+    liveAgentIds: () => liveProjectProviders(projectPath),
     compact: true,
     onOpen: (intent) => openInTerminal([{
       ...intent, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0,

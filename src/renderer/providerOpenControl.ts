@@ -7,7 +7,7 @@ import { createProviderLogo, providerName } from './providerLogo';
 export interface ProviderOpenControlOptions {
   path: string;
   historyAgentIds: readonly AgentId[];
-  liveAgentIds: readonly AgentId[];
+  liveAgentIds(): readonly AgentId[];
   compact?: boolean;
   onOpen(intent: ProjectOpenIntent): void;
 }
@@ -17,6 +17,15 @@ const outcomeKey: Record<ProviderOpenOutcome, string> = {
   continue: 'open.status_continue',
   new: 'open.status_new',
 };
+
+// One shared selection subscription updates only controls that are still in the document. Keeping
+// renderers in a WeakMap avoids retaining every control ever replaced by a view re-render.
+const primaryRenderers = new WeakMap<HTMLElement, () => void>();
+subscribeAgentSelection(() => {
+  for (const root of Array.from(document.querySelectorAll<HTMLElement>('.provider-open'))) {
+    primaryRenderers.get(root)?.();
+  }
+});
 
 /** One provider-aware Open control shared by project cards, project rows, and task rows. */
 export function createProviderOpenControl(opts: ProviderOpenControlOptions): HTMLElement {
@@ -86,7 +95,7 @@ export function createProviderOpenControl(opts: ProviderOpenControlOptions): HTM
 
   const renderMenu = (): void => {
     menu.replaceChildren();
-    for (const option of providerOpenOptions(installedAgents(), selectedAgent(), opts.historyAgentIds, opts.liveAgentIds)) {
+    for (const option of providerOpenOptions(installedAgents(), selectedAgent(), opts.historyAgentIds, opts.liveAgentIds())) {
       const row = document.createElement('div'); row.className = 'provider-open-row'; row.setAttribute('role', 'none');
       const automatic = document.createElement('button');
       automatic.type = 'button'; automatic.className = 'provider-open-option'; automatic.setAttribute('role', 'menuitem');
@@ -145,8 +154,7 @@ export function createProviderOpenControl(opts: ProviderOpenControlOptions): HTM
   menu.addEventListener('keydown', onMenuKey);
 
   renderPrimary();
-  const unsubscribe = subscribeAgentSelection(() => {
-    if (!root.isConnected) { unsubscribe(); return; }
+  primaryRenderers.set(root, () => {
     renderPrimary();
     if (open) renderMenu();
   });

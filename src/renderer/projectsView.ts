@@ -93,7 +93,7 @@ function providerOpenControl(p: ProjectViewModel, compact = false): HTMLElement 
   return createProviderOpenControl({
     path: p.path,
     historyAgentIds: p.agentIds,
-    liveAgentIds: liveProjectProviders(p.path),
+    liveAgentIds: () => liveProjectProviders(p.path),
     compact,
     onOpen: (intent) => openInTerminal([{
       ...intent, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted,
