@@ -10,6 +10,7 @@ import {
   listCodexSessions,
   readCodexSessionMeta,
   emptyCodexMeta,
+  listCodexRolloutHeads,
 } from './codexSessions';
 
 let dir: string;
@@ -71,6 +72,19 @@ describe('codexSessions', () => {
     expect(stats).toHaveLength(1);
     expect(stats[0]).toMatchObject({ id: NEW_ID, mtimeMs: 3_000_000 });
     expect(stats[0].birthtimeMs).toBeGreaterThan(0);
+  });
+
+  it('exposes validated bounded rollout metadata for local analytics', () => {
+    const file = writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT));
+    writeRollout('rollout-badbadbad.jsonl', '{');
+    writeRollout('not-a-rollout.jsonl', rollout(OTHER_ID, OTHER_PROJECT));
+    utimesSync(file, 3000, 3000);
+
+    const heads = listCodexRolloutHeads(dir);
+    expect(heads).toHaveLength(1);
+    expect(heads[0]).toMatchObject({ file, id: NEW_ID, cwd: PROJECT, mtimeMs: 3_000_000 });
+    expect(heads[0].size).toBe(Buffer.byteLength(rollout(NEW_ID, PROJECT)));
+    expect(heads[0].birthtimeMs).toBeGreaterThan(0);
   });
 
   it('ignores malformed headers and invalid ids and tolerates missing directories', () => {
