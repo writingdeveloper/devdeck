@@ -142,9 +142,10 @@ export function foldProjectActivity(sessions: { projectPath: string; activity: A
  * legitimate resume, not a duplicate.
  */
 export function tileHoldingSession(
-  tiles: { id: string; sessionId: string | null; exited: boolean }[],
+  tiles: { id: string; sessionId: string | null; agentId: AgentId; exited: boolean }[],
   target: string | null,
+  agentId: AgentId,
 ): string | null {
   if (!target) return null;
-  return tiles.find((t) => t.sessionId === target && !t.exited)?.id ?? null;
+  return tiles.find((t) => t.sessionId === target && t.agentId === agentId && !t.exited)?.id ?? null;
 }

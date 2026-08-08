@@ -3,6 +3,16 @@ import type { Todo } from './tasks';
 
 export type AgentId = 'claude' | 'antigravity' | 'codex';
 
+export type OpenMode = 'auto' | 'new';
+
+/** The complete launch intent crossing the renderer → main-process boundary. */
+export interface ProjectOpenIntent {
+  path: string;
+  sessionId: string | null;
+  agentId: AgentId;
+  mode: OpenMode;
+}
+
 /** Narrow an untrusted value (persisted state, IPC payload) to an AgentId; null when it isn't one.
  *  Session-scoped IPC uses this so a tile always acts through the provider that OWNS it — falling back
  *  to the globally selected agent only when the caller genuinely has no session context. */
