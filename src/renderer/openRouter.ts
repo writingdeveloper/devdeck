@@ -15,5 +15,5 @@ export function openInTerminal(reqs: OpenReq[]): void {
   if (cockpitEnabled) { void openProjectsInCockpit(reqs); return; }
   // agentId travels to the external terminal too — a resumed conversation must be handed to the
   // provider that owns it, not to whatever agent is globally selected.
-  void window.devdeck.open(reqs.map((r) => ({ path: r.path, sessionId: r.sessionId ?? null, agentId: r.agentId })));
+  void window.devdeck.open(reqs.map((r) => ({ path: r.path, sessionId: r.sessionId ?? null, agentId: r.agentId, mode: r.mode })));
 }

@@ -87,6 +87,7 @@ function toOpenReq(p: ProjectViewModel, session: { id: string; agentId: AgentId 
     path: p.path, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted,
     sessionId: session?.id ?? null,
     agentId: session?.agentId ?? p.agentIds[0] ?? defaultAgentId,
+    mode: 'auto',
   };
 }
 
@@ -705,7 +706,7 @@ export function mountProjects(): void {
   });
   document.getElementById('new-project')!.addEventListener('click', () => {
     openNewProjectModal((path) => {
-      openInTerminal([{ path, name: basename(path), staleLevel: 'neutral', branch: null, dirty: 0 }]); // open the new project (cockpit on Windows, external terminal otherwise)
+      openInTerminal([{ path, name: basename(path), staleLevel: 'neutral', branch: null, dirty: 0, mode: 'new', agentId: defaultAgentId }]); // open the new project (cockpit on Windows, external terminal otherwise)
       reload();
     });
   });

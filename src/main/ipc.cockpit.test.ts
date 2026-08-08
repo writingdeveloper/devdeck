@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
 
-const { handlers, claudeStats, codexStats, codexIndex, claudeIds, probe } = vi.hoisted(() => ({
+const { handlers, claudeStats, codexStats, codexIndex, codexSessions, claudeIds, probe } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   claudeStats: vi.fn(() => []),
   codexStats: vi.fn(() => []),
   codexIndex: vi.fn(() => new Map<string, { id: string; mtimeMs: number; firstMessage: string | null }[]>()),
+  codexSessions: vi.fn(async () => [{ id: 'x1', mtimeMs: 10, firstMessage: null }]),
   claudeIds: vi.fn((_projectPath: string, _dir: string): string[] => []),
   // The real prober spawns a process listing; the handler's contract (resolve the tile's pid, answer
   // null when there is no pty) is what this file checks.
@@ -37,7 +38,7 @@ vi.mock('./codexSessions', () => ({
   // The Codex provider itself is exercised through agents.ts (launch-command resolution) — stub its
   // reads so the test never depends on a real ~/.codex store.
   codexAvailable: () => true,
-  listCodexSessions: () => [{ id: 'x1', mtimeMs: 10, firstMessage: null }],
+  listCodexSessions: codexSessions,
   listCodexSessionIds: () => ['x1'],
   lastUserMessageForCodexSession: () => null,
   readCodexSessionMeta: () => ({
@@ -119,36 +120,41 @@ describe('session-scoped provider', () => {
     storedAgent = 'codex';
 
     ptyCreate.mockClear();
-    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, fresh: true, agentId: 'claude' });
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, mode: 'new', agentId: 'claude' });
     expect(launchCommand()).toMatch(/^claude --session-id /);
 
     ptyCreate.mockClear();
-    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, fresh: true, agentId: 'antigravity' });
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, mode: 'new', agentId: 'antigravity' });
     expect(launchCommand()).toBe('agy');
 
     // No agentId (a plain deck open) still follows the global selection.
     ptyCreate.mockClear();
-    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, fresh: true });
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, mode: 'new' });
     expect(launchCommand()).toBe('codex');
   });
 
-  // A caller with NO session context (the task board's ▶, a freshly created project) used to launch
-  // whatever the header selector said — which handed one provider's project to another agent. The
-  // project's own most recent conversation decides instead.
-  it('infers the project\'s own provider when the caller sends no agentId', async () => {
+  it('keeps an explicit Codex generic open in Codex even when Claude is selected', async () => {
     const open = handlers.get('cockpit:open')!;
-    storedAgent = 'claude'; // selection says Claude, but this project's history is Codex
-    codexIndex.mockReturnValue(new Map([[cwdKey(projectPath), [{ id: 'x1', mtimeMs: 10, firstMessage: null }]]]));
+    storedAgent = 'claude';
 
     ptyCreate.mockClear();
-    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24 });
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, agentId: 'codex', mode: 'auto' });
     expect(launchCommand()).toBe('codex resume --last');
+  });
 
-    // An explicit agentId still wins over the inference.
+  it('new mode never resumes requested-provider history', async () => {
+    const open = handlers.get('cockpit:open')!;
     ptyCreate.mockClear();
-    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, agentId: 'claude' });
-    expect(launchCommand()).toMatch(/^claude/);
-    codexIndex.mockReturnValue(new Map());
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, agentId: 'codex', mode: 'new' });
+    expect(launchCommand()).toBe('codex');
+  });
+
+  it('starts a new conversation with the requested provider when its history lookup fails', async () => {
+    const open = handlers.get('cockpit:open')!;
+    codexSessions.mockRejectedValueOnce(new Error('store unreadable'));
+    ptyCreate.mockClear();
+    await open(null, { projectPath, sessionId: null, cols: 80, rows: 24, agentId: 'codex', mode: 'auto' });
+    expect(launchCommand()).toBe('codex');
   });
 
   it('cockpit:liveSessionId reads the OWNING provider\'s session store', () => {

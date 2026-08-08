@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
-import type { AgentId, SessionMeta } from '../shared/types';
+import type { AgentId, OpenMode, SessionMeta } from '../shared/types';
 import { listSessions, listSessionIds, lastUserMessageForSession } from './sessions';
 import { listAntigravitySessions, listAntigravitySessionIds, lastUserMessageForAntigravitySession, antigravityAvailable } from './antigravitySessions';
 import { codexAvailable, listCodexSessions, listCodexSessionIds, lastUserMessageForCodexSession } from './codexSessions';
@@ -79,6 +79,16 @@ const PROVIDERS: Record<AgentId, AgentProvider> = {
 
 export function getProvider(id: AgentId): AgentProvider {
   return PROVIDERS[id] ?? claudeProvider;
+}
+
+/** Resolve an external-terminal launch without consulting any other provider's history. */
+export function resolveProjectOpenCommand(
+  provider: AgentProvider,
+  intent: { mode: OpenMode; sessionId: string | null; hasHistory: boolean },
+): string {
+  if (intent.mode === 'new') return provider.buildCommand('new');
+  if (intent.sessionId) return provider.buildCommand('resume', intent.sessionId);
+  return provider.buildCommand(intent.hasHistory ? 'continue' : 'new');
 }
 
 /** Installed agents (claude, antigravity, and Codex when their session directories exist). `probe` overridable for tests. */

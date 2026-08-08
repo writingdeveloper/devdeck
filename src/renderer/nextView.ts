@@ -7,10 +7,12 @@ import {
   clearDone, filterTaskItems,
   type Todo, type TaskWithProject, type DueBucket,
 } from '../shared/tasks';
+import type { AgentId } from '../shared/types';
 
 let viewEl: HTMLElement;
 interface Proj { path: string; name: string; todos: Todo[]; }
 let projects: Proj[] = [];
+let defaultAgentId: AgentId = 'claude';
 
 // Board filters (view-local; reset only by explicit user action, so a re-render keeps them).
 let filterProject: string | null = null;
@@ -28,7 +30,9 @@ export function presetBoardProject(path: string): void { filterProject = path; }
 async function load(): Promise<void> {
   let list;
   try {
-    list = await window.devdeck.listProjects();
+    const [loadedProjects, agent] = await Promise.all([window.devdeck.listProjects(), window.devdeck.getAgent()]);
+    list = loadedProjects;
+    defaultAgentId = agent;
   } catch (e) {
     console.error('DevDeck: task board load failed', e); // otherwise the board would sit blank
     renderLoadError(viewEl, () => void load());
@@ -91,7 +95,7 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
   open.title = tr('proj.open');
   // Route through the shared opener so the task board opens in the cockpit (Windows) just like the deck,
   // instead of always spawning an external PowerShell window.
-  open.addEventListener('click', () => openInTerminal([{ path: projectPath, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0, sessionId: null }]));
+  open.addEventListener('click', () => openInTerminal([{ path: projectPath, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0, sessionId: null, mode: 'auto', agentId: defaultAgentId }]));
 
   row.append(cb, proj, text, due, del, open);
   return row;

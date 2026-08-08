@@ -10,8 +10,8 @@ import { PtyBatcher } from './ptyBatch';
 import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
-import { getProvider, availableAgents, resolveOpenSession } from './agents';
-import { toAgentId, type AgentId, type Folder, type SessionMeta } from '../shared/types';
+import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from './agents';
+import { toAgentId, type AgentId, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../shared/pathGuard';
 import { basename, cwdKey } from '../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../shared/externalUrl';
@@ -119,6 +119,9 @@ export function registerIpc(cfg: IpcConfig): void {
   // Codex made a Claude tile restore/restart/`+ new session` relaunch under `codex` — a different agent
   // reading a conversation it doesn't own.
   const agentFor = (id: unknown) => getProvider(toAgentId(id) ?? activeAgent());
+  const providerHistory = async (a: ReturnType<typeof getProvider>, projectPath: string): Promise<SessionMeta[]> => {
+    try { return await a.listSessions(projectPath); } catch { return []; }
+  };
   // The deck reads EVERY installed provider (not the selected one): a project's history belongs to
   // whichever agents wrote it, and each session carries its owner so the card's mark and the agent
   // "open" launches are both true to disk. One scan per use — the flat Codex/Antigravity stores are
@@ -149,20 +152,6 @@ export function registerIpc(cfg: IpcConfig): void {
       antigravity: () => cachedIndex(antigravityIndexCache, ANTIGRAVITY_DIR, () => indexAntigravitySessionsByCwd(ANTIGRAVITY_DIR)),
     },
   });
-  /**
-   * Which provider to launch for a project when the caller carries NO session context (the task board's
-   * ▶, a just-created project): the one that wrote its most recent conversation, so a "continue" never
-   * hands a Claude project's history to another agent just because the header selector was flipped.
-   * Falls back to the global selection for a project with no history at all.
-   */
-  const agentForProject = async (id: unknown, projectPath: string) => {
-    const requested = toAgentId(id);
-    if (requested) return getProvider(requested);
-    let owner: AgentId | null = null;
-    try { owner = (await makeDeckScan().sessions(projectPath, 1))[0]?.agentId ?? null; } catch { owner = null; }
-    return getProvider(owner ?? activeAgent());
-  };
-
   ipcMain.handle('projects:list', async () => {
     const scan = makeDeckScan();
     return buildProjectList({
@@ -297,7 +286,7 @@ export function registerIpc(cfg: IpcConfig): void {
     else cfg.sendError(`Blocked external URL: ${u}`);
   });
 
-  ipcMain.handle('projects:open', async (_e, items: { path: string; sessionId: string | null; agentId?: AgentId }[]) => {
+  ipcMain.handle('projects:open', async (_e, items: ProjectOpenIntent[]) => {
     const now = new Date().toISOString();
     const folders = effFolders();
     const tabs: WtTab[] = [];
@@ -306,14 +295,14 @@ export function registerIpc(cfg: IpcConfig): void {
         cfg.sendError(`Path outside allowed folders: ${it.path}`);
         continue;
       }
-      // Resume the conversation under the provider that OWNS it (the deck sends the session's agent);
-      // with no agent given, the project's own most recent provider decides — the global selection is
-      // the fallback only for a project with no history at all.
-      const a = await agentForProject(it.agentId, it.path);
-      let command: string;
-      if (typeof it.sessionId === 'string') command = a.buildCommand('resume', it.sessionId);
-      else if ((await a.listSessions(it.path)).length > 0) command = a.buildCommand('continue');
-      else command = a.buildCommand('new');
+      // The visible provider choice is authoritative. A historical session carries its owner in the
+      // same field; missing/invalid legacy input falls back only to the persisted header selection.
+      const a = agentFor(it.agentId);
+      const command = resolveProjectOpenCommand(a, {
+        mode: it.mode === 'new' ? 'new' : 'auto',
+        sessionId: typeof it.sessionId === 'string' ? it.sessionId : null,
+        hasHistory: it.mode === 'new' ? false : (await providerHistory(a, it.path)).length > 0,
+      });
       tabs.push({
         name: basename(it.path),
         dir: it.path,
@@ -378,15 +367,14 @@ export function registerIpc(cfg: IpcConfig): void {
   // Coalesce pty output (~one frame) before it crosses IPC so many streaming sessions don't flood the
   // renderer's single UI thread; input is never batched, and a big burst flushes immediately via the cap.
   const ptyBatch = new PtyBatcher((id, chunk) => sendToWin('cockpit:data', { id, chunk }), (flush) => { setTimeout(flush, 16); });
-  ipcMain.handle('cockpit:open', async (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean; agentId?: AgentId }) => {
+  ipcMain.handle('cockpit:open', async (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode?: OpenMode; agentId?: AgentId }) => {
     const folders = effFolders();
     if (!isAllowedPath(folders, req.projectPath)) {
       cfg.sendError(`Path outside allowed folders: ${req.projectPath}`);
       return { id: '', agentId: agentFor(req?.agentId).id, sessionId: null };
     }
-    // The tile's own provider when the renderer knows it (restore / restart / + new session / a deck
-    // card), otherwise the provider that owns this project's most recent conversation.
-    const a = req.fresh ? agentFor(req.agentId) : await agentForProject(req.agentId, req.projectPath);
+    const a = agentFor(req.agentId);
+    const forceNew = req.mode === 'new';
     // A failed open must come back as the same refusal shape the allowlist path returns (id: '') —
     // node-pty's spawn throws synchronously (e.g. the project folder was deleted since the session
     // was saved), and an unguarded throw here rejects the invoke, leaking the renderer's
@@ -394,12 +382,13 @@ export function registerIpc(cfg: IpcConfig): void {
     try {
       // Resolve BOTH the launch command and the concrete session id to persist (so each session
       // restores to its OWN conversation — required once a project can hold several sessions).
+      const history = forceNew ? [] : await providerHistory(a, req.projectPath);
       const resolved = resolveOpenSession(a, {
-        fresh: !!req.fresh,
-        // count/latestId only consulted on the non-fresh new/continue path — skip the disk reads when fresh
-        sessionCount: req.fresh ? 1 : (await a.listSessions(req.projectPath)).length,
+        fresh: forceNew,
+        // count/latestId are consulted only on the automatic new/continue path.
+        sessionCount: forceNew ? 1 : history.length,
         sessionId: req.sessionId,
-        latestId: req.fresh ? null : (await a.listSessions(req.projectPath, 1))[0]?.id ?? null,
+        latestId: forceNew ? null : history[0]?.id ?? null,
         genId: () => randomUUID(),
       });
       warnIfCliMissing(resolved.command);

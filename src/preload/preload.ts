@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   setTodos: (path: string, todos: unknown) => ipcRenderer.invoke('project:setTodos', path, todos),
   setPinned: (path: string, pinned: boolean) => ipcRenderer.invoke('project:setPinned', path, pinned),
   setHidden: (path: string, hidden: boolean) => ipcRenderer.invoke('project:setHidden', path, hidden),
-  open: (items: { path: string; sessionId: string | null; agentId?: string }[]) => ipcRenderer.invoke('projects:open', items),
+  open: (items: import('../shared/types').ProjectOpenIntent[]) => ipcRenderer.invoke('projects:open', items),
   onError: (cb: (msg: string) => void) =>
     ipcRenderer.on('devdeck:error', (_e, msg: string) => cb(msg)),
   usageReport: (sinceMs: number) => ipcRenderer.invoke('usage:report', sinceMs),
@@ -57,7 +57,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     readImage: (): Promise<string | null> => ipcRenderer.invoke('clipboard:readImage'),
   },
   cockpit: {
-    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean; agentId?: string }) =>
+    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }) =>
       ipcRenderer.invoke('cockpit:open', req),
     input: (id: string, data: string) => ipcRenderer.send('cockpit:input', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('cockpit:resize', id, cols, rows),

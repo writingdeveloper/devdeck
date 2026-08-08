@@ -8,7 +8,7 @@ declare global {
       setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
       setPinned(path: string, pinned: boolean): Promise<void>;
       setHidden(path: string, hidden: boolean): Promise<void>;
-      open(items: { path: string; sessionId: string | null; agentId?: import('../shared/types').AgentId }[]): Promise<void>;
+      open(items: import('../shared/types').ProjectOpenIntent[]): Promise<void>;
       onError(cb: (msg: string) => void): void;
       usageReport(sinceMs: number): Promise<import('../shared/types').UsageReport>;
       getLanguage(): Promise<string>;
@@ -61,7 +61,7 @@ declare global {
         readImage(): Promise<string | null>;
       };
       cockpit: {
-        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; fresh?: boolean; agentId?: import('../shared/types').AgentId }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
+        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: import('../shared/types').AgentId }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
         input(id: string, data: string): void;
         resize(id: string, cols: number, rows: number): void;
         close(id: string): void;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getProvider, availableAgents } from './agents';
+import { getProvider, availableAgents, resolveProjectOpenCommand } from './agents';
 
 describe('agent providers', () => {
   it('claude buildCommand maps kinds correctly', () => {
@@ -29,5 +29,15 @@ describe('agent providers', () => {
   it('availableAgents filters by isAvailable', () => {
     expect(availableAgents(() => false)).toEqual([]);
     expect(availableAgents(() => true).sort()).toEqual(['antigravity', 'claude', 'codex']);
+  });
+
+  it('resolves an external launch only inside the explicitly requested provider', () => {
+    const codex = getProvider('codex');
+    expect(resolveProjectOpenCommand(codex, { mode: 'auto', sessionId: null, hasHistory: true }))
+      .toBe('codex resume --last');
+    expect(resolveProjectOpenCommand(codex, { mode: 'new', sessionId: null, hasHistory: true }))
+      .toBe('codex');
+    expect(resolveProjectOpenCommand(getProvider('claude'), { mode: 'auto', sessionId: 'abc12345', hasHistory: true }))
+      .toBe('claude --resume abc12345');
   });
 });
