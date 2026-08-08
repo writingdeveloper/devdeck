@@ -39,7 +39,7 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 - **{ } Open in editor** (VS Code) and **📁 open folder** straight from a card; the deck **auto-refreshes in place** while it's open — only the cards that changed update, so there's no flicker as you work.
 - **🐙 Jump to GitHub** — projects with a `github.com` remote show a GitHub icon; click it to open the repo page in your browser.
 - **📝 Per-project notes** — jot your next todo; it sticks with the card.
-- **📊 Claude Code local analytics** — a **cost-first summary** (est. spend up top), tokens, cache-hit rate, and **active working-time** per project (real focused time, idle gaps excluded), parsed locally from `~/.claude`. **Search projects** in the table and hover the daily chart for per-day tooltips. Deleted projects stay visible (greyed) so totals remain honest. This page is **Claude Code only** — it reads local Claude logs and is not cross-provider cost accounting.
+- **📊 Claude Code + Codex local analytics** — one page shows **combined, Claude, and Codex API-equivalent estimated costs** side by side, then lets you filter token, model, daily, and per-project details by provider. History is parsed locally from `~/.claude` and `~/.codex`; searches and deleted-project totals remain available. These public-rate estimates are not subscription bills. Antigravity is excluded from local cost analytics because it does not expose stable local model/token cost data.
 - **📉 Live limits, all providers** — a one-line footer shows the single most urgent limit across every installed provider; **All usage** opens a dialog with each provider's own windows. **Claude Code:** 5-hour, weekly, any **model-scoped weekly quota** the API reports (rendered from the server's own model name — nothing is hardcoded), plan, and **Usage Credits** when present. **Codex:** primary/secondary rate-limit windows read through the installed official `codex app-server` (it owns its own auth; DevDeck never reads or exports Codex credentials). **Antigravity:** no supported programmatic quota read exists, so DevDeck shows the documented `/usage`, `/quota`, and `/credits` commands with a copy button instead of guessing. A provider that fails keeps its last-good numbers, labelled how old they are, and never blanks the others.
 - **📌 Pin / 🙈 hide / 🔎 search / sort** — keep the deck focused.
 - **☰ Card / list view** — toggle a dense list view — a compact status-board grid, one row per project — to scan many repos at a glance; your choice is remembered.
@@ -51,7 +51,7 @@ If you run Claude Code across a dozen side projects, you lose the thread: *Which
 
 <div align="center">
 <img src="docs/screenshots/tasks.png" width="600" alt="Cross-project task board" />
-<img src="docs/screenshots/usage.png" width="600" alt="Claude Code local analytics" />
+<img src="docs/screenshots/usage.png" width="600" alt="Combined Claude Code and Codex local cost analytics" />
 <img src="docs/screenshots/all-provider-usage.png" width="600" alt="Live limits for every installed provider" />
 <br />
 <img src="docs/screenshots/cockpit-providers.png" width="250" alt="Cockpit sidebar: sessions grouped by urgency, each with its provider mark, model, context % and a one-line summary of what it is working on" />
