@@ -1,6 +1,12 @@
 import type { UsageTotals } from './usage';
 import type { Todo } from './tasks';
 
+export type {
+  LocalUsageProvider, LocalUsageFilter, LocalUsageState, LocalModelUsage,
+  LocalProjectUsage, LocalDailyUsage, UsageAggregate, ProviderUsageSlice,
+  ProviderUsageSummary, LocalUsageReport,
+} from './localUsage';
+
 export type AgentId = 'claude' | 'antigravity' | 'codex';
 
 export type OpenMode = 'auto' | 'new';

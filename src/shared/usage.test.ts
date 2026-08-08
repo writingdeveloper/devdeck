@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { emptyTotals, addUsage, estimateCost, MODEL_PRICING, priceFor, SONNET5_ROLLOFF_MS, activeMsFromTimestamps, formatDuration, ACTIVE_GAP_CAP_MS } from './usage';
+import {
+  emptyTotals, addUsage, estimateCost, MODEL_PRICING, priceFor, SONNET5_ROLLOFF_MS,
+  activeMsFromTimestamps, formatDuration, ACTIVE_GAP_CAP_MS,
+  priceForProvider, normalizeCodexTotals, estimateProviderCost,
+} from './usage';
 
 describe('addUsage', () => {
   it('accumulates the four token categories', () => {
@@ -59,6 +63,42 @@ describe('priceFor', () => {
   });
   it('returns undefined for an unrecognized dated id whose stripped base has no card', () => {
     expect(priceFor('mystery-model-20260101')).toBeUndefined();
+  });
+});
+
+describe('provider-aware pricing', () => {
+  it('uses the documented Codex cards for models present in local rollouts', () => {
+    expect(priceForProvider('codex', 'gpt-5.6-sol')).toEqual({ input: 5, output: 30, cacheWrite: 6.25, cacheRead: 0.5 });
+    expect(priceForProvider('codex', 'gpt-5.6-terra')).toEqual({ input: 2.5, output: 15, cacheWrite: 3.125, cacheRead: 0.25 });
+    expect(priceForProvider('codex', 'gpt-5.6-luna')).toEqual({ input: 1, output: 6, cacheWrite: 1.25, cacheRead: 0.1 });
+    expect(priceForProvider('codex', 'gpt-5.5')).toMatchObject({ input: 5, output: 30, cacheRead: 0.5 });
+    expect(priceForProvider('codex', 'gpt-5.4-mini')).toMatchObject({ input: 0.75, output: 4.5, cacheRead: 0.075 });
+    expect(priceForProvider('codex', 'gpt-unknown')).toBeUndefined();
+  });
+
+  it('keeps the existing Claude resolver behind the provider-aware boundary', () => {
+    expect(priceForProvider('claude', 'claude-opus-4-8')).toEqual(priceFor('claude-opus-4-8'));
+  });
+
+  it('subtracts cached and cache-write subsets from Codex total input', () => {
+    expect(normalizeCodexTotals({
+      input_tokens: 100, cached_input_tokens: 60, cache_write_input_tokens: 10,
+      output_tokens: 7, reasoning_output_tokens: 3,
+    })).toEqual({ input: 30, cacheRead: 60, cacheWrite: 10, output: 7 });
+  });
+
+  it('clamps malformed, negative, and overlapping Codex counters', () => {
+    expect(normalizeCodexTotals({
+      input_tokens: 5, cached_input_tokens: 8, cache_write_input_tokens: -4,
+      output_tokens: Number.NaN,
+    })).toEqual({ input: 0, cacheRead: 5, cacheWrite: 0, output: 0 });
+  });
+
+  it('marks a priced record partial when a used component has no documented rate', () => {
+    expect(estimateProviderCost(
+      { input: 1, cacheRead: 0, cacheWrite: 1, output: 0 },
+      { input: 5, cacheRead: 0.5, cacheWrite: null, output: 30 },
+    )).toEqual({ value: 0.000005, complete: false });
   });
 });
 

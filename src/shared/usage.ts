@@ -18,6 +18,9 @@ export const SYNTHETIC_MODEL = '<synthetic>';
 /** Price per MILLION tokens (USD). cacheWrite ≈ 1.25× input (5m), cacheRead ≈ 0.1× input. */
 export interface PriceCard { input: number; output: number; cacheWrite: number; cacheRead: number; }
 
+/** Provider cards may omit a component whose public price is not documented. */
+export interface ProviderPriceCard { input: number; output: number; cacheWrite: number | null; cacheRead: number; }
+
 // Approximate published Anthropic prices ($/MTok). EDIT when prices change — cost is an ESTIMATE.
 // Opus dropped from $15/$75 to $5/$25 starting at 4.6 (1M context at standard pricing, no long-context
 // premium). The old $15/$75 card on 4.8 3x-inflated every Opus 4.8 cost estimate. Opus 4.1 keeps the
@@ -34,6 +37,15 @@ export const MODEL_PRICING: Record<string, PriceCard> = {
   // Introductory pricing; priceFor() auto-switches to the standard Sonnet-tier rate
   // (SONNET5_STANDARD) from 2026-09-01 — no manual edit needed (see SONNET5_ROLLOFF_MS).
   'claude-sonnet-5': { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+};
+
+/** Public API-equivalent rates for Codex models observed in supported local rollout history. */
+export const CODEX_MODEL_PRICING: Record<string, ProviderPriceCard> = {
+  'gpt-5.6-sol': { input: 5, output: 30, cacheWrite: 6.25, cacheRead: 0.5 },
+  'gpt-5.6-terra': { input: 2.5, output: 15, cacheWrite: 3.125, cacheRead: 0.25 },
+  'gpt-5.6-luna': { input: 1, output: 6, cacheWrite: 1.25, cacheRead: 0.1 },
+  'gpt-5.5': { input: 5, output: 30, cacheWrite: null, cacheRead: 0.5 },
+  'gpt-5.4-mini': { input: 0.75, output: 4.5, cacheWrite: null, cacheRead: 0.075 },
 };
 
 // Sonnet-5 launched at an introductory rate; it rolls off to the standard Sonnet-tier rate on this
@@ -71,6 +83,56 @@ export function priceFor(model: string, now: number = Date.now()): PriceCard | u
   // Sonnet-5's introductory price rolls off to the standard Sonnet-tier rate on 2026-09-01 (UTC).
   if (key === 'claude-sonnet-5' && now >= SONNET5_ROLLOFF_MS) return SONNET5_STANDARD;
   return MODEL_PRICING[key];
+}
+
+export type CostProvider = 'claude' | 'codex';
+
+/** Resolve only documented aliases/snapshots; an unfamiliar model remains deliberately unpriced. */
+export function priceForProvider(providerId: CostProvider, model: string, now: number = Date.now()): ProviderPriceCard | undefined {
+  if (providerId === 'claude') return priceFor(model, now);
+  const alias = model === 'gpt-5.6' ? 'gpt-5.6-sol' : model;
+  if (CODEX_MODEL_PRICING[alias]) return CODEX_MODEL_PRICING[alias];
+  const snapshotBase = alias.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  return snapshotBase !== alias ? CODEX_MODEL_PRICING[snapshotBase] : undefined;
+}
+
+function nonNegative(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export interface CodexRawUsage {
+  input_tokens?: unknown;
+  cached_input_tokens?: unknown;
+  cache_write_input_tokens?: unknown;
+  output_tokens?: unknown;
+  reasoning_output_tokens?: unknown;
+}
+
+/** Codex input_tokens includes both cache subsets; split it into mutually exclusive billing lanes. */
+export function normalizeCodexTotals(raw: CodexRawUsage): UsageTotals {
+  const totalInput = nonNegative(raw.input_tokens);
+  const cacheRead = Math.min(totalInput, nonNegative(raw.cached_input_tokens));
+  const cacheWrite = Math.min(totalInput - cacheRead, nonNegative(raw.cache_write_input_tokens));
+  return {
+    input: Math.max(0, totalInput - cacheRead - cacheWrite),
+    cacheRead,
+    cacheWrite,
+    output: nonNegative(raw.output_tokens),
+  };
+}
+
+/** Price every documented component and separately report whether the estimate is complete. */
+export function estimateProviderCost(t: UsageTotals, price: ProviderPriceCard | undefined): { value: number | null; complete: boolean } {
+  if (!price) return { value: null, complete: false };
+  const M = 1_000_000;
+  const cacheWriteKnown = price.cacheWrite != null;
+  const value = (
+    t.input * price.input
+    + t.output * price.output
+    + t.cacheRead * price.cacheRead
+    + (cacheWriteKnown ? t.cacheWrite * price.cacheWrite! : 0)
+  ) / M;
+  return { value, complete: cacheWriteKnown || t.cacheWrite === 0 };
 }
 
 /**
