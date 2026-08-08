@@ -24,13 +24,15 @@ describe('scanUsage', () => {
     ].join('\n'));
 
     const r = await scanUsage([{ path: 'C:\\g\\proj', name: 'proj' }], root, Infinity);
+    expect(r.providerId).toBe('claude');
+    expect(r.state).toBe('ready');
     expect(r.global.input).toBe(1_000_000);
     expect(r.global.output).toBe(1_000_000);
     expect(r.byProject[0].name).toBe('proj');
     expect(r.byProject[0].sessions).toBe(1);
     expect(r.globalCost).toBeCloseTo(5 + 25, 3);          // 1M input @ $5 + 1M output @ $25
     expect(r.byProject[0].costEstimate).toBeCloseTo(5 + 25, 3);
-    expect(r.byModel.find((m) => m.model === 'claude-opus-4-8')).toBeTruthy();
+    expect(r.byModel.find((m) => m.model === 'claude-opus-4-8')).toMatchObject({ providerId: 'claude' });
   });
 
   it('flags unknown models (tokens counted, no cost) and bins daily', async () => {

@@ -1,5 +1,6 @@
 import type { UsageTotals } from './usage';
 import type { Todo } from './tasks';
+import type { LocalUsageReport } from './localUsage';
 
 export type {
   LocalUsageProvider, LocalUsageFilter, LocalUsageState, LocalModelUsage,
@@ -42,15 +43,7 @@ export interface ProjectUsage {
   /** 'deleted' = the project folder is gone, but its Claude usage still lives in ~/.claude. */
   status: 'active' | 'deleted';
 }
-export interface UsageReport {
-  global: UsageTotals; globalCost: number | null; hasUnknownModel: boolean;
-  webSearch: number; webFetch: number; sessions: number;
-  /** Total active working time across all scanned sessions, in ms. */
-  activeMs: number;
-  byModel: ModelUsage[];
-  byProject: ProjectUsage[];
-  daily: { day: string; cost: number | null; tokens: number }[];
-}
+export type UsageReport = LocalUsageReport;
 
 export type StaleLevel = 'fresh' | 'neutral' | 'warn' | 'neglected';
 

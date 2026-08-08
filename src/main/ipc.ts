@@ -21,6 +21,8 @@ import { createProject } from './createProject';
 import { openProjects, openInEditor, resolveShellPath, makeCliGuard } from './launcher';
 import type { WtTab } from '../shared/wtArgs';
 import { scanUsage } from './usageScan';
+import { scanCodexUsage } from './codexUsageScan';
+import { combineLocalUsageScans } from './localUsageReport';
 import { PASTE_IMAGE_PREFIX } from './tempClean';
 import { listClaudeProjectDirs } from './usageProjectsScan';
 import { classifyUsageProjects } from '../shared/usageProjects';
@@ -188,12 +190,20 @@ export function registerIpc(cfg: IpcConfig): void {
 
   ipcMain.handle('usage:report', async (_e, sinceMs: number) => {
     const ms = (Number.isFinite(sinceMs) || sinceMs === Infinity) ? sinceMs : 0;
-    const scanned = await memoScan();
-    // Reconcile the live deck with ~/.claude so DELETED projects (folder gone, usage still on disk)
-    // remain visible and counted in the totals — honest "where did my tokens go" accounting.
-    const claudeProjects = await listClaudeProjectDirs(CLAUDE_PROJECTS);
-    const all = classifyUsageProjects({ scanned, claudeProjects, exists: existsSync });
-    return scanUsage(all, CLAUDE_PROJECTS, ms);
+    const claude = (async () => {
+      const scanned = await memoScan();
+      // Reconcile the live deck with ~/.claude so DELETED projects (folder gone, usage still on disk)
+      // remain visible and counted in the totals — honest "where did my tokens go" accounting.
+      const claudeProjects = await listClaudeProjectDirs(CLAUDE_PROJECTS);
+      const all = classifyUsageProjects({ scanned, claudeProjects, exists: existsSync });
+      return scanUsage(all, CLAUDE_PROJECTS, ms);
+    })();
+    const codex = scanCodexUsage({
+      sessionsDir: CODEX_SESSIONS,
+      cachePath: join(app.getPath('userData'), 'codex-usage-index.json'),
+      sinceMs: ms,
+    });
+    return combineLocalUsageScans(claude, codex);
   });
   ipcMain.handle('settings:getLanguage', () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
   ipcMain.handle('settings:setLanguage', (_e, lang: string) => cfg.store.setLanguage(lang));

@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
 import { emptyTotals, addUsage, addTotals, estimateCost, activeMsFromTimestamps, priceFor, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
-import type { UsageReport, ProjectUsage, ModelUsage } from '../shared/types';
+import type { LocalDailyUsage, LocalModelUsage, LocalProjectUsage, ProviderUsageSlice } from '../shared/localUsage';
 
 // Cache: filepath -> per-file DIGEST — (day × model) usage rollups + message timestamps — NOT the raw
 // text. History: caching every file's full text forever ballooned the main process to several GB and
@@ -122,11 +122,11 @@ async function parseDigest(fullPath: string, fileMs: number, mtimeMs: number): P
 }
 
 /** Aggregate token usage across the given repos' Claude sessions. sinceMs filters by day (Infinity = all). */
-export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: number): Promise<UsageReport> {
+export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: number): Promise<ProviderUsageSlice> {
   const global = emptyTotals();
   const perModelGlobal = new Map<string, UsageTotals>();
-  const perDay = new Map<string, UsageTotals>();
-  const byProject: ProjectUsage[] = [];
+  const perDay = new Map<string, Map<string, UsageTotals>>();
+  const byProject: LocalProjectUsage[] = [];
   let webSearch = 0, webFetch = 0, sessions = 0, hasUnknownModel = false, globalActiveMs = 0;
   const inRange = (dayMs: number): boolean => sinceMs === Infinity || dayMs >= sinceMs;
 
@@ -161,7 +161,9 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
           Object.assign(projTotals, addTotals(projTotals, e.totals));
           projByModel.set(e.model, addTotals(projByModel.get(e.model) ?? emptyTotals(), e.totals));
           perModelGlobal.set(e.model, addTotals(perModelGlobal.get(e.model) ?? emptyTotals(), e.totals));
-          perDay.set(e.day, addTotals(perDay.get(e.day) ?? emptyTotals(), e.totals));
+          const dayModels = perDay.get(e.day) ?? new Map<string, UsageTotals>();
+          dayModels.set(e.model, addTotals(dayModels.get(e.model) ?? emptyTotals(), e.totals));
+          perDay.set(e.day, dayModels);
           webSearch += e.webSearch;
           webFetch += e.webFetch;
         }
@@ -176,19 +178,29 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
 
     sessions += projSessions;
     globalActiveMs += projActiveMs;
+    const costEstimate = sumModelCost(projByModel);
     byProject.push({
       path: repo.path, name: repo.name, sessions: projSessions,
-      totals: projTotals, costEstimate: sumModelCost(projByModel), hasUnknownModel: projUnknown,
-      activeMs: projActiveMs, status: repo.status ?? 'active',
+      totals: projTotals, costEstimate, hasUnknownModel: projUnknown,
+      activeMs: projActiveMs, status: repo.status ?? 'active', providerCosts: { claude: costEstimate },
     });
   }
 
-  const byModel: ModelUsage[] = [...perModelGlobal.entries()].map(([model, totals]) => ({
-    model, totals, costEstimate: estimateCost(totals, priceFor(model)),
+  const byModel: LocalModelUsage[] = [...perModelGlobal.entries()].map(([model, totals]) => ({
+    providerId: 'claude', model, totals, costEstimate: estimateCost(totals, priceFor(model)), hasUnknownPrice: !priceFor(model),
   }));
-  const daily = [...perDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([day, t]) => ({
-    day, tokens: tokensOf(t), cost: null as number | null,
-  }));
+  const daily: LocalDailyUsage[] = [...perDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([day, models]) => {
+    let totals = emptyTotals();
+    let anyCost = false, cost = 0;
+    for (const [model, usage] of models) {
+      totals = addTotals(totals, usage);
+      const value = estimateCost(usage, priceFor(model));
+      if (value != null) { anyCost = true; cost += value; }
+    }
+    const tokens = tokensOf(totals);
+    const costEstimate = anyCost ? cost : null;
+    return { day, tokens, cost: costEstimate, providerTokens: { claude: tokens }, providerCosts: { claude: costEstimate } };
+  });
 
-  return { global, globalCost: sumModelCost(perModelGlobal), hasUnknownModel, webSearch, webFetch, sessions, activeMs: globalActiveMs, byModel, byProject, daily };
+  return { providerId: 'claude', state: 'ready', global, globalCost: sumModelCost(perModelGlobal), hasUnknownModel, webSearch, webFetch, sessions, activeMs: globalActiveMs, byModel, byProject, daily };
 }
