@@ -135,7 +135,7 @@ For each rollout the index stores only:
 - last fully consumed byte offset and incomplete trailing bytes;
 - the last cumulative token baseline and current model;
 - compact day/model aggregate buckets;
-- bounded timestamps needed for active-time calculation;
+- per-day active-time totals plus only the last timestamp needed to continue gap calculation;
 - parser schema version and price-registry version.
 
 The cache contains no prompts, responses, tool output, or credentials. On append, parsing resumes at the saved offset. On truncation, replacement, identity mismatch, or schema-version change, that file alone is rebuilt. Cache writes are atomic. A corrupt cache is discarded and reconstructed from source records.
