@@ -10,6 +10,8 @@ import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-ru
 import { toast } from './loadError';
 import { mountUsageBar, refreshUsageBar, rerenderUsageBar } from './usageBar';
 import { mountShutdown, refreshShutdownLabels } from './shutdown';
+import { initializeAgentSelection, setSelectedAgent } from './agentSelection';
+import type { AgentId } from '../shared/types';
 
 const toastHost = document.getElementById('toast-host')!;
 window.devdeck.onError((msg) => {
@@ -174,6 +176,9 @@ async function boot(): Promise<void> {
   // Cockpit (embedded node-pty terminals) is Windows-only for now — and needs the node-pty native
   // binding to have loaded; elsewhere/otherwise "open" uses the external terminal.
   const settings = await window.devdeck.getSettings();
+  const [available, active] = await Promise.all([window.devdeck.availableAgents(), window.devdeck.getAgent()]);
+  const agents = available.length ? available : [active];
+  initializeAgentSelection(agents, active);
   const cockpitOn = isCockpitAvailable(settings.platform, settings.ptyAvailable);
   setCockpitEnabled(cockpitOn);
   if (!cockpitOn) document.querySelector('.rail-item[data-view="cockpit"]')?.remove();
@@ -188,8 +193,6 @@ async function boot(): Promise<void> {
   mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit(); });
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
-  const agents = await window.devdeck.availableAgents();
-  const active = await window.devdeck.getAgent();
   if (agents.length > 1) {
     agentSel.classList.remove('hidden');
     agentSel.replaceChildren(...agents.map((a) => {
@@ -198,6 +201,7 @@ async function boot(): Promise<void> {
     agentSel.setAttribute('aria-label', tr('agent.label'));
     agentSel.addEventListener('change', async () => {
       await window.devdeck.setAgent(agentSel.value);
+      setSelectedAgent(agentSel.value as AgentId);
       reloadProjects();
     });
   }

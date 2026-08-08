@@ -10,6 +10,7 @@ import { basename } from '../shared/paths';
 import { renderLoadError } from './loadError';
 import { createProviderLogo, providerName } from './providerLogo';
 import type { AgentId } from '../shared/types';
+import { selectedAgent } from './agentSelection';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -18,9 +19,6 @@ type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[n
 const selected = new Set<string>();
 const expanded = new Set<string>();
 let projects: ProjectViewModel[] = [];
-/** Default provider for a project that has NO session yet (the header selector). Never used to label
- *  existing history — that always comes from the session's own `agentId`. */
-let defaultAgentId: AgentId = 'claude';
 let showHidden = false;
 // Per-project estimated cost, filled asynchronously after the list renders so a
 // (potentially slow) full token scan never blocks the project list.
@@ -86,7 +84,7 @@ function toOpenReq(p: ProjectViewModel, session: { id: string; agentId: AgentId 
   return {
     path: p.path, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted,
     sessionId: session?.id ?? null,
-    agentId: session?.agentId ?? p.agentIds[0] ?? defaultAgentId,
+    agentId: session?.agentId ?? selectedAgent(),
     mode: 'auto',
   };
 }
@@ -635,10 +633,10 @@ async function reload(): Promise<void> {
   // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
   // so they never wipe the deck to gray placeholders.
   if (!hasRenderedOnce) showSkeleton();
-  let proj, agent, settings;
+  let proj, settings;
   try {
-    [proj, agent, settings] = await Promise.all([
-      window.devdeck.listProjects(), window.devdeck.getAgent(), window.devdeck.getSettings(),
+    [proj, settings] = await Promise.all([
+      window.devdeck.listProjects(), window.devdeck.getSettings(),
     ]);
   } catch (e) {
     console.error('DevDeck: projects load failed', e);
@@ -647,7 +645,7 @@ async function reload(): Promise<void> {
     if (!hasRenderedOnce) renderLoadError(cardsEl, () => void reload());
     return;
   }
-  projects = proj; defaultAgentId = agent;
+  projects = proj;
   viewMode = settings.viewMode === 'list' ? 'list' : 'cards';
   syncViewToggle();
   render();
@@ -706,7 +704,7 @@ export function mountProjects(): void {
   });
   document.getElementById('new-project')!.addEventListener('click', () => {
     openNewProjectModal((path) => {
-      openInTerminal([{ path, name: basename(path), staleLevel: 'neutral', branch: null, dirty: 0, mode: 'new', agentId: defaultAgentId }]); // open the new project (cockpit on Windows, external terminal otherwise)
+      openInTerminal([{ path, name: basename(path), staleLevel: 'neutral', branch: null, dirty: 0, mode: 'new', agentId: selectedAgent() }]); // open the new project (cockpit on Windows, external terminal otherwise)
       reload();
     });
   });
