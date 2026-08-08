@@ -77,7 +77,7 @@ ipc.providerOpen = await win.evaluate(async (p) => {
 }, root);
 ipc.usageShape = await win.evaluate(async () => {
   const r = await window.devdeck.usageReport(0);
-  return { hasGlobal: !!r.global, hasByProject: Array.isArray(r.byProject), hasByModel: Array.isArray(r.byModel) };
+  return { hasGlobal: !!r.global, hasByProject: Array.isArray(r.byProject), hasByModel: Array.isArray(r.byModel), hasByProvider: Array.isArray(r.byProvider) && r.byProvider.length === 2 };
 });
 ipc.appName = await app.evaluate(({ app: a }) => a.getName());
 ipc.windowCount = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
@@ -104,6 +104,24 @@ ipc.titlebar = await win.evaluate(() => ({
 
 // --- axe a11y per view (inject axe-core source directly; Electron CDP lacks Target.createTarget) ---
 const a11y = {};
+const localUsageReport = {
+  global: { input: 300, output: 100, cacheWrite: 20, cacheRead: 120 }, globalCost: 2.5, hasUnknownModel: false,
+  webSearch: 0, webFetch: 0, sessions: 2, activeMs: 1200000,
+  byModel: [
+    { providerId: 'claude', model: 'claude-opus-4-1', totals: { input: 100, output: 40, cacheWrite: 20, cacheRead: 40 }, costEstimate: 1, hasUnknownPrice: false },
+    { providerId: 'codex', model: 'gpt-5.6-sol', totals: { input: 200, output: 60, cacheWrite: 0, cacheRead: 80 }, costEstimate: 1.5, hasUnknownPrice: false },
+  ],
+  byProject: [{ path: 'C:/qa/app', name: 'qa-app', sessions: 2, totals: { input: 300, output: 100, cacheWrite: 20, cacheRead: 120 }, costEstimate: 2.5, hasUnknownModel: false, activeMs: 1200000, status: 'active', providerCosts: { claude: 1, codex: 1.5 } }],
+  daily: [{ day: '2026-08-08', tokens: 400, cost: 2.5, providerTokens: { claude: 140, codex: 260 }, providerCosts: { claude: 1, codex: 1.5 } }],
+  byProvider: [
+    { providerId: 'claude', state: 'ready', global: { input: 100, output: 40, cacheWrite: 20, cacheRead: 40 }, globalCost: 1, hasUnknownModel: false, webSearch: 0, webFetch: 0, sessions: 1, activeMs: 600000,
+      byModel: [{ providerId: 'claude', model: 'claude-opus-4-1', totals: { input: 100, output: 40, cacheWrite: 20, cacheRead: 40 }, costEstimate: 1, hasUnknownPrice: false }],
+      byProject: [{ path: 'C:/qa/app', name: 'qa-app', sessions: 1, totals: { input: 100, output: 40, cacheWrite: 20, cacheRead: 40 }, costEstimate: 1, hasUnknownModel: false, activeMs: 600000, status: 'active', providerCosts: { claude: 1 } }], daily: [] },
+    { providerId: 'codex', state: 'ready', global: { input: 200, output: 60, cacheWrite: 0, cacheRead: 80 }, globalCost: 1.5, hasUnknownModel: false, webSearch: 0, webFetch: 0, sessions: 1, activeMs: 600000,
+      byModel: [{ providerId: 'codex', model: 'gpt-5.6-sol', totals: { input: 200, output: 60, cacheWrite: 0, cacheRead: 80 }, costEstimate: 1.5, hasUnknownPrice: false }],
+      byProject: [{ path: 'C:/qa/app', name: 'qa-app', sessions: 1, totals: { input: 200, output: 60, cacheWrite: 0, cacheRead: 80 }, costEstimate: 1.5, hasUnknownModel: false, activeMs: 600000, status: 'active', providerCosts: { codex: 1.5 } }], daily: [] },
+  ],
+};
 // next + cockpit included — the two newest, most dynamic views were previously never axe-checked.
 // cockpit's rail item only exists on win32, so absent views are skipped (CI runs this on Linux).
 for (const view of ['projects', 'usage', 'settings', 'next', 'cockpit']) {
@@ -111,6 +129,10 @@ for (const view of ['projects', 'usage', 'settings', 'next', 'cockpit']) {
   if (!present) continue;
   await win.click(`.rail-item[data-view="${view}"]`);
   await win.waitForTimeout(600);
+  if (view === 'usage') {
+    await win.evaluate((report) => document.dispatchEvent(new CustomEvent('devdeck:local-usage-report', { detail: report })), localUsageReport);
+    await win.waitForTimeout(100);
+  }
   await win.evaluate(axeCore.source);
   const res = await win.evaluate(async () =>
     // eslint-disable-next-line no-undef

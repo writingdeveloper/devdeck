@@ -1,15 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { filterProjectRows, aggregateDeleted } from './usageFilter';
-import type { ProjectUsage } from './types';
+import type { LocalProjectUsage } from './localUsage';
 
 const totals = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
 
-function row(name: string): ProjectUsage {
-  return { path: `/p/${name}`, name, sessions: 1, totals, costEstimate: null, hasUnknownModel: false, activeMs: 0, status: 'active' };
+function row(name: string): LocalProjectUsage {
+  return { path: `/p/${name}`, name, sessions: 1, totals, costEstimate: null, hasUnknownModel: false, activeMs: 0, status: 'active', providerCosts: {} };
 }
 
-function mkRow(over: Partial<ProjectUsage>): ProjectUsage {
-  return { path: 'p', name: 'n', sessions: 0, totals: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, costEstimate: null, hasUnknownModel: false, activeMs: 0, status: 'active', ...over };
+function mkRow(over: Partial<LocalProjectUsage>): LocalProjectUsage {
+  return { path: 'p', name: 'n', sessions: 0, totals: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, costEstimate: null, hasUnknownModel: false, activeMs: 0, status: 'active', providerCosts: {}, ...over };
 }
 
 describe('filterProjectRows', () => {
@@ -69,5 +69,16 @@ describe('aggregateDeleted', () => {
     const none = aggregateDeleted([mkRow({ status: 'deleted', costEstimate: null })])!;
     expect(none.costEstimate).toBeNull();
     expect(none.hasUnknownModel).toBe(false);
+  });
+
+  it('preserves Claude and Codex subtotals when deleted projects collapse', () => {
+    const rows: LocalProjectUsage[] = [
+      { ...mkRow({ status: 'deleted', costEstimate: 3 }), providerCosts: { claude: 3 } },
+      { ...mkRow({ status: 'deleted', costEstimate: 2 }), providerCosts: { codex: 2 } },
+      { ...mkRow({ status: 'deleted', costEstimate: 5 }), providerCosts: { claude: 1, codex: 4 } },
+    ];
+    const group = aggregateDeleted(rows)!;
+    expect(group.providerCosts).toEqual({ claude: 4, codex: 6 });
+    expect(group.costEstimate).toBe(10);
   });
 });

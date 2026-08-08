@@ -41,6 +41,47 @@ async function showView(v) {
   await win.waitForTimeout(300);
 }
 
+// Deterministic local-history fixture. Real home-directory logs vary between machines, so the Usage
+// page receives a representative combined report through its renderer QA seam.
+const LOCAL_USAGE_REPORT = {
+  global: { input: 1500, output: 500, cacheWrite: 100, cacheRead: 700 }, globalCost: 8.75,
+  hasUnknownModel: true, webSearch: 2, webFetch: 1, sessions: 5, activeMs: 5400000,
+  byModel: [
+    { providerId: 'claude', model: 'claude-opus-4-1', totals: { input: 600, output: 200, cacheWrite: 100, cacheRead: 300 }, costEstimate: 3.25, hasUnknownPrice: false },
+    { providerId: 'codex', model: 'gpt-5.6-sol', totals: { input: 800, output: 250, cacheWrite: 0, cacheRead: 350 }, costEstimate: 5.5, hasUnknownPrice: false },
+    { providerId: 'codex', model: 'future-codex', totals: { input: 100, output: 50, cacheWrite: 0, cacheRead: 50 }, costEstimate: null, hasUnknownPrice: true },
+  ],
+  byProject: [
+    { path: 'C:/qa/shared', name: 'shared-app', sessions: 2, totals: { input: 800, output: 250, cacheWrite: 50, cacheRead: 400 }, costEstimate: 4.5, hasUnknownModel: false, activeMs: 2400000, status: 'active', providerCosts: { claude: 1.5, codex: 3 } },
+    { path: 'C:/qa/claude', name: 'claude-only', sessions: 1, totals: { input: 300, output: 100, cacheWrite: 50, cacheRead: 100 }, costEstimate: 1.75, hasUnknownModel: false, activeMs: 1200000, status: 'active', providerCosts: { claude: 1.75 } },
+    { path: 'C:/qa/codex', name: 'codex-only', sessions: 2, totals: { input: 400, output: 150, cacheWrite: 0, cacheRead: 200 }, costEstimate: 2.5, hasUnknownModel: true, activeMs: 1800000, status: 'active', providerCosts: { codex: 2.5 } },
+  ],
+  daily: [
+    { day: '2026-08-07', tokens: 900, cost: 3.25, providerTokens: { claude: 400, codex: 500 }, providerCosts: { claude: 1.25, codex: 2 } },
+    { day: '2026-08-08', tokens: 1100, cost: 5.5, providerTokens: { claude: 400, codex: 700 }, providerCosts: { claude: 2, codex: 3.5 } },
+  ],
+  byProvider: [
+    { providerId: 'claude', state: 'ready', global: { input: 600, output: 200, cacheWrite: 100, cacheRead: 300 }, globalCost: 3.25, hasUnknownModel: false, webSearch: 2, webFetch: 1, sessions: 2, activeMs: 2100000,
+      byModel: [{ providerId: 'claude', model: 'claude-opus-4-1', totals: { input: 600, output: 200, cacheWrite: 100, cacheRead: 300 }, costEstimate: 3.25, hasUnknownPrice: false }],
+      byProject: [
+        { path: 'C:/qa/shared', name: 'shared-app', sessions: 1, totals: { input: 300, output: 100, cacheWrite: 50, cacheRead: 200 }, costEstimate: 1.5, hasUnknownModel: false, activeMs: 900000, status: 'active', providerCosts: { claude: 1.5 } },
+        { path: 'C:/qa/claude', name: 'claude-only', sessions: 1, totals: { input: 300, output: 100, cacheWrite: 50, cacheRead: 100 }, costEstimate: 1.75, hasUnknownModel: false, activeMs: 1200000, status: 'active', providerCosts: { claude: 1.75 } },
+      ], daily: [{ day: '2026-08-08', tokens: 800, cost: 3.25, providerTokens: { claude: 800 }, providerCosts: { claude: 3.25 } }] },
+    { providerId: 'codex', state: 'ready', global: { input: 900, output: 300, cacheWrite: 0, cacheRead: 400 }, globalCost: 5.5, hasUnknownModel: true, webSearch: 0, webFetch: 0, sessions: 3, activeMs: 3300000,
+      byModel: [
+        { providerId: 'codex', model: 'gpt-5.6-sol', totals: { input: 800, output: 250, cacheWrite: 0, cacheRead: 350 }, costEstimate: 5.5, hasUnknownPrice: false },
+        { providerId: 'codex', model: 'future-codex', totals: { input: 100, output: 50, cacheWrite: 0, cacheRead: 50 }, costEstimate: null, hasUnknownPrice: true },
+      ], byProject: [
+        { path: 'C:/qa/shared', name: 'shared-app', sessions: 1, totals: { input: 500, output: 150, cacheWrite: 0, cacheRead: 200 }, costEstimate: 3, hasUnknownModel: false, activeMs: 1500000, status: 'active', providerCosts: { codex: 3 } },
+        { path: 'C:/qa/codex', name: 'codex-only', sessions: 2, totals: { input: 400, output: 150, cacheWrite: 0, cacheRead: 200 }, costEstimate: 2.5, hasUnknownModel: true, activeMs: 1800000, status: 'active', providerCosts: { codex: 2.5 } },
+      ], daily: [{ day: '2026-08-08', tokens: 1200, cost: 5.5, providerTokens: { codex: 1200 }, providerCosts: { codex: 5.5 } }] },
+  ],
+};
+async function injectLocalUsage() {
+  await win.evaluate((report) => document.dispatchEvent(new CustomEvent('devdeck:local-usage-report', { detail: report })), LOCAL_USAGE_REPORT);
+  await win.waitForTimeout(150);
+}
+
 // wait for first project render (skeleton -> cards), generous for git scan
 await win.waitForSelector('#cards .card, #cards .empty', { timeout: 30000 }).catch(() => {});
 
@@ -52,6 +93,7 @@ for (let i = 0; i < LANGS.length; i++) {
   await shot(`projects-${l}`);
   // Usage view (full scan can be slow)
   await showView('usage');
+  await injectLocalUsage();
   await win.waitForSelector('.usage-summary, .usage-table', { timeout: 30000 }).catch(() => {});
   await shot(`usage-${l}`);
   // Settings view
@@ -63,6 +105,32 @@ for (let i = 0; i < LANGS.length; i++) {
   await win.click(`.lang-menu .menu-item[data-lang="${next}"]`);
   await win.waitForTimeout(300);
 }
+
+// The three headline cards stay visible while keyboard filtering changes only the detail region.
+await showView('usage');
+await injectLocalUsage();
+const usageAll = await win.evaluate(() => ({
+  cards: document.querySelectorAll('.usage-cost-card').length,
+  values: Array.from(document.querySelectorAll('.usage-cost-card b')).map((e) => e.textContent),
+  rows: Array.from(document.querySelectorAll('.usage-table td:first-child')).map((e) => e.textContent),
+  logosLoaded: Array.from(document.querySelectorAll('#view-usage .ck-provider-logo')).every((i) => i.complete && i.naturalWidth > 0),
+  overflow: document.querySelector('#view-usage').scrollWidth > document.querySelector('#view-usage').clientWidth + 1,
+}));
+await win.locator('.usage-provider-filter button').nth(2).focus();
+await win.keyboard.press('Enter');
+await win.waitForTimeout(150);
+const usageCodex = await win.evaluate(() => ({
+  cards: document.querySelectorAll('.usage-cost-card').length,
+  rows: Array.from(document.querySelectorAll('.usage-table td:first-child')).map((e) => e.textContent),
+  selected: document.querySelector('.usage-provider-filter button:nth-child(3)')?.getAttribute('aria-pressed'),
+}));
+console.log('local usage analytics:', JSON.stringify({ usageAll, usageCodex }));
+if (usageAll.cards !== 3 || usageAll.values.join() !== '~$8.75,~$3.25,~$5.50' || !usageAll.logosLoaded || usageAll.overflow
+  || usageCodex.cards !== 3 || usageCodex.selected !== 'true' || usageCodex.rows.some((name) => name.includes('claude-only')) || !usageCodex.rows.some((name) => name.includes('codex-only'))) {
+  console.error('QA FAILED — combined local usage cards/provider filtering/geometry regressed.');
+  await closeApp(); process.exit(1);
+}
+await shot('usage-combined-provider-costs');
 
 // Extra states on Projects (current language) — expanded sessions + neglected filter
 await showView('projects');

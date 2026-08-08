@@ -54,7 +54,10 @@ describe('locale parity for provider + usage keys', () => {
     'usage.guidance_cli', 'usage.copy_command',
     'usage.state_ready', 'usage.state_stale', 'usage.state_login_required', 'usage.state_expired',
     'usage.state_not_applicable', 'usage.state_cli_missing', 'usage.state_offline', 'usage.state_rate_limited', 'usage.state_unsupported',
-    'usage.local_title', 'usage.local_explainer',
+    'usage.local_title', 'usage.local_explainer', 'usage.range_label',
+    'usage.provider_filter_label', 'usage.filter_all', 'usage.cost_combined',
+    'usage.cost_claude', 'usage.cost_codex', 'usage.partial',
+    'usage.provider_error', 'usage.provider_error_short',
   ];
   const DICTS: Record<string, Record<string, string>> = {
     ko: ko as Record<string, string>, en: en as Record<string, string>,
