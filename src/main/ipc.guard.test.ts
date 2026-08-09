@@ -4,7 +4,10 @@ import { tmpdir } from 'node:os';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 
 // Capture handler registrations instead of a real ipcMain so each channel can be invoked directly.
-const { handlers } = vi.hoisted(() => ({ handlers: new Map<string, (...args: unknown[]) => unknown>() }));
+const { handlers, memoryGet } = vi.hoisted(() => ({
+  handlers: new Map<string, (...args: unknown[]) => unknown>(),
+  memoryGet: vi.fn(),
+}));
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -19,8 +22,18 @@ vi.mock('electron', () => ({
 
 vi.mock('./gitInfo', () => ({
   getGitInfo: vi.fn(),
+  getRecentCommits: vi.fn(),
   getRepoUrl: vi.fn(),
   getGitBranchDirty: vi.fn(() => ({ branch: 'main', dirty: 2 })),
+}));
+
+vi.mock('./projectMemory', () => ({
+  makeProjectMemoryService: () => ({ get: memoryGet }),
+  emptyProjectMemory: (projectPath = '') => ({
+    projectPath, generatedAt: 0,
+    snapshot: { continueFrom: null, git: { branch: null, uncommitted: 0, ahead: null, latestCommit: null }, nextTasks: [], remainingTaskCount: 0, note: null },
+    events: [], partial: ['git', 'sessions'],
+  }),
 }));
 
 import { registerIpc, type IpcConfig } from './ipc';
@@ -122,6 +135,23 @@ describe('project store-setter path guards', () => {
     expect(storeSpies.setNote).toHaveBeenCalledWith(inside, 'hi');
     expect(storeSpies.setPinned).toHaveBeenCalledWith(inside, true);
     expect(storeSpies.setHidden).toHaveBeenCalledWith(inside, true);
+  });
+});
+
+describe('project:memory path guard', () => {
+  it('returns a neutral result outside configured folders without reading memory', async () => {
+    memoryGet.mockClear();
+    const result = await handlers.get('project:memory')!(null, join(process.cwd(), 'elsewhere', 'proj'), false);
+    expect(result).toMatchObject({ projectPath: '', events: [], partial: ['git', 'sessions'] });
+    expect(memoryGet).not.toHaveBeenCalled();
+  });
+
+  it('reads an allowed project and forwards explicit refresh', async () => {
+    const inside = join(ALLOWED_ROOT, 'proj');
+    const response = { projectPath: inside, generatedAt: 1, snapshot: {}, events: [], partial: [] };
+    memoryGet.mockReset().mockResolvedValue(response);
+    expect(await handlers.get('project:memory')!(null, inside, true)).toBe(response);
+    expect(memoryGet).toHaveBeenCalledWith(inside, true);
   });
 });
 

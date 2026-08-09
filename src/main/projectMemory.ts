@@ -25,6 +25,21 @@ export interface ProjectMemoryService {
   get(path: string, fresh?: boolean): Promise<ProjectMemory>;
 }
 
+/** Neutral response for a rejected path: stable shape without revealing any project facts. */
+export function emptyProjectMemory(projectPath = ''): ProjectMemory {
+  return {
+    projectPath,
+    generatedAt: 0,
+    snapshot: {
+      continueFrom: null,
+      git: { branch: null, uncommitted: 0, ahead: null, latestCommit: null },
+      nextTasks: [], remainingTaskCount: 0, note: null,
+    },
+    events: [],
+    partial: ['git', 'sessions'],
+  };
+}
+
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out = new Array<R>(items.length);
   let cursor = 0;

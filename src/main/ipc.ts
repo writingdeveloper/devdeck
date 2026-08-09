@@ -9,7 +9,7 @@ import type { PtyHost } from './ptyHost';
 import { PtyBatcher } from './ptyBatch';
 import { applyOpenAtLogin, effectiveOpenAtLogin } from './autostart';
 import { scanFolders, isRepo } from './scanner';
-import { getGitInfo, getRepoUrl, getGitBranchDirty } from './gitInfo';
+import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits } from './gitInfo';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from './agents';
 import { toAgentId, type AgentId, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../shared/pathGuard';
@@ -44,6 +44,7 @@ import type { TrayController } from './tray';
 import { DEFAULT_THRESHOLDS } from '../shared/staleness';
 import type { ShutdownScheduler } from './shutdownScheduler';
 import { pendingBootBanner } from './shutdownScheduler';
+import { emptyProjectMemory, makeProjectMemoryService } from './projectMemory';
 import type { ShutdownLog } from './shutdownLog';
 import type { ShutdownSessionSummary } from '../shared/shutdownIdle';
 
@@ -154,6 +155,14 @@ export function registerIpc(cfg: IpcConfig): void {
       antigravity: () => cachedIndex(antigravityIndexCache, ANTIGRAVITY_DIR, () => indexAntigravitySessionsByCwd(ANTIGRAVITY_DIR)),
     },
   });
+  const memoryService = makeProjectMemoryService({
+    now: () => Date.now(),
+    gitInfo: (p) => getGitInfo(p),
+    commits: (p) => getRecentCommits(p, 20),
+    sessions: (p, limit) => makeDeckScan().sessions(p, limit),
+    lastUserMessage: (p, session) => getProvider(session.agentId).lastUserMessage(p, session.id),
+    entry: (p) => cfg.store.get(p),
+  });
   ipcMain.handle('projects:list', async () => {
     const scan = makeDeckScan();
     return buildProjectList({
@@ -165,6 +174,11 @@ export function registerIpc(cfg: IpcConfig): void {
       resumeCue: (p, session) => getProvider(session.agentId).lastUserMessage(p, session.id),
       getEntry: (p) => cfg.store.get(p),
     });
+  });
+  ipcMain.handle('project:memory', (_e, projectPath: string, fresh?: boolean) => {
+    const projectPathString = String(projectPath);
+    if (!isAllowedPath(effFolders(), projectPathString)) return emptyProjectMemory();
+    return memoryService.get(projectPathString, fresh === true);
   });
 
   // These persist to state.json keyed by `path`. Guard with the same allowlist every other path-taking

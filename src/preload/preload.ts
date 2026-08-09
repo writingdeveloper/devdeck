@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('devdeck', {
   listProjects: () => ipcRenderer.invoke('projects:list'),
+  projectMemory: (path: string, fresh?: boolean) => ipcRenderer.invoke('project:memory', path, fresh === true),
   setNote: (path: string, note: string) => ipcRenderer.invoke('project:setNote', path, note),
   setTodos: (path: string, todos: unknown) => ipcRenderer.invoke('project:setTodos', path, todos),
   setPinned: (path: string, pinned: boolean) => ipcRenderer.invoke('project:setPinned', path, pinned),

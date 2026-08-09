@@ -4,6 +4,7 @@ declare global {
   interface Window {
     devdeck: {
       listProjects(): Promise<ProjectViewModel[]>;
+      projectMemory(path: string, fresh?: boolean): Promise<import('../shared/types').ProjectMemory>;
       setNote(path: string, note: string): Promise<void>;
       setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
       setPinned(path: string, pinned: boolean): Promise<void>;
