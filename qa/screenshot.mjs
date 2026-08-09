@@ -207,6 +207,32 @@ const taskSeeded = await win.evaluate(async () => {
   }]);
   return true;
 });
+
+// Project Memory: the same real allowed checkout supplies recent commits and the seeded task. Capture
+// both normal and narrow geometry, and fail if the modal itself overflows horizontally.
+await showView('projects');
+await win.click('#refresh');
+await win.waitForSelector('.project-memory-button', { timeout: 10000 });
+await win.locator('.project-memory-button').first().click();
+await win.waitForSelector('.pm-modal:not(.loading) .pm-timeline-item', { timeout: 10000 });
+await shot('project-memory');
+await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
+await win.waitForTimeout(150);
+const memoryGeometry = await win.evaluate(() => {
+  const modal = document.querySelector('.pm-modal');
+  return {
+    present: !!modal,
+    overflow: !!modal && modal.scrollWidth > modal.clientWidth + 1,
+    events: document.querySelectorAll('.pm-timeline-item').length,
+  };
+});
+await shot('project-memory-narrow');
+if (!memoryGeometry.present || memoryGeometry.overflow || memoryGeometry.events < 1) {
+  console.error('QA FAILED — Project Memory modal missing, empty, or horizontally clipped:', JSON.stringify(memoryGeometry));
+  await closeApp(); process.exit(1);
+}
+await win.keyboard.press('Escape');
+await win.setViewportSize({ width: 1000, height: 720 }).catch(() => {});
 await showView('next');
 await win.waitForSelector('#view-next .provider-open, #view-next .empty', { timeout: 5000 }).catch(() => {});
 await shot('next-tasks');
