@@ -144,6 +144,50 @@ for (const view of ['projects', 'usage', 'settings', 'next', 'cockpit']) {
   }));
 }
 
+// Project Memory is an on-demand modal surface. Exercise the real IPC against this checkout, audit it
+// while open, then verify Escape closes it and returns focus to the card/row trigger.
+await win.click('.rail-item[data-view="projects"]');
+// The checkout was added after the first empty-deck render above; drive the same refresh control a
+// user would use so this audit inspects the newly allowed project instead of stale initial DOM.
+await win.click('#refresh');
+await win.waitForSelector('.project-memory-button', { timeout: 10000 }).catch(() => {});
+const memoryTrigger = win.locator('.project-memory-button').first();
+const memoryTriggerPresent = await memoryTrigger.count() > 0;
+if (memoryTriggerPresent) {
+  await memoryTrigger.focus();
+  await memoryTrigger.click();
+  await win.waitForSelector('.pm-modal:not(.loading)', { timeout: 10000 }).catch(() => {});
+}
+ipc.memoryDialog = await win.evaluate(() => {
+  const d = document.querySelector('.pm-modal');
+  return {
+    present: !!d,
+    role: d?.getAttribute('role') === 'dialog',
+    ariaModal: d?.getAttribute('aria-modal') === 'true',
+    titleLabelled: !!d?.getAttribute('aria-labelledby'),
+    snapshotRowsAtLeast: document.querySelectorAll('.pm-snapshot-row').length >= 1,
+    timelineRowsAtLeast: document.querySelectorAll('.pm-timeline-item').length >= 1,
+    closeLabelled: !!document.querySelector('.pm-close')?.getAttribute('aria-label'),
+    escapeClosed: false,
+    focusRestored: false,
+  };
+});
+if (ipc.memoryDialog.present) {
+  await win.evaluate(axeCore.source);
+  const res = await win.evaluate(async () =>
+    // eslint-disable-next-line no-undef
+    await window.axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] }),
+  );
+  a11y['project-memory-dialog'] = res.violations.map((v) => ({
+    id: v.id, impact: v.impact, n: v.nodes.length, help: v.help,
+    targets: v.nodes.slice(0, 5).map((n) => n.target.join(' ')),
+  }));
+  await win.keyboard.press('Escape');
+  await win.waitForTimeout(100);
+  ipc.memoryDialog.escapeClosed = await win.locator('.pm-modal').count() === 0;
+  ipc.memoryDialog.focusRestored = await memoryTrigger.evaluate((el) => document.activeElement === el).catch(() => false);
+}
+
 // The all-provider usage dialog is a modal surface — audit it OPEN, with a representative snapshot
 // (the harness cannot supply real provider credentials, and an empty dialog would audit nothing).
 {
@@ -201,8 +245,9 @@ const gitInfoFail = ipc.cockpitGitInfo !== true;
 const dialogFails = Object.entries(ipc.usageDialog ?? {}).filter(([k, v]) => (k === 'sections' ? v !== 3 : v === false));
 const providerOpenFail = !ipc.providerOpen?.root || !ipc.providerOpen.primaryLabel || !ipc.providerOpen.menuLabel ||
   !ipc.providerOpen.menuOpened || ipc.providerOpen.menuItems < 2 || !ipc.providerOpen.escapeClosed;
+const memoryDialogFail = Object.values(ipc.memoryDialog ?? {}).some((v) => v !== true);
 
-if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0 || providerOpenFail) {
+if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0 || providerOpenFail || memoryDialogFail) {
   console.error('QA FAILED:');
   if (criticalViolations.length > 0) console.error('  a11y critical/serious:', JSON.stringify(criticalViolations, null, 2));
   if (surfaceFails.length > 0) console.error('  ipc.surface checks failed:', surfaceFails.map(([k]) => k).join(', '));
@@ -210,6 +255,7 @@ if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.le
   if (gitInfoFail) console.error('  cockpit.gitInfo did not resolve a branch for the repo root:', ipc.cockpitGitInfo, '· raw gitInfo:', JSON.stringify(gitInfoRaw));
   if (dialogFails.length > 0) console.error('  usage dialog checks failed:', JSON.stringify(ipc.usageDialog));
   if (providerOpenFail) console.error('  provider open control missing or unlabeled:', JSON.stringify(ipc.providerOpen));
+  if (memoryDialogFail) console.error('  project memory dialog checks failed:', JSON.stringify(ipc.memoryDialog));
   process.exit(1);
 }
 console.log('done');

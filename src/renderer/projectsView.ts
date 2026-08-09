@@ -12,6 +12,7 @@ import { createProviderLogo, providerName } from './providerLogo';
 import type { AgentId } from '../shared/types';
 import { selectedAgent } from './agentSelection';
 import { createProviderOpenControl } from './providerOpenControl';
+import { openProjectMemoryModal } from './projectMemoryModal';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -250,6 +251,13 @@ function githubBtn(p: ProjectViewModel): HTMLButtonElement {
   return b;
 }
 
+function memoryBtn(p: ProjectViewModel): HTMLButtonElement {
+  const b = document.createElement('button'); b.className = 'iconbtn project-memory-button'; b.textContent = '◷';
+  b.title = tr('memory.button'); b.setAttribute('aria-label', `${tr('memory.button')} · ${p.name}`);
+  b.addEventListener('click', () => openProjectMemoryModal(p, b));
+  return b;
+}
+
 // Pin/hide "⋯" menu, shared by card and list-row so the management actions match.
 function makeMenuWrap(p: ProjectViewModel): HTMLElement {
   const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
@@ -356,7 +364,7 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   foot.append(check);
   const tb = taskBadge(p);
   if (tb) foot.append(tb);
-  foot.append(spacer, editorBtn, folderBtn);
+  foot.append(spacer, memoryBtn(p), editorBtn, folderBtn);
   if (p.repoUrl) foot.append(githubBtn(p));
   foot.append(footMeta, open);
 
@@ -426,7 +434,7 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   if (tb) actions.append(tb);
   if (p.repoUrl) actions.append(githubBtn(p));
   const open = providerOpenControl(p, true); open.classList.add('prow-open');
-  actions.append(open, makeMenuWrap(p));
+  actions.append(memoryBtn(p), open, makeMenuWrap(p));
 
   row.append(check, sig, name, cue, git, sess, actions);
   return row;
