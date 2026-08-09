@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getGitInfo, getRepoUrl, getGitBranchDirty, _clearRemoteCache } from './gitInfo';
+import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, _clearRemoteCache } from './gitInfo';
 
 beforeEach(() => _clearRemoteCache());
 
@@ -115,5 +115,24 @@ describe('getGitBranchDirty', () => {
   it('returns null branch when rev-parse throws', async () => {
     const run = async (args: string[]): Promise<string> => { if (args.includes('rev-parse')) throw new Error('x'); return ''; };
     expect((await getGitBranchDirty('C:/g/x', run)).branch).toBeNull();
+  });
+});
+
+describe('getRecentCommits', () => {
+  it('requests an exact bounded delimiter-safe git log', async () => {
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<string> => {
+      calls.push(args);
+      return 'abc123\u001f1720000000\u001fship memory\u001e';
+    };
+    expect(await getRecentCommits('C:/repo', 20, run)).toEqual([
+      { hash: 'abc123', at: 1_720_000_000_000, subject: 'ship memory' },
+    ]);
+    expect(calls).toEqual([['-C', 'C:/repo', 'log', '-20', '--format=%h%x1f%at%x1f%s%x1e']]);
+  });
+
+  it('throws when git cannot be read so callers can mark the source partial', async () => {
+    const run = async (): Promise<string> => { throw new Error('git unavailable'); };
+    await expect(getRecentCommits('C:/repo', 20, run)).rejects.toThrow('git unavailable');
   });
 });

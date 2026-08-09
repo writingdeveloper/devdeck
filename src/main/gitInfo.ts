@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { GitInfo } from '../shared/types';
 import { parseBranch, parseLastCommit, parsePorcelainCount, parseRemoteUrl, parseStatusV2 } from '../shared/gitParse';
+import { parseRecentCommits } from '../shared/projectMemory';
+import type { RecentCommit } from '../shared/types';
 
 const execFileAsync = promisify(execFile);
 
@@ -79,4 +81,11 @@ export async function getGitBranchDirty(dir: string, run: GitRunner = defaultRun
     branch: branchOut == null ? null : parseBranch(branchOut),
     dirty: parsePorcelainCount(statusOut ?? ''),
   };
+}
+
+/** Bounded history for the on-demand Memory dialog. Unlike deck Git reads, failure is observable. */
+export async function getRecentCommits(dir: string, limit = 20, run: GitRunner = defaultRunner): Promise<RecentCommit[]> {
+  const bounded = Math.max(1, Math.min(100, Math.trunc(limit)));
+  const raw = await run(['-C', dir, 'log', `-${bounded}`, '--format=%h%x1f%at%x1f%s%x1e']);
+  return parseRecentCommits(raw);
 }
