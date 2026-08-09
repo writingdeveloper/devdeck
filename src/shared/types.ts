@@ -126,3 +126,40 @@ export interface ProjectViewModel {
   repoUrl: string | null;
   todos: Todo[];
 }
+
+export interface RecentCommit {
+  hash: string;
+  at: number;
+  subject: string;
+}
+
+export interface ProjectMemorySession extends ProjectSession {
+  lastUserMessage: string | null;
+}
+
+export type ProjectMemoryEvent =
+  | { id: string; kind: 'session'; at: number; agentId: AgentId; sessionId: string; firstMessage: string | null; lastUserMessage: string | null }
+  | { id: string; kind: 'commit'; at: number; hash: string; subject: string }
+  | { id: string; kind: 'task-created'; at: number; todoId: string; text: string; done: boolean; due: string | null }
+  | { id: string; kind: 'project-opened'; at: number };
+
+export interface ResumeSnapshot {
+  continueFrom: { text: string; agentId: AgentId; sessionId: string; at: number } | null;
+  git: {
+    branch: string | null;
+    uncommitted: number;
+    ahead: number | null;
+    latestCommit: RecentCommit | null;
+  };
+  nextTasks: Todo[];
+  remainingTaskCount: number;
+  note: string | null;
+}
+
+export interface ProjectMemory {
+  projectPath: string;
+  generatedAt: number;
+  snapshot: ResumeSnapshot;
+  events: ProjectMemoryEvent[];
+  partial: Array<'git' | 'sessions'>;
+}
