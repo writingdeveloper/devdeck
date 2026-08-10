@@ -10,6 +10,11 @@ export interface PersistedSession {
   pinned?: boolean;         // user pinned this session to the top group (absent = not pinned)
 }
 
+/** Stable shared-shell address for a Cockpit conversation, before and after restart. */
+export function cockpitNavigationId(entry: Pick<PersistedSession, 'projectPath' | 'sessionId'>): string {
+  return `previous:${encodeURIComponent(entry.projectPath)}:${encodeURIComponent(entry.sessionId ?? '')}`;
+}
+
 const MAX_PERSISTED = 50;
 const MAX_LABEL = 60;
 

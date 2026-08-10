@@ -255,6 +255,7 @@ async function boot(): Promise<void> {
     }
     localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(restored));
   };
+  applyRestore(contextRestore.immediate());
   setCockpitNavigationCallback((id) => {
     nav.show('cockpit');
     if (id) { shellController?.setActiveSession(id); activateCockpitSession(id); }

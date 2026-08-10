@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { createContextRestoreCoordinator } from './contextRestore';
 
 describe('context restoration', () => {
+  it('restores a saved non-entity view immediately and only once', () => {
+    const restore = createContextRestoreCoordinator({ kind: 'view', id: 'usage' }, true);
+
+    expect(restore.immediate()).toEqual({ kind: 'view', id: 'usage' });
+    expect(restore.immediate()).toBeNull();
+    expect(restore.projectsLoaded(new Set(['C:/repo']))).toBeNull();
+  });
+
   it('restores a saved project after projects finish loading', () => {
     const restore = createContextRestoreCoordinator({ kind: 'project', path: 'C:/repo' }, true);
 

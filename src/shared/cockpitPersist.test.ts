@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+import { cockpitNavigationId, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+
+describe('cockpit navigation identity', () => {
+  it('keeps a live session context addressable after it becomes a persisted session', () => {
+    const live = { projectPath: 'C:/workspace/dev deck', sessionId: 'conversation/42' };
+    const persisted = { projectPath: 'C:/workspace/dev deck', sessionId: 'conversation/42' };
+
+    expect(cockpitNavigationId(live)).toBe('previous:C%3A%2Fworkspace%2Fdev%20deck:conversation%2F42');
+    expect(cockpitNavigationId(live)).toBe(cockpitNavigationId(persisted));
+  });
+});
 
 describe('sanitizePersistedList', () => {
   it('returns [] for non-arrays', () => {

@@ -14,6 +14,7 @@ function requestedContext(saved: unknown): ShellContext | null {
 }
 
 export interface ContextRestoreCoordinator {
+  immediate(): RestoreDecision;
   projectsLoaded(paths: ReadonlySet<string>): RestoreDecision;
   sessionsLoaded(ids: ReadonlySet<string>): RestoreDecision;
   cancel(): void;
@@ -28,10 +29,13 @@ export function createContextRestoreCoordinator(saved: unknown, cockpitAvailable
   };
 
   return {
+    immediate() {
+      if (!pending || pending.kind !== 'view') return null;
+      return decide(pending);
+    },
     projectsLoaded(paths) {
       if (!pending) return null;
       if (pending.kind === 'project') return decide(paths.has(pending.path) ? pending : { kind: 'view', id: 'projects' });
-      if (pending.kind === 'view') return decide(pending);
       return null;
     },
     sessionsLoaded(ids) {
