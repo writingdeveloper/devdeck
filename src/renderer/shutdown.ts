@@ -1,6 +1,7 @@
 import { tr } from './i18n-runtime';
 import { toast } from './loadError';
 import type { ShutdownStatus } from '../main/shutdownScheduler';
+import { createIcon, type IconName } from './icons';
 
 // 🌙 one-shot idle shutdown: topbar menu (arm toggle / shut down now), a countdown banner with the
 // only cancel path, and the next-boot verification banner ("did it REALLY shut down last night?").
@@ -79,25 +80,26 @@ function buildMenu(): void {
   menuEl.setAttribute('role', 'menu');
   wrap.appendChild(menuEl);
 
-  const item = (label: string, onClick: () => void): HTMLButtonElement => {
+  const item = (label: string, icon: IconName, onClick: () => void): HTMLButtonElement => {
     const b = document.createElement('button');
-    b.className = 'menu-item'; b.setAttribute('role', 'menuitem'); b.textContent = label;
+    b.className = 'menu-item shutdown-menu-item'; b.setAttribute('role', 'menuitem');
+    b.append(createIcon(icon), document.createTextNode(label));
     b.addEventListener('click', () => { close(); onClick(); });
     return b;
   };
   const render = (): void => {
     menuEl.replaceChildren();
     if (status.phase === 'countdown') {
-      menuEl.appendChild(item('⏻ ' + tr('shutdown.cancel'), async () => applyStatus(await window.devdeck.shutdown.cancel())));
+      menuEl.appendChild(item(tr('shutdown.cancel'), 'power', async () => applyStatus(await window.devdeck.shutdown.cancel())));
       return;
     }
-    const toggleLabel = (status.phase === 'armed' ? '✓ ' : '') + '🌙 ' + tr('shutdown.arm');
-    menuEl.appendChild(item(toggleLabel, async () => {
+    const toggleLabel = (status.phase === 'armed' ? '✓ ' : '') + tr('shutdown.arm');
+    menuEl.appendChild(item(toggleLabel, 'moon', async () => {
       if (status.phase === 'armed') { applyStatus(await window.devdeck.shutdown.disarm()); return; }
       applyStatus(await window.devdeck.shutdown.arm());
       toast(tr('shutdown.arm_warn')); // one-shot force-close warning, non-blocking
     }));
-    menuEl.appendChild(item('⏻ ' + tr('shutdown.now'), async () => applyStatus(await window.devdeck.shutdown.now())));
+    menuEl.appendChild(item(tr('shutdown.now'), 'power', async () => applyStatus(await window.devdeck.shutdown.now())));
   };
   const open = (): void => { render(); menuEl.classList.remove('hidden'); btnEl.setAttribute('aria-expanded', 'true'); };
   const close = (): void => { menuEl.classList.add('hidden'); btnEl.setAttribute('aria-expanded', 'false'); };
@@ -127,6 +129,7 @@ export function mountShutdown(platform: string): void {
   if (platform !== 'win32') return; // feature (and shutdown.exe semantics) are Windows-only
   bannerEl = document.getElementById('shutdown-banner')!;
   btnEl = document.getElementById('shutdown-btn') as HTMLButtonElement;
+  btnEl.replaceChildren(createIcon('moon'));
   document.getElementById('shutdown-wrap')!.classList.remove('hidden');
   buildMenu();
   window.devdeck.shutdown.onStatus(applyStatus);

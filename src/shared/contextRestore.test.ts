@@ -1,0 +1,64 @@
+import { describe, expect, it } from 'vitest';
+import { cockpitIdentityContext, createContextRestoreCoordinator } from './contextRestore';
+
+describe('context restoration', () => {
+  it('restores a saved non-entity view immediately and only once', () => {
+    const restore = createContextRestoreCoordinator({ kind: 'view', id: 'usage' }, true);
+
+    expect(restore.immediate()).toEqual({ kind: 'view', id: 'usage' });
+    expect(restore.immediate()).toBeNull();
+    expect(restore.projectsLoaded(new Set(['C:/repo']))).toBeNull();
+  });
+
+  it('restores a saved project after projects finish loading', () => {
+    const restore = createContextRestoreCoordinator({ kind: 'project', path: 'C:/repo' }, true);
+
+    expect(restore.projectsLoaded(new Set(['C:/repo']))).toEqual({ kind: 'project', path: 'C:/repo' });
+    expect(restore.projectsLoaded(new Set(['C:/repo']))).toBeNull();
+    expect(restore.sessionsLoaded(new Set(['session-1']))).toBeNull();
+  });
+
+  it('falls back to and persists Projects only after a missing project source loads', () => {
+    const restore = createContextRestoreCoordinator({ kind: 'project', path: 'C:/gone' }, true);
+
+    expect(restore.sessionsLoaded(new Set(['session-1']))).toBeNull();
+    expect(restore.projectsLoaded(new Set(['C:/repo']))).toEqual({ kind: 'view', id: 'projects' });
+  });
+
+  it('restores a saved session after sessions finish loading', () => {
+    const restore = createContextRestoreCoordinator({ kind: 'session', id: 'session-1' }, true);
+
+    expect(restore.projectsLoaded(new Set(['C:/repo']))).toBeNull();
+    expect(restore.sessionsLoaded(new Set(['session-1']))).toEqual({ kind: 'session', id: 'session-1' });
+    expect(restore.sessionsLoaded(new Set(['session-1']))).toBeNull();
+  });
+
+  it('falls back to Projects for a missing or unavailable saved session', () => {
+    const missing = createContextRestoreCoordinator({ kind: 'session', id: 'gone' }, true);
+    const unavailable = createContextRestoreCoordinator({ kind: 'session', id: 'session-1' }, false);
+
+    expect(missing.sessionsLoaded(new Set(['session-1']))).toEqual({ kind: 'view', id: 'projects' });
+    expect(unavailable.sessionsLoaded(new Set(['session-1']))).toEqual({ kind: 'view', id: 'projects' });
+  });
+
+  it('does not restore after cancellation before delayed data arrives', () => {
+    const restore = createContextRestoreCoordinator({ kind: 'session', id: 'session-1' }, true);
+
+    restore.cancel();
+    expect(restore.projectsLoaded(new Set(['C:/repo']))).toBeNull();
+    expect(restore.sessionsLoaded(new Set(['session-1']))).toBeNull();
+  });
+
+  it('does not let a delayed Cockpit identity update override later user navigation', () => {
+    expect(cockpitIdentityContext('cockpit', 'tile:current')).toEqual({ kind: 'session', id: 'tile:current' });
+    expect(cockpitIdentityContext('projects', 'tile:late')).toBeNull();
+    expect(cockpitIdentityContext('usage', 'tile:late')).toBeNull();
+  });
+
+  it('migrates an unambiguous legacy saved-session address to its stable tile address', () => {
+    const restore = createContextRestoreCoordinator({ kind: 'session', id: 'previous:C%3A%2Frepo:old-session' }, true);
+    const aliases = new Map([['previous:C%3A%2Frepo:old-session', 'tile:opaque-1']]);
+
+    expect(restore.sessionsLoaded(new Set(['tile:opaque-1']), aliases)).toEqual({ kind: 'session', id: 'tile:opaque-1' });
+  });
+});

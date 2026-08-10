@@ -1,9 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, isCockpitAvailable, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, tileHoldingSession, type CockpitSession } from './cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, isCockpitAvailable, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
   status: 'running', staleLevel: 'fresh', branch: 'main', dirty: 0, activity: 'working', ...over,
+});
+
+it('adapts a cockpit session without losing project ownership or activity', () => {
+  const session = { id: 'a', projectPath: 'C:/a', name: 'repo', agentId: 'codex', status: 'running', staleLevel: 'fresh', branch: 'main', dirty: 0, activity: 'attention' } as CockpitSession;
+  expect(sessionNavigationItem(session, 'review api', 'main · Codex', true)).toEqual({
+    id: 'a', projectPath: 'C:/a', label: 'review api', detail: 'main · Codex', activity: 'attention', pinned: true,
+  });
 });
 
 describe('filterSessions', () => {

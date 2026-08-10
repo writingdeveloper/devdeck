@@ -3,6 +3,7 @@ import type { AgentId, ProjectOpenIntent } from '../shared/types';
 import { installedAgents, selectedAgent, subscribeAgentSelection } from './agentSelection';
 import { tr } from './i18n-runtime';
 import { createProviderLogo, providerName } from './providerLogo';
+import { createIcon } from './icons';
 
 export interface ProviderOpenControlOptions {
   path: string;
@@ -37,7 +38,7 @@ export function createProviderOpenControl(opts: ProviderOpenControlOptions): HTM
   const menuButton = document.createElement('button');
   menuButton.className = 'primary provider-open-menu-button';
   menuButton.type = 'button';
-  menuButton.textContent = '▾';
+  menuButton.appendChild(createIcon('chevron-down'));
   menuButton.setAttribute('aria-haspopup', 'menu');
   menuButton.setAttribute('aria-expanded', 'false');
   menuButton.setAttribute('aria-label', tr('open.choose_provider'));
@@ -55,9 +56,10 @@ export function createProviderOpenControl(opts: ProviderOpenControlOptions): HTM
     const agentId = selectedAgent();
     const name = providerName(agentId);
     primary.replaceChildren(createProviderLogo(agentId, 'provider-open-logo'));
+    primary.appendChild(createIcon('play'));
     const label = document.createElement('span');
     label.className = 'provider-open-primary-text';
-    label.textContent = opts.compact ? '▶' : `▶ ${tr('proj.open')}`;
+    label.textContent = tr('proj.open');
     primary.appendChild(label);
     primary.setAttribute('aria-label', tr('open.with_provider', { provider: name }));
     primary.title = tr('open.with_provider', { provider: name });
@@ -110,7 +112,7 @@ export function createProviderOpenControl(opts: ProviderOpenControlOptions): HTM
 
       const fresh = document.createElement('button');
       fresh.type = 'button'; fresh.className = 'provider-open-new'; fresh.setAttribute('role', 'menuitem');
-      fresh.textContent = '＋'; fresh.title = `${name} — ${tr('open.new_session')}`;
+      fresh.appendChild(createIcon('plus')); fresh.title = `${name} — ${tr('open.new_session')}`;
       fresh.setAttribute('aria-label', fresh.title);
       fresh.addEventListener('click', () => activate(option.agentId, 'new'));
       row.append(automatic, fresh); menu.appendChild(row);

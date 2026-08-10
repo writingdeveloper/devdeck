@@ -2,6 +2,7 @@ import { tr } from './i18n-runtime';
 import { createProviderLogo, providerName } from './providerLogo';
 import { staleAgeMinutes } from '../shared/usagePresentation';
 import { formatReset, usageSeverity, usageStateKey, type ProviderUsage, type UsageSnapshot } from '../shared/usageWindows';
+import { createIcon } from './icons';
 
 // The all-provider limits dialog. It is an OVERLAY (fixed, outside the flex column) precisely so that
 // opening it cannot change the shell, cockpit, or xterm geometry — a terminal resize storm was a real
@@ -20,7 +21,7 @@ export function openUsageModal(snapshot: UsageSnapshot | null, trigger: HTMLElem
 
   overlay = document.createElement('div');
   overlay.className = 'usage-modal-overlay';
-  overlay.innerHTML = `<div class="usage-modal" role="dialog" aria-modal="true" aria-labelledby="usage-modal-title">
+  overlay.innerHTML = `<div class="usage-modal ui-dialog" role="dialog" aria-modal="true" aria-labelledby="usage-modal-title">
     <div class="um-head">
       <h2 id="usage-modal-title" class="um-title"></h2>
       <button type="button" class="um-refresh"></button>
@@ -33,7 +34,7 @@ export function openUsageModal(snapshot: UsageSnapshot | null, trigger: HTMLElem
   const refresh = overlay.querySelector('.um-refresh') as HTMLButtonElement;
   refresh.textContent = tr('usage.modal_refresh');
   const close = overlay.querySelector('.um-close') as HTMLButtonElement;
-  close.textContent = '✕';
+  close.appendChild(createIcon('close'));
   close.setAttribute('aria-label', tr('usage.modal_close'));
   close.title = tr('usage.modal_close');
 

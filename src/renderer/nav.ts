@@ -1,8 +1,13 @@
-export function mountNav(onShow: (view: string) => void): void {
+export type ViewId = 'projects' | 'usage' | 'settings' | 'next' | 'cockpit';
+
+export function mountNav(onShow: (view: ViewId) => void): { show(view: ViewId): void; active(): ViewId } {
   const items = Array.from(document.querySelectorAll<HTMLButtonElement>('.rail-item[data-view]'));
   const views = new Map<string, HTMLElement>();
   for (const id of ['projects', 'usage', 'settings', 'next', 'cockpit']) views.set(id, document.getElementById('view-' + id)!);
-  function show(view: string): void {
+  let activeView: ViewId = 'projects';
+  function show(view: ViewId): void {
+    if (!views.has(view)) return;
+    activeView = view;
     for (const it of items) {
       const isActive = it.dataset.view === view;
       it.classList.toggle('active', isActive);
@@ -12,5 +17,6 @@ export function mountNav(onShow: (view: string) => void): void {
     for (const [id, el] of views) el.classList.toggle('active', id === view);
     onShow(view);
   }
-  for (const it of items) it.addEventListener('click', () => show(it.dataset.view!));
+  for (const it of items) it.addEventListener('click', () => show(it.dataset.view as ViewId));
+  return { show, active: () => activeView };
 }

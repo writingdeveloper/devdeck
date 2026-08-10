@@ -8,6 +8,7 @@ import {
   type Todo, type TaskWithProject, type DueBucket,
 } from '../shared/tasks';
 import { createProviderOpenControl } from './providerOpenControl';
+import { createIcon } from './icons';
 import { liveProjectProviders } from './cockpitView';
 import type { AgentId } from '../shared/types';
 
@@ -71,7 +72,7 @@ function dueLabel(due: string | null, now: number): string {
 
 function taskRow(it: TaskWithProject, now: number): HTMLElement {
   const { todo, projectPath, projectName } = it;
-  const row = document.createElement('div'); row.className = 'tk-row' + (todo.done ? ' tk-done' : ''); row.setAttribute('role', 'listitem');
+  const row = document.createElement('div'); row.className = 'tk-row ui-row' + (todo.done ? ' tk-done' : ''); row.setAttribute('role', 'listitem');
 
   const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'tk-check';
   cb.checked = todo.done; cb.setAttribute('aria-label', tr('tasks.done'));
@@ -87,7 +88,7 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
   due.title = tr('tasks.due');
   due.addEventListener('click', () => startDueEdit(due, projectPath, todo));
 
-  const del = document.createElement('button'); del.className = 'tk-del'; del.textContent = '🗑'; del.title = tr('tasks.delete');
+  const del = document.createElement('button'); del.className = 'tk-del'; del.appendChild(createIcon('trash')); del.title = tr('tasks.delete'); del.setAttribute('aria-label', tr('tasks.delete'));
   del.addEventListener('click', () => mutate(projectPath, (ts) => removeTodo(ts, todo.id)));
 
   const project = projects.find((p) => p.path === projectPath);
@@ -223,7 +224,7 @@ function render(): void {
   window.devdeck.setTrayCounts({ overdue });
 
   // Single control row: [project▾][new-todo…][date][add] | separator | [filter▾][filter…][show-done](+clear) | [list|calendar]
-  const bar = document.createElement('div'); bar.className = 'tk-bar';
+  const bar = document.createElement('div'); bar.className = 'tk-bar ui-toolbar';
   addControls(bar);
   bar.appendChild(barSeparator());
   filterControls(bar);
@@ -290,9 +291,9 @@ function renderCalendar(items: TaskWithProject[], now: number): void {
   const grid = buildMonthGrid(calYear, calMonth, items, today);
 
   const nav = document.createElement('div'); nav.className = 'cal-nav';
-  const prev = document.createElement('button'); prev.className = 'cal-navbtn'; prev.textContent = '◀'; prev.title = tr('tasks.prev_month');
+  const prev = document.createElement('button'); prev.className = 'cal-navbtn'; prev.appendChild(createIcon('chevron-left')); prev.title = tr('tasks.prev_month'); prev.setAttribute('aria-label', tr('tasks.prev_month'));
   prev.addEventListener('click', () => { if (calMonth === 0) { calMonth = 11; calYear!--; } else calMonth!--; render(); });
-  const next = document.createElement('button'); next.className = 'cal-navbtn'; next.textContent = '▶'; next.title = tr('tasks.next_month');
+  const next = document.createElement('button'); next.className = 'cal-navbtn'; next.appendChild(createIcon('chevron-right')); next.title = tr('tasks.next_month'); next.setAttribute('aria-label', tr('tasks.next_month'));
   next.addEventListener('click', () => { if (calMonth === 11) { calMonth = 0; calYear!++; } else calMonth!++; render(); });
   const title = document.createElement('span'); title.className = 'cal-title';
   title.textContent = new Intl.DateTimeFormat(localeTag(), { year: 'numeric', month: 'long' }).format(new Date(calYear, calMonth, 1));

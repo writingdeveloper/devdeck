@@ -83,7 +83,7 @@ function render(report: LocalUsageReport): void {
   const explainer = document.createElement('p'); explainer.className = 'usage-scope-note'; explainer.textContent = tr('usage.local_explainer');
   scope.append(title, explainer); viewEl.appendChild(scope);
 
-  const toolbar = document.createElement('div'); toolbar.className = 'usage-toolbar';
+  const toolbar = document.createElement('div'); toolbar.className = 'usage-toolbar ui-toolbar';
   const ranges = document.createElement('div'); ranges.className = 'usage-range-filter'; ranges.setAttribute('aria-label', tr('usage.range_label'));
   for (const range of RANGES) {
     const button = document.createElement('button'); button.className = `chip${range.key === activeRange ? ' active' : ''}`;

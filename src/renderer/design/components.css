@@ -1,0 +1,58 @@
+.ui-icon { width: 16px; height: 16px; display: block; flex: 0 0 auto; }
+
+.shutdown-menu-item { display: flex; align-items: center; gap: 7px; }
+.ui-button, .ui-icon-button {
+  border: 1px solid var(--dd-border-strong); border-radius: var(--dd-radius-sm);
+  background: var(--dd-surface); color: var(--dd-text); cursor: pointer;
+  transition: background var(--dd-motion-fast), border-color var(--dd-motion-fast);
+}
+.ui-button { min-height: 30px; padding: 5px 10px; }
+.ui-icon-button { width: 30px; height: 30px; display: inline-grid; place-items: center; padding: 0; }
+.ui-button:hover, .ui-icon-button:hover { background: var(--dd-surface-raised); border-color: var(--dd-border-strong); }
+.ui-button.primary { background: var(--dd-text); border-color: var(--dd-text); color: var(--dd-canvas); }
+.ui-toolbar { display: flex; align-items: center; gap: var(--dd-space-2); }
+.ui-status { display: inline-flex; align-items: center; gap: var(--dd-space-2); color: var(--dd-text-muted); }
+.ui-status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dd-text-faint); }
+.ui-status.attention::before { background: var(--dd-attention); }
+.ui-status.working::before { background: var(--dd-working); }
+.ui-status.success::before { background: var(--dd-success); }
+.ui-row { border-bottom: 1px solid var(--dd-border); }
+.ui-drawer { background: var(--dd-sidebar); border-left: 1px solid var(--dd-border); }
+.ui-dialog { background: var(--dd-sidebar); border: 1px solid var(--dd-border-strong); }
+
+body .pm-overlay {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+  background: rgb(0 0 0 / .48);
+}
+
+body .pm-modal.pm-drawer {
+  width: min(640px, calc(100vw - 52px));
+  height: 100%;
+  max-height: none;
+  border-block: 0;
+  border-right: 0;
+  border-radius: 0;
+  background: var(--dd-sidebar);
+  box-shadow: -18px 0 48px rgb(0 0 0 / .45);
+}
+
+body .pm-modal.pm-sheet {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--dd-sidebar);
+  box-shadow: none;
+}
+
+body .pm-close {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+}

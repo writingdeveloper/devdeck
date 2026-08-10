@@ -2,13 +2,14 @@ import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i1
 import { setCockpitContextWindow, setCockpitTrayAlert, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import type { Folder } from '../shared/types';
 import { IDLE_HOLD_CHOICES } from '../shared/shutdownIdle';
+import { createIcon } from './icons';
 
 let host: HTMLElement;
 let onChangedCb: () => void = () => {};
 let uid = 0;
 
 function field(labelKey: string, control: HTMLElement, forEl?: HTMLElement): HTMLElement {
-  const row = document.createElement('div'); row.className = 'set-row';
+  const row = document.createElement('div'); row.className = 'set-row ui-row';
   const lab = document.createElement('label'); lab.className = 'set-label'; lab.textContent = tr(labelKey);
   if (forEl) { if (!forEl.id) forEl.id = `set-f${uid++}`; lab.htmlFor = forEl.id; }
   row.append(lab, control); return row;
@@ -31,7 +32,7 @@ async function render(): Promise<void> {
     // kind, add it again with the other button — store.addFolder updates the existing entry in place.
     const kind = document.createElement('span'); kind.className = 'folder-kind';
     kind.textContent = tr(f.kind === 'repo' ? 'set.kind_repo' : 'set.kind_root');
-    const rm = document.createElement('button'); rm.className = 'folder-rm'; rm.textContent = '✕';
+    const rm = document.createElement('button'); rm.className = 'folder-rm'; rm.appendChild(createIcon('close'));
     rm.setAttribute('aria-label', tr('set.remove_folder'));
     rm.addEventListener('click', async () => { await window.devdeck.removeFolder(f.path); render(); onChangedCb(); });
     row.append(path, kind, rm); return row;

@@ -13,9 +13,24 @@ mkdirSync(out, { recursive: true });
 const consoleErrors = [];
 const pageErrors = [];
 
-// Isolated user-data-dir so the single-instance lock never makes this launch quit.
+// Isolated user-data-dir so the single-instance lock never makes this launch quit. Seed three legacy
+// previous sessions: two id-less siblings exercise identity migration, while the fake named id gives
+// the real missing-conversation check a deterministic warning row.
+const qaUserData = mkdtempSync(join(tmpdir(), 'devdeck-qa-'));
+writeFileSync(join(qaUserData, 'state.json'), JSON.stringify({
+  projects: {},
+  settings: {
+    folders: [{ path: root, kind: 'repo' }],
+    viewMode: 'list',
+    cockpitSessions: [
+      { projectPath: root, name: 'devdeck', sessionId: null, agentId: 'claude', label: 'Legacy id-less A' },
+      { projectPath: root, name: 'devdeck', sessionId: null, agentId: 'claude', label: 'Legacy id-less B' },
+      { projectPath: root, name: 'devdeck', sessionId: 'qa-conversation-is-gone', agentId: 'claude', label: 'Missing conversation' },
+    ],
+  },
+}, null, 2));
 const app = await electron.launch({
-  args: ['.', `--user-data-dir=${mkdtempSync(join(tmpdir(), 'devdeck-qa-'))}`, '--no-sandbox', '--disable-gpu'],
+  args: ['.', `--user-data-dir=${qaUserData}`, '--no-sandbox', '--disable-gpu'],
   cwd: root,
 });
 const win = await app.firstWindow();
@@ -39,6 +54,13 @@ async function lang() { return win.evaluate(() => document.documentElement.lang 
 async function showView(v) {
   await win.click(`.rail-item[data-view="${v}"]`);
   await win.waitForTimeout(300);
+}
+async function showCockpitViaSession() {
+  const session = win.locator('#shell-session-groups .shell-session').first();
+  if (!await session.isVisible().catch(() => false)) return false;
+  await session.click();
+  await win.waitForTimeout(300);
+  return true;
 }
 
 // Deterministic local-history fixture. Real home-directory logs vary between machines, so the Usage
@@ -84,8 +106,115 @@ async function injectLocalUsage() {
 
 // wait for first project render (skeleton -> cards), generous for git scan
 await win.waitForSelector('#cards .card, #cards .empty', { timeout: 30000 }).catch(() => {});
+const cockpitAvailable = await win.evaluate(() => !document.getElementById('shell-session-section')?.classList.contains('hidden'));
+
+// The internal Cockpit route must never regain a user-facing rail destination, including on platforms
+// where embedded PTYs are unavailable.
+const cockpitDestinationCount = await win.locator('.rail-item[data-view="cockpit"]').count();
+if (cockpitDestinationCount !== 0) {
+  console.error(`QA FAILED — expected zero standalone Cockpit destinations, found ${cockpitDestinationCount}`);
+  await closeApp(); process.exit(1);
+}
+
+// The expanded command-center sidebar must not inherit the old 36px icon-rail geometry.
+// A cascade-order regression makes localized labels spill vertically outside their buttons while
+// the overall sidebar still has the expected width, so inspect each navigation item itself.
+const shellNavGeometry = await win.evaluate(() => {
+  const sidebar = document.getElementById('app-sidebar');
+  const items = Array.from(document.querySelectorAll('#app-sidebar .rail-item'));
+  return {
+    present: !!sidebar && items.length >= 5,
+    width: sidebar?.getBoundingClientRect().width ?? 0,
+    overflow: items.some((item) => item.scrollWidth > item.clientWidth + 1 || item.scrollHeight > item.clientHeight + 1),
+  };
+});
+console.log('shell navigation geometry:', JSON.stringify(shellNavGeometry));
+if (!shellNavGeometry.present || shellNavGeometry.width < 200 || shellNavGeometry.width > 240 || shellNavGeometry.overflow) {
+  console.error('QA FAILED — expanded shell navigation is clipped:', JSON.stringify(shellNavGeometry));
+  await closeApp(); process.exit(1);
+}
+
+const shellGeometry = await win.evaluate(() => {
+  const shell = document.getElementById('shell')?.getBoundingClientRect();
+  const sidebar = document.getElementById('app-sidebar')?.getBoundingClientRect();
+  const content = document.getElementById('content')?.getBoundingClientRect();
+  return {
+    present: !!shell && !!sidebar && !!content,
+    contained: !!shell && !!sidebar && !!content && sidebar.left >= shell.left && content.right <= shell.right,
+    overlap: !!sidebar && !!content && sidebar.right > content.left + 1,
+  };
+});
+if (!shellGeometry.present || !shellGeometry.contained || shellGeometry.overlap) {
+  console.error('QA FAILED — shared shell geometry is invalid:', JSON.stringify(shellGeometry));
+  await closeApp(); process.exit(1);
+}
+
+// Previous-session management must live in the shared shell before the hidden compatibility list.
+// Exercise real persisted entries and the real Cockpit pin/forget handlers (no DOM-only mock).
+if (cockpitAvailable) {
+  await win.waitForSelector('.shell-session-wrap[data-previous="true"]', { timeout: 10000 }).catch(() => {});
+  await win.waitForFunction(() => !!document.querySelector('.shell-session-wrap[data-conversation-gone="true"]'), null, { timeout: 10000 }).catch(() => {});
+  const previousShell = await win.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('.shell-session-wrap[data-previous="true"]'));
+    const keys = rows.map((wrap) => wrap.querySelector('.shell-session')?.getAttribute('data-shell-entity-key'));
+    const warning = document.querySelector('.shell-session-wrap[data-conversation-gone="true"]');
+    return {
+      count: rows.length,
+      uniqueKeys: new Set(keys).size,
+      restoreAll: !!document.querySelector('#shell-restore-all:not(.hidden)'),
+      restoreCopy: rows.every((wrap) => !!wrap.querySelector('.shell-session small')?.textContent?.trim()),
+      warningVisible: !!warning?.querySelector('.shell-session-warning'),
+      menus: rows.every((wrap) => wrap.querySelector('.shell-session-actions')?.getAttribute('aria-haspopup') === 'menu'),
+    };
+  });
+  if (previousShell.count !== 3 || previousShell.uniqueKeys !== 3 || !previousShell.restoreAll || !previousShell.restoreCopy || !previousShell.warningVisible || !previousShell.menus) {
+    console.error('QA FAILED — shared-shell previous-session controls are incomplete:', JSON.stringify(previousShell));
+    await closeApp(); process.exit(1);
+  }
+
+  const firstPrevious = win.locator('.shell-session-wrap[data-previous="true"]').first();
+  const firstKey = await firstPrevious.locator('.shell-session').getAttribute('data-shell-entity-key');
+  await firstPrevious.locator('.shell-session-actions').focus();
+  await win.keyboard.press('Enter');
+  await firstPrevious.locator('[data-session-action="pin"]').press('Enter');
+  await win.waitForTimeout(150);
+  const pinPersisted = await win.evaluate(async (key) => {
+    const tileId = decodeURIComponent(String(key).replace(/^session:tile:/, ''));
+    return (await window.devdeck.cockpit.loadSessions()).some((entry) => entry.tileId === tileId && entry.pinned === true);
+  }, firstKey);
+
+  const forgetTarget = win.locator('.shell-session-wrap[data-previous="true"]').filter({ hasText: 'Legacy id-less B' });
+  const beforeForget = await win.locator('.shell-session-wrap[data-previous="true"]').count();
+  await forgetTarget.locator('.shell-session-actions').click();
+  await forgetTarget.locator('[data-session-action="forget"]').click();
+  await win.waitForTimeout(150);
+  const afterForget = await win.locator('.shell-session-wrap[data-previous="true"]').count();
+  if (!pinPersisted || afterForget !== beforeForget - 1) {
+    console.error('QA FAILED — shared-shell pin/forget did not route through Cockpit handlers:', JSON.stringify({ pinPersisted, beforeForget, afterForget }));
+    await closeApp(); process.exit(1);
+  }
+}
+
+await win.click('#shell-collapse');
+await win.waitForTimeout(180);
+const collapsedShell = await win.evaluate(() => {
+  const sidebar = document.getElementById('app-sidebar');
+  return {
+    collapsed: sidebar?.classList.contains('collapsed') === true,
+    width: Math.round(sidebar?.getBoundingClientRect().width ?? 0),
+    labelsHidden: Array.from(document.querySelectorAll('#app-sidebar .rail-label')).every((label) => getComputedStyle(label).display === 'none'),
+  };
+});
+await shot('shell-collapsed');
+if (!collapsedShell.collapsed || collapsedShell.width !== 52 || !collapsedShell.labelsHidden) {
+  console.error('QA FAILED — collapsed shell geometry is invalid:', JSON.stringify(collapsedShell));
+  await closeApp(); process.exit(1);
+}
+await win.click('#shell-collapse');
+await win.waitForTimeout(180);
 
 const LANGS = ['ko', 'en', 'ja', 'zh'];
+const RESTORE_LABELS = { ko: '복원', en: 'Restore', ja: '復元', zh: '恢复' };
 for (let i = 0; i < LANGS.length; i++) {
   const l = await lang();
   // Projects view
@@ -157,9 +286,11 @@ await win.keyboard.press('Escape').catch(() => {});
 await win.waitForTimeout(200);
 
 // Compact list view toggle (+ GitHub octocat on rows for repos with a github remote)
+await win.click('#project-display');
 await win.click('#view-list').catch(() => {});
 await win.waitForSelector('#cards.as-list .prow', { timeout: 5000 }).catch(() => {});
 await shot('projects-list-view');
+await win.click('#project-display');
 await win.click('#view-cards').catch(() => {});
 await win.waitForTimeout(300);
 
@@ -181,16 +312,99 @@ if (reuse.total > 0 && reuse.survived === 0) {
   process.exit(1);
 }
 
-// Narrow window to check responsive card grid
-await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
+// Narrow window to check responsive card grid. Switch language at desktop width first because the
+// narrow shell deliberately hides its language trigger, then inspect the localized toolbar at 520px.
+const displayMenuGeometry = [];
+for (const target of LANGS) {
+  if (await lang() !== target) {
+    await win.setViewportSize({ width: 1000, height: 720 }).catch(() => {});
+    await win.click('#lang-btn');
+    await win.click(`.lang-menu .menu-item[data-lang="${target}"]`);
+    await win.waitForTimeout(120);
+  }
+  await showView('projects');
+  await win.click('#project-display');
+  await win.click('#view-list');
+  await win.waitForSelector('#cards.as-list .prow', { timeout: 10000 });
+  await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
+  await win.waitForTimeout(180); // wait for the sidebar's width transition before measuring content geometry
+  await win.click('#project-display');
+  const geometry = await win.evaluate((restoreLabel) => {
+    const toolbar = document.querySelector('#view-projects .view-toolbar');
+    const menu = document.getElementById('project-display-menu');
+    const rect = menu?.getBoundingClientRect();
+    const previousDetail = document.querySelector('.shell-session-wrap[data-previous="true"]:not([data-conversation-gone="true"]) .shell-session small');
+    return {
+      language: document.documentElement.lang,
+      toolbarOverflow: !!toolbar && toolbar.scrollWidth > toolbar.clientWidth + 1,
+      menuContained: !!rect && rect.left >= 0 && rect.right <= innerWidth + 1,
+      menuOverflow: !!menu && menu.scrollWidth <= menu.clientWidth + 1,
+      listOverflow: document.getElementById('view-projects').scrollWidth > document.getElementById('view-projects').clientWidth + 1,
+      rowContained: Array.from(document.querySelectorAll('.prow')).every((row) => row.getBoundingClientRect().left >= 0 && row.getBoundingClientRect().right <= innerWidth + 1),
+      stateVisible: document.querySelectorAll('.prow-state').length === document.querySelectorAll('.prow').length && Array.from(document.querySelectorAll('.prow-state')).every((state) => state.getClientRects().length > 0 && !!state.querySelector('.prow-state-text')?.textContent?.trim() && !!state.querySelector('.prow-state-shape')),
+      openVisible: Array.from(document.querySelectorAll('.prow .provider-open-primary')).every((button) => button.getClientRects().length > 0 && !!button.querySelector('.provider-open-primary-text')?.textContent?.trim()),
+      shellDetailLocalized: !!previousDetail?.textContent?.includes(restoreLabel),
+    };
+  }, RESTORE_LABELS[target]);
+  displayMenuGeometry.push(geometry);
+  await win.keyboard.press('Escape');
+}
+console.log('narrow Display menu geometry:', JSON.stringify(displayMenuGeometry));
+if (displayMenuGeometry.some((entry) => entry.toolbarOverflow || !entry.menuContained || !entry.menuOverflow || entry.listOverflow || !entry.rowContained || !entry.stateVisible || !entry.openVisible || !entry.shellDetailLocalized)) {
+  console.error('QA FAILED — narrow Display controls overflow:', JSON.stringify(displayMenuGeometry));
+  await closeApp(); process.exit(1);
+}
+await win.click('#project-display');
+await shot('projects-display-menu-narrow');
+await win.keyboard.press('Escape');
 await shot('projects-narrow');
 
-// Title bar: maximized state (restore glyph)
+// At supported narrow widths, the shared session navigation remains reachable as an overlay drawer.
+if (cockpitAvailable) {
+  await win.evaluate(() => document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
+    { id: 'qa-mobile-attention', projectPath: 'C:/qa/mobile', label: 'Mobile session', detail: 'main · Claude', activity: 'attention', pinned: false },
+  ] })));
+  const mobileTrigger = win.locator('#shell-mobile-toggle');
+  await mobileTrigger.focus();
+  await mobileTrigger.click();
+  const mobileOpen = await win.evaluate(() => ({
+    open: document.getElementById('app-sidebar')?.classList.contains('mobile-open') === true,
+    expanded: document.getElementById('shell-mobile-toggle')?.getAttribute('aria-expanded') === 'true',
+    count: document.getElementById('shell-mobile-toggle')?.textContent?.includes('1') === true,
+    rowVisible: document.querySelector('.shell-session')?.getClientRects().length > 0,
+  }));
+  await win.keyboard.press('Escape');
+  const mobileEscaped = await mobileTrigger.evaluate((button) => document.activeElement === button && button.getAttribute('aria-expanded') === 'false');
+  await mobileTrigger.click();
+  await win.locator('.shell-session').first().click();
+  const mobileSelected = await win.evaluate(() => ({
+    closed: document.getElementById('app-sidebar')?.classList.contains('mobile-open') !== true,
+    cockpit: document.getElementById('view-cockpit')?.classList.contains('active') === true,
+  }));
+  if (!mobileOpen.open || !mobileOpen.expanded || !mobileOpen.count || !mobileOpen.rowVisible || !mobileEscaped || !mobileSelected.closed || !mobileSelected.cockpit) {
+    console.error('QA FAILED — narrow shared-session drawer is not keyboard/pointer reachable:', JSON.stringify({ mobileOpen, mobileEscaped, mobileSelected }));
+    await closeApp(); process.exit(1);
+  }
+}
+
+// Title bar: both accessible action states track the maximize state and current locale.
 await win.setViewportSize({ width: 1000, height: 720 }).catch(() => {});
+if (await win.evaluate(() => window.devdeck.windowControls.isMaximized())) await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
+await win.waitForTimeout(250);
+const maximizeBefore = await win.evaluate(() => ({ title: document.getElementById('win-max')?.title, aria: document.getElementById('win-max')?.getAttribute('aria-label') }));
 await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
 await win.waitForTimeout(400);
+const maximizeAfter = await win.evaluate(() => ({ title: document.getElementById('win-max')?.title, aria: document.getElementById('win-max')?.getAttribute('aria-label') }));
 await shot('titlebar-maximized');
 await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
+const maximizeLabels = {
+  en: ['Maximize', 'Restore'], ko: ['최대화', '복원'], ja: ['最大化', '元に戻す'], zh: ['最大化', '还原'],
+}[await lang()];
+if (!maximizeLabels || maximizeBefore.title !== maximizeLabels[0] || maximizeBefore.aria !== maximizeBefore.title
+  || maximizeAfter.title !== maximizeLabels[1] || maximizeAfter.aria !== maximizeAfter.title) {
+  console.error('QA FAILED — maximize title/aria-label is stale:', JSON.stringify({ maximizeBefore, maximizeAfter, maximizeLabels }));
+  await closeApp(); process.exit(1);
+}
 
 // Next task board: seed one isolated-profile task so the provider-aware split Open control is rendered.
 await app.evaluate(({ dialog }, p) => {
@@ -208,30 +422,120 @@ const taskSeeded = await win.evaluate(async () => {
   return true;
 });
 
+// Shell reconciliation must keep the exact focused project row through the real project refresh
+// path. A replace-children implementation would detach the button and lose keyboard focus.
+if (!taskSeeded) {
+  console.error('QA FAILED — unable to seed a project for shell refresh reconciliation.');
+  await closeApp(); process.exit(1);
+}
+await showView('projects');
+await win.click('#refresh');
+await win.waitForSelector('#shell-projects .shell-project', { timeout: 10000 });
+const shellRefresh = await win.evaluate(async () => {
+  const before = document.querySelector('#shell-projects .shell-project');
+  before.focus();
+  const key = before.dataset.shellEntityKey;
+  document.getElementById('refresh').click();
+  await new Promise((r) => setTimeout(r, 2500));
+  const after = document.querySelector(`#shell-projects .shell-project[data-shell-entity-key="${CSS.escape(key)}"]`);
+  return { sameNode: before === after, focused: document.activeElement === after };
+});
+console.log(`shell refresh reuse: sameNode=${shellRefresh.sameNode} focused=${shellRefresh.focused}`);
+if (!shellRefresh.sameNode || !shellRefresh.focused) {
+  console.error('QA FAILED — shell refresh replaced or defocused an unchanged project row.');
+  await closeApp(); process.exit(1);
+}
+
 // Project Memory: the same real allowed checkout supplies recent commits and the seeded task. Capture
 // both normal and narrow geometry, and fail if the modal itself overflows horizontally.
 await showView('projects');
-await win.click('#refresh');
 await win.waitForSelector('.project-memory-button', { timeout: 10000 });
-await win.locator('.project-memory-button').first().click();
+await win.click('#project-display');
+await win.click('#view-list');
+await win.waitForSelector('#cards.as-list .prow', { timeout: 5000 });
+const populatedProjectGeometry = await win.evaluate(() => {
+  const view = document.getElementById('view-projects');
+  const row = view?.querySelector('.prow')?.getBoundingClientRect();
+  const content = document.getElementById('content')?.getBoundingClientRect();
+  return {
+    overflow: !!view && view.scrollWidth > view.clientWidth + 1,
+    rowContained: !!row && !!content && row.left >= content.left - 1 && row.right <= content.right + 1,
+  };
+});
+if (populatedProjectGeometry.overflow || !populatedProjectGeometry.rowContained) {
+  console.error('QA FAILED — populated project row overflows the command-center content:', JSON.stringify(populatedProjectGeometry));
+  await closeApp(); process.exit(1);
+}
+await shot('projects-populated');
+const memoryTrigger = win.locator('.project-memory-button').first();
+const contentBeforeMemory = await win.evaluate(() => {
+  const r = document.getElementById('content').getBoundingClientRect();
+  return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+});
+await memoryTrigger.focus();
+await memoryTrigger.click();
 await win.waitForSelector('.pm-modal:not(.loading) .pm-timeline-item', { timeout: 10000 });
+const memoryWide = await win.evaluate(() => {
+  const modal = document.querySelector('.pm-modal');
+  const r = modal?.getBoundingClientRect();
+  const c = document.getElementById('content').getBoundingClientRect();
+  return {
+    surface: modal?.dataset.surface,
+    rightAligned: !!r && Math.abs(r.right - window.innerWidth) <= 1,
+    content: [Math.round(c.x), Math.round(c.y), Math.round(c.width), Math.round(c.height)],
+  };
+});
 await shot('project-memory');
+const memoryProviderButton = win.locator('.pm-modal .provider-open-menu-button');
+await memoryProviderButton.focus();
+await memoryProviderButton.click();
+await win.waitForSelector('.pm-modal .provider-open-menu:not(.hidden)', { timeout: 3000 });
+await win.keyboard.press('Escape');
+const memoryEscapePriority = await win.evaluate(() => ({
+  drawerOpen: !!document.querySelector('.pm-modal'),
+  providerClosed: !!document.querySelector('.pm-modal .provider-open-menu.hidden'),
+  focusReturned: document.activeElement?.classList.contains('provider-open-menu-button') === true,
+}));
+await memoryProviderButton.focus(); // last visible focusable after the provider popup is closed
+await win.keyboard.press('Tab');
+const memoryForwardWrap = await win.locator('.pm-refresh').evaluate((button) => document.activeElement === button);
+await win.keyboard.press('Shift+Tab');
+const memoryReverseWrap = await memoryProviderButton.evaluate((button) => document.activeElement === button);
+await memoryProviderButton.click();
+await win.waitForSelector('.pm-modal .provider-open-menu:not(.hidden)', { timeout: 3000 });
+await win.keyboard.press('Escape');
+const memoryStillOpenAfterInnerEscape = await win.locator('.pm-modal').count() === 1;
+if (!memoryEscapePriority.drawerOpen || !memoryEscapePriority.providerClosed || !memoryEscapePriority.focusReturned
+  || !memoryForwardWrap || !memoryReverseWrap || !memoryStillOpenAfterInnerEscape) {
+  console.error('QA FAILED — Project Memory nested provider focus/Escape containment regressed:', JSON.stringify({ memoryEscapePriority, memoryForwardWrap, memoryReverseWrap, memoryStillOpenAfterInnerEscape }));
+  await closeApp(); process.exit(1);
+}
 await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
 await win.waitForTimeout(150);
 const memoryGeometry = await win.evaluate(() => {
   const modal = document.querySelector('.pm-modal');
   return {
     present: !!modal,
+    surface: modal?.dataset.surface,
     overflow: !!modal && modal.scrollWidth > modal.clientWidth + 1,
+    fullWidth: !!modal && Math.abs(modal.getBoundingClientRect().width - window.innerWidth) <= 1,
+    contained: !!modal && modal.getBoundingClientRect().left >= 0 && modal.getBoundingClientRect().right <= window.innerWidth + 1,
     events: document.querySelectorAll('.pm-timeline-item').length,
   };
 });
 await shot('project-memory-narrow');
-if (!memoryGeometry.present || memoryGeometry.overflow || memoryGeometry.events < 1) {
-  console.error('QA FAILED — Project Memory modal missing, empty, or horizontally clipped:', JSON.stringify(memoryGeometry));
+if (memoryWide.surface !== 'drawer' || !memoryWide.rightAligned || JSON.stringify(memoryWide.content) !== JSON.stringify(contentBeforeMemory)
+  || !memoryGeometry.present || memoryGeometry.surface !== 'sheet' || !memoryGeometry.fullWidth || !memoryGeometry.contained
+  || memoryGeometry.overflow || memoryGeometry.events < 1) {
+  console.error('QA FAILED — Project Memory drawer/sheet geometry regressed:', JSON.stringify({ memoryWide, memoryGeometry, contentBeforeMemory }));
   await closeApp(); process.exit(1);
 }
 await win.keyboard.press('Escape');
+const memoryFocusReturned = await memoryTrigger.evaluate((el) => document.activeElement === el).catch(() => false);
+if (!memoryFocusReturned) {
+  console.error('QA FAILED — Project Memory did not return focus to its trigger after Escape.');
+  await closeApp(); process.exit(1);
+}
 await win.setViewportSize({ width: 1000, height: 720 }).catch(() => {});
 await showView('next');
 await win.waitForSelector('#view-next .provider-open, #view-next .empty', { timeout: 5000 }).catch(() => {});
@@ -270,8 +574,15 @@ await win.click('#view-next .cal-cell.today').catch(() => {});
 await shot('next-calendar');
 await win.click('#view-next .tk-vt:nth-child(1)').catch(() => {}); // back to list for later scenes
 
-// Cockpit view: navigate and capture the empty state (no PTY spawned in the harness)
-await showView('cockpit');
+// Cockpit is an internal route: enter through the real shared-shell session path when its Windows
+// implementation is available, and skip the platform-specific checks elsewhere.
+if (cockpitAvailable) {
+await win.evaluate(() => {
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
+    { id: 'qa-cockpit-route', projectPath: 'C:/qa/route', label: 'QA Cockpit route', detail: 'main · Claude', activity: 'idle', pinned: false },
+  ] }));
+});
+await showCockpitViaSession();
 await win.waitForSelector('#ck-empty', { timeout: 5000 }).catch(() => {});
 await shot('cockpit');
 
@@ -289,17 +600,6 @@ if (ckFill.ratio < 0.8) {
   process.exit(1);
 }
 
-const badgeHidden = await win.evaluate(() => {
-  const b = document.getElementById('ck-badge');
-  return !b || b.classList.contains('hidden');
-});
-console.log(`cockpit badge hidden at zero needs-you: ${badgeHidden}`);
-if (!badgeHidden) {
-  console.error('QA FAILED — rail badge visible with no needs-you sessions');
-  await closeApp();
-  process.exit(1);
-}
-
 // Cockpit structure intact after the multi-session changes (the + New session button only appears
 // with a live session, which the harness can't spawn — so just confirm the view renders cleanly).
 const ckOk = await win.evaluate(() => {
@@ -310,93 +610,75 @@ const ckOk = await win.evaluate(() => {
 console.log(`cockpit structure + new-session button present: ${ckOk}`);
 if (!ckOk) { console.error('QA FAILED — cockpit structure / + New session button missing'); await closeApp(); process.exit(1); }
 
-// Provider marks + two-line names: the sidebar must stay 250px, a very long ASCII name and an
-// unbroken CJK name must clamp at two lines (never widen the sidebar or spill), and the hover-only
-// row actions must reserve no width while hidden. The harness can't spawn a live PTY session, so
-// inject representative row markup and measure the real CSS.
+// Unified session navigation: long names/details must stay inside the shared 224px sidebar and
+// the old nested Cockpit sidebar must not consume any terminal width. The harness cannot spawn a
+// live PTY session, so send a representative fixture through the mounted shell controller's narrow
+// renderer-local QA seam and inspect its real reconciliation output.
 const sidebar = await win.evaluate(async () => {
-  const groups = document.getElementById('ck-groups');
+  const groups = document.getElementById('shell-session-groups');
   const long = 'devdeck-monorepo-frontend-experimental-feature-branch-session-42-x';
   const cjk = '데브덱코크핏세션이름아주아주긴한글이름테스트용으로만든것';
-  // Line 3 (.sm) is the auto summary — deliberately longer than the sidebar so the clamp is exercised.
-  const summary = 'cockpitView.ts에 세션 요약 줄을 붙이고 CSS와 i18n을 정리하는 중';
-  const rowHtml = (name, logo) => `<div class="ck-row act-idle">
-    <span class="ck-ind"><span class="ck-dot"></span></span>
-    <img class="ck-provider-logo" src="./assets/provider-${logo}.svg" alt="${logo}">
-    <div class="ck-row-main"><div class="ck-line1"><span class="nm" tabindex="0" aria-label="${name}" data-full-name="${name}">${name}</span><span class="ck-ctx-col">🧠41%</span></div><div class="mt">main · Opus</div><div class="sm" title="${summary}">${summary}</div></div>
-    <span class="ck-row-acts"><button class="ck-pin">📌</button><button class="ck-rename">✎</button><button class="ck-close">✕</button></span></div>`;
-  groups.innerHTML = rowHtml(long, 'claude') + rowHtml(cjk, 'codex')
-    // A restorable entry whose conversation is gone: its meta line warns in the accent colour, since
-    // restoring it opens a FRESH session under the same name.
-    + `<div class="ck-row ck-row-prev"><span class="ck-ind"><span class="ck-dot"></span></span><img class="ck-provider-logo" src="./assets/provider-antigravity.svg" alt="antigravity"><div class="ck-row-main"><div class="nm" tabindex="0" aria-label="${long}" data-full-name="${long}">${long}</div><div class="mt gone">⚠ conversation gone</div></div><span class="ck-prev-acts"><button class="ck-pin">📌</button><button class="ck-forget">✕</button></span></div>`;
+  const fixture = [
+    { id: 'qa-shell-attention', projectPath: 'C:/qa/attention', label: long, detail: 'main · Claude · 41%', activity: 'attention', pinned: false },
+    { id: 'qa-shell-working', projectPath: 'C:/qa/working', label: cjk, detail: 'feature/command-center · Codex · 82%', activity: 'working', pinned: false },
+  ];
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: fixture }));
   await new Promise((r) => setTimeout(r, 250));
-  const list = document.querySelector('#view-cockpit .ck-list').getBoundingClientRect();
-  const names = [...document.querySelectorAll('#ck-groups .nm')];
-  const lh = parseFloat(getComputedStyle(names[0]).lineHeight);
-  const logos = document.querySelectorAll('#ck-groups .ck-provider-logo');
-  const loaded = [...logos].every((i) => i.complete && i.naturalWidth > 0);
-  const sums = [...document.querySelectorAll('#ck-groups .sm')];
-  const sumLh = sums.length ? parseFloat(getComputedStyle(sums[0]).lineHeight) || 16 : 0;
+  const selectedRow = groups.querySelector('.group-attention .shell-session');
+  selectedRow.focus(); selectedRow.click();
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: fixture }));
+  await new Promise((r) => setTimeout(r, 250));
+  const list = document.getElementById('app-sidebar').getBoundingClientRect();
+  const names = [...groups.querySelectorAll('strong')];
+  const details = [...groups.querySelectorAll('small')];
+  const nested = document.querySelector('#view-cockpit .ck-list');
+  const main = document.querySelector('#view-cockpit .ck-main').getBoundingClientRect();
+  const wrap = document.querySelector('#view-cockpit .ck-wrap').getBoundingClientRect();
   return {
     sidebarWidth: Math.round(list.width),
-    twoLines: names.every((n) => n.getBoundingClientRect().height <= lh * 2 + 1),
     inside: names.every((n) => n.getBoundingClientRect().right <= list.right + 1),
-    logos: logos.length,
-    loaded,
-    actsHidden: getComputedStyle(document.querySelector('#ck-groups .ck-row-acts')).opacity === '0',
-    // The summary line must stay ONE clipped line inside the sidebar — it is long by construction here.
-    summaries: sums.length,
-    summaryOneLine: sums.every((s) => s.getBoundingClientRect().height <= sumLh + 1),
-    summaryInside: sums.every((s) => s.getBoundingClientRect().right <= list.right + 1),
-    summaryClipped: sums.every((s) => s.scrollWidth > s.clientWidth), // actually overflowing → ellipsis in play
-    rowHeight: Math.round(document.querySelector('#ck-groups .ck-row').getBoundingClientRect().height),
-    // The gone warning must be visually distinct from the ordinary dim "Restore" line AND stay inside
-    // the sidebar — a warning that reads like normal metadata is one the user scrolls past.
-    goneTinted: (() => {
-      const g = document.querySelector('#ck-groups .ck-row-prev .mt.gone');
-      const plain = document.querySelector('#ck-groups .ck-row:not(.ck-row-prev) .mt');
-      return !!g && getComputedStyle(g).color !== getComputedStyle(plain).color;
+    detailInside: details.every((n) => n.getBoundingClientRect().right <= list.right + 1),
+    clipped: [...names, ...details].every((n) => n.scrollWidth >= n.clientWidth),
+    signals: groups.querySelectorAll('.shell-signal').length,
+    selected: selectedRow.classList.contains('selected') && selectedRow.getAttribute('aria-current') === 'true',
+    reused: selectedRow === groups.querySelector('.group-attention .shell-session') && document.activeElement === selectedRow,
+    semanticGroups: Array.from(groups.querySelectorAll('.shell-group')).every((section) => {
+      const headingId = section.getAttribute('aria-labelledby');
+      return !!headingId && document.getElementById(headingId)?.tagName === 'H2';
+    }),
+    sessionStatusNames: (() => {
+      const statuses = {
+        en: ['Awaiting you', 'Working'], ko: ['질문 대기', '작업 중'],
+        ja: ['確認待ち', '実行中'], zh: ['等待确认', '工作中'],
+      }[document.documentElement.lang] ?? [];
+      return Array.from(groups.querySelectorAll('.shell-session')).every((row, index) => row.getAttribute('aria-label')?.includes(statuses[index]));
     })(),
-    goneInside: (() => {
-      const g = document.querySelector('#ck-groups .ck-row-prev .mt.gone');
-      return !!g && g.getBoundingClientRect().right <= list.right + 1;
-    })(),
+    nestedHidden: getComputedStyle(nested).display === 'none',
+    mainFillsWrap: Math.abs(main.width - wrap.width) <= 1,
   };
 });
 await shot('cockpit-provider-sidebar');
-console.log(`cockpit sidebar: width=${sidebar.sidebarWidth}px twoLines=${sidebar.twoLines} inside=${sidebar.inside} logos=${sidebar.logos} svgLoaded=${sidebar.loaded} actionsHiddenByDefault=${sidebar.actsHidden}`);
-console.log(`cockpit summary line: rows=${sidebar.summaries} oneLine=${sidebar.summaryOneLine} inside=${sidebar.summaryInside} clipped=${sidebar.summaryClipped} rowHeight=${sidebar.rowHeight}px`);
-if (sidebar.sidebarWidth !== 250 || !sidebar.twoLines || !sidebar.inside || sidebar.logos !== 3 || !sidebar.loaded || !sidebar.actsHidden) {
-  console.error('QA FAILED — cockpit sidebar geometry / provider marks regressed (expect 250px, 2-line clamp, contained names, 3 loaded SVG marks, hidden row actions).');
+console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInside=${sidebar.inside} detailsInside=${sidebar.detailInside} signals=${sidebar.signals} selected=${sidebar.selected} reused=${sidebar.reused} semanticGroups=${sidebar.semanticGroups} sessionStatusNames=${sidebar.sessionStatusNames} nestedHidden=${sidebar.nestedHidden} terminalFills=${sidebar.mainFillsWrap}`);
+if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.reused || !sidebar.semanticGroups || !sidebar.sessionStatusNames || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
+  console.error('QA FAILED — unified session navigation overflowed or the legacy Cockpit list still consumes terminal width.');
   await closeApp();
   process.exit(1);
 }
-if (sidebar.summaries !== 2 || !sidebar.summaryOneLine || !sidebar.summaryInside || !sidebar.summaryClipped) {
-  console.error('QA FAILED — session summary line regressed (expect one clipped line per live row, contained in the 250px sidebar).');
-  await closeApp();
-  process.exit(1);
-}
-console.log(`cockpit gone marker: tinted=${sidebar.goneTinted} inside=${sidebar.goneInside}`);
-if (!sidebar.goneTinted || !sidebar.goneInside) {
-  console.error('QA FAILED — the "conversation gone" warning on a restorable row is not visually distinct or overflows the sidebar.');
-  await closeApp();
-  process.exit(1);
-}
-// The full-name tooltip must be reachable by KEYBOARD, not only pointer.
+// The full session row must be reachable by keyboard in the shared sidebar.
 const tooltip = await win.evaluate(async () => {
-  const nm = document.querySelector('#ck-groups .nm');
-  nm.focus();
+  const row = document.querySelector('#shell-session-groups .shell-session');
+  row.focus();
   await new Promise((r) => setTimeout(r, 150));
-  return { focused: document.activeElement === nm, hasFullName: !!nm.dataset.fullName, labelled: nm.getAttribute('aria-label') === nm.dataset.fullName };
+  return { focused: document.activeElement === row, labelled: !!row.getAttribute('aria-label') };
 });
 await shot('cockpit-provider-tooltip');
-console.log(`cockpit name help: keyboardFocusable=${tooltip.focused} fullName=${tooltip.hasFullName} ariaLabel=${tooltip.labelled}`);
-if (!tooltip.focused || !tooltip.hasFullName) {
-  console.error('QA FAILED — the complete session name is not reachable by keyboard.');
+console.log(`session navigation keyboard: focusable=${tooltip.focused} labelled=${tooltip.labelled}`);
+if (!tooltip.focused || !tooltip.labelled) {
+  console.error('QA FAILED — the unified session row is not keyboard reachable or labelled.');
   await closeApp();
   process.exit(1);
 }
-await win.evaluate(() => { document.getElementById('ck-groups').innerHTML = ''; });
+}
 
 // Usage bar fill — regression guard for the inline-span bug where the fill (width/height
 // ignored on an inline box) rendered empty. window.devdeck is a frozen contextBridge object
@@ -476,7 +758,7 @@ const geometry = () => win.evaluate(() => {
   return { shell: r('#shell'), content: r('#content'), terms: r('.ck-terms'), xterm: r('.xterm'), footer: r('#usage-bar') };
 });
 
-await showView('cockpit');
+if (cockpitAvailable) await showCockpitViaSession();
 const beforeGeo = await geometry();
 const modal = await win.evaluate(async (snapshot) => {
   document.dispatchEvent(new CustomEvent('devdeck:usage-open', { detail: { snapshot } }));

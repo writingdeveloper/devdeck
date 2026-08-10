@@ -1,35 +1,42 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
+import type { ShellSessionInput } from '../shared/shellNavigation';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
-import { sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import { toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
 import { toast } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
+import { createIcon, type IconName } from './icons';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; }
+interface Live { tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; }
 /** The renderer's display metadata plus the explicit provider launch intent. */
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; }
 
 const live = new Map<string, Live>();
+const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
+const sessionSelectionListeners = new Set<(id: string) => void>();
+const sessionsLoadedListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
+let cockpitNavigationCallback: ((id?: string) => void) | null = null;
+let lastNavigationSignature = '';
 let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
 let restorableLoaded = false; // guard: don't persist (and clobber the on-disk list) until the initial load resolves
 /** Saved entries whose conversation is no longer on disk — their row warns BEFORE it is clicked, since
  *  restoring one opens a fresh session under the same name (see resolveRestoreTarget). */
 const missingConversations = new Set<string>();
 let missingCheckedAt = 0;
-const prevKey = (r: PersistedSession): string => `${r.projectPath}\0${r.sessionId ?? ''}`;
+const prevKey = (r: PersistedSession): string => persistedSessionKey(r);
 let liveLabels = new Map<string, string>(); // live session id -> display label (#N when a project has several sessions)
 let lastListSig = ''; // signature of the last-rendered session list — renderList() skips a rebuild when nothing visible changed
 let editingId: string | null = null; // session being inline-renamed (rendered as an <input> in its row, so re-renders keep it)
@@ -139,23 +146,21 @@ export function mountCockpit(): void {
   // then persist once to capture any such session in the correct union.
   window.devdeck.cockpit.loadSessions()
     .then(async (list) => {
-      restorable = sanitizePersistedList(list); restorableLoaded = true; renderList(); if (live.size > 0) persist();
+      restorable = sanitizePersistedList(list); restorableLoaded = true; renderList(); publishSessionsLoaded(); if (live.size > 0) persist();
       void refreshMissingConversations(); // mark entries whose conversation is gone before they're clicked
       // Seamless update: if this launch is the relaunch after an update, auto-restore the sessions that
       // were live at restart (consume clears the marker so a later normal launch won't re-trigger).
       const pending = await window.devdeck.consumeAutoRestore().catch(() => [] as PersistedSession[]);
       if (pending.length) await autoRestoreAfterUpdate(pending);
     })
-    .catch(() => { restorableLoaded = true; });
+    .catch(() => { restorableLoaded = true; publishSessionsLoaded(); });
 }
 
 /** After an update relaunch, re-open the sessions that were live — each resolving to its project's
  *  latest conversation (via restoreSession). They're removed from the "Previous" list first so they
  *  aren't shown as restorable AND opened. Sequential to avoid a simultaneous PTY burst. */
 async function autoRestoreAfterUpdate(pending: PersistedSession[]): Promise<void> {
-  const key = (p: PersistedSession): string => `${p.projectPath}\0${p.sessionId ?? ''}`;
-  const keys = new Set(pending.map(key));
-  restorable = restorable.filter((r) => !keys.has(key(r)));
+  restorable = removeAutoRestoreMatches(restorable, pending);
   renderList();
   for (const entry of pending) await restoreSession(entry);
 }
@@ -233,10 +238,103 @@ async function refreshMissingConversations(): Promise<void> {
 
 /** The currently-live sessions in PersistedSession form (for saving / update auto-restore). */
 export function liveSessionsForPersist(): PersistedSession[] {
-  return [...live.values()].map((l) => ({ projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned }));
+  return [...live.values()].map((l) => ({ tileId: l.tileId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned }));
 }
 /** How many cockpit sessions are live right now (for the update-restart button label). */
 export function liveSessionCount(): number { return live.size; }
+
+function navigationIdentity(liveSession: Live): { tileId: string; projectPath: string; sessionId: string | null; runtimeId: string } {
+  return { tileId: liveSession.tileId, projectPath: liveSession.session.projectPath, sessionId: liveSession.openedSessionId, runtimeId: liveSession.session.id };
+}
+
+function navigationIdForLive(liveSession: Live): string {
+  return cockpitNavigationId(navigationIdentity(liveSession));
+}
+
+export function cockpitNavigationItems(): ShellSessionInput[] {
+  const liveItems = [...live.values()];
+  const liveConversationIds = new Set(liveItems.map((item) => item.openedSessionId).filter((id): id is string => !!id));
+  const previousItems = restorable.filter((item) => !(item.sessionId && liveConversationIds.has(item.sessionId)));
+  const union = [
+    ...liveItems.map((item) => item.customLabel || item.session.name),
+    ...previousItems.map((item) => item.label || item.name),
+  ];
+  const labels = numberCollidingNames(union);
+  const current = liveItems.map((item, index) => {
+    const session = item.session;
+    const detailBits = [session.branch ?? '—', providerName(session.agentId)];
+    const context = contextPercent(item.meta?.contextTokens ?? 0, windowFor(item.meta));
+    if (context != null) detailBits.push(`${context}%`);
+    return sessionNavigationItem({ ...session, id: navigationIdForLive(item) }, labels[index], detailBits.join(' · '), item.pinned);
+  });
+  const previous = previousItems.map((entry, index): ShellSessionInput => ({
+    id: cockpitNavigationId(entry),
+    projectPath: entry.projectPath,
+    label: labels[liveItems.length + index],
+    detail: `${providerName(toAgentId(entry.agentId) ?? 'claude')} · ${missingConversations.has(prevKey(entry)) ? tr('cockpit.prev_gone') : tr('cockpit.restore')}`,
+    activity: 'idle',
+    pinned: entry.pinned === true,
+    previous: true,
+    conversationGone: missingConversations.has(prevKey(entry)),
+  }));
+  return [...current, ...previous];
+}
+
+/** One-release migration map for shell contexts saved before opaque tile identities existed. */
+export function cockpitNavigationAliases(): ReadonlyMap<string, string> {
+  const aliases = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  const add = (entry: { tileId?: string; projectPath: string; sessionId: string | null; runtimeId?: string }): void => {
+    const legacy = legacyCockpitNavigationId(entry);
+    const current = cockpitNavigationId(entry);
+    if (aliases.has(legacy) && aliases.get(legacy) !== current) { aliases.delete(legacy); ambiguous.add(legacy); }
+    else if (!ambiguous.has(legacy)) aliases.set(legacy, current);
+  };
+  for (const item of live.values()) add(navigationIdentity(item));
+  for (const item of restorable) add(item);
+  return aliases;
+}
+
+export function onCockpitNavigationChange(listener: (items: readonly ShellSessionInput[]) => void): () => void {
+  navigationListeners.add(listener);
+  listener(cockpitNavigationItems());
+  return () => navigationListeners.delete(listener);
+}
+
+export function onCockpitSessionsLoaded(listener: (items: readonly ShellSessionInput[]) => void): () => void {
+  sessionsLoadedListeners.add(listener);
+  if (restorableLoaded) listener(cockpitNavigationItems());
+  return () => sessionsLoadedListeners.delete(listener);
+}
+
+export function onCockpitSessionSelected(listener: (id: string) => void): () => void {
+  sessionSelectionListeners.add(listener);
+  return () => sessionSelectionListeners.delete(listener);
+}
+
+export function setCockpitNavigationCallback(callback: (id?: string) => void): void {
+  cockpitNavigationCallback = callback;
+}
+
+function publishSessionsLoaded(): void {
+  const items = cockpitNavigationItems();
+  for (const listener of sessionsLoadedListeners) listener(items);
+}
+
+function publishCockpitNavigation(): void {
+  const items = cockpitNavigationItems();
+  const signature = JSON.stringify(items);
+  if (signature === lastNavigationSignature) return;
+  lastNavigationSignature = signature;
+  for (const listener of navigationListeners) listener(items);
+}
+
+export function activateCockpitSession(id: string): void {
+  const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id || legacyCockpitNavigationId(navigationIdentity(entry)) === id);
+  if (current) { select(current.session.id); return; }
+  const previous = restorable.find((entry) => cockpitNavigationId(entry) === id || legacyCockpitNavigationId(entry) === id);
+  if (previous) void restoreSession(previous);
+}
 
 /** Per-project live status for the deck's summary + card stripes (no IPC — renderer-shared). */
 export function liveProjectActivity(): Map<string, 'attention' | 'working'> {
@@ -288,7 +386,7 @@ async function duplicateTileFor(p: OpenReq): Promise<string | null> {
 
 /** Called by Projects "open": switch to the cockpit FIRST (so terminals fit a visible pane), then create a session per project. */
 export async function openProjectsInCockpit(projects: OpenReq[]): Promise<void> {
-  document.querySelector<HTMLButtonElement>('.rail-item[data-view="cockpit"]')!.click();
+  cockpitNavigationCallback?.();
   for (const p of projects) {
     const dup = await duplicateTileFor(p);
     if (dup) {
@@ -403,9 +501,9 @@ async function createSession(p: OpenReq): Promise<boolean> {
   });
   // Consume the matching restorable entry (dedupe by session id, not path — siblings stay), inheriting
   // its pin + label when the open request has none (deck/board opens don't know about pins).
-  const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { label: p.label ?? null, pinned: !!p.pinned });
+  const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { tileId: p.tileId, label: p.label ?? null, pinned: !!p.pinned });
   restorable = adopted.rest;
-  live.set(res.id, { session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned });
+  live.set(res.id, { tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned });
   select(res.id);
   updateRailBadge();
   persist();
@@ -448,6 +546,8 @@ async function refreshSessionId(id: string): Promise<void> {
   if (!next || next === l.openedSessionId || !live.has(id)) return; // tile may have closed mid-await
   l.openedSessionId = next;
   persist(); // the drifted id is exactly what a quit would have frozen — save the corrected one now
+  publishCockpitNavigation();
+  if (selectedId === id) publishSessionSelection(l);
   void refreshMeta(id); // model/context % must now read the NEW conversation, not the stale file
 }
 
@@ -466,6 +566,8 @@ async function refreshProvider(id: string): Promise<void> {
   l.openedSessionId = null;
   l.meta = null;
   persist();
+  publishCockpitNavigation();
+  if (selectedId === id) publishSessionSelection(l);
   if (selectedId === id) setActiveUsageProvider(actual); // the footer must follow the tile's REAL provider
   if (!editingId) renderList();
   renderHeader();
@@ -500,6 +602,8 @@ function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of l
 function select(id: string): void {
   if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
   selectedId = id;
+  const selected = live.get(id);
+  if (selected) publishSessionSelection(selected);
   // The always-on usage footer reports the provider of the session you're working in — hand it over
   // on every selection change (a Claude tile must not be captioned with Codex's percentage).
   setActiveUsageProvider(live.get(id)?.session.agentId ?? null);
@@ -600,6 +704,7 @@ function renderList(): void {
   const labels = numberCollidingNames(union);
   liveLabels = new Map(liveLive.map((l, i) => [l.session.id, labels[i]]));
   const prevLabels = prev.map((_r, i) => labels[liveLive.length + i]);
+  publishCockpitNavigation();
 
   // Skip the full DOM rebuild when nothing the list shows has changed (this runs on every 1s activity
   // tick + per-session meta/git refresh, so most calls become no-ops once the deck settles).
@@ -610,7 +715,7 @@ function renderList(): void {
       ctx: contextPercent(l.meta?.contextTokens ?? 0, windowFor(l.meta)),
       summary: l.meta?.summary ?? null,
     })),
-    prev.map((r, i) => ({ key: r.sessionId ?? r.projectPath, label: prevLabels[i], agentId: r.agentId, pinned: r.pinned === true, gone: missingConversations.has(prevKey(r)) })),
+    prev.map((r, i) => ({ key: r.tileId, label: prevLabels[i], agentId: r.agentId, pinned: r.pinned === true, gone: missingConversations.has(prevKey(r)) })),
     currentLang(), search,
   ) + `\nedit:${editingId ?? ''}`; // a row being renamed becomes an <input> — also part of what the list renders
   if (sig === lastListSig) return;
@@ -730,7 +835,8 @@ function row(s: CockpitSession): HTMLElement {
   else if (a === 'attention') ind.textContent = '❓';
   else ind.innerHTML = '<span class="ck-dot"></span>';
   const nm = el.querySelector('.nm') as HTMLElement;
-  if (s.id === editingId) {
+  const legacyListVisible = (document.getElementById('ck-list')?.getClientRects().length ?? 0) > 0;
+  if (s.id === editingId && legacyListVisible) {
     nm.replaceChildren(renameInput(s.id, live.get(s.id)?.customLabel ?? s.name));
   } else {
     applyFullName(nm, liveLabels.get(s.id) ?? s.name);
@@ -792,10 +898,28 @@ function notifyAttention(l: Live): void {
     const n = new Notification(name, { body: tr('cockpit.notify_attention'), tag: `devdeck-attn-${l.session.id}` });
     n.onclick = () => {
       void window.devdeck.windowControls.show();
-      document.querySelector<HTMLButtonElement>('.rail-item[data-view="cockpit"]')?.click();
-      if (live.has(l.session.id)) select(l.session.id);
+      const target = cockpitNavigationIdForRuntime([...live.values()].map(navigationIdentity), l.session.id);
+      if (target) cockpitNavigationCallback?.(target);
     };
   } catch { /* notifications unavailable (rare) — the tray dot still alerts */ }
+}
+
+export type CockpitPreviousAction = 'pin' | 'unpin' | 'forget';
+
+/** Shared-shell previous-row actions route to the same state mutations as the hidden compatibility list. */
+export function manageCockpitPreviousSession(id: string, action: CockpitPreviousAction): void {
+  const entry = restorable.find((item) => cockpitNavigationId(item) === id || legacyCockpitNavigationId(item) === id);
+  if (!entry) return;
+  if (action === 'forget') { forgetSession(entry); return; }
+  entry.pinned = action === 'pin' ? true : undefined;
+  persist(); renderList();
+}
+
+export function restoreAllCockpitSessions(): void { void restoreAll(); }
+
+function publishSessionSelection(liveSession: Live): void {
+  const navigationId = navigationIdForLive(liveSession);
+  for (const listener of sessionSelectionListeners) listener(navigationId);
 }
 
 function updateRailBadge(): void {
@@ -838,10 +962,12 @@ function renderHeader(): void {
   const s = l.session;
   const title = document.createElement('span'); title.className = 'title';
   const fullName = liveLabels.get(s.id) ?? s.name;
-  title.textContent = fullName; title.setAttribute('aria-label', fullName);
+  if (editingId === s.id) title.appendChild(renameInput(s.id, l.customLabel ?? s.name));
+  else title.textContent = fullName;
+  title.setAttribute('aria-label', fullName);
   title.title = tr('cockpit.rename');
   title.addEventListener('dblclick', () => beginRename(s.id)); // edits in the session's list row (single editor, survives re-render)
-  const branch = document.createElement('span'); branch.className = 'ck-pill'; branch.textContent = `⎇ ${s.branch ?? '-'}${s.dirty > 0 ? ` ✎${s.dirty}` : ''}`;
+  const branch = document.createElement('span'); branch.className = 'ck-pill'; branch.textContent = `${s.branch ?? '-'}${s.dirty > 0 ? ` · ✎${s.dirty}` : ''}`;
   // Same mark component as the rows; the localized provider name rides along as alt/title, so identity
   // never depends on the logo's color alone.
   const ag = document.createElement('span'); ag.className = 'ck-pill ck-pill-provider';
@@ -850,14 +976,16 @@ function renderHeader(): void {
   const model = friendlyModel(l.meta?.model ?? null);
   if (model) { const mp = document.createElement('span'); mp.className = 'ck-pill'; mp.textContent = model; pills.push(mp); }
   const ctxPct = contextPercent(l.meta?.contextTokens ?? 0, windowFor(l.meta));
-  if (ctxPct !== null) { const cp = document.createElement('span'); cp.className = 'ck-pill'; cp.textContent = `🧠 ${ctxPct}%`; cp.title = tr('cockpit.context'); pills.push(cp); }
-  if (l.meta && l.meta.activeMs > 0) { const tp = document.createElement('span'); tp.className = 'ck-pill'; tp.textContent = `⏱️ ${formatDuration(l.meta.activeMs)}`; pills.push(tp); }
+  if (ctxPct !== null) { const cp = document.createElement('span'); cp.className = 'ck-pill'; cp.append(createIcon('brain'), `${ctxPct}%`); cp.title = tr('cockpit.context'); pills.push(cp); }
+  if (l.meta && l.meta.activeMs > 0) { const tp = document.createElement('span'); tp.className = 'ck-pill'; tp.append(createIcon('clock'), formatDuration(l.meta.activeMs)); pills.push(tp); }
   const sp = document.createElement('span'); sp.className = 'sp';
-  const newSession = actBtn('+', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
-  const folder = actBtn('📁', tr('cockpit.open_folder'), () => window.devdeck.openFolder(s.projectPath));
-  const restart = actBtn('⟳', tr('cockpit.restart'), () => restartSession(s.id));
-  const close = actBtn('✕', tr('cockpit.close'), () => void requestClose(s.id));
-  headerEl.append(...pills, sp, newSession, folder, restart, close);
+  const newSession = actBtn('plus', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
+  const pin = actBtn('pin', tr(l.pinned ? 'cockpit.unpin' : 'cockpit.pin'), () => togglePin(s.id));
+  const rename = actBtn('edit', tr('cockpit.rename'), () => beginRename(s.id));
+  const folder = actBtn('folder', tr('cockpit.open_folder'), () => window.devdeck.openFolder(s.projectPath));
+  const restart = actBtn('restart', tr('cockpit.restart'), () => restartSession(s.id));
+  const close = actBtn('close', tr('cockpit.close'), () => void requestClose(s.id));
+  headerEl.append(...pills, sp, newSession, pin, rename, folder, restart, close);
 }
 
 /** "+ New session": spawn another, fresh conversation in the SAME project as the selected session. */
@@ -867,8 +995,8 @@ async function addSessionToCurrentProject(): Promise<void> {
   await createSession({ path: s.projectPath, name: s.name, staleLevel: s.staleLevel, branch: s.branch, dirty: s.dirty, mode: 'new', agentId: s.agentId });
 }
 
-function actBtn(glyph: string, title: string, onClick: () => void): HTMLButtonElement {
-  const b = document.createElement('button'); b.className = 'ck-act'; b.textContent = glyph; b.title = title; b.addEventListener('click', onClick); return b;
+function actBtn(icon: IconName, title: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button'); b.className = 'ck-act'; b.appendChild(createIcon(icon)); b.title = title; b.setAttribute('aria-label', title); b.addEventListener('click', onClick); return b;
 }
 
 async function restartSession(id: string): Promise<void> {
@@ -932,7 +1060,7 @@ const restoring = new Set<string>();
  *  opened with, whatever the globally selected agent is now (a Claude conversation must never be
  *  handed to `codex`). Unrecognized legacy ids fall back to the active agent, as they always did. */
 async function restoreSession(entry: PersistedSession): Promise<void> {
-  const key = `${entry.projectPath}\0${entry.sessionId ?? ''}`;
+  const key = persistedSessionKey(entry);
   if (restoring.has(key)) return;
   restoring.add(key);
   restorable = restorable.filter((r) => r !== entry);
@@ -949,7 +1077,7 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     let ids: string[] = [];
     try { ids = await window.devdeck.cockpit.sessionIds(entry.projectPath, owner); } catch { ids = []; }
     const target = resolveRestoreTarget(entry, ids, liveIds, reserved);
-    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
+    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, tileId: entry.tileId, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
     if (ok) {
       // Say why the tile is empty — whether its conversation was deleted or was never recorded.
       // Silence here would read as "my session lost its history".
@@ -974,8 +1102,8 @@ function renameSession(id: string, label: string): void {
 
 // Editing is RENDER STATE (editingId), not a mutated DOM node: a list rebuild (e.g. row click → select)
 // would otherwise orphan a captured <input> and the editor would silently never appear.
-function beginRename(id: string): void { editingId = id; renderList(); }
-function cancelRename(): void { editingId = null; renderList(); }
+function beginRename(id: string): void { editingId = id; renderList(); renderHeader(); }
+function cancelRename(): void { editingId = null; renderList(); renderHeader(); }
 function commitRename(id: string, value: string): void { editingId = null; renameSession(id, value); }
 
 /** Build the inline rename <input> rendered into the editing row's name slot. */

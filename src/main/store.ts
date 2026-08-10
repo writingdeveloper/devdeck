@@ -122,15 +122,31 @@ export class Store {
   getOpenAtLogin(): boolean { return this.state.settings?.openAtLogin ?? false; }
   setOpenAtLogin(openAtLogin: boolean): void { this.state.settings = { ...(this.state.settings ?? {}), openAtLogin }; this.save(); }
 
-  getViewMode(): 'cards' | 'list' { return this.state.settings?.viewMode === 'list' ? 'list' : 'cards'; }
+  getViewMode(): 'cards' | 'list' { return this.state.settings?.viewMode === 'cards' ? 'cards' : 'list'; }
   setViewMode(viewMode: 'cards' | 'list'): void { this.state.settings = { ...(this.state.settings ?? {}), viewMode }; this.save(); }
 
-  getCockpitSessions(): PersistedSession[] { return sanitizePersistedList(this.state.settings?.cockpitSessions); }
+  getCockpitSessions(): PersistedSession[] {
+    const raw = this.state.settings?.cockpitSessions;
+    const sessions = sanitizePersistedList(raw);
+    if (JSON.stringify(raw ?? []) !== JSON.stringify(sessions)) {
+      this.state.settings = { ...(this.state.settings ?? {}), cockpitSessions: sessions };
+      this.save();
+    }
+    return sessions;
+  }
   setCockpitSessions(list: PersistedSession[]): void { this.state.settings = { ...(this.state.settings ?? {}), cockpitSessions: sanitizePersistedList(list) }; this.save(); }
 
   // The cockpit sessions that were LIVE when the user restarted for an update — auto-restored once on
   // the next launch (its presence is the "restarted for update" signal), then consumed/cleared.
-  getPendingAutoRestore(): PersistedSession[] { return sanitizePersistedList(this.state.settings?.pendingAutoRestore); }
+  getPendingAutoRestore(): PersistedSession[] {
+    const raw = this.state.settings?.pendingAutoRestore;
+    const sessions = sanitizePersistedList(raw);
+    if (JSON.stringify(raw ?? []) !== JSON.stringify(sessions)) {
+      this.state.settings = { ...(this.state.settings ?? {}), pendingAutoRestore: sessions };
+      this.save();
+    }
+    return sessions;
+  }
   setPendingAutoRestore(list: PersistedSession[]): void { this.state.settings = { ...(this.state.settings ?? {}), pendingAutoRestore: sanitizePersistedList(list) }; this.save(); }
   consumePendingAutoRestore(): PersistedSession[] { const l = this.getPendingAutoRestore(); this.setPendingAutoRestore([]); return l; }
 

@@ -75,6 +75,116 @@ ipc.providerOpen = await win.evaluate(async (p) => {
     escapeClosed: menuButton?.getAttribute('aria-expanded') === 'false' && !!menu?.classList.contains('hidden'),
   };
 }, root);
+await win.click('.rail-item[data-view="projects"]');
+await win.waitForTimeout(150);
+const displayTrigger = win.locator('#project-display');
+const displayMenu = win.locator('#project-display-menu');
+const displayItem = (id) => win.locator(`#${id}`);
+const displayState = () => win.evaluate(() => {
+  const trigger = document.getElementById('project-display');
+  const menu = document.getElementById('project-display-menu');
+  return { open: trigger?.getAttribute('aria-expanded') === 'true' && !menu?.classList.contains('hidden'), focusId: document.activeElement?.id ?? '' };
+});
+const displayModel = await win.evaluate(() => {
+  const menu = document.getElementById('project-display-menu');
+  const items = Array.from(menu?.querySelectorAll('[role^="menuitem"]') ?? [])
+    // The composite itself is closed while its static model is inspected. Exclude only choices in
+    // a nested hidden group; the menu's own `.hidden` state must not erase its actionable model.
+    .filter((item) => item instanceof HTMLButtonElement && !item.disabled && !item.closest('#agent-select-control.hidden'));
+  const selected = items.find((item) => item.getAttribute('role') === 'menuitemradio' && item.getAttribute('aria-checked') === 'true');
+  return {
+    actionableIds: items.map((item) => item.id),
+    initialFocusId: selected?.id ?? items[0]?.id ?? '',
+    menuRole: menu?.getAttribute('role') === 'menu',
+    labeledItems: items.length >= 3 && items.every((item) => !!item.textContent?.trim()),
+    providerLabel: !!menu?.querySelector('#agent-select-label')?.textContent?.trim(),
+    providerGroup: menu?.querySelector('#agent-select-control')?.getAttribute('role') === 'group',
+  };
+});
+
+await displayTrigger.focus();
+await win.keyboard.press('Space');
+let state = await displayState();
+const spaceOpened = state.open;
+const focusOnOpen = state.focusId === displayModel.initialFocusId;
+const rovingFocus = await win.evaluate(() => {
+  const items = Array.from(document.querySelectorAll('#project-display-menu [role^="menuitem"]')).filter((item) => !item.closest('.hidden'));
+  return items.filter((item) => item.tabIndex === 0).length === 1 && items.filter((item) => item.tabIndex === -1).length === items.length - 1;
+});
+await win.keyboard.press('ArrowDown');
+state = await displayState();
+const arrowDown = state.focusId === displayModel.actionableIds[(displayModel.actionableIds.indexOf(displayModel.initialFocusId) + 1) % displayModel.actionableIds.length];
+await win.keyboard.press('ArrowUp');
+state = await displayState();
+const arrowUp = state.focusId === displayModel.initialFocusId;
+await win.keyboard.press('Home');
+state = await displayState();
+const home = state.focusId === displayModel.actionableIds[0];
+await win.keyboard.press('End');
+state = await displayState();
+const end = state.focusId === displayModel.actionableIds.at(-1);
+
+await displayItem('view-cards').focus();
+await win.keyboard.press('Enter');
+state = await displayState();
+const itemActivateCloseFocus = !state.open && state.focusId === 'project-display';
+
+await displayTrigger.click();
+await displayItem('view-list').click();
+state = await displayState();
+const itemClickCloseFocus = !state.open && state.focusId === 'project-display';
+
+await displayTrigger.click();
+await win.locator('#proj-search').click();
+state = await displayState();
+const outsideClosed = !state.open;
+
+await displayTrigger.focus();
+await win.keyboard.press('Space');
+const agentSelect = win.locator('#agent-select');
+const agentOptions = await agentSelect.locator('option').count();
+const hiddenNativeBridge = await agentSelect.evaluate((select) => select.hidden && select.tabIndex === -1 && select.getAttribute('aria-hidden') === 'true');
+let providerProxySelection = agentOptions < 2 && await win.locator('#agent-select-control').evaluate((control) => control.classList.contains('hidden'));
+if (agentOptions >= 2) {
+  const before = await agentSelect.inputValue();
+  const target = win.locator(`#agent-select-options [role="menuitemradio"]:not([data-agent-id="${before}"])`).first();
+  const targetId = await target.getAttribute('data-agent-id');
+  await target.focus();
+  await win.keyboard.press('Enter');
+  await win.waitForTimeout(200); // the real provider-change handler refreshes the deck asynchronously
+  state = await displayState();
+  providerProxySelection = !state.open && state.focusId === 'project-display' && await agentSelect.inputValue() === targetId
+    && await win.locator(`#agent-select-options [data-agent-id="${targetId}"]`).getAttribute('aria-checked') === 'true';
+}
+await displayTrigger.focus();
+await win.keyboard.press('Space');
+await win.keyboard.press('Escape');
+state = await displayState();
+const escapeClosed = !state.open && state.focusId === 'project-display';
+
+ipc.projectDisplay = {
+  trigger: await displayTrigger.count() === 1,
+  hasPopup: await displayTrigger.getAttribute('aria-haspopup') === 'menu',
+  initialExpanded: await displayTrigger.getAttribute('aria-expanded') === 'false',
+  spaceOpened,
+  menuRole: displayModel.menuRole,
+  labeledItems: displayModel.labeledItems,
+  providerLabel: displayModel.providerLabel,
+  providerGroup: displayModel.providerGroup,
+  hiddenNativeBridge,
+  providerProxySelection,
+  showHiddenRole: await displayItem('show-hidden').getAttribute('role') === 'menuitemcheckbox',
+  focusOnOpen,
+  rovingFocus,
+  arrowDown,
+  arrowUp,
+  home,
+  end,
+  itemActivateCloseFocus,
+  itemClickCloseFocus,
+  outsideClosed,
+  escapeClosed,
+};
 ipc.usageShape = await win.evaluate(async () => {
   const r = await window.devdeck.usageReport(0);
   return { hasGlobal: !!r.global, hasByProject: Array.isArray(r.byProject), hasByModel: Array.isArray(r.byModel), hasByProvider: Array.isArray(r.byProvider) && r.byProvider.length === 2 };
@@ -92,15 +202,29 @@ ipc.errorToast = await (async () => {
 
 ipc.surface = await win.evaluate(() => ({
   openFolder: typeof window.devdeck.openFolder === 'function',
+  noCockpitDestination: document.querySelectorAll('.rail-item[data-view="cockpit"]').length === 0,
   windowControls: !!window.devdeck.windowControls &&
     ['minimize', 'toggleMaximize', 'close', 'isMaximized', 'onMaximizeChange']
       .every((k) => typeof window.devdeck.windowControls[k] === 'function'),
 }));
-ipc.titlebar = await win.evaluate(() => ({
+// xvfb-run provides a display but no window manager, so BrowserWindow.maximize() may never change
+// state or emit `maximize` on Linux CI. Drive Electron's real main -> preload -> renderer event path
+// directly; the IPC methods themselves are covered by `ipc.surface.windowControls` above.
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('unmaximize'));
+await win.waitForTimeout(50);
+const maximizeLabel = await win.evaluate(() => ({ title: document.getElementById('win-max')?.title, aria: document.getElementById('win-max')?.getAttribute('aria-label') }));
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('maximize'));
+await win.waitForTimeout(50);
+const restoreLabel = await win.evaluate(() => ({ title: document.getElementById('win-max')?.title, aria: document.getElementById('win-max')?.getAttribute('aria-label') }));
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('unmaximize'));
+ipc.titlebar = {
+  ...await win.evaluate(() => ({
   logo: !!document.querySelector('.tb-logo'),
   controls: ['win-min', 'win-max', 'win-close'].every((id) => !!document.getElementById(id)),
   closeLabeled: document.getElementById('win-close')?.getAttribute('aria-label') === 'Close',
-}));
+  })),
+  maximizeStates: !!maximizeLabel.title && maximizeLabel.aria === maximizeLabel.title && !!restoreLabel.title && restoreLabel.aria === restoreLabel.title && maximizeLabel.title !== restoreLabel.title,
+};
 
 // --- axe a11y per view (inject axe-core source directly; Electron CDP lacks Target.createTarget) ---
 const a11y = {};
@@ -122,12 +246,23 @@ const localUsageReport = {
       byProject: [{ path: 'C:/qa/app', name: 'qa-app', sessions: 1, totals: { input: 200, output: 60, cacheWrite: 0, cacheRead: 80 }, costEstimate: 1.5, hasUnknownModel: false, activeMs: 600000, status: 'active', providerCosts: { codex: 1.5 } }], daily: [] },
   ],
 };
-// next + cockpit included — the two newest, most dynamic views were previously never axe-checked.
-// cockpit's rail item only exists on win32, so absent views are skipped (CI runs this on Linux).
-for (const view of ['projects', 'usage', 'settings', 'next', 'cockpit']) {
-  const present = await win.evaluate((v) => !!document.querySelector(`.rail-item[data-view="${v}"]`), view);
-  if (!present) continue;
-  await win.click(`.rail-item[data-view="${view}"]`);
+// Cockpit is internal: audit it only through a shared-shell session route when the Windows-only
+// implementation is available. The other views retain their rail destinations.
+const viewCandidates = ['projects', 'usage', 'settings', 'next'];
+const viewStates = await Promise.all(viewCandidates.map(async (view) => ({
+  view,
+  selector: `.rail-item[data-view="${view}"]`,
+  visible: await win.locator(`.rail-item[data-view="${view}"]`).isVisible().catch(() => false),
+})));
+const cockpitAvailable = await win.evaluate(() => !document.getElementById('shell-session-section')?.classList.contains('hidden'));
+if (cockpitAvailable) {
+  await win.evaluate(() => document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
+    { id: 'qa-audit-cockpit', projectPath: 'C:/qa/cockpit', label: 'QA Cockpit route', detail: 'main · Claude', activity: 'idle', pinned: false },
+  ] })));
+  viewStates.push({ view: 'cockpit', selector: '#shell-session-groups .shell-session', visible: await win.locator('#shell-session-groups .shell-session').first().isVisible().catch(() => false) });
+}
+for (const { view, selector } of viewStates.filter(({ visible }) => visible)) {
+  await win.click(selector);
   await win.waitForTimeout(600);
   if (view === 'usage') {
     await win.evaluate((report) => document.dispatchEvent(new CustomEvent('devdeck:local-usage-report', { detail: report })), localUsageReport);
@@ -173,6 +308,19 @@ ipc.memoryDialog = await win.evaluate(() => {
   };
 });
 if (ipc.memoryDialog.present) {
+  const providerButton = win.locator('.pm-modal .provider-open-menu-button');
+  await providerButton.focus();
+  await providerButton.click();
+  await win.waitForSelector('.pm-modal .provider-open-menu:not(.hidden)', { timeout: 3000 }).catch(() => {});
+  await win.keyboard.press('Escape');
+  ipc.memoryDialog.innerEscapePriority = await win.locator('.pm-modal').count() === 1
+    && await win.locator('.pm-modal .provider-open-menu.hidden').count() === 1
+    && await providerButton.evaluate((button) => document.activeElement === button);
+  await providerButton.focus();
+  await win.keyboard.press('Tab');
+  ipc.memoryDialog.forwardTabWrap = await win.locator('.pm-refresh').evaluate((button) => document.activeElement === button);
+  await win.keyboard.press('Shift+Tab');
+  ipc.memoryDialog.reverseTabWrap = await providerButton.evaluate((button) => document.activeElement === button);
   await win.evaluate(axeCore.source);
   const res = await win.evaluate(async () =>
     // eslint-disable-next-line no-undef
@@ -245,9 +393,10 @@ const gitInfoFail = ipc.cockpitGitInfo !== true;
 const dialogFails = Object.entries(ipc.usageDialog ?? {}).filter(([k, v]) => (k === 'sections' ? v !== 3 : v === false));
 const providerOpenFail = !ipc.providerOpen?.root || !ipc.providerOpen.primaryLabel || !ipc.providerOpen.menuLabel ||
   !ipc.providerOpen.menuOpened || ipc.providerOpen.menuItems < 2 || !ipc.providerOpen.escapeClosed;
+const projectDisplayFail = Object.values(ipc.projectDisplay ?? {}).some((value) => value !== true);
 const memoryDialogFail = Object.values(ipc.memoryDialog ?? {}).some((v) => v !== true);
 
-if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0 || providerOpenFail || memoryDialogFail) {
+if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0 || providerOpenFail || projectDisplayFail || memoryDialogFail) {
   console.error('QA FAILED:');
   if (criticalViolations.length > 0) console.error('  a11y critical/serious:', JSON.stringify(criticalViolations, null, 2));
   if (surfaceFails.length > 0) console.error('  ipc.surface checks failed:', surfaceFails.map(([k]) => k).join(', '));
@@ -255,6 +404,7 @@ if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.le
   if (gitInfoFail) console.error('  cockpit.gitInfo did not resolve a branch for the repo root:', ipc.cockpitGitInfo, '· raw gitInfo:', JSON.stringify(gitInfoRaw));
   if (dialogFails.length > 0) console.error('  usage dialog checks failed:', JSON.stringify(ipc.usageDialog));
   if (providerOpenFail) console.error('  provider open control missing or unlabeled:', JSON.stringify(ipc.providerOpen));
+  if (projectDisplayFail) console.error('  project Display menu is inaccessible or incomplete:', JSON.stringify(ipc.projectDisplay));
   if (memoryDialogFail) console.error('  project memory dialog checks failed:', JSON.stringify(ipc.memoryDialog));
   process.exit(1);
 }

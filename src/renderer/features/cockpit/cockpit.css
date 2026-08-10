@@ -1,0 +1,45 @@
+/* Session navigation lives in the shared command-center sidebar. The legacy
+   list remains mounted as an internal compatibility surface while migration
+   completes, but no longer consumes terminal workspace width. */
+#view-cockpit .ck-list,
+#view-cockpit .ck-expand {
+  display: none !important;
+}
+
+#view-cockpit .ck-wrap,
+#view-cockpit .ck-main {
+  width: 100%;
+}
+
+#view-cockpit .ck-main {
+  background: var(--dd-canvas);
+}
+
+#view-cockpit .ck-act {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+}
+
+#view-cockpit .ck-pill {
+  gap: 5px;
+}
+
+#shell-session-groups .shell-group + .shell-group {
+  margin-top: 2px;
+}
+
+#shell-session-groups .group-attention .shell-section-label {
+  color: var(--dd-attention);
+}
+
+#shell-session-groups .group-working .shell-section-label {
+  color: var(--dd-working);
+}
+
+#shell-session-groups .shell-session:focus-visible {
+  outline: 2px solid var(--dd-focus);
+  outline-offset: -2px;
+}

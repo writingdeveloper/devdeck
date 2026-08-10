@@ -58,6 +58,14 @@ describe('locale parity for provider + usage keys', () => {
     'usage.provider_filter_label', 'usage.filter_all', 'usage.cost_combined',
     'usage.cost_claude', 'usage.cost_codex', 'usage.partial',
     'usage.provider_error', 'usage.provider_error_short',
+    'shell.quick_open', 'shell.needs_you', 'shell.working',
+    'shell.projects', 'shell.collapse', 'shell.expand',
+    'shell.mobile_sessions', 'shell.session_actions',
+    'shell.status_attention', 'shell.status_working', 'shell.status_turn', 'shell.status_idle', 'shell.status_exited',
+    'proj.display', 'proj.show_hidden',
+    'proj.state_attention', 'proj.state_working', 'proj.state_fresh', 'proj.state_stale',
+    'proj.state_warning', 'proj.state_neglected', 'proj.state_no_record',
+    'window.maximize', 'window.restore',
   ];
   const DICTS: Record<string, Record<string, string>> = {
     ko: ko as Record<string, string>, en: en as Record<string, string>,

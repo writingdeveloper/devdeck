@@ -13,6 +13,8 @@ import type { AgentId } from '../shared/types';
 import { selectedAgent } from './agentSelection';
 import { createProviderOpenControl } from './providerOpenControl';
 import { openProjectMemoryModal } from './projectMemoryModal';
+import { openSelectedPresentation, projectRowModel, projectStatePresentation } from './projectOverview';
+import { createIcon } from './icons';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -21,6 +23,8 @@ type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[n
 const selected = new Set<string>();
 const expanded = new Set<string>();
 let projects: ProjectViewModel[] = [];
+const projectListeners = new Set<(items: readonly ProjectViewModel[]) => void>();
+let pendingFocusPath: string | null = null;
 let showHidden = false;
 // Per-project estimated cost, filled asynchronously after the list renders so a
 // (potentially slow) full token scan never blocks the project list.
@@ -36,7 +40,7 @@ let hasRenderedOnce = false;
 type SortMode = 'activity' | 'uncommitted' | 'name' | 'opened';
 let searchQuery = '';
 let sortMode: SortMode = 'activity';
-let viewMode: 'cards' | 'list' = 'cards';
+let viewMode: 'cards' | 'list' = 'list';
 // Toolbar pulse click-to-filter (⚠ attention / ◉ working / 🔴 neglected): '' = no filter,
 // otherwise narrows the deck to that state. The three are mutually exclusive. Like `searchQuery`.
 let deckFilter: '' | 'attention' | 'working' | 'neglected' = '';
@@ -52,6 +56,70 @@ let searchEl: HTMLInputElement | null = null;
 let sortEl: HTMLSelectElement | null = null;
 let viewCardsBtn: HTMLButtonElement | null = null;
 let viewListBtn: HTMLButtonElement | null = null;
+let displayBtn: HTMLButtonElement;
+let displayMenu: HTMLElement;
+
+function displayActionItems(): HTMLButtonElement[] {
+  if (!displayMenu) return [];
+  return Array.from(displayMenu.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]'))
+    .filter((item) => !item.disabled && !item.closest('.hidden') && !item.hidden);
+}
+
+function setDisplayRovingItem(item: HTMLButtonElement | undefined, focus = false): void {
+  for (const candidate of displayActionItems()) candidate.tabIndex = candidate === item ? 0 : -1;
+  if (focus) item?.focus();
+}
+
+function closeDisplayMenu(restoreFocus = false): void {
+  if (!displayMenu || !displayBtn) return;
+  displayMenu.classList.add('hidden');
+  displayBtn.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) displayBtn.focus();
+}
+
+function openDisplayMenu(): void {
+  if (!displayMenu || !displayBtn) return;
+  displayMenu.classList.remove('align-end');
+  displayMenu.classList.remove('hidden');
+  if (displayMenu.getBoundingClientRect().right > window.innerWidth) displayMenu.classList.add('align-end');
+  displayBtn.setAttribute('aria-expanded', 'true');
+  const items = displayActionItems();
+  const initial = items.find((item) => item.getAttribute('role') === 'menuitemradio' && item.getAttribute('aria-checked') === 'true') ?? items[0];
+  setDisplayRovingItem(initial, true);
+}
+
+/** Build accessible provider menu proxies while retaining the native select as the behavior bridge. */
+export function syncProjectDisplayAgentChoices(): void {
+  const select = document.getElementById('agent-select') as HTMLSelectElement | null;
+  const host = document.getElementById('agent-select-options');
+  if (!select || !host) return;
+  host.replaceChildren();
+  for (const option of Array.from(select.options)) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.id = `display-agent-${option.value}`;
+    item.className = 'menu-item display-agent-option';
+    item.dataset.agentId = option.value;
+    item.setAttribute('role', 'menuitemradio');
+    item.setAttribute('aria-checked', String(option.value === select.value));
+    item.tabIndex = -1;
+    const label = document.createElement('span'); label.textContent = option.textContent;
+    item.append(createProviderLogo(option.value as AgentId, 'ck-provider-logo sm'), label);
+    item.addEventListener('click', () => {
+      select.value = option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      for (const proxy of Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'))) {
+        proxy.setAttribute('aria-checked', String(proxy.dataset.agentId === option.value));
+      }
+      closeDisplayMenu(true);
+    });
+    host.appendChild(item);
+  }
+  const current = displayActionItems().find((item) => item.tabIndex === 0)
+    ?? displayActionItems().find((item) => item.getAttribute('role') === 'menuitemradio' && item.getAttribute('aria-checked') === 'true')
+    ?? displayActionItems()[0];
+  setDisplayRovingItem(current);
+}
 
 function fmtTime(ms: number | null): string {
   if (ms == null) return '—';
@@ -197,7 +265,7 @@ function makeSessions(p: ProjectViewModel, render: () => void): HTMLElement {
   label.textContent = `${fmtTime(p.lastSessionMs)}${p.sessionCount ? ` · ${p.sessionCount} ${tr('proj.sessions')}` : ''}${usdShort(costByPath.get(p.path))}`;
   head.appendChild(label);
   if (p.sessionCount > 1) {
-    const caret = document.createElement('span'); caret.className = 'caret'; caret.textContent = '⌄';
+    const caret = document.createElement('span'); caret.className = 'caret'; caret.appendChild(createIcon('chevron-down'));
     head.appendChild(caret);
     head.addEventListener('click', () => { expanded.has(p.path) ? expanded.delete(p.path) : expanded.add(p.path); render(); });
   }
@@ -252,7 +320,7 @@ function githubBtn(p: ProjectViewModel): HTMLButtonElement {
 }
 
 function memoryBtn(p: ProjectViewModel): HTMLButtonElement {
-  const b = document.createElement('button'); b.className = 'iconbtn project-memory-button'; b.textContent = '◷';
+  const b = document.createElement('button'); b.className = 'iconbtn project-memory-button'; b.appendChild(createIcon('clock'));
   b.title = tr('memory.button'); b.setAttribute('aria-label', `${tr('memory.button')} · ${p.name}`);
   b.addEventListener('click', () => openProjectMemoryModal(p, b));
   return b;
@@ -262,7 +330,7 @@ function memoryBtn(p: ProjectViewModel): HTMLButtonElement {
 function makeMenuWrap(p: ProjectViewModel): HTMLElement {
   const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
   const menuBtn = document.createElement('button');
-  menuBtn.className = 'iconbtn'; menuBtn.textContent = '⋯';
+  menuBtn.className = 'iconbtn'; menuBtn.appendChild(createIcon('more'));
   menuBtn.setAttribute('aria-label', 'more options');
   menuBtn.setAttribute('aria-haspopup', 'menu');
   menuBtn.setAttribute('aria-expanded', 'false');
@@ -301,6 +369,8 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   const liveCls = live === 'attention' ? ' live-attention' : live === 'working' ? ' live-working' : '';
   card.className = 'card lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '') + liveCls;
   card.setAttribute('role', 'listitem');
+  card.dataset.projectPath = p.path;
+  card.tabIndex = -1;
 
   const headRow = document.createElement('div'); headRow.className = 'card-head';
   const title = document.createElement('span'); title.className = 'card-title'; title.textContent = p.name; title.title = p.name;
@@ -345,11 +415,11 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   });
   const spacer = document.createElement('span'); spacer.className = 'spacer';
   const editorBtn = document.createElement('button'); editorBtn.className = 'iconbtn';
-  editorBtn.textContent = '{ }'; editorBtn.title = tr('proj.open_editor');
+  editorBtn.appendChild(createIcon('edit')); editorBtn.title = tr('proj.open_editor');
   editorBtn.setAttribute('aria-label', tr('proj.open_editor'));
   editorBtn.addEventListener('click', () => window.devdeck.openEditor(p.path));
   const folderBtn = document.createElement('button'); folderBtn.className = 'iconbtn';
-  folderBtn.textContent = '📁'; folderBtn.title = tr('proj.open_folder');
+  folderBtn.appendChild(createIcon('folder')); folderBtn.title = tr('proj.open_folder');
   folderBtn.setAttribute('aria-label', tr('proj.open_folder'));
   folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
   // Compact glance strip near the primary action: session count · last activity · est. cost.
@@ -379,10 +449,13 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
 // scanning many projects fast while still surfacing the same live cockpit status as cards.
 function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): HTMLElement {
   const row = document.createElement('div');
+  const model = projectRowModel(p, live, costByPath.get(p.path));
   const noRecord = isNoRecord(p);
   const liveCls = live === 'attention' ? ' live-attention' : live === 'working' ? ' live-working' : '';
   row.className = 'prow lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '') + liveCls;
   row.setAttribute('role', 'listitem');
+  row.dataset.projectPath = p.path;
+  row.tabIndex = -1;
 
   const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
   check.addEventListener('change', () => {
@@ -391,29 +464,22 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
     syncOpenBtn();
   });
 
-  // Same signal language as the card stripe/badge (Task 1/4 `.sig`): amber = waiting on you,
-  // accent = actively working, plain = quiet (staleness level still carries via border-left).
-  const sig = document.createElement('span');
-  sig.className = 'sig' + (live === 'attention' ? ' attn' : live === 'working' ? ' work' : '');
-  if (live) {
-    const sigLabel = live === 'attention' ? tr('deck.badge_attn') : tr('deck.badge_work');
-    sig.title = sigLabel;
-    sig.setAttribute('aria-label', sigLabel);
-  } else {
-    sig.setAttribute('aria-hidden', 'true');
-  }
+  const stateModel = projectStatePresentation(model.state, noRecord);
+  const state = document.createElement('span');
+  state.className = `prow-state state-${model.state || 'neutral'}`;
+  const stateShape = document.createElement('span'); stateShape.className = `prow-state-shape shape-${stateModel.shape}`; stateShape.setAttribute('aria-hidden', 'true');
+  const stateText = document.createElement('span'); stateText.className = 'prow-state-text'; stateText.textContent = tr(stateModel.labelKey);
+  state.append(stateShape, stateText); state.title = stateText.textContent;
 
-  const name = document.createElement('span'); name.className = 'prow-name'; name.textContent = p.name; name.title = p.name;
-  if (p.branch) {
-    const branchEl = document.createElement('small'); branchEl.textContent = p.branch;
-    name.appendChild(branchEl);
-  }
+  const name = document.createElement('span'); name.className = 'prow-name'; name.textContent = model.headline; name.title = model.headline;
+  const branchEl = document.createElement('small'); branchEl.textContent = model.branchLine;
+  name.appendChild(branchEl);
 
   // Resume cue: only the harvested cue (not the card's session-first-message fallback) —
   // a list row is a scan surface, not a substitute for opening the card/cockpit.
   const cue = document.createElement('span'); cue.className = 'prow-cue';
-  cue.textContent = p.resumeCue?.text ?? '';
-  if (p.resumeCue?.text) cue.title = p.resumeCue.text;
+  cue.textContent = model.cue;
+  if (model.cue) cue.title = model.cue;
 
   const git = document.createElement('span'); git.className = 'prow-git';
   let gitText = '';
@@ -426,7 +492,7 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   // stat) — show just the session count here rather than inventing a number.
   const sess = document.createElement('span'); sess.className = 'prow-sess';
   if (p.agentIds.length) sess.appendChild(providerMarks(p)); // which agent(s) wrote this project's history
-  const sessN = document.createElement('span'); sessN.textContent = p.sessionCount ? String(p.sessionCount) : '—';
+  const sessN = document.createElement('span'); sessN.textContent = model.secondary || '—';
   sess.appendChild(sessN);
 
   const actions = document.createElement('span'); actions.className = 'prow-actions';
@@ -436,14 +502,20 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   const open = providerOpenControl(p, true); open.classList.add('prow-open');
   actions.append(memoryBtn(p), open, makeMenuWrap(p));
 
-  row.append(check, sig, name, cue, git, sess, actions);
+  row.append(check, state, name, cue, git, sess, actions);
   return row;
 }
 
-function syncOpenBtn(): void { openBtn.disabled = selected.size === 0; }
+function syncOpenBtn(): void {
+  const presentation = openSelectedPresentation(selected.size);
+  openBtn.disabled = presentation.disabled;
+  openBtn.classList.toggle('hidden', presentation.hidden);
+}
 function syncViewToggle(): void {
   viewCardsBtn?.classList.toggle('active', viewMode === 'cards');
   viewListBtn?.classList.toggle('active', viewMode === 'list');
+  viewCardsBtn?.setAttribute('aria-checked', String(viewMode === 'cards'));
+  viewListBtn?.setAttribute('aria-checked', String(viewMode === 'list'));
 }
 function setView(mode: 'cards' | 'list'): void {
   if (viewMode === mode) return;
@@ -457,6 +529,7 @@ function setView(mode: 'cards' | 'list'): void {
 function render(): void {
   hiddenCountEl.textContent = String(projects.filter((p) => p.hidden).length);
   showHiddenBtn.classList.toggle('active', showHidden);
+  showHiddenBtn.setAttribute('aria-checked', String(showHidden));
   // Computed once per render: drives the card status stripe/badge, the activity-sort
   // priority below, and the reconcile signature (so a live status flip forces a rebuild).
   const act = liveProjectActivity();
@@ -577,6 +650,17 @@ function render(): void {
   for (const key of remove) cardCache.delete(key);
 
   reconcileChildren(cardsEl, orderedEls);
+  focusPendingProject();
+}
+
+function focusPendingProject(): void {
+  if (!pendingFocusPath) return;
+  const target = Array.from(cardsEl.querySelectorAll<HTMLElement>('[data-project-path]'))
+    .find((item) => item.dataset.projectPath === pendingFocusPath);
+  if (!target) return;
+  pendingFocusPath = null;
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.focus({ preventScroll: true });
 }
 
 function uiStateFor(p: ProjectViewModel, act: Map<string, 'attention' | 'working'>): SignatureUiState {
@@ -664,7 +748,8 @@ async function reload(): Promise<void> {
     return;
   }
   projects = proj;
-  viewMode = settings.viewMode === 'list' ? 'list' : 'cards';
+  viewMode = settings.viewMode === 'cards' ? 'cards' : 'list';
+  for (const listener of projectListeners) listener([...projects]);
   syncViewToggle();
   render();
   hasRenderedOnce = true;
@@ -689,8 +774,31 @@ async function reload(): Promise<void> {
 // label and locale-baked card text aren't in the signature, so drop the cache to force it.
 export function reloadProjects(): void { cardCache.clear(); reload(); }
 
+export function currentProjects(): readonly ProjectViewModel[] { return [...projects]; }
+
+export function onProjectsChanged(listener: (items: readonly ProjectViewModel[]) => void): () => void {
+  projectListeners.add(listener);
+  return () => projectListeners.delete(listener);
+}
+
+export function focusProject(path: string): void {
+  const project = projects.find((item) => item.path === path);
+  if (!project) { pendingFocusPath = path; return; }
+  searchQuery = '';
+  if (searchEl) searchEl.value = '';
+  deckFilter = '';
+  if (project.hidden) showHidden = true;
+  selected.clear();
+  selected.add(path);
+  pendingFocusPath = path;
+  cardCache.clear();
+  syncOpenBtn();
+  renderDeckPulse(lastPulseCost);
+  render();
+}
+
 function applyProjectLabels(): void {
-  if (!searchEl || !sortEl) return;
+  if (!searchEl || !sortEl || !displayBtn) return;
   searchEl.placeholder = tr('proj.search_ph');
   searchEl.setAttribute('aria-label', tr('proj.search_ph'));
   sortEl.setAttribute('aria-label', tr('proj.sort'));
@@ -698,8 +806,15 @@ function applyProjectLabels(): void {
   sortEl.options[1].text = tr('proj.sort_uncommitted');
   sortEl.options[2].text = tr('proj.sort_name');
   sortEl.options[3].text = tr('proj.sort_opened');
-  if (viewCardsBtn) { viewCardsBtn.title = tr('proj.view_cards'); viewCardsBtn.setAttribute('aria-label', tr('proj.view_cards')); }
-  if (viewListBtn) { viewListBtn.title = tr('proj.view_list'); viewListBtn.setAttribute('aria-label', tr('proj.view_list')); }
+  displayBtn.textContent = tr('proj.display');
+  displayBtn.setAttribute('aria-label', tr('proj.display'));
+  if (displayMenu) displayMenu.setAttribute('aria-label', tr('proj.display'));
+  if (showHiddenBtn.firstChild) showHiddenBtn.firstChild.textContent = tr('proj.show_hidden') + ' ';
+  if (viewCardsBtn) { viewCardsBtn.textContent = tr('proj.view_cards'); viewCardsBtn.setAttribute('aria-label', tr('proj.view_cards')); }
+  if (viewListBtn) { viewListBtn.textContent = tr('proj.view_list'); viewListBtn.setAttribute('aria-label', tr('proj.view_list')); }
+  const select = document.getElementById('agent-select') as HTMLSelectElement | null;
+  if (select) for (const option of Array.from(select.options)) option.textContent = tr(`agent.${option.value}`);
+  syncProjectDisplayAgentChoices();
 }
 
 export function mountProjects(): void {
@@ -711,11 +826,38 @@ export function mountProjects(): void {
   sortEl = document.getElementById('proj-sort') as HTMLSelectElement;
   viewCardsBtn = document.getElementById('view-cards') as HTMLButtonElement;
   viewListBtn = document.getElementById('view-list') as HTMLButtonElement;
+  displayBtn = document.getElementById('project-display') as HTMLButtonElement;
+  displayMenu = document.getElementById('project-display-menu')!;
+
+  const toggleDisplayMenu = (): void => {
+    if (displayMenu?.classList.contains('hidden')) openDisplayMenu();
+    else closeDisplayMenu(true);
+  };
 
   document.getElementById('refresh')!.addEventListener('click', reload);
-  viewCardsBtn.addEventListener('click', () => setView('cards'));
-  viewListBtn.addEventListener('click', () => setView('list'));
-  showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); });
+  displayBtn.addEventListener('click', (event) => { event.stopPropagation(); toggleDisplayMenu(); });
+  displayBtn.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault(); toggleDisplayMenu();
+  });
+  displayMenu.addEventListener('click', (event) => event.stopPropagation());
+  displayMenu.addEventListener('keydown', (event) => {
+    if (event.target instanceof HTMLSelectElement) return;
+    const items = displayActionItems();
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next = current;
+    if (event.key === 'ArrowDown') next = (current + 1 + items.length) % items.length;
+    else if (event.key === 'ArrowUp') next = (current - 1 + items.length) % items.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = items.length - 1;
+    else return;
+    event.preventDefault();
+    setDisplayRovingItem(items[next], true);
+  });
+  viewCardsBtn.addEventListener('click', () => { setView('cards'); closeDisplayMenu(true); });
+  viewListBtn.addEventListener('click', () => { setView('list'); closeDisplayMenu(true); });
+  showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); closeDisplayMenu(true); });
   openBtn.addEventListener('click', () => {
     if (selected.size === 0) return;
     openInTerminal(projects.filter((p) => selected.has(p.path)).map((p) => toOpenReq(p)));
@@ -742,13 +884,22 @@ export function mountProjects(): void {
     })) reload();
   }, 15_000);
   document.addEventListener('click', () => {
+    closeDisplayMenu();
     document.querySelectorAll('.menu:not(.hidden)').forEach((m) => {
       m.classList.add('hidden');
       const trigger = m.previousElementSibling as HTMLButtonElement | null;
       if (trigger) trigger.setAttribute('aria-expanded', 'false');
     });
   });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !displayMenu?.classList.contains('hidden')) {
+      event.preventDefault();
+      closeDisplayMenu(true);
+    }
+  });
   applyProjectLabels();
+  syncOpenBtn();
+  syncViewToggle();
   reload();
 }
 
