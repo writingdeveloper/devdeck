@@ -37,6 +37,24 @@ const win = await app.firstWindow();
 win.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 win.on('pageerror', (e) => pageErrors.push(String(e)));
 
+// Keep project-card costs deterministic. A live Codex/Claude session in this checkout can accrue
+// usage while the harness is running, which legitimately changes the card signature and makes the
+// "unchanged card is reconciled in place" assertion test moving external data instead.
+await app.evaluate(({ ipcMain }, projectPath) => {
+  ipcMain.removeHandler('usage:report');
+  ipcMain.handle('usage:report', () => ({
+    global: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, globalCost: 4.5,
+    hasUnknownModel: false, webSearch: 0, webFetch: 0, sessions: 1, activeMs: 0,
+    byModel: [],
+    byProject: [{
+      path: projectPath, name: 'devdeck', sessions: 1,
+      totals: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 },
+      costEstimate: 4.5, hasUnknownModel: false, activeMs: 0, status: 'active', providerCosts: {},
+    }],
+    daily: [], byProvider: [],
+  }));
+}, root);
+
 // The tray guard turns window close into hide-to-tray (and window-all-closed keeps the app alive),
 // so Playwright's bare app.close() waits forever and leaks a zombie harness instance. Mark the quit
 // intent in main (same flag the tray's own Quit item sets) and quit explicitly.

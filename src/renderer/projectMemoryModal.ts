@@ -67,7 +67,11 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
     window.removeEventListener('resize', applySurfaceMode);
     overlay.remove(); currentOverlay = null;
     closeCurrent = null;
-    trigger.focus();
+    const focusTarget = trigger.isConnected
+      ? trigger
+      : Array.from(document.querySelectorAll<HTMLElement>('.project-memory-button'))
+        .find((button) => button.dataset.projectPath === project.path);
+    focusTarget?.focus();
   };
   closeCurrent = close;
   const focusable = (): HTMLElement[] => Array.from(

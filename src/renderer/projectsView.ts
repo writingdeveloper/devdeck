@@ -321,6 +321,7 @@ function githubBtn(p: ProjectViewModel): HTMLButtonElement {
 
 function memoryBtn(p: ProjectViewModel): HTMLButtonElement {
   const b = document.createElement('button'); b.className = 'iconbtn project-memory-button'; b.appendChild(createIcon('clock'));
+  b.dataset.projectPath = p.path;
   b.title = tr('memory.button'); b.setAttribute('aria-label', `${tr('memory.button')} · ${p.name}`);
   b.addEventListener('click', () => openProjectMemoryModal(p, b));
   return b;
