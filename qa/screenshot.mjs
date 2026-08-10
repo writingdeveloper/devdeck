@@ -85,6 +85,24 @@ async function injectLocalUsage() {
 // wait for first project render (skeleton -> cards), generous for git scan
 await win.waitForSelector('#cards .card, #cards .empty', { timeout: 30000 }).catch(() => {});
 
+// The expanded command-center sidebar must not inherit the old 36px icon-rail geometry.
+// A cascade-order regression makes localized labels spill vertically outside their buttons while
+// the overall sidebar still has the expected width, so inspect each navigation item itself.
+const shellNavGeometry = await win.evaluate(() => {
+  const sidebar = document.getElementById('app-sidebar');
+  const items = Array.from(document.querySelectorAll('#app-sidebar .rail-item'));
+  return {
+    present: !!sidebar && items.length >= 5,
+    width: sidebar?.getBoundingClientRect().width ?? 0,
+    overflow: items.some((item) => item.scrollWidth > item.clientWidth + 1 || item.scrollHeight > item.clientHeight + 1),
+  };
+});
+console.log('shell navigation geometry:', JSON.stringify(shellNavGeometry));
+if (!shellNavGeometry.present || shellNavGeometry.width < 200 || shellNavGeometry.width > 240 || shellNavGeometry.overflow) {
+  console.error('QA FAILED — expanded shell navigation is clipped:', JSON.stringify(shellNavGeometry));
+  await closeApp(); process.exit(1);
+}
+
 const LANGS = ['ko', 'en', 'ja', 'zh'];
 for (let i = 0; i < LANGS.length; i++) {
   const l = await lang();

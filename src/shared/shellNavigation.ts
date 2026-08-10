@@ -53,6 +53,10 @@ export function attentionCount(items: ShellSessionInput[]): number {
   return items.filter((item) => item.activity === 'attention').length;
 }
 
+export function normalizeSidebarState(value: unknown): boolean {
+  return value === true;
+}
+
 export function filterShellItems(
   query: string,
   sessions: ShellSessionInput[],

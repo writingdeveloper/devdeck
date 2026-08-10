@@ -3,6 +3,7 @@ import {
   attentionCount,
   buildSessionGroups,
   filterShellItems,
+  normalizeSidebarState,
   restoreShellContext,
   type ShellSessionInput,
 } from './shellNavigation';
@@ -37,5 +38,12 @@ describe('shell navigation', () => {
     const projects = [{ path: 'C:/checkout', name: 'checkout-api', branch: 'main' }];
     expect(filterShellItems('CHECKOUT', rows, projects)).toEqual({ sessions: [], projects });
     expect(filterShellItems('FEAT', rows, projects).sessions.map((item) => item.id)).toEqual(['work']);
+  });
+
+  it('accepts only a persisted boolean sidebar state', () => {
+    expect(normalizeSidebarState(true)).toBe(true);
+    expect(normalizeSidebarState(false)).toBe(false);
+    expect(normalizeSidebarState('true')).toBe(false);
+    expect(normalizeSidebarState(undefined)).toBe(false);
   });
 });

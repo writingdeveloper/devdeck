@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="./design/base.css" />
     <link rel="stylesheet" href="./design/components.css" />
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./shell/shell.css" />
     <link rel="stylesheet" href="./xterm.css" />
     <link rel="icon" href="./assets/icon-256.png" />
     <title>DevDeck</title>
@@ -32,17 +33,38 @@
       </div>
     </header>
     <div id="shell">
-      <nav id="rail" aria-label="Views">
-        <button class="rail-item active" data-view="projects" title="Projects" aria-current="page" aria-label="Projects">📁</button>
-        <button class="rail-item" data-view="usage" title="Usage" aria-label="Usage">📊</button>
-        <button class="rail-item" data-view="cockpit" title="Cockpit" aria-label="Cockpit">🖥<span id="ck-badge" class="rail-badge hidden"></span></button>
-        <button class="rail-item" data-view="settings" title="Settings" aria-label="Settings">⚙</button>
-        <button class="rail-item" data-view="next" title="Next" aria-label="Next">📋</button>
-        <span class="rail-spacer"></span>
-        <div class="menu-wrap lang-wrap">
-          <button id="lang-btn" class="rail-item" title="Language" aria-label="Language" aria-haspopup="menu" aria-expanded="false">🌐</button>
+      <aside id="app-sidebar" aria-label="DevDeck">
+        <div class="shell-side-head">
+          <span class="shell-side-brand">DevDeck</span>
+          <button id="shell-collapse" class="ui-icon-button" type="button" aria-expanded="true"></button>
         </div>
-      </nav>
+        <div id="shell-quick-wrap">
+          <span class="shell-search-icon"></span>
+          <input id="shell-quick-open" type="search" autocomplete="off" />
+        </div>
+        <nav class="shell-nav" aria-label="Views">
+          <button class="rail-item active" data-view="projects" aria-current="page"><span class="rail-label"></span></button>
+          <button class="rail-item" data-view="next"><span class="rail-label"></span></button>
+          <button class="rail-item" data-view="usage"><span class="rail-label"></span></button>
+          <button class="rail-item" data-view="cockpit"><span class="rail-label"></span><span id="ck-badge" class="rail-badge hidden"></span></button>
+        </nav>
+        <div class="shell-scroll">
+          <div id="shell-quick-results" class="hidden"></div>
+          <section id="shell-session-section">
+            <div id="shell-session-groups"></div>
+          </section>
+          <section id="shell-project-section">
+            <div id="shell-projects-label" class="shell-section-label"></div>
+            <div id="shell-projects"></div>
+          </section>
+        </div>
+        <div class="shell-footer">
+          <button class="rail-item" data-view="settings"><span class="rail-label"></span></button>
+          <div class="menu-wrap lang-wrap">
+            <button id="lang-btn" class="rail-item" title="Language" aria-label="Language" aria-haspopup="menu" aria-expanded="false"><span aria-hidden="true">文</span><span class="rail-label"></span></button>
+          </div>
+        </div>
+      </aside>
       <main id="content">
         <section id="view-projects" class="view active">
           <div class="view-toolbar">

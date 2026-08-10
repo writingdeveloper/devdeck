@@ -1,6 +1,8 @@
 import { mountProjects, renderProjects, reloadProjects } from './projectsView';
 import { setCockpitEnabled } from './openRouter';
 import { mountNav } from './nav';
+import { mountShell, type ShellController } from './shell';
+import { restoreShellContext } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
@@ -12,6 +14,9 @@ import { mountUsageBar, refreshUsageBar, rerenderUsageBar } from './usageBar';
 import { mountShutdown, refreshShutdownLabels } from './shutdown';
 import { initializeAgentSelection, setSelectedAgent } from './agentSelection';
 import type { AgentId } from '../shared/types';
+
+let shellController: ShellController | null = null;
+const SHELL_CONTEXT_KEY = 'devdeck:shell-context:v1';
 
 const toastHost = document.getElementById('toast-host')!;
 window.devdeck.onError((msg) => {
@@ -87,6 +92,7 @@ function applyStaticLabels(): void {
   if (ckSearch) ckSearch.placeholder = tr('cockpit.search');
   refreshShutdownLabels(); // 🌙 labels are phase-aware — let shutdown.ts re-derive them in the new language
   refreshCockpitSidebar(); // collapse/expand titles are state-aware — re-derive in the new language
+  shellController?.refreshLabels();
 }
 
 function mountTitlebar(): void {
@@ -181,7 +187,6 @@ async function boot(): Promise<void> {
   initializeAgentSelection(agents, active);
   const cockpitOn = isCockpitAvailable(settings.platform, settings.ptyAvailable);
   setCockpitEnabled(cockpitOn);
-  if (!cockpitOn) document.querySelector('.rail-item[data-view="cockpit"]')?.remove();
   applyStaticLabels();
   mountProjects();
   mountUsage();
@@ -190,7 +195,23 @@ async function boot(): Promise<void> {
   mountUsageBar();
   mountShutdown(settings.platform);
   if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); setCockpitTrayAlert(settings.trayAlert); setCockpitSidebarCollapsed(settings.cockpitSidebarCollapsed); setCockpitSessionSummary(settings.sessionSummary); setCockpitAiSummary(settings.aiSessionSummary); }
-  mountNav((view) => { if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit(); });
+  const nav = mountNav((view) => {
+    if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit();
+    if (view !== 'cockpit') localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'view', id: view }));
+  });
+  shellController = mountShell({
+    initialCollapsed: settings.cockpitSidebarCollapsed,
+    showView: nav.show,
+    activeView: nav.active,
+    onCollapse: (collapsed) => { setCockpitSidebarCollapsed(collapsed); void window.devdeck.setCockpitSidebar(collapsed); },
+    onProject: () => nav.show('projects'),
+    onSession: () => { if (cockpitOn) nav.show('cockpit'); },
+  });
+  shellController.setCockpitAvailable(cockpitOn);
+  let saved: unknown = null;
+  try { saved = JSON.parse(localStorage.getItem(SHELL_CONTEXT_KEY) ?? 'null'); } catch { localStorage.removeItem(SHELL_CONTEXT_KEY); }
+  const restored = restoreShellContext(saved, new Set(), new Set());
+  if (restored.kind === 'view') nav.show(restored.id);
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
   if (agents.length > 1) {
