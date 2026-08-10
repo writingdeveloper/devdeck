@@ -2,6 +2,7 @@ import { createIcon, type IconName } from './icons';
 import { tr } from './i18n-runtime';
 import {
   buildSessionGroups,
+  attentionCount,
   filterShellItems,
   sessionAccessibleLabel,
   shellEntityKey,
@@ -43,6 +44,8 @@ export function mountShell(options: {
   onCollapse(collapsed: boolean): void;
   onProject(path: string): void;
   onSession(id: string): void;
+  onPreviousAction(id: string, action: 'pin' | 'unpin' | 'forget'): void;
+  onRestoreAll(): void;
 }): ShellController {
   const sidebar = document.getElementById('app-sidebar')!;
   const collapse = document.getElementById('shell-collapse') as HTMLButtonElement;
@@ -50,10 +53,16 @@ export function mountShell(options: {
   const resultHost = document.getElementById('shell-quick-results')!;
   const sessionHost = document.getElementById('shell-session-groups')!;
   const projectHost = document.getElementById('shell-projects')!;
+  const restoreAll = document.getElementById('shell-restore-all') as HTMLButtonElement;
+  const mobileToggle = document.getElementById('shell-mobile-toggle') as HTMLButtonElement;
+  const mobileToggleLabel = document.getElementById('shell-mobile-toggle-label')!;
+  const mobileBackdrop = document.getElementById('shell-mobile-backdrop') as HTMLButtonElement;
   let sessions: ShellSessionInput[] = [];
   let projects: ShellProjectInput[] = [];
   let activeEntityKey = '';
   const sessionRows = new Map<string, HTMLButtonElement>();
+  const sessionWraps = new Map<string, HTMLElement>();
+  const sessionMenus = new Map<string, HTMLElement>();
   const projectRows = new Map<string, HTMLButtonElement>();
   const sessionSections = new Map<ShellGroupKind, HTMLElement>();
 
@@ -97,23 +106,112 @@ export function mountShell(options: {
 
   const preserveFocusedRow = (focusedKey: string | undefined, rows: Map<string, HTMLButtonElement>): void => {
     const row = focusedKey ? rows.get(focusedKey) : undefined;
-    if (row && document.activeElement !== row) row.focus();
+    if (row && (document.activeElement === document.body || document.activeElement == null)) row.focus();
+  };
+
+  mobileToggle.querySelector('.shell-mobile-toggle-icon')?.append(createIcon('sessions'));
+  restoreAll.prepend(createIcon('restart'));
+
+  const closeSessionMenus = (restoreFocus = false): void => {
+    for (const [key, menu] of sessionMenus) {
+      if (menu.classList.contains('hidden')) continue;
+      menu.classList.add('hidden');
+      const trigger = sessionWraps.get(key)?.querySelector<HTMLButtonElement>('.shell-session-actions');
+      trigger?.setAttribute('aria-expanded', 'false');
+      if (restoreFocus) trigger?.focus();
+    }
+  };
+
+  const mobileFocusable = (): HTMLElement[] => Array.from(sidebar.querySelectorAll<HTMLElement>(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter((element) => !element.closest('.hidden') && element.getClientRects().length > 0);
+  const closeMobileDrawer = (restoreFocus = false): void => {
+    if (!sidebar.classList.contains('mobile-open')) return;
+    sidebar.classList.remove('mobile-open');
+    sidebar.removeAttribute('role'); sidebar.removeAttribute('aria-modal');
+    mobileBackdrop.classList.add('hidden');
+    mobileToggle.setAttribute('aria-expanded', 'false');
+    closeSessionMenus();
+    if (restoreFocus) mobileToggle.focus();
+  };
+  const openMobileDrawer = (): void => {
+    if (!matchMedia('(max-width: 720px)').matches) return;
+    sidebar.classList.add('mobile-open');
+    sidebar.setAttribute('role', 'dialog'); sidebar.setAttribute('aria-modal', 'true');
+    mobileBackdrop.classList.remove('hidden');
+    mobileToggle.setAttribute('aria-expanded', 'true');
+    requestAnimationFrame(() => (quickOpen.getClientRects().length ? quickOpen : mobileFocusable()[0])?.focus());
+  };
+  const updateMobileToggle = (): void => {
+    const waiting = attentionCount(sessions);
+    const label = waiting > 0
+      ? `${tr('shell.needs_you')} · ${waiting}/${sessions.length}`
+      : `${tr('shell.mobile_sessions')} · ${sessions.length}`;
+    mobileToggleLabel.textContent = label;
+    mobileToggle.title = label; mobileToggle.setAttribute('aria-label', label);
+    mobileToggle.classList.toggle('has-attention', waiting > 0);
   };
 
   const createSessionRow = (key: string): HTMLButtonElement => {
+    const wrap = document.createElement('div'); wrap.className = 'shell-session-wrap';
     const row = document.createElement('button'); row.type = 'button';
     row.addEventListener('click', () => {
       const id = row.dataset.sessionId;
       if (!id) return;
       updateActiveEntity(row, key);
+      closeMobileDrawer();
       options.onSession(id);
     });
+    const actions = document.createElement('button'); actions.type = 'button'; actions.className = 'shell-session-actions hidden';
+    actions.append(createIcon('more')); actions.setAttribute('aria-haspopup', 'menu'); actions.setAttribute('aria-expanded', 'false');
+    const menu = document.createElement('div'); menu.className = 'menu shell-session-menu hidden'; menu.setAttribute('role', 'menu');
+    const pin = document.createElement('button'); pin.type = 'button'; pin.className = 'menu-item'; pin.setAttribute('role', 'menuitem'); pin.dataset.sessionAction = 'pin';
+    const forget = document.createElement('button'); forget.type = 'button'; forget.className = 'menu-item'; forget.setAttribute('role', 'menuitem'); forget.dataset.sessionAction = 'forget';
+    pin.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const id = row.dataset.sessionId; if (!id) return;
+      options.onPreviousAction(id, row.dataset.pinned === 'true' ? 'unpin' : 'pin');
+      closeSessionMenus(true);
+    });
+    forget.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const id = row.dataset.sessionId; if (!id) return;
+      closeSessionMenus(); options.onPreviousAction(id, 'forget');
+    });
+    actions.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const opening = menu.classList.contains('hidden');
+      closeSessionMenus();
+      if (opening) { menu.classList.remove('hidden'); actions.setAttribute('aria-expanded', 'true'); }
+    });
+    actions.addEventListener('keydown', (event) => {
+      if (event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      if (menu.classList.contains('hidden')) actions.click();
+      menu.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    });
+    menu.addEventListener('click', (event) => event.stopPropagation());
+    menu.addEventListener('keydown', (event) => {
+      const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSessionMenus(true); }
+      else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        items[(current + step + items.length) % items.length]?.focus();
+      }
+    });
+    menu.append(pin, forget); wrap.append(row, actions, menu);
     sessionRows.set(key, row);
+    sessionWraps.set(key, wrap);
+    sessionMenus.set(key, menu);
     return row;
   };
 
   const updateSessionRow = (row: HTMLButtonElement, item: ShellSessionInput, key: string): void => {
+    const wrap = sessionWraps.get(key)!;
     row.dataset.sessionId = item.id;
+    row.dataset.pinned = String(item.pinned);
     row.className = `shell-entity shell-session activity-${item.activity}`;
     row.setAttribute('aria-label', sessionAccessibleLabel(item, tr(`shell.status_${item.activity}`)));
     let signal = row.querySelector<HTMLElement>('.shell-signal');
@@ -125,7 +223,20 @@ export function mountShell(options: {
       row.replaceChildren(signal, copy);
     }
     copy.querySelector('strong')!.textContent = item.label;
-    copy.querySelector('small')!.textContent = item.detail;
+    const detail = copy.querySelector('small')!;
+    detail.textContent = item.detail;
+    detail.classList.toggle('shell-session-warning', item.conversationGone === true);
+    wrap.className = `shell-session-wrap${item.previous ? ' is-previous' : ''}${item.conversationGone ? ' is-gone' : ''}`;
+    wrap.dataset.previous = String(item.previous === true);
+    wrap.dataset.conversationGone = String(item.conversationGone === true);
+    const actions = wrap.querySelector<HTMLButtonElement>('.shell-session-actions')!;
+    actions.classList.toggle('hidden', item.previous !== true);
+    actions.title = tr('shell.session_actions'); actions.setAttribute('aria-label', `${tr('shell.session_actions')}: ${item.label}`);
+    const pin = wrap.querySelector<HTMLButtonElement>('[data-session-action="pin"]')!;
+    pin.replaceChildren(createIcon('pin'), document.createTextNode(tr(item.pinned ? 'cockpit.unpin' : 'cockpit.pin')));
+    pin.dataset.sessionAction = 'pin';
+    const forget = wrap.querySelector<HTMLButtonElement>('[data-session-action="forget"]')!;
+    forget.replaceChildren(createIcon('trash'), document.createTextNode(tr('cockpit.forget')));
     applyEntityState(row, key);
   };
 
@@ -134,7 +245,9 @@ export function mountShell(options: {
       ? document.activeElement.dataset.shellEntityKey : undefined;
     const nextKeys = new Set(items.map((item) => shellEntityKey('session', item.id)));
     for (const [key, row] of sessionRows) {
-      if (!nextKeys.has(key)) { row.remove(); sessionRows.delete(key); }
+      if (!nextKeys.has(key)) {
+        sessionWraps.get(key)?.remove(); sessionRows.delete(key); sessionWraps.delete(key); sessionMenus.delete(key);
+      }
     }
     for (const group of buildSessionGroups(items)) {
       let section = sessionSections.get(group.kind);
@@ -150,7 +263,7 @@ export function mountShell(options: {
         const key = shellEntityKey('session', item.id);
         const row = sessionRows.get(key) ?? createSessionRow(key);
         updateSessionRow(row, item, key);
-        section.appendChild(row);
+        section.appendChild(sessionWraps.get(key)!);
       }
       sessionHost.appendChild(section);
     }
@@ -158,6 +271,11 @@ export function mountShell(options: {
     for (const [kind, section] of sessionSections) {
       if (!visibleGroups.has(kind)) { section.remove(); sessionSections.delete(kind); }
     }
+    const previousCount = items.filter((item) => item.previous).length;
+    restoreAll.classList.toggle('hidden', previousCount === 0);
+    restoreAll.disabled = previousCount === 0;
+    restoreAll.replaceChildren(createIcon('restart'), document.createTextNode(`${tr('cockpit.restore_all')} · ${previousCount}`));
+    updateMobileToggle();
     preserveFocusedRow(focusedKey, sessionRows);
   };
 
@@ -167,6 +285,7 @@ export function mountShell(options: {
       const path = row.dataset.projectPath;
       if (!path) return;
       updateActiveEntity(row, key);
+      closeMobileDrawer();
       options.onProject(path);
     });
     projectRows.set(key, row);
@@ -213,11 +332,13 @@ export function mountShell(options: {
     resultHost.replaceChildren();
     const activateSession = (item: ShellSessionInput): void => {
       markActiveEntity(shellEntityKey('session', item.id));
+      closeMobileDrawer();
       options.onSession(item.id);
       quickOpen.value = ''; applyQuery();
     };
     const activateProject = (item: ShellProjectInput): void => {
       markActiveEntity(shellEntityKey('project', item.path));
+      closeMobileDrawer();
       options.onProject(item.path);
       quickOpen.value = ''; applyQuery();
     };
@@ -236,6 +357,29 @@ export function mountShell(options: {
     if (event.key === 'Escape') { quickOpen.value = ''; applyQuery(); }
     else if (event.key === 'Enter') (resultHost.querySelector<HTMLButtonElement>('button'))?.click();
   });
+  restoreAll.addEventListener('click', () => { closeMobileDrawer(); options.onRestoreAll(); });
+  mobileToggle.addEventListener('click', () => {
+    if (sidebar.classList.contains('mobile-open')) closeMobileDrawer(true); else openMobileDrawer();
+  });
+  mobileBackdrop.addEventListener('click', () => closeMobileDrawer(true));
+  sidebar.addEventListener('keydown', (event) => {
+    if (!sidebar.classList.contains('mobile-open') || event.key !== 'Tab') return;
+    const focusable = mobileFocusable(); if (!focusable.length) return;
+    const first = focusable[0], last = focusable.at(-1)!;
+    if (event.shiftKey && (document.activeElement === first || !sidebar.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.rail-item[data-view]'))) {
+    button.addEventListener('click', () => closeMobileDrawer());
+  }
+  document.addEventListener('click', () => closeSessionMenus());
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !sidebar.classList.contains('mobile-open')) return;
+    event.preventDefault(); closeMobileDrawer(true);
+  });
+  window.addEventListener('resize', () => {
+    if (!matchMedia('(max-width: 720px)').matches) closeMobileDrawer();
+  });
   collapse.addEventListener('click', () => {
     const next = !sidebar.classList.contains('collapsed'); setCollapsed(next); options.onCollapse(next);
   });
@@ -253,6 +397,7 @@ export function mountShell(options: {
     document.getElementById('shell-projects-label')!.setAttribute('role', 'heading');
     document.getElementById('shell-projects-label')!.setAttribute('aria-level', '2');
     document.getElementById('shell-project-section')!.setAttribute('aria-labelledby', 'shell-projects-label');
+    mobileBackdrop.setAttribute('aria-label', tr('shell.collapse'));
     setCollapsed(sidebar.classList.contains('collapsed'));
     renderSessions(sessions);
     renderProjects(projects);
@@ -263,6 +408,8 @@ export function mountShell(options: {
     showView: options.showView,
     setCockpitAvailable: (available) => {
       document.getElementById('shell-session-section')!.classList.toggle('hidden', !available);
+      mobileToggle.classList.toggle('hidden', !available);
+      if (!available) closeMobileDrawer();
       document.querySelector<HTMLElement>('.rail-item[data-view="cockpit"]')?.classList.toggle('hidden', !available);
     },
     setSessionGroups: (items) => { sessions = [...items]; renderSessions(sessions); applyQuery(); },

@@ -155,22 +155,34 @@ describe('Store', () => {
   it('round-trips cockpitSessions (default [])', () => {
     const s = new Store(file);
     expect(s.getCockpitSessions()).toEqual([]);
-    s.setCockpitSessions([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'antigravity', label: 'auth' }]);
-    expect(new Store(file).getCockpitSessions()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'antigravity', label: 'auth' }]);
+    s.setCockpitSessions([{ tileId: 'opaque-dev', projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'antigravity', label: 'auth' }]);
+    expect(new Store(file).getCockpitSessions()).toEqual([{ tileId: 'opaque-dev', projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'antigravity', label: 'auth' }]);
+  });
+
+  it('migrates legacy id-less same-project sessions once and persists distinct tile identities', () => {
+    writeFileSync(file, JSON.stringify({ projects: {}, settings: { cockpitSessions: [
+      { projectPath: 'C:/same', name: 'first', sessionId: null, agentId: 'claude' },
+      { projectPath: 'C:/same', name: 'second', sessionId: null, agentId: 'claude' },
+    ] } }));
+
+    const firstRead = new Store(file).getCockpitSessions();
+    const secondRead = new Store(file).getCockpitSessions();
+    expect(firstRead.map((entry) => entry.tileId)).toEqual(secondRead.map((entry) => entry.tileId));
+    expect(new Set(firstRead.map((entry) => entry.tileId)).size).toBe(2);
   });
 
   it('round-trips pendingAutoRestore and consume clears it (sanitized)', () => {
     const s = new Store(file);
     expect(s.getPendingAutoRestore()).toEqual([]);
     s.setPendingAutoRestore([
-      { projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null },
+      { tileId: 'opaque-pending', projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null },
       { name: 'no-path' } as never, // junk → dropped by sanitize
     ]);
     // survives an app restart (persisted)
-    expect(new Store(file).getPendingAutoRestore()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null }]);
+    expect(new Store(file).getPendingAutoRestore()).toEqual([{ tileId: 'opaque-pending', projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null }]);
     // consume returns the list AND clears it, so a later normal launch won't auto-restore again
     const s2 = new Store(file);
-    expect(s2.consumePendingAutoRestore()).toEqual([{ projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null }]);
+    expect(s2.consumePendingAutoRestore()).toEqual([{ tileId: 'opaque-pending', projectPath: 'C:/a/dev', name: 'dev', sessionId: 's1', agentId: 'claude', label: null }]);
     expect(s2.getPendingAutoRestore()).toEqual([]);
     expect(new Store(file).getPendingAutoRestore()).toEqual([]); // cleared on disk too
   });

@@ -1,13 +1,13 @@
-import { currentProjects, focusProject, mountProjects, onProjectsChanged, renderProjects, reloadProjects } from './projectsView';
+import { currentProjects, focusProject, mountProjects, onProjectsChanged, renderProjects, reloadProjects, syncProjectDisplayAgentChoices } from './projectsView';
 import { setCockpitEnabled } from './openRouter';
 import { mountNav } from './nav';
 import { mountShell, type ShellController } from './shell';
-import { createContextRestoreCoordinator, type ContextRestoreCoordinator } from '../shared/contextRestore';
+import { cockpitIdentityContext, createContextRestoreCoordinator, type ContextRestoreCoordinator } from '../shared/contextRestore';
 import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { activateCockpitSession, cockpitNavigationItems, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitPreviousSession, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -16,6 +16,7 @@ import { mountShutdown, refreshShutdownLabels } from './shutdown';
 import { initializeAgentSelection, setSelectedAgent } from './agentSelection';
 import type { AgentId } from '../shared/types';
 import { createIcon } from './icons';
+import { maximizeActionPresentation } from '../shared/windowControls';
 
 let shellController: ShellController | null = null;
 let contextRestore: ContextRestoreCoordinator | null = null;
@@ -89,8 +90,10 @@ window.devdeck.onUpdate(renderUpdate);
 
 function applyStaticLabels(): void {
   document.documentElement.lang = currentLang();
-  document.querySelector<HTMLButtonElement>('#open-selected')!.textContent = '▶ ' + tr('app.open_selected');
-  document.querySelector<HTMLButtonElement>('#new-project')!.textContent = '+ ' + tr('proj.new');
+  const openSelected = document.querySelector<HTMLButtonElement>('#open-selected')!;
+  openSelected.replaceChildren(createIcon('play'), document.createTextNode(tr('app.open_selected')));
+  const newProject = document.querySelector<HTMLButtonElement>('#new-project')!;
+  newProject.replaceChildren(createIcon('plus'), document.createTextNode(tr('proj.new')));
   const refreshBtn = document.querySelector<HTMLButtonElement>('#refresh')!;
   refreshBtn.replaceChildren(createIcon('refresh'));
   refreshBtn.title = tr('app.refresh');
@@ -101,6 +104,7 @@ function applyStaticLabels(): void {
   const agentLabel = document.getElementById('agent-select-label');
   if (agentSel) agentSel.setAttribute('aria-label', tr('agent.label'));
   if (agentLabel) agentLabel.textContent = tr('agent.label');
+  syncProjectDisplayAgentChoices();
   const chk = document.querySelector('#view-projects .chk');
   if (chk?.lastChild) chk.lastChild.textContent = ' ' + tr('proj.neglected_only');
   const ckSearch = document.getElementById('ck-search') as HTMLInputElement | null;
@@ -108,6 +112,21 @@ function applyStaticLabels(): void {
   refreshShutdownLabels(); // 🌙 labels are phase-aware — let shutdown.ts re-derive them in the new language
   refreshCockpitSidebar(); // collapse/expand titles are state-aware — re-derive in the new language
   shellController?.refreshLabels();
+  // Session detail text is produced by Cockpit (restore / conversation-gone), not by shell.ts.
+  // Republish its current models so a live locale switch cannot leave those rows in the old language.
+  shellController?.setSessionGroups(cockpitNavigationItems());
+  renderMaximizeAction();
+}
+
+let titlebarMaximized = false;
+function renderMaximizeAction(): void {
+  const maxBtn = document.getElementById('win-max');
+  if (!maxBtn) return;
+  const action = maximizeActionPresentation(titlebarMaximized);
+  const label = tr(action.labelKey);
+  maxBtn.replaceChildren(createIcon(action.icon));
+  maxBtn.title = label;
+  maxBtn.setAttribute('aria-label', label);
 }
 
 function mountTitlebar(): void {
@@ -122,8 +141,8 @@ function mountTitlebar(): void {
   maxBtn.addEventListener('click', () => void wc.toggleMaximize());
   document.querySelector<HTMLElement>('.tb-drag')!.addEventListener('dblclick', () => void wc.toggleMaximize());
   const setIcon = (maximized: boolean) => {
-    maxBtn.replaceChildren(createIcon(maximized ? 'restore' : 'maximize'));
-    maxBtn.title = maximized ? 'Restore' : 'Maximize';
+    titlebarMaximized = maximized;
+    renderMaximizeAction();
   };
   wc.onMaximizeChange(setIcon);
   void wc.isMaximized().then(setIcon);
@@ -242,6 +261,8 @@ async function boot(): Promise<void> {
       activateCockpitSession(id);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
     },
+    onPreviousAction: (id, action) => manageCockpitPreviousSession(id, action),
+    onRestoreAll: () => restoreAllCockpitSessions(),
   });
   // Renderer-local QA seam: PTYs cannot be spawned in the screenshot harness, so a validated
   // fixture reaches the actual mounted controller without exposing IPC or a general debug API.
@@ -270,16 +291,19 @@ async function boot(): Promise<void> {
     if (id) { shellController?.setActiveSession(id); activateCockpitSession(id); }
   });
   onCockpitSessionSelected((id) => {
-    nav.show('cockpit');
-    shellController?.setActiveSession(id);
-    localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
+    const context = cockpitIdentityContext(nav.active(), id);
+    if (!context) return;
+    shellController?.setActiveSession(context.id);
+    localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(context));
   });
   if (cockpitOn) {
     onCockpitNavigationChange((items) => {
       shellController?.setSessionGroups([...items]);
     });
     shellController.setSessionGroups(cockpitNavigationItems());
-    onCockpitSessionsLoaded((items) => applyRestore(contextRestore?.sessionsLoaded(new Set(items.map((item) => item.id))) ?? null));
+    onCockpitSessionsLoaded((items) => applyRestore(contextRestore?.sessionsLoaded(
+      new Set(items.map((item) => item.id)), cockpitNavigationAliases(),
+    ) ?? null));
   } else {
     applyRestore(contextRestore.sessionsLoaded(new Set()));
   }
@@ -299,10 +323,12 @@ async function boot(): Promise<void> {
     }));
     agentSel.setAttribute('aria-label', tr('agent.label'));
     agentSel.addEventListener('change', async () => {
+      syncProjectDisplayAgentChoices();
       await window.devdeck.setAgent(agentSel.value);
       setSelectedAgent(agentSel.value as AgentId);
       reloadProjects();
     });
+    syncProjectDisplayAgentChoices();
   }
 
   mountLangMenu();

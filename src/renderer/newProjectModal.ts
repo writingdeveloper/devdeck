@@ -1,6 +1,7 @@
 import { tr } from './i18n-runtime';
 import { validateProjectName } from '../shared/projectName';
 import type { Folder } from '../shared/types';
+import { createIcon } from './icons';
 
 // Local toast, mirroring the inline pattern in main.ts (#toast-host + auto-remove).
 function toast(msg: string): void {
@@ -46,7 +47,7 @@ export function openNewProjectModal(onCreated: (path: string) => void): void {
   const locWrap = document.createElement('div'); locWrap.className = 'np-loc';
   const select = document.createElement('select'); select.id = 'np-loc-select'; select.className = 'np-input';
   const addLoc = document.createElement('button'); addLoc.type = 'button'; addLoc.className = 'iconbtn';
-  addLoc.textContent = '📁'; addLoc.title = tr('newproj.add_location'); addLoc.setAttribute('aria-label', tr('newproj.add_location'));
+  addLoc.appendChild(createIcon('folder')); addLoc.title = tr('newproj.add_location'); addLoc.setAttribute('aria-label', tr('newproj.add_location'));
   locWrap.append(select, addLoc);
   locRow.append(locLabel, locWrap);
 

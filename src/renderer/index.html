@@ -24,6 +24,9 @@
       </div>
       <div class="tb-drag"></div>
       <div class="top-actions">
+        <button id="shell-mobile-toggle" class="shell-mobile-toggle hidden" type="button" aria-controls="app-sidebar" aria-expanded="false">
+          <span class="shell-mobile-toggle-icon" aria-hidden="true"></span><span id="shell-mobile-toggle-label"></span>
+        </button>
         <div class="menu-wrap shutdown-wrap hidden" id="shutdown-wrap">
           <button id="shutdown-btn" class="iconbtn" title="유휴 시 종료" aria-label="유휴 시 종료" aria-haspopup="menu" aria-expanded="false"></button>
         </div>
@@ -36,6 +39,7 @@
       </div>
     </header>
     <div id="shell">
+      <button id="shell-mobile-backdrop" class="shell-mobile-backdrop hidden" type="button" tabindex="-1" aria-label="Close sidebar"></button>
       <aside id="app-sidebar" aria-label="DevDeck">
         <div class="shell-side-head">
           <span class="shell-side-brand">DevDeck</span>
@@ -53,6 +57,7 @@
         <div class="shell-scroll">
           <div id="shell-quick-results" class="hidden"></div>
           <section id="shell-session-section">
+            <button id="shell-restore-all" class="shell-restore-all hidden" type="button"></button>
             <div id="shell-session-groups"></div>
           </section>
           <section id="shell-project-section">
@@ -85,14 +90,15 @@
                 <button id="view-cards" class="menu-item" type="button" role="menuitemradio" aria-checked="false">Cards</button>
                 <button id="view-list" class="menu-item" type="button" role="menuitemradio" aria-checked="true">List</button>
                 <div id="agent-select-control" class="display-agent-control hidden" role="group" aria-labelledby="agent-select-label">
-                  <label id="agent-select-label" for="agent-select">Default agent for new sessions</label>
-                  <select id="agent-select" aria-label="Agent"></select>
+                  <span id="agent-select-label">Default agent for new sessions</span>
+                  <div id="agent-select-options" role="none"></div>
+                  <select id="agent-select" hidden aria-hidden="true" tabindex="-1"></select>
                 </div>
               </div>
             </div>
             <span class="vt-spacer"></span>
             <span id="deck-pulse" class="deck-pulse"></span>
-            <button id="open-selected" class="primary" disabled>▶ 선택 열기</button>
+            <button id="open-selected" class="primary hidden" disabled>선택 열기</button>
           </div>
           <!-- Intentionally empty pre-JS: mountProjects() shows the localized first-load skeleton;
                any hardcoded text here would flash in the wrong language before boot. -->

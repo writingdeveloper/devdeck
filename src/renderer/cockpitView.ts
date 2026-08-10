@@ -9,7 +9,7 @@ import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
-import { cockpitNavigationId, cockpitNavigationIdForRuntime, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import { toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
@@ -20,9 +20,9 @@ import { createIcon, type IconName } from './icons';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
-interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; }
+interface Live { tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; }
 /** The renderer's display metadata plus the explicit provider launch intent. */
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; }
 
 const live = new Map<string, Live>();
 const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
@@ -36,7 +36,7 @@ let restorableLoaded = false; // guard: don't persist (and clobber the on-disk l
  *  restoring one opens a fresh session under the same name (see resolveRestoreTarget). */
 const missingConversations = new Set<string>();
 let missingCheckedAt = 0;
-const prevKey = (r: PersistedSession): string => `${r.projectPath}\0${r.sessionId ?? ''}`;
+const prevKey = (r: PersistedSession): string => persistedSessionKey(r);
 let liveLabels = new Map<string, string>(); // live session id -> display label (#N when a project has several sessions)
 let lastListSig = ''; // signature of the last-rendered session list — renderList() skips a rebuild when nothing visible changed
 let editingId: string | null = null; // session being inline-renamed (rendered as an <input> in its row, so re-renders keep it)
@@ -160,9 +160,7 @@ export function mountCockpit(): void {
  *  latest conversation (via restoreSession). They're removed from the "Previous" list first so they
  *  aren't shown as restorable AND opened. Sequential to avoid a simultaneous PTY burst. */
 async function autoRestoreAfterUpdate(pending: PersistedSession[]): Promise<void> {
-  const key = (p: PersistedSession): string => `${p.projectPath}\0${p.sessionId ?? ''}`;
-  const keys = new Set(pending.map(key));
-  restorable = restorable.filter((r) => !keys.has(key(r)));
+  restorable = removeAutoRestoreMatches(restorable, pending);
   renderList();
   for (const entry of pending) await restoreSession(entry);
 }
@@ -240,13 +238,13 @@ async function refreshMissingConversations(): Promise<void> {
 
 /** The currently-live sessions in PersistedSession form (for saving / update auto-restore). */
 export function liveSessionsForPersist(): PersistedSession[] {
-  return [...live.values()].map((l) => ({ projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned }));
+  return [...live.values()].map((l) => ({ tileId: l.tileId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned }));
 }
 /** How many cockpit sessions are live right now (for the update-restart button label). */
 export function liveSessionCount(): number { return live.size; }
 
-function navigationIdentity(liveSession: Live): { projectPath: string; sessionId: string | null; runtimeId: string } {
-  return { projectPath: liveSession.session.projectPath, sessionId: liveSession.openedSessionId, runtimeId: liveSession.session.id };
+function navigationIdentity(liveSession: Live): { tileId: string; projectPath: string; sessionId: string | null; runtimeId: string } {
+  return { tileId: liveSession.tileId, projectPath: liveSession.session.projectPath, sessionId: liveSession.openedSessionId, runtimeId: liveSession.session.id };
 }
 
 function navigationIdForLive(liveSession: Live): string {
@@ -273,12 +271,28 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
     id: cockpitNavigationId(entry),
     projectPath: entry.projectPath,
     label: labels[liveItems.length + index],
-    detail: `${providerName(toAgentId(entry.agentId) ?? 'claude')} · ${tr('cockpit.restore')}`,
+    detail: `${providerName(toAgentId(entry.agentId) ?? 'claude')} · ${missingConversations.has(prevKey(entry)) ? tr('cockpit.prev_gone') : tr('cockpit.restore')}`,
     activity: 'idle',
     pinned: entry.pinned === true,
     previous: true,
+    conversationGone: missingConversations.has(prevKey(entry)),
   }));
   return [...current, ...previous];
+}
+
+/** One-release migration map for shell contexts saved before opaque tile identities existed. */
+export function cockpitNavigationAliases(): ReadonlyMap<string, string> {
+  const aliases = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  const add = (entry: { tileId?: string; projectPath: string; sessionId: string | null; runtimeId?: string }): void => {
+    const legacy = legacyCockpitNavigationId(entry);
+    const current = cockpitNavigationId(entry);
+    if (aliases.has(legacy) && aliases.get(legacy) !== current) { aliases.delete(legacy); ambiguous.add(legacy); }
+    else if (!ambiguous.has(legacy)) aliases.set(legacy, current);
+  };
+  for (const item of live.values()) add(navigationIdentity(item));
+  for (const item of restorable) add(item);
+  return aliases;
 }
 
 export function onCockpitNavigationChange(listener: (items: readonly ShellSessionInput[]) => void): () => void {
@@ -316,9 +330,9 @@ function publishCockpitNavigation(): void {
 }
 
 export function activateCockpitSession(id: string): void {
-  const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
+  const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id || legacyCockpitNavigationId(navigationIdentity(entry)) === id);
   if (current) { select(current.session.id); return; }
-  const previous = restorable.find((entry) => cockpitNavigationId(entry) === id);
+  const previous = restorable.find((entry) => cockpitNavigationId(entry) === id || legacyCockpitNavigationId(entry) === id);
   if (previous) void restoreSession(previous);
 }
 
@@ -487,9 +501,9 @@ async function createSession(p: OpenReq): Promise<boolean> {
   });
   // Consume the matching restorable entry (dedupe by session id, not path — siblings stay), inheriting
   // its pin + label when the open request has none (deck/board opens don't know about pins).
-  const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { label: p.label ?? null, pinned: !!p.pinned });
+  const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { tileId: p.tileId, label: p.label ?? null, pinned: !!p.pinned });
   restorable = adopted.rest;
-  live.set(res.id, { session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned });
+  live.set(res.id, { tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned });
   select(res.id);
   updateRailBadge();
   persist();
@@ -701,7 +715,7 @@ function renderList(): void {
       ctx: contextPercent(l.meta?.contextTokens ?? 0, windowFor(l.meta)),
       summary: l.meta?.summary ?? null,
     })),
-    prev.map((r, i) => ({ key: r.sessionId ?? r.projectPath, label: prevLabels[i], agentId: r.agentId, pinned: r.pinned === true, gone: missingConversations.has(prevKey(r)) })),
+    prev.map((r, i) => ({ key: r.tileId, label: prevLabels[i], agentId: r.agentId, pinned: r.pinned === true, gone: missingConversations.has(prevKey(r)) })),
     currentLang(), search,
   ) + `\nedit:${editingId ?? ''}`; // a row being renamed becomes an <input> — also part of what the list renders
   if (sig === lastListSig) return;
@@ -890,6 +904,19 @@ function notifyAttention(l: Live): void {
   } catch { /* notifications unavailable (rare) — the tray dot still alerts */ }
 }
 
+export type CockpitPreviousAction = 'pin' | 'unpin' | 'forget';
+
+/** Shared-shell previous-row actions route to the same state mutations as the hidden compatibility list. */
+export function manageCockpitPreviousSession(id: string, action: CockpitPreviousAction): void {
+  const entry = restorable.find((item) => cockpitNavigationId(item) === id || legacyCockpitNavigationId(item) === id);
+  if (!entry) return;
+  if (action === 'forget') { forgetSession(entry); return; }
+  entry.pinned = action === 'pin' ? true : undefined;
+  persist(); renderList();
+}
+
+export function restoreAllCockpitSessions(): void { void restoreAll(); }
+
 function publishSessionSelection(liveSession: Live): void {
   const navigationId = navigationIdForLive(liveSession);
   for (const listener of sessionSelectionListeners) listener(navigationId);
@@ -1033,7 +1060,7 @@ const restoring = new Set<string>();
  *  opened with, whatever the globally selected agent is now (a Claude conversation must never be
  *  handed to `codex`). Unrecognized legacy ids fall back to the active agent, as they always did. */
 async function restoreSession(entry: PersistedSession): Promise<void> {
-  const key = `${entry.projectPath}\0${entry.sessionId ?? ''}`;
+  const key = persistedSessionKey(entry);
   if (restoring.has(key)) return;
   restoring.add(key);
   restorable = restorable.filter((r) => r !== entry);
@@ -1050,7 +1077,7 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     let ids: string[] = [];
     try { ids = await window.devdeck.cockpit.sessionIds(entry.projectPath, owner); } catch { ids = []; }
     const target = resolveRestoreTarget(entry, ids, liveIds, reserved);
-    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
+    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, tileId: entry.tileId, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
     if (ok) {
       // Say why the tile is empty — whether its conversation was deleted or was never recorded.
       // Silence here would read as "my session lost its history".

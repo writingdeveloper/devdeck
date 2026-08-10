@@ -2,6 +2,7 @@ import { basename } from './paths';
 
 /** A cockpit session remembered across restarts, enough to re-open it via the agent's resume command. */
 export interface PersistedSession {
+  tileId: string;           // opaque tile identity; independent of the conversation/provider identity
   projectPath: string;
   name: string;
   sessionId: string | null; // the specific session to resume, or null to continue/new
@@ -12,17 +13,60 @@ export interface PersistedSession {
 
 /** Identity available at the Cockpit navigation boundary. Runtime IDs distinguish id-less live tiles. */
 export interface CockpitNavigationIdentity {
+  tileId?: string;
   projectPath: string;
   sessionId: string | null;
   runtimeId?: string;
 }
 
-/** Stable shared-shell address for a Cockpit conversation, before and after restart when it has a conversation ID. */
+let fallbackTileSequence = 0;
+
+/** Create an opaque identity once for a Cockpit tile, then persist it with that tile. */
+export function createCockpitTileId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return uuid;
+  fallbackTileSequence += 1;
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${fallbackTileSequence.toString(36)}`;
+}
+
+/** Stable shared-shell address for a Cockpit tile across conversation/provider drift and restart. */
 export function cockpitNavigationId(entry: CockpitNavigationIdentity): string {
+  if (entry.tileId) return `tile:${encodeURIComponent(entry.tileId)}`;
+  return legacyCockpitNavigationId(entry);
+}
+
+/** Address emitted by builds before opaque tile identities existed (migration only). */
+export function legacyCockpitNavigationId(entry: CockpitNavigationIdentity): string {
   const path = encodeURIComponent(entry.projectPath);
   if (entry.sessionId) return `previous:${path}:${encodeURIComponent(entry.sessionId)}`;
   if (entry.runtimeId) return `live:${path}:${encodeURIComponent(entry.runtimeId)}`;
   return `previous:${path}:`;
+}
+
+/** Restoration/in-flight de-duplication key; id-less sibling tiles must never collide. */
+export function persistedSessionKey(entry: Pick<PersistedSession, 'tileId'>): string {
+  return entry.tileId;
+}
+
+/**
+ * Remove the saved copies that an update relaunch is about to restore. Exact opaque identities win.
+ * Separately migrated legacy lists can have different generated IDs, so fall back one-for-one to the
+ * old address; never filter every matching id-less sibling at once.
+ */
+export function removeAutoRestoreMatches(
+  restorable: readonly PersistedSession[],
+  pending: readonly PersistedSession[],
+): PersistedSession[] {
+  const remaining = [...restorable];
+  for (const item of pending) {
+    let index = remaining.findIndex((candidate) => persistedSessionKey(candidate) === persistedSessionKey(item));
+    if (index < 0) {
+      const legacy = legacyCockpitNavigationId(item);
+      index = remaining.findIndex((candidate) => legacyCockpitNavigationId(candidate) === legacy);
+    }
+    if (index >= 0) remaining.splice(index, 1);
+  }
+  return remaining;
 }
 
 /** Translate the runtime ID carried by a notification into the shell's current navigation identity. */
@@ -163,12 +207,13 @@ export function pickAdoptedSessionId(
 export function adoptRestorableMatch(
   restorable: PersistedSession[],
   sessionId: string | null,
-  req: { label: string | null; pinned: boolean },
-): { rest: PersistedSession[]; label: string | null; pinned: boolean } {
-  if (!sessionId) return { rest: restorable, label: req.label, pinned: req.pinned };
+  req: { tileId?: string; label: string | null; pinned: boolean },
+): { rest: PersistedSession[]; tileId: string | undefined; label: string | null; pinned: boolean } {
+  if (!sessionId) return { rest: restorable, tileId: req.tileId, label: req.label, pinned: req.pinned };
   const match = restorable.find((r) => r.sessionId === sessionId);
   return {
     rest: restorable.filter((r) => r.sessionId !== sessionId),
+    tileId: req.tileId ?? match?.tileId,
     label: req.label ?? match?.label ?? null,
     pinned: req.pinned || match?.pinned === true,
   };
@@ -179,15 +224,32 @@ export function adoptRestorableMatch(
  * state.json): drops entries without a string projectPath, defaults the name to the path
  * basename, coerces sessionId to string|null and agentId to a known provider, caps the count.
  */
-export function sanitizePersistedList(raw: unknown): PersistedSession[] {
+export function sanitizePersistedList(raw: unknown, createTileId: () => string = createCockpitTileId): PersistedSession[] {
   if (!Array.isArray(raw)) return [];
   const out: PersistedSession[] = [];
+  const usedTileIds = new Set<string>();
+  const uniqueTileId = (candidate: unknown): string => {
+    const supplied = typeof candidate === 'string' ? candidate.trim().slice(0, 128) : '';
+    if (supplied && !usedTileIds.has(supplied)) { usedTileIds.add(supplied); return supplied; }
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const generated = String(createTileId()).trim().slice(0, 128);
+      if (generated && !usedTileIds.has(generated)) { usedTileIds.add(generated); return generated; }
+    }
+    // A broken/custom generator must not collapse two tiles. The suffix is migration-only fallback.
+    const base = String(createTileId()).trim().slice(0, 96) || 'tile';
+    let suffix = out.length + 1;
+    while (usedTileIds.has(`${base}-${suffix}`)) suffix += 1;
+    const generated = `${base}-${suffix}`;
+    usedTileIds.add(generated);
+    return generated;
+  };
   for (const r of raw) {
     if (!r || typeof r !== 'object') continue;
     const o = r as Record<string, unknown>;
     if (typeof o.projectPath !== 'string' || !o.projectPath) continue;
     const label = typeof o.label === 'string' && o.label.trim() ? o.label.trim().slice(0, MAX_LABEL) : null;
     out.push({
+      tileId: uniqueTileId(o.tileId),
       projectPath: o.projectPath,
       name: typeof o.name === 'string' && o.name ? o.name : basename(o.projectPath),
       sessionId: typeof o.sessionId === 'string' ? o.sessionId : null,

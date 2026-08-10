@@ -70,9 +70,20 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
     trigger.focus();
   };
   closeCurrent = close;
-  const focusable = (): HTMLElement[] => Array.from(modal.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'));
+  const focusable = (): HTMLElement[] => Array.from(
+    modal.querySelectorAll<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])'),
+  ).filter((item) => {
+    if (item.matches(':disabled') || item.closest('[hidden], [inert], [aria-hidden="true"], .hidden')) return false;
+    const style = getComputedStyle(item);
+    return style.display !== 'none' && style.visibility !== 'hidden' && item.getClientRects().length > 0;
+  });
   const onKey = (event: KeyboardEvent): void => {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return; }
+    if (event.key === 'Escape') {
+      // A nested disclosure owns the first Escape. This capture listener deliberately lets the
+      // event continue to the provider control's document listener; a later Escape closes us.
+      if (modal.querySelector('[aria-haspopup][aria-expanded="true"]')) return;
+      event.preventDefault(); event.stopPropagation(); close(); return;
+    }
     if (event.key !== 'Tab') return;
     const list = focusable(); if (!list.length) return;
     const first = list[0], last = list[list.length - 1], active = document.activeElement;

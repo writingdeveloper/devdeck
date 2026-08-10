@@ -11,7 +11,7 @@ See every repository, live agent session, next task, local usage estimate, and r
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-43-47848F)
-![Tests](https://img.shields.io/badge/tests-857%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-878%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 </div>
@@ -23,8 +23,8 @@ AI coding work gets fragmented quickly: one repository is waiting for a response
 The interface is organized as one command center:
 
 - An expanded 224px sidebar contains Quick Open, primary views, urgency-grouped live sessions, and compact projects.
-- The sidebar collapses to 52px when terminal width matters.
-- The main project overview defaults to a row-first status board; cards remain optional.
+- The sidebar collapses to 52px on desktop and becomes a Sessions/Needs You drawer at narrow widths.
+- The main project overview defaults to a row-first status board with localized text-and-shape status; cards remain optional.
 - Selecting a session focuses its existing embedded terminal without respawning or remounting it.
 - Project Memory opens as a right-side drawer, or a full-width sheet on narrow windows.
 
@@ -34,7 +34,7 @@ The interface is organized as one command center:
 
 ## Highlights
 
-- **Unified project and session navigation** — Needs You and Working sessions stay visible from Projects, Tasks, Usage, and Settings. Quick Open filters both sessions and projects.
+- **Unified project and session navigation** — Needs You and Working sessions stay visible from Projects, Tasks, Usage, and Settings. Previous sessions expose restore, warning, pin, forget, and Restore All actions in the same shell. Quick Open filters both sessions and projects.
 - **Row-first project overview** — resume cues lead each row; branch, working-tree state, providers, sessions, cost, tasks, GitHub, editor, folder, and provider-aware Open remain available.
 - **Provider-aware Open** — focus a live session, continue the correct provider-owned conversation, start a fresh session, or explicitly choose another installed provider.
 - **Cockpit on Windows** — embedded Claude Code, Codex, and Antigravity terminals with persistence, restart, fork, rename, pin, close confirmation, search, clipboard handling, clickable links and image paths, context percentage, and summaries.
@@ -81,6 +81,8 @@ On macOS, allow Terminal automation when prompted. On macOS 15 or later, launch 
 | Linux | Auto-detected supported terminal | No |
 
 Every release is built and unit-tested on Windows, macOS, and Linux CI runners.
+
+The command-center UI is also exercised in Electron at desktop and 520px widths across all four languages, followed by automated accessibility audits.
 
 ## Build from source
 

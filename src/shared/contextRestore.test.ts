@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createContextRestoreCoordinator } from './contextRestore';
+import { cockpitIdentityContext, createContextRestoreCoordinator } from './contextRestore';
 
 describe('context restoration', () => {
   it('restores a saved non-entity view immediately and only once', () => {
@@ -47,5 +47,18 @@ describe('context restoration', () => {
     restore.cancel();
     expect(restore.projectsLoaded(new Set(['C:/repo']))).toBeNull();
     expect(restore.sessionsLoaded(new Set(['session-1']))).toBeNull();
+  });
+
+  it('does not let a delayed Cockpit identity update override later user navigation', () => {
+    expect(cockpitIdentityContext('cockpit', 'tile:current')).toEqual({ kind: 'session', id: 'tile:current' });
+    expect(cockpitIdentityContext('projects', 'tile:late')).toBeNull();
+    expect(cockpitIdentityContext('usage', 'tile:late')).toBeNull();
+  });
+
+  it('migrates an unambiguous legacy saved-session address to its stable tile address', () => {
+    const restore = createContextRestoreCoordinator({ kind: 'session', id: 'previous:C%3A%2Frepo:old-session' }, true);
+    const aliases = new Map([['previous:C%3A%2Frepo:old-session', 'tile:opaque-1']]);
+
+    expect(restore.sessionsLoaded(new Set(['tile:opaque-1']), aliases)).toEqual({ kind: 'session', id: 'tile:opaque-1' });
   });
 });

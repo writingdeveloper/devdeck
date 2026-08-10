@@ -9,6 +9,9 @@
   background: color-mix(in srgb, var(--dd-canvas) 94%, transparent);
 }
 
+#view-projects #new-project,
+#view-projects #open-selected { display: inline-flex; align-items: center; gap: 6px; }
+
 #view-projects .project-display-menu {
   top: calc(100% + 6px);
   right: auto;
@@ -40,6 +43,8 @@
 }
 
 #view-projects .display-agent-control select { min-width: 0; }
+#view-projects #agent-select-options { display: grid; gap: 2px; }
+#view-projects .display-agent-option { justify-content: flex-start; }
 
 @media (max-width: 560px) {
   #view-projects .view-toolbar { gap: 8px; padding: 8px 12px; }
@@ -57,7 +62,7 @@
 }
 
 #view-projects .prow {
-  grid-template-columns: 20px 10px minmax(150px, .72fr) minmax(220px, 1.5fr) minmax(112px, .55fr) minmax(128px, .65fr) auto;
+  grid-template-columns: 20px minmax(88px, auto) minmax(150px, .72fr) minmax(220px, 1.5fr) minmax(112px, .55fr) minmax(128px, .65fr) auto;
   min-height: 68px;
   padding: 10px 12px;
   border: 0;
@@ -117,13 +122,46 @@
   gap: 6px;
 }
 
+#view-projects .prow-state { min-width: 0; display: inline-flex; align-items: center; gap: 7px; color: var(--dd-text-muted); font-size: var(--dd-fs-meta); white-space: nowrap; }
+#view-projects .prow-state-shape { width: 9px; height: 9px; flex: 0 0 auto; background: var(--dd-text-faint); }
+#view-projects .shape-diamond { rotate: 45deg; border-radius: 2px; background: var(--warn); }
+#view-projects .shape-ring { border: 2px solid var(--dd-working); border-radius: 50%; background: transparent; }
+#view-projects .shape-dot { border-radius: 50%; background: var(--dd-success); }
+#view-projects .shape-bar { width: 10px; height: 4px; border-radius: 2px; }
+#view-projects .shape-triangle { width: 0; height: 0; border-inline: 5px solid transparent; border-bottom: 9px solid var(--warn); background: transparent; }
+#view-projects .shape-square { border-radius: 1px; background: var(--dd-destructive); }
+#view-projects .shape-hollow { border: 1px solid var(--dd-text-faint); border-radius: 2px; background: transparent; }
+
 @media (max-width: 1200px) {
   #view-projects .prow {
-    grid-template-columns: 20px 10px minmax(130px, .8fr) minmax(180px, 1.3fr) auto;
+    grid-template-columns: 20px minmax(84px, auto) minmax(130px, .8fr) minmax(180px, 1.3fr) auto;
   }
 
   #view-projects .prow-git,
   #view-projects .prow-sess {
     display: none;
   }
+}
+
+@media (max-width: 600px) {
+  #view-projects #cards.as-list { padding: 8px 10px 24px; }
+  #view-projects .prow {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "check name"
+      "state state"
+      "cue cue"
+      "git sessions"
+      "actions actions";
+    gap: 7px 10px;
+    padding: 10px 8px 12px;
+  }
+  #view-projects .prow-check { grid-area: check; align-self: start; margin-top: 2px; }
+  #view-projects .prow-state { grid-area: state; }
+  #view-projects .prow-name { grid-area: name; min-width: 0; }
+  #view-projects .prow-cue { grid-area: cue; min-width: 0; }
+  #view-projects .prow-git { grid-area: git; display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+  #view-projects .prow-sess { grid-area: sessions; display: inline-flex; min-width: 0; overflow: hidden; justify-content: flex-end; }
+  #view-projects .prow-actions { grid-area: actions; width: 100%; min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; justify-self: stretch; }
+  #view-projects .prow-actions .provider-open { flex: 0 0 auto; }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { openSelectedPresentation, projectRowModel } from './projectOverview';
+import { openSelectedPresentation, projectRowModel, projectStatePresentation } from './projectOverview';
 import type { ProjectViewModel } from '../shared/types';
 
 describe('projectRowModel', () => {
@@ -49,5 +49,17 @@ describe('openSelectedPresentation', () => {
     expect(openSelectedPresentation(0)).toEqual({ hidden: true, disabled: true });
     expect(openSelectedPresentation(1)).toEqual({ hidden: false, disabled: false });
     expect(openSelectedPresentation(3)).toEqual({ hidden: false, disabled: false });
+  });
+});
+
+describe('projectStatePresentation', () => {
+  it('gives every row state visible localized text and a non-color shape', () => {
+    expect(projectStatePresentation('attention', false)).toEqual({ labelKey: 'proj.state_attention', shape: 'diamond' });
+    expect(projectStatePresentation('working', false)).toEqual({ labelKey: 'proj.state_working', shape: 'ring' });
+    expect(projectStatePresentation('fresh', false)).toEqual({ labelKey: 'proj.state_fresh', shape: 'dot' });
+    expect(projectStatePresentation('neutral', false)).toEqual({ labelKey: 'proj.state_stale', shape: 'bar' });
+    expect(projectStatePresentation('warn', false)).toEqual({ labelKey: 'proj.state_warning', shape: 'triangle' });
+    expect(projectStatePresentation('neglected', false)).toEqual({ labelKey: 'proj.state_neglected', shape: 'square' });
+    expect(projectStatePresentation('neglected', true)).toEqual({ labelKey: 'proj.state_no_record', shape: 'hollow' });
   });
 });

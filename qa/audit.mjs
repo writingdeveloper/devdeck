@@ -87,16 +87,18 @@ const displayState = () => win.evaluate(() => {
 });
 const displayModel = await win.evaluate(() => {
   const menu = document.getElementById('project-display-menu');
-  const items = ['show-hidden', 'view-cards', 'view-list']
-    .map((id) => document.getElementById(id))
-    .filter((item) => item instanceof HTMLButtonElement && !item.disabled);
+  const items = Array.from(menu?.querySelectorAll('[role^="menuitem"]') ?? [])
+    // The composite itself is closed while its static model is inspected. Exclude only choices in
+    // a nested hidden group; the menu's own `.hidden` state must not erase its actionable model.
+    .filter((item) => item instanceof HTMLButtonElement && !item.disabled && !item.closest('#agent-select-control.hidden'));
   const selected = items.find((item) => item.getAttribute('role') === 'menuitemradio' && item.getAttribute('aria-checked') === 'true');
   return {
     actionableIds: items.map((item) => item.id),
     initialFocusId: selected?.id ?? items[0]?.id ?? '',
     menuRole: menu?.getAttribute('role') === 'menu',
     labeledItems: items.length >= 3 && items.every((item) => !!item.textContent?.trim()),
-    providerLabel: !!menu?.querySelector('label[for="agent-select"]')?.textContent?.trim(),
+    providerLabel: !!menu?.querySelector('#agent-select-label')?.textContent?.trim(),
+    providerGroup: menu?.querySelector('#agent-select-control')?.getAttribute('role') === 'group',
   };
 });
 
@@ -105,6 +107,10 @@ await win.keyboard.press('Space');
 let state = await displayState();
 const spaceOpened = state.open;
 const focusOnOpen = state.focusId === displayModel.initialFocusId;
+const rovingFocus = await win.evaluate(() => {
+  const items = Array.from(document.querySelectorAll('#project-display-menu [role^="menuitem"]')).filter((item) => !item.closest('.hidden'));
+  return items.filter((item) => item.tabIndex === 0).length === 1 && items.filter((item) => item.tabIndex === -1).length === items.length - 1;
+});
 await win.keyboard.press('ArrowDown');
 state = await displayState();
 const arrowDown = state.focusId === displayModel.actionableIds[(displayModel.actionableIds.indexOf(displayModel.initialFocusId) + 1) % displayModel.actionableIds.length];
@@ -137,15 +143,21 @@ await displayTrigger.focus();
 await win.keyboard.press('Space');
 const agentSelect = win.locator('#agent-select');
 const agentOptions = await agentSelect.locator('option').count();
-let agentSelectNative = agentOptions < 2;
+const hiddenNativeBridge = await agentSelect.evaluate((select) => select.hidden && select.tabIndex === -1 && select.getAttribute('aria-hidden') === 'true');
+let providerProxySelection = agentOptions < 2 && await win.locator('#agent-select-control').evaluate((control) => control.classList.contains('hidden'));
 if (agentOptions >= 2) {
-  await agentSelect.focus();
   const before = await agentSelect.inputValue();
-  await win.keyboard.press('ArrowDown');
+  const target = win.locator(`#agent-select-options [role="menuitemradio"]:not([data-agent-id="${before}"])`).first();
+  const targetId = await target.getAttribute('data-agent-id');
+  await target.focus();
+  await win.keyboard.press('Enter');
   await win.waitForTimeout(200); // the real provider-change handler refreshes the deck asynchronously
   state = await displayState();
-  agentSelectNative = state.open && state.focusId === 'agent-select' && await agentSelect.inputValue() !== before;
+  providerProxySelection = !state.open && state.focusId === 'project-display' && await agentSelect.inputValue() === targetId
+    && await win.locator(`#agent-select-options [data-agent-id="${targetId}"]`).getAttribute('aria-checked') === 'true';
 }
+await displayTrigger.focus();
+await win.keyboard.press('Space');
 await win.keyboard.press('Escape');
 state = await displayState();
 const escapeClosed = !state.open && state.focusId === 'project-display';
@@ -158,8 +170,12 @@ ipc.projectDisplay = {
   menuRole: displayModel.menuRole,
   labeledItems: displayModel.labeledItems,
   providerLabel: displayModel.providerLabel,
+  providerGroup: displayModel.providerGroup,
+  hiddenNativeBridge,
+  providerProxySelection,
   showHiddenRole: await displayItem('show-hidden').getAttribute('role') === 'menuitemcheckbox',
   focusOnOpen,
+  rovingFocus,
   arrowDown,
   arrowUp,
   home,
@@ -167,7 +183,6 @@ ipc.projectDisplay = {
   itemActivateCloseFocus,
   itemClickCloseFocus,
   outsideClosed,
-  agentSelectNative,
   escapeClosed,
 };
 ipc.usageShape = await win.evaluate(async () => {
@@ -187,15 +202,26 @@ ipc.errorToast = await (async () => {
 
 ipc.surface = await win.evaluate(() => ({
   openFolder: typeof window.devdeck.openFolder === 'function',
+  noCockpitDestination: document.querySelectorAll('.rail-item[data-view="cockpit"]').length === 0,
   windowControls: !!window.devdeck.windowControls &&
     ['minimize', 'toggleMaximize', 'close', 'isMaximized', 'onMaximizeChange']
       .every((k) => typeof window.devdeck.windowControls[k] === 'function'),
 }));
-ipc.titlebar = await win.evaluate(() => ({
+if (await win.evaluate(() => window.devdeck.windowControls.isMaximized())) await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
+await win.waitForTimeout(150);
+const maximizeLabel = await win.evaluate(() => ({ title: document.getElementById('win-max')?.title, aria: document.getElementById('win-max')?.getAttribute('aria-label') }));
+await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
+await win.waitForTimeout(150);
+const restoreLabel = await win.evaluate(() => ({ title: document.getElementById('win-max')?.title, aria: document.getElementById('win-max')?.getAttribute('aria-label') }));
+await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
+ipc.titlebar = {
+  ...await win.evaluate(() => ({
   logo: !!document.querySelector('.tb-logo'),
   controls: ['win-min', 'win-max', 'win-close'].every((id) => !!document.getElementById(id)),
   closeLabeled: document.getElementById('win-close')?.getAttribute('aria-label') === 'Close',
-}));
+  })),
+  maximizeStates: !!maximizeLabel.title && maximizeLabel.aria === maximizeLabel.title && !!restoreLabel.title && restoreLabel.aria === restoreLabel.title && maximizeLabel.title !== restoreLabel.title,
+};
 
 // --- axe a11y per view (inject axe-core source directly; Electron CDP lacks Target.createTarget) ---
 const a11y = {};
@@ -279,6 +305,19 @@ ipc.memoryDialog = await win.evaluate(() => {
   };
 });
 if (ipc.memoryDialog.present) {
+  const providerButton = win.locator('.pm-modal .provider-open-menu-button');
+  await providerButton.focus();
+  await providerButton.click();
+  await win.waitForSelector('.pm-modal .provider-open-menu:not(.hidden)', { timeout: 3000 }).catch(() => {});
+  await win.keyboard.press('Escape');
+  ipc.memoryDialog.innerEscapePriority = await win.locator('.pm-modal').count() === 1
+    && await win.locator('.pm-modal .provider-open-menu.hidden').count() === 1
+    && await providerButton.evaluate((button) => document.activeElement === button);
+  await providerButton.focus();
+  await win.keyboard.press('Tab');
+  ipc.memoryDialog.forwardTabWrap = await win.locator('.pm-refresh').evaluate((button) => document.activeElement === button);
+  await win.keyboard.press('Shift+Tab');
+  ipc.memoryDialog.reverseTabWrap = await providerButton.evaluate((button) => document.activeElement === button);
   await win.evaluate(axeCore.source);
   const res = await win.evaluate(async () =>
     // eslint-disable-next-line no-undef

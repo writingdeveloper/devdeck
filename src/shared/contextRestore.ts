@@ -16,8 +16,13 @@ function requestedContext(saved: unknown): ShellContext | null {
 export interface ContextRestoreCoordinator {
   immediate(): RestoreDecision;
   projectsLoaded(paths: ReadonlySet<string>): RestoreDecision;
-  sessionsLoaded(ids: ReadonlySet<string>): RestoreDecision;
+  sessionsLoaded(ids: ReadonlySet<string>, aliases?: ReadonlyMap<string, string>): RestoreDecision;
   cancel(): void;
+}
+
+/** A selection/identity callback may synchronize state only while Cockpit is still the active context. */
+export function cockpitIdentityContext(activeView: string, id: string): Extract<ShellContext, { kind: 'session' }> | null {
+  return activeView === 'cockpit' ? { kind: 'session', id } : null;
 }
 
 export function createContextRestoreCoordinator(saved: unknown, cockpitAvailable: boolean): ContextRestoreCoordinator {
@@ -38,9 +43,12 @@ export function createContextRestoreCoordinator(saved: unknown, cockpitAvailable
       if (pending.kind === 'project') return decide(paths.has(pending.path) ? pending : { kind: 'view', id: 'projects' });
       return null;
     },
-    sessionsLoaded(ids) {
+    sessionsLoaded(ids, aliases = new Map()) {
       if (!pending || pending.kind !== 'session') return null;
-      return decide(cockpitAvailable && ids.has(pending.id) ? pending : { kind: 'view', id: 'projects' });
+      const canonical = ids.has(pending.id) ? pending.id : aliases.get(pending.id);
+      return decide(cockpitAvailable && canonical && ids.has(canonical)
+        ? { kind: 'session', id: canonical }
+        : { kind: 'view', id: 'projects' });
     },
     cancel() {
       pending = null;

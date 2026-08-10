@@ -8,6 +8,7 @@ export interface ShellSessionInput {
   activity: ActivityState;
   pinned: boolean;
   previous?: boolean;
+  conversationGone?: boolean;
 }
 
 export interface ShellProjectInput {

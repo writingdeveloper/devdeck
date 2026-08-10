@@ -2,7 +2,7 @@ export type IconName =
   | 'search' | 'projects' | 'sessions' | 'tasks' | 'usage'
   | 'settings' | 'refresh' | 'more' | 'play' | 'panel-left'
   | 'folder' | 'plus' | 'restart' | 'close' | 'pin' | 'edit' | 'brain' | 'clock'
-  | 'trash' | 'chevron-left' | 'chevron-right' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power';
+  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power';
 
 const paths: Record<IconName, string> = {
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>',
@@ -26,6 +26,7 @@ const paths: Record<IconName, string> = {
   trash: '<path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="m6 7 1 14h10l1-14"></path><path d="M10 11v6M14 11v6"></path>',
   'chevron-left': '<path d="m15 18-6-6 6-6"></path>',
   'chevron-right': '<path d="m9 18 6-6-6-6"></path>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"></path>',
   minimize: '<path d="M5 18h14"></path>',
   maximize: '<rect x="5" y="5" width="14" height="14" rx="1"></rect>',
   restore: '<rect x="7" y="7" width="12" height="12" rx="1"></rect><path d="M5 17V5h12"></path>',

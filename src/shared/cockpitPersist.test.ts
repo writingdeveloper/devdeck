@@ -1,35 +1,71 @@
 import { describe, it, expect } from 'vitest';
-import { cockpitNavigationId, cockpitNavigationIdForRuntime, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, persistedSessionKey, removeAutoRestoreMatches, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
 
 describe('cockpit navigation identity', () => {
   it('keeps a live session context addressable after it becomes a persisted session', () => {
-    const live = { projectPath: 'C:/workspace/dev deck', sessionId: 'conversation/42' };
-    const persisted = { projectPath: 'C:/workspace/dev deck', sessionId: 'conversation/42' };
+    const live = { tileId: 'tile-42', projectPath: 'C:/workspace/dev deck', sessionId: 'conversation/42' };
+    const persisted = { tileId: 'tile-42', projectPath: 'C:/workspace/dev deck', sessionId: 'conversation/42' };
 
-    expect(cockpitNavigationId(live)).toBe('previous:C%3A%2Fworkspace%2Fdev%20deck:conversation%2F42');
+    expect(cockpitNavigationId(live)).toBe('tile:tile-42');
     expect(cockpitNavigationId(live)).toBe(cockpitNavigationId(persisted));
   });
 
   it('keeps concurrent id-less live sessions in one project distinct', () => {
-    const first = { projectPath: 'C:/workspace/devdeck', sessionId: null, runtimeId: 'pty-1' };
-    const second = { projectPath: 'C:/workspace/devdeck', sessionId: null, runtimeId: 'pty-2' };
+    const first = { tileId: 'tile-a', projectPath: 'C:/workspace/devdeck', sessionId: null, runtimeId: 'pty-1' };
+    const second = { tileId: 'tile-b', projectPath: 'C:/workspace/devdeck', sessionId: null, runtimeId: 'pty-2' };
 
     expect(cockpitNavigationId(first)).not.toBe(cockpitNavigationId(second));
+    expect(persistedSessionKey(first)).not.toBe(persistedSessionKey(second));
   });
 
   it('resolves a notification runtime ID to the current stable navigation ID', () => {
-    const live = [{ projectPath: 'C:/workspace/devdeck', sessionId: 'conversation-42', runtimeId: 'pty-1' }];
+    const live = [{ tileId: 'tile-42', projectPath: 'C:/workspace/devdeck', sessionId: 'conversation-42', runtimeId: 'pty-1' }];
 
     expect(cockpitNavigationIdForRuntime(live, 'pty-1')).toBe(cockpitNavigationId(live[0]));
   });
 
-  it('rekeys the selected live session when its conversation identity drifts', () => {
-    const live = { projectPath: 'C:/workspace/devdeck', sessionId: 'before-clear', runtimeId: 'pty-1' };
+  it('keeps DOM, focus, and notification identity stable when the conversation drifts', () => {
+    const live = { tileId: 'tile-stable', projectPath: 'C:/workspace/devdeck', sessionId: 'before-clear', runtimeId: 'pty-1' };
     const before = cockpitNavigationId(live);
     live.sessionId = 'after-clear';
 
     expect(cockpitNavigationIdForRuntime([live], 'pty-1')).toBe(cockpitNavigationId(live));
-    expect(cockpitNavigationId(live)).not.toBe(before);
+    expect(cockpitNavigationId(live)).toBe(before);
+  });
+
+  it('migrates two id-less same-project records to unique identities that survive serialization and restart', () => {
+    const generated = ['opaque-a', 'opaque-b'];
+    const migrated = sanitizePersistedList([
+      { projectPath: 'C:/workspace/devdeck', name: 'first', sessionId: null, agentId: 'claude' },
+      { projectPath: 'C:/workspace/devdeck', name: 'second', sessionId: null, agentId: 'claude' },
+    ], () => generated.shift()!);
+
+    expect(migrated.map((entry) => entry.tileId)).toEqual(['opaque-a', 'opaque-b']);
+    expect(new Set(migrated.map(cockpitNavigationId)).size).toBe(2);
+    const restarted = sanitizePersistedList(JSON.parse(JSON.stringify(migrated)), () => {
+      throw new Error('valid persisted identities must not be regenerated');
+    });
+    expect(restarted.map((entry) => entry.tileId)).toEqual(['opaque-a', 'opaque-b']);
+  });
+});
+
+describe('auto-restore de-duplication', () => {
+  const entry = (tileId: string, name: string): PersistedSession => ({
+    tileId, projectPath: 'C:/same', name, sessionId: null, agentId: 'claude', label: null,
+  });
+
+  it('removes exact tile matches without collapsing id-less siblings', () => {
+    expect(removeAutoRestoreMatches(
+      [entry('tile-a', 'first'), entry('tile-b', 'second')],
+      [entry('tile-b', 'second')],
+    ).map((item) => item.tileId)).toEqual(['tile-a']);
+  });
+
+  it('uses a one-for-one legacy fallback for independently migrated old records', () => {
+    expect(removeAutoRestoreMatches(
+      [entry('migrated-a', 'first'), entry('migrated-b', 'second')],
+      [entry('independent-migration', 'second')],
+    )).toHaveLength(1);
   });
 });
 
@@ -42,12 +78,12 @@ describe('sanitizePersistedList', () => {
 
   it('keeps valid provider entries verbatim (label defaults to null)', () => {
     const r = sanitizePersistedList([
-      { projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'antigravity' },
-      { projectPath: 'C:/a/c', name: 'c', sessionId: 's2', agentId: 'codex' },
+      { tileId: 'tile-b', projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'antigravity' },
+      { tileId: 'tile-c', projectPath: 'C:/a/c', name: 'c', sessionId: 's2', agentId: 'codex' },
     ]);
     expect(r).toEqual([
-      { projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'antigravity', label: null },
-      { projectPath: 'C:/a/c', name: 'c', sessionId: 's2', agentId: 'codex', label: null },
+      { tileId: 'tile-b', projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'antigravity', label: null },
+      { tileId: 'tile-c', projectPath: 'C:/a/c', name: 'c', sessionId: 's2', agentId: 'codex', label: null },
     ]);
   });
 
@@ -96,11 +132,11 @@ describe('adoptRestorableMatch', () => {
   // its user-given pin + label must carry over, or a deck-open / ⟳ restart silently erases them
   // (the "핀이 재시작 후 사라짐" bug: state.json still had pinned:true, the open path dropped it).
   const entry = (over: Partial<PersistedSession> = {}): PersistedSession =>
-    ({ projectPath: 'C:/p', name: 'p', sessionId: 's1', agentId: 'claude', label: null, ...over });
+    ({ tileId: 'tile-1', projectPath: 'C:/p', name: 'p', sessionId: 's1', agentId: 'claude', label: null, ...over });
 
   it('inherits pin + label from the consumed entry when the request carries none (deck open)', () => {
     const r = adoptRestorableMatch([entry({ pinned: true, label: 'auth work' })], 's1', { label: null, pinned: false });
-    expect(r).toMatchObject({ label: 'auth work', pinned: true });
+    expect(r).toMatchObject({ tileId: 'tile-1', label: 'auth work', pinned: true });
     expect(r.rest).toEqual([]); // entry consumed
   });
 

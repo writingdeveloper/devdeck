@@ -11,6 +11,19 @@ export interface ProjectRowModel {
   primaryLabelKey: 'common.open';
 }
 
+export type ProjectStateShape = 'diamond' | 'ring' | 'dot' | 'bar' | 'triangle' | 'square' | 'hollow';
+export interface ProjectStatePresentation { labelKey: string; shape: ProjectStateShape; }
+
+export function projectStatePresentation(state: ProjectRowState, noRecord: boolean): ProjectStatePresentation {
+  if (noRecord) return { labelKey: 'proj.state_no_record', shape: 'hollow' };
+  if (state === 'attention') return { labelKey: 'proj.state_attention', shape: 'diamond' };
+  if (state === 'working') return { labelKey: 'proj.state_working', shape: 'ring' };
+  if (state === 'fresh') return { labelKey: 'proj.state_fresh', shape: 'dot' };
+  if (state === 'warn') return { labelKey: 'proj.state_warning', shape: 'triangle' };
+  if (state === 'neglected') return { labelKey: 'proj.state_neglected', shape: 'square' };
+  return { labelKey: 'proj.state_stale', shape: 'bar' };
+}
+
 export function openSelectedPresentation(selectionCount: number): { hidden: boolean; disabled: boolean } {
   const inactive = selectionCount === 0;
   return { hidden: inactive, disabled: inactive };
