@@ -1,5 +1,7 @@
 {
   "proj.new": "New project",
+  "proj.display": "Display",
+  "proj.show_hidden": "Show hidden projects",
   "newproj.title": "Create new project",
   "newproj.location": "Location",
   "newproj.name": "Name",

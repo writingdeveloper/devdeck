@@ -11,6 +11,11 @@ export interface ProjectRowModel {
   primaryLabelKey: 'common.open';
 }
 
+export function openSelectedPresentation(selectionCount: number): { hidden: boolean; disabled: boolean } {
+  const inactive = selectionCount === 0;
+  return { hidden: inactive, disabled: inactive };
+}
+
 /**
  * Distils a dense project record into the information hierarchy used by the
  * command-center row: resume intent first, operational metadata second.

@@ -75,6 +75,35 @@ ipc.providerOpen = await win.evaluate(async (p) => {
     escapeClosed: menuButton?.getAttribute('aria-expanded') === 'false' && !!menu?.classList.contains('hidden'),
   };
 }, root);
+await win.click('.rail-item[data-view="projects"]');
+await win.waitForTimeout(150);
+ipc.projectDisplay = await win.evaluate(() => {
+  const trigger = document.getElementById('project-display');
+  const menu = document.getElementById('project-display-menu');
+  const showHidden = document.getElementById('show-hidden');
+  trigger?.click();
+  const opened = trigger?.getAttribute('aria-expanded') === 'true' && !menu?.classList.contains('hidden');
+  const menuItems = Array.from(menu?.querySelectorAll('[role^="menuitem"]') ?? []);
+  const labeledItems = menuItems.length >= 3 && menuItems.every((item) => !!item.textContent?.trim());
+  const providerLabel = menu?.querySelector('label[for="agent-select"]')?.textContent?.trim() ?? '';
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  const escapeClosed = trigger?.getAttribute('aria-expanded') === 'false' && !!menu?.classList.contains('hidden') && document.activeElement === trigger;
+  trigger?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  const enterOpened = trigger?.getAttribute('aria-expanded') === 'true' && !menu?.classList.contains('hidden');
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  return {
+    trigger: !!trigger,
+    hasPopup: trigger?.getAttribute('aria-haspopup') === 'menu',
+    initialExpanded: trigger?.getAttribute('aria-expanded') === 'false',
+    opened,
+    menuRole: menu?.getAttribute('role') === 'menu',
+    labeledItems,
+    providerLabel: !!providerLabel,
+    showHiddenRole: showHidden?.getAttribute('role') === 'menuitemcheckbox',
+    escapeClosed,
+    enterOpened,
+  };
+});
 ipc.usageShape = await win.evaluate(async () => {
   const r = await window.devdeck.usageReport(0);
   return { hasGlobal: !!r.global, hasByProject: Array.isArray(r.byProject), hasByModel: Array.isArray(r.byModel), hasByProvider: Array.isArray(r.byProvider) && r.byProvider.length === 2 };
@@ -256,9 +285,10 @@ const gitInfoFail = ipc.cockpitGitInfo !== true;
 const dialogFails = Object.entries(ipc.usageDialog ?? {}).filter(([k, v]) => (k === 'sections' ? v !== 3 : v === false));
 const providerOpenFail = !ipc.providerOpen?.root || !ipc.providerOpen.primaryLabel || !ipc.providerOpen.menuLabel ||
   !ipc.providerOpen.menuOpened || ipc.providerOpen.menuItems < 2 || !ipc.providerOpen.escapeClosed;
+const projectDisplayFail = Object.values(ipc.projectDisplay ?? {}).some((value) => value !== true);
 const memoryDialogFail = Object.values(ipc.memoryDialog ?? {}).some((v) => v !== true);
 
-if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0 || providerOpenFail || memoryDialogFail) {
+if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.length > 0 || gitInfoFail || dialogFails.length > 0 || providerOpenFail || projectDisplayFail || memoryDialogFail) {
   console.error('QA FAILED:');
   if (criticalViolations.length > 0) console.error('  a11y critical/serious:', JSON.stringify(criticalViolations, null, 2));
   if (surfaceFails.length > 0) console.error('  ipc.surface checks failed:', surfaceFails.map(([k]) => k).join(', '));
@@ -266,6 +296,7 @@ if (criticalViolations.length > 0 || surfaceFails.length > 0 || titlebarFails.le
   if (gitInfoFail) console.error('  cockpit.gitInfo did not resolve a branch for the repo root:', ipc.cockpitGitInfo, '· raw gitInfo:', JSON.stringify(gitInfoRaw));
   if (dialogFails.length > 0) console.error('  usage dialog checks failed:', JSON.stringify(ipc.usageDialog));
   if (providerOpenFail) console.error('  provider open control missing or unlabeled:', JSON.stringify(ipc.providerOpen));
+  if (projectDisplayFail) console.error('  project Display menu is inaccessible or incomplete:', JSON.stringify(ipc.projectDisplay));
   if (memoryDialogFail) console.error('  project memory dialog checks failed:', JSON.stringify(ipc.memoryDialog));
   process.exit(1);
 }

@@ -61,6 +61,7 @@ describe('locale parity for provider + usage keys', () => {
     'shell.quick_open', 'shell.needs_you', 'shell.working',
     'shell.projects', 'shell.collapse', 'shell.expand',
     'shell.status_attention', 'shell.status_working', 'shell.status_turn', 'shell.status_idle', 'shell.status_exited',
+    'proj.display', 'proj.show_hidden',
   ];
   const DICTS: Record<string, Record<string, string>> = {
     ko: ko as Record<string, string>, en: en as Record<string, string>,

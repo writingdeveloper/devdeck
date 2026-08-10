@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { projectRowModel } from './projectOverview';
+import { openSelectedPresentation, projectRowModel } from './projectOverview';
 import type { ProjectViewModel } from '../shared/types';
 
 describe('projectRowModel', () => {
@@ -41,5 +41,13 @@ describe('projectRowModel', () => {
       state: 'neutral',
       secondary: '',
     });
+  });
+});
+
+describe('openSelectedPresentation', () => {
+  it('hides the selection action until at least one project is selected', () => {
+    expect(openSelectedPresentation(0)).toEqual({ hidden: true, disabled: true });
+    expect(openSelectedPresentation(1)).toEqual({ hidden: false, disabled: false });
+    expect(openSelectedPresentation(3)).toEqual({ hidden: false, disabled: false });
   });
 });

@@ -13,7 +13,7 @@ import type { AgentId } from '../shared/types';
 import { selectedAgent } from './agentSelection';
 import { createProviderOpenControl } from './providerOpenControl';
 import { openProjectMemoryModal } from './projectMemoryModal';
-import { projectRowModel } from './projectOverview';
+import { openSelectedPresentation, projectRowModel } from './projectOverview';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -55,6 +55,8 @@ let searchEl: HTMLInputElement | null = null;
 let sortEl: HTMLSelectElement | null = null;
 let viewCardsBtn: HTMLButtonElement | null = null;
 let viewListBtn: HTMLButtonElement | null = null;
+let displayBtn: HTMLButtonElement;
+let displayMenu: HTMLElement;
 
 function fmtTime(ms: number | null): string {
   if (ms == null) return '—';
@@ -446,10 +448,16 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   return row;
 }
 
-function syncOpenBtn(): void { openBtn.disabled = selected.size === 0; }
+function syncOpenBtn(): void {
+  const presentation = openSelectedPresentation(selected.size);
+  openBtn.disabled = presentation.disabled;
+  openBtn.classList.toggle('hidden', presentation.hidden);
+}
 function syncViewToggle(): void {
   viewCardsBtn?.classList.toggle('active', viewMode === 'cards');
   viewListBtn?.classList.toggle('active', viewMode === 'list');
+  viewCardsBtn?.setAttribute('aria-checked', String(viewMode === 'cards'));
+  viewListBtn?.setAttribute('aria-checked', String(viewMode === 'list'));
 }
 function setView(mode: 'cards' | 'list'): void {
   if (viewMode === mode) return;
@@ -463,6 +471,7 @@ function setView(mode: 'cards' | 'list'): void {
 function render(): void {
   hiddenCountEl.textContent = String(projects.filter((p) => p.hidden).length);
   showHiddenBtn.classList.toggle('active', showHidden);
+  showHiddenBtn.setAttribute('aria-checked', String(showHidden));
   // Computed once per render: drives the card status stripe/badge, the activity-sort
   // priority below, and the reconcile signature (so a live status flip forces a rebuild).
   const act = liveProjectActivity();
@@ -731,7 +740,7 @@ export function focusProject(path: string): void {
 }
 
 function applyProjectLabels(): void {
-  if (!searchEl || !sortEl) return;
+  if (!searchEl || !sortEl || !displayBtn) return;
   searchEl.placeholder = tr('proj.search_ph');
   searchEl.setAttribute('aria-label', tr('proj.search_ph'));
   sortEl.setAttribute('aria-label', tr('proj.sort'));
@@ -739,8 +748,12 @@ function applyProjectLabels(): void {
   sortEl.options[1].text = tr('proj.sort_uncommitted');
   sortEl.options[2].text = tr('proj.sort_name');
   sortEl.options[3].text = tr('proj.sort_opened');
-  if (viewCardsBtn) { viewCardsBtn.title = tr('proj.view_cards'); viewCardsBtn.setAttribute('aria-label', tr('proj.view_cards')); }
-  if (viewListBtn) { viewListBtn.title = tr('proj.view_list'); viewListBtn.setAttribute('aria-label', tr('proj.view_list')); }
+  displayBtn.textContent = tr('proj.display');
+  displayBtn.setAttribute('aria-label', tr('proj.display'));
+  if (displayMenu) displayMenu.setAttribute('aria-label', tr('proj.display'));
+  if (showHiddenBtn.firstChild) showHiddenBtn.firstChild.textContent = tr('proj.show_hidden') + ' ';
+  if (viewCardsBtn) { viewCardsBtn.textContent = tr('proj.view_cards'); viewCardsBtn.setAttribute('aria-label', tr('proj.view_cards')); }
+  if (viewListBtn) { viewListBtn.textContent = tr('proj.view_list'); viewListBtn.setAttribute('aria-label', tr('proj.view_list')); }
 }
 
 export function mountProjects(): void {
@@ -752,11 +765,37 @@ export function mountProjects(): void {
   sortEl = document.getElementById('proj-sort') as HTMLSelectElement;
   viewCardsBtn = document.getElementById('view-cards') as HTMLButtonElement;
   viewListBtn = document.getElementById('view-list') as HTMLButtonElement;
+  displayBtn = document.getElementById('project-display') as HTMLButtonElement;
+  displayMenu = document.getElementById('project-display-menu')!;
+
+  const closeDisplayMenu = (restoreFocus = false): void => {
+    if (!displayMenu || !displayBtn) return;
+    displayMenu.classList.add('hidden');
+    displayBtn.setAttribute('aria-expanded', 'false');
+    if (restoreFocus) displayBtn.focus();
+  };
+  const openDisplayMenu = (): void => {
+    if (!displayMenu || !displayBtn) return;
+    displayMenu.classList.remove('align-end');
+    displayMenu.classList.remove('hidden');
+    if (displayMenu.getBoundingClientRect().right > window.innerWidth) displayMenu.classList.add('align-end');
+    displayBtn.setAttribute('aria-expanded', 'true');
+  };
+  const toggleDisplayMenu = (): void => {
+    if (displayMenu?.classList.contains('hidden')) openDisplayMenu();
+    else closeDisplayMenu(true);
+  };
 
   document.getElementById('refresh')!.addEventListener('click', reload);
-  viewCardsBtn.addEventListener('click', () => setView('cards'));
-  viewListBtn.addEventListener('click', () => setView('list'));
-  showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); });
+  displayBtn.addEventListener('click', (event) => { event.stopPropagation(); toggleDisplayMenu(); });
+  displayBtn.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault(); toggleDisplayMenu();
+  });
+  displayMenu.addEventListener('click', (event) => event.stopPropagation());
+  viewCardsBtn.addEventListener('click', () => { setView('cards'); closeDisplayMenu(); });
+  viewListBtn.addEventListener('click', () => { setView('list'); closeDisplayMenu(); });
+  showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); closeDisplayMenu(); });
   openBtn.addEventListener('click', () => {
     if (selected.size === 0) return;
     openInTerminal(projects.filter((p) => selected.has(p.path)).map((p) => toOpenReq(p)));
@@ -783,13 +822,22 @@ export function mountProjects(): void {
     })) reload();
   }, 15_000);
   document.addEventListener('click', () => {
+    closeDisplayMenu();
     document.querySelectorAll('.menu:not(.hidden)').forEach((m) => {
       m.classList.add('hidden');
       const trigger = m.previousElementSibling as HTMLButtonElement | null;
       if (trigger) trigger.setAttribute('aria-expanded', 'false');
     });
   });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !displayMenu?.classList.contains('hidden')) {
+      event.preventDefault();
+      closeDisplayMenu(true);
+    }
+  });
   applyProjectLabels();
+  syncOpenBtn();
+  syncViewToggle();
   reload();
 }
 

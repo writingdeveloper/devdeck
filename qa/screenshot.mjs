@@ -215,9 +215,11 @@ await win.keyboard.press('Escape').catch(() => {});
 await win.waitForTimeout(200);
 
 // Compact list view toggle (+ GitHub octocat on rows for repos with a github remote)
+await win.click('#project-display');
 await win.click('#view-list').catch(() => {});
 await win.waitForSelector('#cards.as-list .prow', { timeout: 5000 }).catch(() => {});
 await shot('projects-list-view');
+await win.click('#project-display');
 await win.click('#view-cards').catch(() => {});
 await win.waitForTimeout(300);
 
@@ -239,8 +241,42 @@ if (reuse.total > 0 && reuse.survived === 0) {
   process.exit(1);
 }
 
-// Narrow window to check responsive card grid
-await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
+// Narrow window to check responsive card grid. Switch language at desktop width first because the
+// narrow shell deliberately hides its language trigger, then inspect the localized toolbar at 520px.
+const displayMenuGeometry = [];
+for (const target of LANGS) {
+  if (await lang() !== target) {
+    await win.setViewportSize({ width: 1000, height: 720 }).catch(() => {});
+    await win.click('#lang-btn');
+    await win.click(`.lang-menu .menu-item[data-lang="${target}"]`);
+    await win.waitForTimeout(120);
+  }
+  await showView('projects');
+  await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
+  await win.waitForTimeout(180); // wait for the sidebar's width transition before measuring content geometry
+  await win.click('#project-display');
+  const geometry = await win.evaluate(() => {
+    const toolbar = document.querySelector('#view-projects .view-toolbar');
+    const menu = document.getElementById('project-display-menu');
+    const rect = menu?.getBoundingClientRect();
+    return {
+      language: document.documentElement.lang,
+      toolbarOverflow: !!toolbar && toolbar.scrollWidth > toolbar.clientWidth + 1,
+      menuContained: !!rect && rect.left >= 0 && rect.right <= innerWidth + 1,
+      menuOverflow: !!menu && menu.scrollWidth <= menu.clientWidth + 1,
+    };
+  });
+  displayMenuGeometry.push(geometry);
+  await win.keyboard.press('Escape');
+}
+console.log('narrow Display menu geometry:', JSON.stringify(displayMenuGeometry));
+if (displayMenuGeometry.some((entry) => entry.toolbarOverflow || !entry.menuContained || !entry.menuOverflow)) {
+  console.error('QA FAILED — narrow Display controls overflow:', JSON.stringify(displayMenuGeometry));
+  await closeApp(); process.exit(1);
+}
+await win.click('#project-display');
+await shot('projects-display-menu-narrow');
+await win.keyboard.press('Escape');
 await shot('projects-narrow');
 
 // Title bar: maximized state (restore glyph)
@@ -294,6 +330,7 @@ if (!shellRefresh.sameNode || !shellRefresh.focused) {
 // both normal and narrow geometry, and fail if the modal itself overflows horizontally.
 await showView('projects');
 await win.waitForSelector('.project-memory-button', { timeout: 10000 });
+await win.click('#project-display');
 await win.click('#view-list');
 await win.waitForSelector('#cards.as-list .prow', { timeout: 5000 });
 const populatedProjectGeometry = await win.evaluate(() => {

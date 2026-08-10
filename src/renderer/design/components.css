@@ -1,4 +1,6 @@
 .ui-icon { width: 16px; height: 16px; display: block; flex: 0 0 auto; }
+
+.shutdown-menu-item { display: flex; align-items: center; gap: 7px; }
 .ui-button, .ui-icon-button {
   border: 1px solid var(--dd-border-strong); border-radius: var(--dd-radius-sm);
   background: var(--dd-surface); color: var(--dd-text); cursor: pointer;

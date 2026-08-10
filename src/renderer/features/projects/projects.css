@@ -9,6 +9,46 @@
   background: color-mix(in srgb, var(--dd-canvas) 94%, transparent);
 }
 
+#view-projects .project-display-menu {
+  top: calc(100% + 6px);
+  right: auto;
+  left: 0;
+  min-width: min(260px, calc(100vw - 40px));
+}
+
+#view-projects .project-display-menu.align-end { right: 0; left: auto; }
+
+#view-projects .project-display-menu .menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#view-projects .project-display-menu .menu-item.active {
+  color: var(--accent-hover);
+}
+
+#view-projects .display-agent-control {
+  display: grid;
+  gap: 5px;
+  margin: 4px 4px 2px;
+  padding: 7px 4px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+#view-projects .display-agent-control select { min-width: 0; }
+
+@media (max-width: 560px) {
+  #view-projects .view-toolbar { gap: 8px; padding: 8px 12px; }
+  #view-projects #proj-search { flex: 1 1 180px; min-width: 0; }
+  #view-projects #proj-sort { flex: 1 1 132px; min-width: 0; }
+  #view-projects .vt-spacer { display: none; }
+  #view-projects .deck-pulse { margin-right: 0; }
+}
+
 #view-projects #cards.as-list {
   display: block;
   max-width: 1440px;

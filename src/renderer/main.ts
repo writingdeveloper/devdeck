@@ -15,6 +15,7 @@ import { mountUsageBar, refreshUsageBar, rerenderUsageBar } from './usageBar';
 import { mountShutdown, refreshShutdownLabels } from './shutdown';
 import { initializeAgentSelection, setSelectedAgent } from './agentSelection';
 import type { AgentId } from '../shared/types';
+import { createIcon } from './icons';
 
 let shellController: ShellController | null = null;
 let contextRestore: ContextRestoreCoordinator | null = null;
@@ -91,16 +92,17 @@ function applyStaticLabels(): void {
   document.querySelector<HTMLButtonElement>('#open-selected')!.textContent = '▶ ' + tr('app.open_selected');
   document.querySelector<HTMLButtonElement>('#new-project')!.textContent = '+ ' + tr('proj.new');
   const refreshBtn = document.querySelector<HTMLButtonElement>('#refresh')!;
+  refreshBtn.replaceChildren(createIcon('refresh'));
   refreshBtn.title = tr('app.refresh');
   refreshBtn.setAttribute('aria-label', tr('app.refresh'));
   const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next'], ['#lang-btn', 'nav.language']];
   for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) { el.title = tr(key); el.setAttribute('aria-label', tr(key)); } }
   const agentSel = document.getElementById('agent-select');
-  if (agentSel && !agentSel.classList.contains('hidden')) agentSel.setAttribute('aria-label', tr('agent.label'));
+  const agentLabel = document.getElementById('agent-select-label');
+  if (agentSel) agentSel.setAttribute('aria-label', tr('agent.label'));
+  if (agentLabel) agentLabel.textContent = tr('agent.label');
   const chk = document.querySelector('#view-projects .chk');
   if (chk?.lastChild) chk.lastChild.textContent = ' ' + tr('proj.neglected_only');
-  const showHidden = document.getElementById('show-hidden');
-  if (showHidden?.firstChild) showHidden.firstChild.textContent = '🙈 ' + tr('proj.hidden') + ' ';
   const ckSearch = document.getElementById('ck-search') as HTMLInputElement | null;
   if (ckSearch) ckSearch.placeholder = tr('cockpit.search');
   refreshShutdownLabels(); // 🌙 labels are phase-aware — let shutdown.ts re-derive them in the new language
@@ -110,14 +112,21 @@ function applyStaticLabels(): void {
 
 function mountTitlebar(): void {
   const wc = window.devdeck.windowControls;
-  document.getElementById('win-min')!.addEventListener('click', () => void wc.minimize());
-  document.getElementById('win-close')!.addEventListener('click', () => void wc.close());
+  const minBtn = document.getElementById('win-min')!;
+  const closeBtn = document.getElementById('win-close')!;
+  minBtn.replaceChildren(createIcon('minimize'));
+  closeBtn.replaceChildren(createIcon('close'));
+  minBtn.addEventListener('click', () => void wc.minimize());
+  closeBtn.addEventListener('click', () => void wc.close());
   const maxBtn = document.getElementById('win-max')!;
   maxBtn.addEventListener('click', () => void wc.toggleMaximize());
   document.querySelector<HTMLElement>('.tb-drag')!.addEventListener('dblclick', () => void wc.toggleMaximize());
-  const setGlyph = (m: boolean) => { maxBtn.textContent = m ? '❐' : '☐'; maxBtn.title = m ? 'Restore' : 'Maximize'; };
-  wc.onMaximizeChange(setGlyph);
-  void wc.isMaximized().then(setGlyph);
+  const setIcon = (maximized: boolean) => {
+    maxBtn.replaceChildren(createIcon(maximized ? 'restore' : 'maximize'));
+    maxBtn.title = maximized ? 'Restore' : 'Maximize';
+  };
+  wc.onMaximizeChange(setIcon);
+  void wc.isMaximized().then(setIcon);
 }
 
 // Switch the whole UI to `lang`: persist it, swap the active dictionary, then re-render
@@ -282,8 +291,9 @@ async function boot(): Promise<void> {
   shellController.setProjects(currentProjects().filter((item) => !item.hidden).map(({ path, name, branch }) => ({ path, name, branch })));
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
+  const agentControl = document.getElementById('agent-select-control');
   if (agents.length > 1) {
-    agentSel.classList.remove('hidden');
+    agentControl?.classList.remove('hidden');
     agentSel.replaceChildren(...agents.map((a) => {
       const o = document.createElement('option'); o.value = a; o.textContent = tr('agent.' + a); o.selected = a === active; return o;
     }));

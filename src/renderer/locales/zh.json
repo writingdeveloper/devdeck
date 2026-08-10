@@ -1,5 +1,7 @@
 {
   "proj.new": "新建项目",
+  "proj.display": "显示",
+  "proj.show_hidden": "显示已隐藏项目",
   "newproj.title": "新建项目",
   "newproj.location": "位置",
   "newproj.name": "名称",

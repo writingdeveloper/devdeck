@@ -25,14 +25,14 @@
       <div class="tb-drag"></div>
       <div class="top-actions">
         <div class="menu-wrap shutdown-wrap hidden" id="shutdown-wrap">
-          <button id="shutdown-btn" class="iconbtn" title="유휴 시 종료" aria-label="유휴 시 종료" aria-haspopup="menu" aria-expanded="false">🌙</button>
+          <button id="shutdown-btn" class="iconbtn" title="유휴 시 종료" aria-label="유휴 시 종료" aria-haspopup="menu" aria-expanded="false"></button>
         </div>
-        <button id="refresh" class="iconbtn" title="새로고침" aria-label="새로고침">↻</button>
+        <button id="refresh" class="iconbtn" title="새로고침" aria-label="새로고침"></button>
       </div>
       <div class="win-controls">
-        <button id="win-min" class="winbtn" aria-label="Minimize" title="Minimize">─</button>
-        <button id="win-max" class="winbtn" aria-label="Maximize" title="Maximize">☐</button>
-        <button id="win-close" class="winbtn winbtn-close" aria-label="Close" title="Close">✕</button>
+        <button id="win-min" class="winbtn" aria-label="Minimize" title="Minimize"></button>
+        <button id="win-max" class="winbtn" aria-label="Maximize" title="Maximize"></button>
+        <button id="win-close" class="winbtn winbtn-close" aria-label="Close" title="Close"></button>
       </div>
     </header>
     <div id="shell">
@@ -71,7 +71,6 @@
         <section id="view-projects" class="view active">
           <div class="view-toolbar">
             <button id="new-project" class="primary">+ 새 프로젝트</button>
-            <button id="show-hidden" class="chip">🙈 숨김 <span id="hidden-count">0</span></button>
             <input type="text" id="proj-search" placeholder="Search projects…" aria-label="Search projects…" />
             <select id="proj-sort" aria-label="Sort">
               <option value="activity">Activity</option>
@@ -79,11 +78,18 @@
               <option value="name">Name</option>
               <option value="opened">Last opened</option>
             </select>
-            <div class="view-toggle" role="group" aria-label="View mode">
-              <button id="view-cards" class="vtbtn" title="Cards" aria-label="Cards">⊞</button>
-              <button id="view-list" class="vtbtn active" title="List" aria-label="List">☰</button>
+            <div class="menu-wrap project-display-wrap">
+              <button id="project-display" class="chip" type="button" aria-haspopup="menu" aria-expanded="false">Display</button>
+              <div id="project-display-menu" class="menu project-display-menu hidden" role="menu" aria-label="Display">
+                <button id="show-hidden" class="menu-item" type="button" role="menuitemcheckbox" aria-checked="false">Show hidden projects <span id="hidden-count">0</span></button>
+                <button id="view-cards" class="menu-item" type="button" role="menuitemradio" aria-checked="false">Cards</button>
+                <button id="view-list" class="menu-item" type="button" role="menuitemradio" aria-checked="true">List</button>
+                <div id="agent-select-control" class="display-agent-control hidden" role="group" aria-labelledby="agent-select-label">
+                  <label id="agent-select-label" for="agent-select">Default agent for new sessions</label>
+                  <select id="agent-select" aria-label="Agent"></select>
+                </div>
+              </div>
             </div>
-            <select id="agent-select" class="hidden" aria-label="Agent"></select>
             <span class="vt-spacer"></span>
             <span id="deck-pulse" class="deck-pulse"></span>
             <button id="open-selected" class="primary" disabled>▶ 선택 열기</button>

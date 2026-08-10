@@ -1,5 +1,7 @@
 {
   "proj.new": "새 프로젝트",
+  "proj.display": "표시",
+  "proj.show_hidden": "숨긴 프로젝트 표시",
   "newproj.title": "새 프로젝트 만들기",
   "newproj.location": "위치",
   "newproj.name": "이름",
