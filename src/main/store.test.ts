@@ -84,9 +84,9 @@ describe('Store', () => {
     expect(new Store(file).getOpenAtLogin()).toBe(false);
   });
 
-  it('persists viewMode and defaults to cards', () => {
+  it('persists viewMode and defaults to the scan-friendly list', () => {
     const s = new Store(file);
-    expect(s.getViewMode()).toBe('cards');
+    expect(s.getViewMode()).toBe('list');
     s.setViewMode('list');
     expect(new Store(file).getViewMode()).toBe('list');
     s.setViewMode('cards');

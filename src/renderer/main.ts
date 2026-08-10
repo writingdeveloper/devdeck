@@ -1,4 +1,4 @@
-import { mountProjects, renderProjects, reloadProjects } from './projectsView';
+import { currentProjects, focusProject, mountProjects, onProjectsChanged, renderProjects, reloadProjects } from './projectsView';
 import { setCockpitEnabled } from './openRouter';
 import { mountNav } from './nav';
 import { mountShell, type ShellController } from './shell';
@@ -204,10 +204,19 @@ async function boot(): Promise<void> {
     showView: nav.show,
     activeView: nav.active,
     onCollapse: (collapsed) => { setCockpitSidebarCollapsed(collapsed); void window.devdeck.setCockpitSidebar(collapsed); },
-    onProject: () => nav.show('projects'),
+    onProject: (path) => {
+      nav.show('projects');
+      focusProject(path);
+      localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'project', path }));
+    },
     onSession: () => { if (cockpitOn) nav.show('cockpit'); },
   });
   shellController.setCockpitAvailable(cockpitOn);
+  const syncShellProjects = (items: readonly import('../shared/types').ProjectViewModel[]): void => {
+    shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch }) => ({ path, name, branch })));
+  };
+  onProjectsChanged(syncShellProjects);
+  syncShellProjects(currentProjects());
   let saved: unknown = null;
   try { saved = JSON.parse(localStorage.getItem(SHELL_CONTEXT_KEY) ?? 'null'); } catch { localStorage.removeItem(SHELL_CONTEXT_KEY); }
   const restored = restoreShellContext(saved, new Set(), new Set());

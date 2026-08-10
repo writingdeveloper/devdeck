@@ -122,7 +122,7 @@ export class Store {
   getOpenAtLogin(): boolean { return this.state.settings?.openAtLogin ?? false; }
   setOpenAtLogin(openAtLogin: boolean): void { this.state.settings = { ...(this.state.settings ?? {}), openAtLogin }; this.save(); }
 
-  getViewMode(): 'cards' | 'list' { return this.state.settings?.viewMode === 'list' ? 'list' : 'cards'; }
+  getViewMode(): 'cards' | 'list' { return this.state.settings?.viewMode === 'cards' ? 'cards' : 'list'; }
   setViewMode(viewMode: 'cards' | 'list'): void { this.state.settings = { ...(this.state.settings ?? {}), viewMode }; this.save(); }
 
   getCockpitSessions(): PersistedSession[] { return sanitizePersistedList(this.state.settings?.cockpitSessions); }

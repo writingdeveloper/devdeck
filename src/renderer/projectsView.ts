@@ -13,6 +13,7 @@ import type { AgentId } from '../shared/types';
 import { selectedAgent } from './agentSelection';
 import { createProviderOpenControl } from './providerOpenControl';
 import { openProjectMemoryModal } from './projectMemoryModal';
+import { projectRowModel } from './projectOverview';
 
 const AUTO_REFRESH_MS = 45_000;
 
@@ -21,6 +22,8 @@ type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[n
 const selected = new Set<string>();
 const expanded = new Set<string>();
 let projects: ProjectViewModel[] = [];
+const projectListeners = new Set<(items: readonly ProjectViewModel[]) => void>();
+let pendingFocusPath: string | null = null;
 let showHidden = false;
 // Per-project estimated cost, filled asynchronously after the list renders so a
 // (potentially slow) full token scan never blocks the project list.
@@ -36,7 +39,7 @@ let hasRenderedOnce = false;
 type SortMode = 'activity' | 'uncommitted' | 'name' | 'opened';
 let searchQuery = '';
 let sortMode: SortMode = 'activity';
-let viewMode: 'cards' | 'list' = 'cards';
+let viewMode: 'cards' | 'list' = 'list';
 // Toolbar pulse click-to-filter (⚠ attention / ◉ working / 🔴 neglected): '' = no filter,
 // otherwise narrows the deck to that state. The three are mutually exclusive. Like `searchQuery`.
 let deckFilter: '' | 'attention' | 'working' | 'neglected' = '';
@@ -301,6 +304,8 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   const liveCls = live === 'attention' ? ' live-attention' : live === 'working' ? ' live-working' : '';
   card.className = 'card lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '') + liveCls;
   card.setAttribute('role', 'listitem');
+  card.dataset.projectPath = p.path;
+  card.tabIndex = -1;
 
   const headRow = document.createElement('div'); headRow.className = 'card-head';
   const title = document.createElement('span'); title.className = 'card-title'; title.textContent = p.name; title.title = p.name;
@@ -379,10 +384,13 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
 // scanning many projects fast while still surfacing the same live cockpit status as cards.
 function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): HTMLElement {
   const row = document.createElement('div');
+  const model = projectRowModel(p, live, costByPath.get(p.path));
   const noRecord = isNoRecord(p);
   const liveCls = live === 'attention' ? ' live-attention' : live === 'working' ? ' live-working' : '';
   row.className = 'prow lvl-' + p.stale.level + (noRecord ? ' norecord' : '') + (selected.has(p.path) ? ' selected' : '') + liveCls;
   row.setAttribute('role', 'listitem');
+  row.dataset.projectPath = p.path;
+  row.tabIndex = -1;
 
   const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
   check.addEventListener('change', () => {
@@ -403,17 +411,15 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
     sig.setAttribute('aria-hidden', 'true');
   }
 
-  const name = document.createElement('span'); name.className = 'prow-name'; name.textContent = p.name; name.title = p.name;
-  if (p.branch) {
-    const branchEl = document.createElement('small'); branchEl.textContent = p.branch;
-    name.appendChild(branchEl);
-  }
+  const name = document.createElement('span'); name.className = 'prow-name'; name.textContent = model.headline; name.title = model.headline;
+  const branchEl = document.createElement('small'); branchEl.textContent = model.branchLine;
+  name.appendChild(branchEl);
 
   // Resume cue: only the harvested cue (not the card's session-first-message fallback) —
   // a list row is a scan surface, not a substitute for opening the card/cockpit.
   const cue = document.createElement('span'); cue.className = 'prow-cue';
-  cue.textContent = p.resumeCue?.text ?? '';
-  if (p.resumeCue?.text) cue.title = p.resumeCue.text;
+  cue.textContent = model.cue;
+  if (model.cue) cue.title = model.cue;
 
   const git = document.createElement('span'); git.className = 'prow-git';
   let gitText = '';
@@ -426,7 +432,7 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   // stat) — show just the session count here rather than inventing a number.
   const sess = document.createElement('span'); sess.className = 'prow-sess';
   if (p.agentIds.length) sess.appendChild(providerMarks(p)); // which agent(s) wrote this project's history
-  const sessN = document.createElement('span'); sessN.textContent = p.sessionCount ? String(p.sessionCount) : '—';
+  const sessN = document.createElement('span'); sessN.textContent = model.secondary || '—';
   sess.appendChild(sessN);
 
   const actions = document.createElement('span'); actions.className = 'prow-actions';
@@ -577,6 +583,17 @@ function render(): void {
   for (const key of remove) cardCache.delete(key);
 
   reconcileChildren(cardsEl, orderedEls);
+  focusPendingProject();
+}
+
+function focusPendingProject(): void {
+  if (!pendingFocusPath) return;
+  const target = Array.from(cardsEl.querySelectorAll<HTMLElement>('[data-project-path]'))
+    .find((item) => item.dataset.projectPath === pendingFocusPath);
+  if (!target) return;
+  pendingFocusPath = null;
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  target.focus({ preventScroll: true });
 }
 
 function uiStateFor(p: ProjectViewModel, act: Map<string, 'attention' | 'working'>): SignatureUiState {
@@ -664,7 +681,8 @@ async function reload(): Promise<void> {
     return;
   }
   projects = proj;
-  viewMode = settings.viewMode === 'list' ? 'list' : 'cards';
+  viewMode = settings.viewMode === 'cards' ? 'cards' : 'list';
+  for (const listener of projectListeners) listener([...projects]);
   syncViewToggle();
   render();
   hasRenderedOnce = true;
@@ -688,6 +706,29 @@ async function reload(): Promise<void> {
 // External triggers (agent switch, settings change) should rebuild from scratch: the agent
 // label and locale-baked card text aren't in the signature, so drop the cache to force it.
 export function reloadProjects(): void { cardCache.clear(); reload(); }
+
+export function currentProjects(): readonly ProjectViewModel[] { return [...projects]; }
+
+export function onProjectsChanged(listener: (items: readonly ProjectViewModel[]) => void): () => void {
+  projectListeners.add(listener);
+  return () => projectListeners.delete(listener);
+}
+
+export function focusProject(path: string): void {
+  const project = projects.find((item) => item.path === path);
+  if (!project) { pendingFocusPath = path; return; }
+  searchQuery = '';
+  if (searchEl) searchEl.value = '';
+  deckFilter = '';
+  if (project.hidden) showHidden = true;
+  selected.clear();
+  selected.add(path);
+  pendingFocusPath = path;
+  cardCache.clear();
+  syncOpenBtn();
+  renderDeckPulse(lastPulseCost);
+  render();
+}
 
 function applyProjectLabels(): void {
   if (!searchEl || !sortEl) return;
