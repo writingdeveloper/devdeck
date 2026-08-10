@@ -10,9 +10,25 @@ export interface PersistedSession {
   pinned?: boolean;         // user pinned this session to the top group (absent = not pinned)
 }
 
-/** Stable shared-shell address for a Cockpit conversation, before and after restart. */
-export function cockpitNavigationId(entry: Pick<PersistedSession, 'projectPath' | 'sessionId'>): string {
-  return `previous:${encodeURIComponent(entry.projectPath)}:${encodeURIComponent(entry.sessionId ?? '')}`;
+/** Identity available at the Cockpit navigation boundary. Runtime IDs distinguish id-less live tiles. */
+export interface CockpitNavigationIdentity {
+  projectPath: string;
+  sessionId: string | null;
+  runtimeId?: string;
+}
+
+/** Stable shared-shell address for a Cockpit conversation, before and after restart when it has a conversation ID. */
+export function cockpitNavigationId(entry: CockpitNavigationIdentity): string {
+  const path = encodeURIComponent(entry.projectPath);
+  if (entry.sessionId) return `previous:${path}:${encodeURIComponent(entry.sessionId)}`;
+  if (entry.runtimeId) return `live:${path}:${encodeURIComponent(entry.runtimeId)}`;
+  return `previous:${path}:`;
+}
+
+/** Translate the runtime ID carried by a notification into the shell's current navigation identity. */
+export function cockpitNavigationIdForRuntime(entries: readonly CockpitNavigationIdentity[], runtimeId: string): string | null {
+  const entry = entries.find((item) => item.runtimeId === runtimeId);
+  return entry ? cockpitNavigationId(entry) : null;
 }
 
 const MAX_PERSISTED = 50;

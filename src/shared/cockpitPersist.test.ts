@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cockpitNavigationId, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
 
 describe('cockpit navigation identity', () => {
   it('keeps a live session context addressable after it becomes a persisted session', () => {
@@ -8,6 +8,28 @@ describe('cockpit navigation identity', () => {
 
     expect(cockpitNavigationId(live)).toBe('previous:C%3A%2Fworkspace%2Fdev%20deck:conversation%2F42');
     expect(cockpitNavigationId(live)).toBe(cockpitNavigationId(persisted));
+  });
+
+  it('keeps concurrent id-less live sessions in one project distinct', () => {
+    const first = { projectPath: 'C:/workspace/devdeck', sessionId: null, runtimeId: 'pty-1' };
+    const second = { projectPath: 'C:/workspace/devdeck', sessionId: null, runtimeId: 'pty-2' };
+
+    expect(cockpitNavigationId(first)).not.toBe(cockpitNavigationId(second));
+  });
+
+  it('resolves a notification runtime ID to the current stable navigation ID', () => {
+    const live = [{ projectPath: 'C:/workspace/devdeck', sessionId: 'conversation-42', runtimeId: 'pty-1' }];
+
+    expect(cockpitNavigationIdForRuntime(live, 'pty-1')).toBe(cockpitNavigationId(live[0]));
+  });
+
+  it('rekeys the selected live session when its conversation identity drifts', () => {
+    const live = { projectPath: 'C:/workspace/devdeck', sessionId: 'before-clear', runtimeId: 'pty-1' };
+    const before = cockpitNavigationId(live);
+    live.sessionId = 'after-clear';
+
+    expect(cockpitNavigationIdForRuntime([live], 'pty-1')).toBe(cockpitNavigationId(live));
+    expect(cockpitNavigationId(live)).not.toBe(before);
   });
 });
 

@@ -9,7 +9,7 @@ import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
-import { cockpitNavigationId, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import { toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
@@ -245,6 +245,14 @@ export function liveSessionsForPersist(): PersistedSession[] {
 /** How many cockpit sessions are live right now (for the update-restart button label). */
 export function liveSessionCount(): number { return live.size; }
 
+function navigationIdentity(liveSession: Live): { projectPath: string; sessionId: string | null; runtimeId: string } {
+  return { projectPath: liveSession.session.projectPath, sessionId: liveSession.openedSessionId, runtimeId: liveSession.session.id };
+}
+
+function navigationIdForLive(liveSession: Live): string {
+  return cockpitNavigationId(navigationIdentity(liveSession));
+}
+
 export function cockpitNavigationItems(): ShellSessionInput[] {
   const liveItems = [...live.values()];
   const liveConversationIds = new Set(liveItems.map((item) => item.openedSessionId).filter((id): id is string => !!id));
@@ -259,7 +267,7 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
     const detailBits = [session.branch ?? '—', providerName(session.agentId)];
     const context = contextPercent(item.meta?.contextTokens ?? 0, windowFor(item.meta));
     if (context != null) detailBits.push(`${context}%`);
-    return sessionNavigationItem({ ...session, id: cockpitNavigationId({ projectPath: session.projectPath, sessionId: item.openedSessionId }) }, labels[index], detailBits.join(' · '), item.pinned);
+    return sessionNavigationItem({ ...session, id: navigationIdForLive(item) }, labels[index], detailBits.join(' · '), item.pinned);
   });
   const previous = previousItems.map((entry, index): ShellSessionInput => ({
     id: cockpitNavigationId(entry),
@@ -308,7 +316,7 @@ function publishCockpitNavigation(): void {
 }
 
 export function activateCockpitSession(id: string): void {
-  const current = [...live.values()].find((entry) => cockpitNavigationId({ projectPath: entry.session.projectPath, sessionId: entry.openedSessionId }) === id);
+  const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
   if (current) { select(current.session.id); return; }
   const previous = restorable.find((entry) => cockpitNavigationId(entry) === id);
   if (previous) void restoreSession(previous);
@@ -524,6 +532,8 @@ async function refreshSessionId(id: string): Promise<void> {
   if (!next || next === l.openedSessionId || !live.has(id)) return; // tile may have closed mid-await
   l.openedSessionId = next;
   persist(); // the drifted id is exactly what a quit would have frozen — save the corrected one now
+  publishCockpitNavigation();
+  if (selectedId === id) publishSessionSelection(l);
   void refreshMeta(id); // model/context % must now read the NEW conversation, not the stale file
 }
 
@@ -542,6 +552,8 @@ async function refreshProvider(id: string): Promise<void> {
   l.openedSessionId = null;
   l.meta = null;
   persist();
+  publishCockpitNavigation();
+  if (selectedId === id) publishSessionSelection(l);
   if (selectedId === id) setActiveUsageProvider(actual); // the footer must follow the tile's REAL provider
   if (!editingId) renderList();
   renderHeader();
@@ -577,10 +589,7 @@ function select(id: string): void {
   if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
   selectedId = id;
   const selected = live.get(id);
-  if (selected) {
-    const navigationId = cockpitNavigationId({ projectPath: selected.session.projectPath, sessionId: selected.openedSessionId });
-    for (const listener of sessionSelectionListeners) listener(navigationId);
-  }
+  if (selected) publishSessionSelection(selected);
   // The always-on usage footer reports the provider of the session you're working in — hand it over
   // on every selection change (a Claude tile must not be captioned with Codex's percentage).
   setActiveUsageProvider(live.get(id)?.session.agentId ?? null);
@@ -875,9 +884,15 @@ function notifyAttention(l: Live): void {
     const n = new Notification(name, { body: tr('cockpit.notify_attention'), tag: `devdeck-attn-${l.session.id}` });
     n.onclick = () => {
       void window.devdeck.windowControls.show();
-      cockpitNavigationCallback?.(l.session.id);
+      const target = cockpitNavigationIdForRuntime([...live.values()].map(navigationIdentity), l.session.id);
+      if (target) cockpitNavigationCallback?.(target);
     };
   } catch { /* notifications unavailable (rare) — the tray dot still alerts */ }
+}
+
+function publishSessionSelection(liveSession: Live): void {
+  const navigationId = navigationIdForLive(liveSession);
+  for (const listener of sessionSelectionListeners) listener(navigationId);
 }
 
 function updateRailBadge(): void {
