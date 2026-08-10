@@ -1,0 +1,42 @@
+@font-face {
+  font-family: "Geist";
+  src: url("../assets/geist-latin-wght-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+  --dd-canvas: #0a0a0a;
+  --dd-sidebar: #171717;
+  --dd-surface: #1d1d1d;
+  --dd-surface-raised: #242424;
+  --dd-surface-selected: #2d2d2d;
+  --dd-border: rgb(255 255 255 / 0.075);
+  --dd-border-strong: rgb(255 255 255 / 0.14);
+  --dd-text: #f5f5f5;
+  --dd-text-muted: #a3a3a3;
+  --dd-text-faint: #7c7c7c;
+  --dd-attention: #f0b44d;
+  --dd-working: #7c9cff;
+  --dd-success: #52d49a;
+  --dd-destructive: #ff716a;
+  --dd-focus: #9ab3ff;
+  --dd-font-sans: "Geist", "Segoe UI", system-ui, sans-serif;
+  --dd-font-mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --dd-fs-meta: 11px;
+  --dd-fs-body: 12.5px;
+  --dd-fs-row: 14px;
+  --dd-fs-title: 16px;
+  --dd-fs-view: 20px;
+  --dd-space-1: 4px;
+  --dd-space-2: 8px;
+  --dd-space-3: 12px;
+  --dd-space-4: 16px;
+  --dd-space-6: 24px;
+  --dd-radius-sm: 6px;
+  --dd-radius-md: 8px;
+  --dd-radius-lg: 10px;
+  --dd-motion-fast: 120ms;
+}

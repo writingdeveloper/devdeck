@@ -26,7 +26,7 @@
   outline-offset: 2px;
 }
 body {
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--dd-font-sans);
   margin: 0; background: var(--bg); color: var(--text);
   font-size: 13px;
   display: flex; flex-direction: column; height: 100vh; overflow: hidden;
