@@ -26,6 +26,9 @@ export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; b
 
 const live = new Map<string, Live>();
 const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
+const sessionSelectionListeners = new Set<(id: string) => void>();
+const sessionsLoadedListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
+let cockpitNavigationCallback: ((id?: string) => void) | null = null;
 let lastNavigationSignature = '';
 let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
 let restorableLoaded = false; // guard: don't persist (and clobber the on-disk list) until the initial load resolves
@@ -143,14 +146,14 @@ export function mountCockpit(): void {
   // then persist once to capture any such session in the correct union.
   window.devdeck.cockpit.loadSessions()
     .then(async (list) => {
-      restorable = sanitizePersistedList(list); restorableLoaded = true; renderList(); if (live.size > 0) persist();
+      restorable = sanitizePersistedList(list); restorableLoaded = true; renderList(); publishSessionsLoaded(); if (live.size > 0) persist();
       void refreshMissingConversations(); // mark entries whose conversation is gone before they're clicked
       // Seamless update: if this launch is the relaunch after an update, auto-restore the sessions that
       // were live at restart (consume clears the marker so a later normal launch won't re-trigger).
       const pending = await window.devdeck.consumeAutoRestore().catch(() => [] as PersistedSession[]);
       if (pending.length) await autoRestoreAfterUpdate(pending);
     })
-    .catch(() => { restorableLoaded = true; });
+    .catch(() => { restorableLoaded = true; publishSessionsLoaded(); });
 }
 
 /** After an update relaunch, re-open the sessions that were live — each resolving to its project's
@@ -280,6 +283,26 @@ export function onCockpitNavigationChange(listener: (items: readonly ShellSessio
   return () => navigationListeners.delete(listener);
 }
 
+export function onCockpitSessionsLoaded(listener: (items: readonly ShellSessionInput[]) => void): () => void {
+  sessionsLoadedListeners.add(listener);
+  if (restorableLoaded) listener(cockpitNavigationItems());
+  return () => sessionsLoadedListeners.delete(listener);
+}
+
+export function onCockpitSessionSelected(listener: (id: string) => void): () => void {
+  sessionSelectionListeners.add(listener);
+  return () => sessionSelectionListeners.delete(listener);
+}
+
+export function setCockpitNavigationCallback(callback: (id?: string) => void): void {
+  cockpitNavigationCallback = callback;
+}
+
+function publishSessionsLoaded(): void {
+  const items = cockpitNavigationItems();
+  for (const listener of sessionsLoadedListeners) listener(items);
+}
+
 function publishCockpitNavigation(): void {
   const items = cockpitNavigationItems();
   const signature = JSON.stringify(items);
@@ -344,7 +367,7 @@ async function duplicateTileFor(p: OpenReq): Promise<string | null> {
 
 /** Called by Projects "open": switch to the cockpit FIRST (so terminals fit a visible pane), then create a session per project. */
 export async function openProjectsInCockpit(projects: OpenReq[]): Promise<void> {
-  document.querySelector<HTMLButtonElement>('.rail-item[data-view="cockpit"]')!.click();
+  cockpitNavigationCallback?.();
   for (const p of projects) {
     const dup = await duplicateTileFor(p);
     if (dup) {
@@ -556,6 +579,7 @@ function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of l
 function select(id: string): void {
   if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
   selectedId = id;
+  for (const listener of sessionSelectionListeners) listener(id);
   // The always-on usage footer reports the provider of the session you're working in — hand it over
   // on every selection change (a Claude tile must not be captioned with Codex's percentage).
   setActiveUsageProvider(live.get(id)?.session.agentId ?? null);
@@ -850,8 +874,7 @@ function notifyAttention(l: Live): void {
     const n = new Notification(name, { body: tr('cockpit.notify_attention'), tag: `devdeck-attn-${l.session.id}` });
     n.onclick = () => {
       void window.devdeck.windowControls.show();
-      document.querySelector<HTMLButtonElement>('.rail-item[data-view="cockpit"]')?.click();
-      if (live.has(l.session.id)) select(l.session.id);
+      cockpitNavigationCallback?.(l.session.id);
     };
   } catch { /* notifications unavailable (rare) — the tray dot still alerts */ }
 }

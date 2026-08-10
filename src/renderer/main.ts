@@ -2,12 +2,12 @@ import { currentProjects, focusProject, mountProjects, onProjectsChanged, render
 import { setCockpitEnabled } from './openRouter';
 import { mountNav } from './nav';
 import { mountShell, type ShellController } from './shell';
-import { restoreShellContext } from '../shared/shellNavigation';
+import { createContextRestoreCoordinator, type ContextRestoreCoordinator } from '../shared/contextRestore';
 import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { activateCockpitSession, cockpitNavigationItems, mountCockpit, onCockpitNavigationChange, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, cockpitNavigationItems, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -17,6 +17,7 @@ import { initializeAgentSelection, setSelectedAgent } from './agentSelection';
 import type { AgentId } from '../shared/types';
 
 let shellController: ShellController | null = null;
+let contextRestore: ContextRestoreCoordinator | null = null;
 const SHELL_CONTEXT_KEY = 'devdeck:shell-context:v1';
 
 function isShellSessionFixture(value: unknown): value is ShellSessionInput[] {
@@ -92,7 +93,7 @@ function applyStaticLabels(): void {
   const refreshBtn = document.querySelector<HTMLButtonElement>('#refresh')!;
   refreshBtn.title = tr('app.refresh');
   refreshBtn.setAttribute('aria-label', tr('app.refresh'));
-  const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next'], ['[data-view="cockpit"]', 'nav.cockpit'], ['#lang-btn', 'nav.language']];
+  const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next'], ['#lang-btn', 'nav.language']];
   for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) { el.title = tr(key); el.setAttribute('aria-label', tr(key)); } }
   const agentSel = document.getElementById('agent-select');
   if (agentSel && !agentSel.classList.contains('hidden')) agentSel.setAttribute('aria-label', tr('agent.label'));
@@ -209,6 +210,9 @@ async function boot(): Promise<void> {
   if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); setCockpitTrayAlert(settings.trayAlert); setCockpitSidebarCollapsed(settings.cockpitSidebarCollapsed); setCockpitSessionSummary(settings.sessionSummary); setCockpitAiSummary(settings.aiSessionSummary); }
   const nav = mountNav((view) => {
     if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit();
+    shellController?.setActiveProject(null);
+    shellController?.setActiveSession(null);
+    contextRestore?.cancel();
     if (view !== 'cockpit') localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'view', id: view }));
   });
   shellController = mountShell({
@@ -217,15 +221,15 @@ async function boot(): Promise<void> {
     activeView: nav.active,
     onCollapse: (collapsed) => { setCockpitSidebarCollapsed(collapsed); void window.devdeck.setCockpitSidebar(collapsed); },
     onProject: (path) => {
-      shellController?.setActiveProject(path);
       nav.show('projects');
+      shellController?.setActiveProject(path);
       focusProject(path);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'project', path }));
     },
     onSession: (id) => {
       if (!cockpitOn) return;
-      shellController?.setActiveSession(id);
       nav.show('cockpit');
+      shellController?.setActiveSession(id);
       activateCockpitSession(id);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
     },
@@ -239,42 +243,42 @@ async function boot(): Promise<void> {
   shellController.setCockpitAvailable(cockpitOn);
   let savedContext: unknown = null;
   try { savedContext = JSON.parse(localStorage.getItem(SHELL_CONTEXT_KEY) ?? 'null'); } catch { localStorage.removeItem(SHELL_CONTEXT_KEY); }
-  let pendingContext: unknown = savedContext;
-  let availableProjectPaths = new Set<string>();
-  let availableSessionIds = new Set<string>();
-  const attemptContextRestore = (): void => {
-    if (pendingContext == null) return;
-    const restored = restoreShellContext(pendingContext, availableProjectPaths, availableSessionIds);
-    const requestedKind = typeof pendingContext === 'object' && pendingContext !== null && 'kind' in pendingContext
-      ? (pendingContext as { kind?: unknown }).kind : null;
-    if (requestedKind === 'project' && restored.kind === 'project') {
-      shellController?.setActiveProject(restored.path); nav.show('projects'); focusProject(restored.path);
-      localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(restored)); pendingContext = null;
-    } else if (requestedKind === 'session' && restored.kind === 'session' && cockpitOn) {
-      shellController?.setActiveSession(restored.id); nav.show('cockpit'); activateCockpitSession(restored.id);
-      localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(restored)); pendingContext = null;
-    } else if (requestedKind === 'view' && restored.kind === 'view') {
-      nav.show(restored.id); pendingContext = null;
-    } else if (requestedKind === 'session' && !cockpitOn) {
-      nav.show('projects'); pendingContext = null;
+  contextRestore = createContextRestoreCoordinator(savedContext, cockpitOn);
+  const applyRestore = (restored: import('../shared/shellNavigation').ShellContext | null): void => {
+    if (!restored) return;
+    if (restored.kind === 'project') {
+      nav.show('projects'); shellController?.setActiveProject(restored.path); focusProject(restored.path);
+    } else if (restored.kind === 'session') {
+      nav.show('cockpit'); shellController?.setActiveSession(restored.id); activateCockpitSession(restored.id);
+    } else {
+      nav.show(restored.id);
     }
+    localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(restored));
   };
+  setCockpitNavigationCallback((id) => {
+    nav.show('cockpit');
+    if (id) { shellController?.setActiveSession(id); activateCockpitSession(id); }
+  });
+  onCockpitSessionSelected((id) => {
+    nav.show('cockpit');
+    shellController?.setActiveSession(id);
+    localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
+  });
   if (cockpitOn) {
     onCockpitNavigationChange((items) => {
       shellController?.setSessionGroups([...items]);
-      availableSessionIds = new Set(items.map((item) => item.id));
-      attemptContextRestore();
     });
     shellController.setSessionGroups(cockpitNavigationItems());
+    onCockpitSessionsLoaded((items) => applyRestore(contextRestore?.sessionsLoaded(new Set(items.map((item) => item.id))) ?? null));
+  } else {
+    applyRestore(contextRestore.sessionsLoaded(new Set()));
   }
   const syncShellProjects = (items: readonly import('../shared/types').ProjectViewModel[]): void => {
     shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch }) => ({ path, name, branch })));
-    availableProjectPaths = new Set(items.map((item) => item.path));
-    attemptContextRestore();
+    applyRestore(contextRestore?.projectsLoaded(new Set(items.map((item) => item.path))) ?? null);
   };
   onProjectsChanged(syncShellProjects);
-  syncShellProjects(currentProjects());
-  attemptContextRestore();
+  shellController.setProjects(currentProjects().filter((item) => !item.hidden).map(({ path, name, branch }) => ({ path, name, branch })));
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
   if (agents.length > 1) {

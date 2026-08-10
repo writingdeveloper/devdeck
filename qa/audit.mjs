@@ -5,7 +5,6 @@ import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { auditableViews } from './audit-views.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const out = join(root, 'qa', 'shots');
@@ -123,16 +122,23 @@ const localUsageReport = {
       byProject: [{ path: 'C:/qa/app', name: 'qa-app', sessions: 1, totals: { input: 200, output: 60, cacheWrite: 0, cacheRead: 80 }, costEstimate: 1.5, hasUnknownModel: false, activeMs: 600000, status: 'active', providerCosts: { codex: 1.5 } }], daily: [] },
   ],
 };
-// next + cockpit included — the two newest, most dynamic views were previously never axe-checked.
-// Cockpit stays in the DOM but is hidden when its Windows-only native binding is unavailable, so
-// audit only navigation items that Playwright can actually present on the current platform.
-const viewCandidates = ['projects', 'usage', 'settings', 'next', 'cockpit'];
+// Cockpit is internal: audit it only through a shared-shell session route when the Windows-only
+// implementation is available. The other views retain their rail destinations.
+const viewCandidates = ['projects', 'usage', 'settings', 'next'];
 const viewStates = await Promise.all(viewCandidates.map(async (view) => ({
   view,
+  selector: `.rail-item[data-view="${view}"]`,
   visible: await win.locator(`.rail-item[data-view="${view}"]`).isVisible().catch(() => false),
 })));
-for (const view of auditableViews(viewStates)) {
-  await win.click(`.rail-item[data-view="${view}"]`);
+const cockpitAvailable = await win.evaluate(() => !document.getElementById('shell-session-section')?.classList.contains('hidden'));
+if (cockpitAvailable) {
+  await win.evaluate(() => document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
+    { id: 'qa-audit-cockpit', projectPath: 'C:/qa/cockpit', label: 'QA Cockpit route', detail: 'main · Claude', activity: 'idle', pinned: false },
+  ] })));
+  viewStates.push({ view: 'cockpit', selector: '#shell-session-groups .shell-session', visible: await win.locator('#shell-session-groups .shell-session').first().isVisible().catch(() => false) });
+}
+for (const { view, selector } of viewStates.filter(({ visible }) => visible)) {
+  await win.click(selector);
   await win.waitForTimeout(600);
   if (view === 'usage') {
     await win.evaluate((report) => document.dispatchEvent(new CustomEvent('devdeck:local-usage-report', { detail: report })), localUsageReport);

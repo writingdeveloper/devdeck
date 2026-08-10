@@ -40,6 +40,13 @@ async function showView(v) {
   await win.click(`.rail-item[data-view="${v}"]`);
   await win.waitForTimeout(300);
 }
+async function showCockpitViaSession() {
+  const session = win.locator('#shell-session-groups .shell-session').first();
+  if (!await session.isVisible().catch(() => false)) return false;
+  await session.click();
+  await win.waitForTimeout(300);
+  return true;
+}
 
 // Deterministic local-history fixture. Real home-directory logs vary between machines, so the Usage
 // page receives a representative combined report through its renderer QA seam.
@@ -386,8 +393,16 @@ await win.click('#view-next .cal-cell.today').catch(() => {});
 await shot('next-calendar');
 await win.click('#view-next .tk-vt:nth-child(1)').catch(() => {}); // back to list for later scenes
 
-// Cockpit view: navigate and capture the empty state (no PTY spawned in the harness)
-await showView('cockpit');
+// Cockpit is an internal route: enter through the real shared-shell session path when its Windows
+// implementation is available, and skip the platform-specific checks elsewhere.
+const cockpitAvailable = await win.evaluate(() => !document.getElementById('shell-session-section')?.classList.contains('hidden'));
+if (cockpitAvailable) {
+await win.evaluate(() => {
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
+    { id: 'qa-cockpit-route', projectPath: 'C:/qa/route', label: 'QA Cockpit route', detail: 'main · Claude', activity: 'idle', pinned: false },
+  ] }));
+});
+await showCockpitViaSession();
 await win.waitForSelector('#ck-empty', { timeout: 5000 }).catch(() => {});
 await shot('cockpit');
 
@@ -405,13 +420,10 @@ if (ckFill.ratio < 0.8) {
   process.exit(1);
 }
 
-const badgeHidden = await win.evaluate(() => {
-  const b = document.getElementById('ck-badge');
-  return !b || b.classList.contains('hidden');
-});
-console.log(`cockpit badge hidden at zero needs-you: ${badgeHidden}`);
-if (!badgeHidden) {
-  console.error('QA FAILED — rail badge visible with no needs-you sessions');
+const cockpitDestinationAbsent = await win.evaluate(() => !document.querySelector('.rail-item[data-view="cockpit"]'));
+console.log(`cockpit has no standalone rail destination: ${cockpitDestinationAbsent}`);
+if (!cockpitDestinationAbsent) {
+  console.error('QA FAILED — Cockpit remains a standalone rail destination');
   await closeApp();
   process.exit(1);
 }
@@ -494,7 +506,7 @@ if (!tooltip.focused || !tooltip.labelled) {
   await closeApp();
   process.exit(1);
 }
-await win.evaluate(() => { document.getElementById('shell-session-groups').innerHTML = ''; });
+}
 
 // Usage bar fill — regression guard for the inline-span bug where the fill (width/height
 // ignored on an inline box) rendered empty. window.devdeck is a frozen contextBridge object
@@ -574,7 +586,7 @@ const geometry = () => win.evaluate(() => {
   return { shell: r('#shell'), content: r('#content'), terms: r('.ck-terms'), xterm: r('.xterm'), footer: r('#usage-bar') };
 });
 
-await showView('cockpit');
+if (cockpitAvailable) await showCockpitViaSession();
 const beforeGeo = await geometry();
 const modal = await win.evaluate(async (snapshot) => {
   document.dispatchEvent(new CustomEvent('devdeck:usage-open', { detail: { snapshot } }));
