@@ -207,13 +207,16 @@ ipc.surface = await win.evaluate(() => ({
     ['minimize', 'toggleMaximize', 'close', 'isMaximized', 'onMaximizeChange']
       .every((k) => typeof window.devdeck.windowControls[k] === 'function'),
 }));
-if (await win.evaluate(() => window.devdeck.windowControls.isMaximized())) await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
-await win.waitForTimeout(150);
+// xvfb-run provides a display but no window manager, so BrowserWindow.maximize() may never change
+// state or emit `maximize` on Linux CI. Drive Electron's real main -> preload -> renderer event path
+// directly; the IPC methods themselves are covered by `ipc.surface.windowControls` above.
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('unmaximize'));
+await win.waitForTimeout(50);
 const maximizeLabel = await win.evaluate(() => ({ title: document.getElementById('win-max')?.title, aria: document.getElementById('win-max')?.getAttribute('aria-label') }));
-await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
-await win.waitForTimeout(150);
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('maximize'));
+await win.waitForTimeout(50);
 const restoreLabel = await win.evaluate(() => ({ title: document.getElementById('win-max')?.title, aria: document.getElementById('win-max')?.getAttribute('aria-label') }));
-await win.evaluate(() => window.devdeck.windowControls.toggleMaximize());
+await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].emit('unmaximize'));
 ipc.titlebar = {
   ...await win.evaluate(() => ({
   logo: !!document.querySelector('.tb-logo'),
