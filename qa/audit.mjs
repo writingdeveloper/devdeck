@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { auditableViews } from './audit-views.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const out = join(root, 'qa', 'shots');
@@ -123,10 +124,14 @@ const localUsageReport = {
   ],
 };
 // next + cockpit included — the two newest, most dynamic views were previously never axe-checked.
-// cockpit's rail item only exists on win32, so absent views are skipped (CI runs this on Linux).
-for (const view of ['projects', 'usage', 'settings', 'next', 'cockpit']) {
-  const present = await win.evaluate((v) => !!document.querySelector(`.rail-item[data-view="${v}"]`), view);
-  if (!present) continue;
+// Cockpit stays in the DOM but is hidden when its Windows-only native binding is unavailable, so
+// audit only navigation items that Playwright can actually present on the current platform.
+const viewCandidates = ['projects', 'usage', 'settings', 'next', 'cockpit'];
+const viewStates = await Promise.all(viewCandidates.map(async (view) => ({
+  view,
+  visible: await win.locator(`.rail-item[data-view="${view}"]`).isVisible().catch(() => false),
+})));
+for (const view of auditableViews(viewStates)) {
   await win.click(`.rail-item[data-view="${view}"]`);
   await win.waitForTimeout(600);
   if (view === 'usage') {
