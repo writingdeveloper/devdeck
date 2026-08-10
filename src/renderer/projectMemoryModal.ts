@@ -7,8 +7,11 @@ import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { toast } from './loadError';
 import { snapshotRows, timelineRows, type MemoryAction } from './projectMemoryPresentation';
+import { memorySurfaceMode } from './projectMemorySurface';
+import { createIcon } from './icons';
 
 let currentOverlay: HTMLElement | null = null;
+let closeCurrent: (() => void) | null = null;
 
 function when(at: number): string {
   return new Intl.DateTimeFormat(localeTag(), { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at));
@@ -20,7 +23,7 @@ function button(label: string, className = 'chip'): HTMLButtonElement {
 }
 
 export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLElement): void {
-  currentOverlay?.remove();
+  closeCurrent?.();
   const overlay = document.createElement('div'); overlay.className = 'pm-overlay';
   const modal = document.createElement('section'); modal.className = 'pm-modal loading';
   modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-labelledby', 'pm-title');
@@ -30,7 +33,7 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
   const subtitle = document.createElement('div'); subtitle.className = 'pm-subtitle'; subtitle.textContent = tr('memory.title');
   heading.append(title, subtitle);
   const refresh = button(tr('memory.refresh'), 'chip pm-refresh'); refresh.setAttribute('aria-label', tr('memory.refresh'));
-  const closeButton = button('×', 'iconbtn pm-close'); closeButton.setAttribute('aria-label', tr('memory.close')); closeButton.title = tr('memory.close');
+  const closeButton = button('', 'iconbtn pm-close'); closeButton.appendChild(createIcon('close')); closeButton.setAttribute('aria-label', tr('memory.close')); closeButton.title = tr('memory.close');
   head.append(heading, refresh, closeButton);
   const body = document.createElement('div'); body.className = 'pm-body';
   const loading = document.createElement('div'); loading.className = 'pm-loading'; loading.setAttribute('role', 'status'); loading.textContent = tr('memory.loading');
@@ -47,12 +50,26 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
   foot.append(footHint, open);
   modal.append(head, body, foot); overlay.appendChild(modal); document.body.appendChild(overlay); currentOverlay = overlay;
 
+  const applySurfaceMode = (): void => {
+    const mode = memorySurfaceMode(window.innerWidth);
+    overlay.classList.toggle('pm-mode-drawer', mode === 'drawer');
+    overlay.classList.toggle('pm-mode-sheet', mode === 'sheet');
+    modal.classList.toggle('pm-drawer', mode === 'drawer');
+    modal.classList.toggle('pm-sheet', mode === 'sheet');
+    modal.dataset.surface = mode;
+  };
+  applySurfaceMode();
+  window.addEventListener('resize', applySurfaceMode);
+
   const close = (): void => {
     if (currentOverlay !== overlay) return;
     document.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('resize', applySurfaceMode);
     overlay.remove(); currentOverlay = null;
+    closeCurrent = null;
     trigger.focus();
   };
+  closeCurrent = close;
   const focusable = (): HTMLElement[] => Array.from(modal.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'));
   const onKey = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); return; }

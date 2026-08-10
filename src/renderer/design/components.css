@@ -16,3 +16,40 @@
 .ui-status.success::before { background: var(--dd-success); }
 .ui-row { border-bottom: 1px solid var(--dd-border); }
 .ui-drawer { background: var(--dd-sidebar); border-left: 1px solid var(--dd-border); }
+
+body .pm-overlay {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+  background: rgb(0 0 0 / .48);
+}
+
+body .pm-modal.pm-drawer {
+  width: min(640px, calc(100vw - 52px));
+  height: 100%;
+  max-height: none;
+  border-block: 0;
+  border-right: 0;
+  border-radius: 0;
+  background: var(--dd-sidebar);
+  box-shadow: -18px 0 48px rgb(0 0 0 / .45);
+}
+
+body .pm-modal.pm-sheet {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--dd-sidebar);
+  box-shadow: none;
+}
+
+body .pm-close {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  padding: 0;
+}

@@ -231,8 +231,24 @@ const taskSeeded = await win.evaluate(async () => {
 await showView('projects');
 await win.click('#refresh');
 await win.waitForSelector('.project-memory-button', { timeout: 10000 });
-await win.locator('.project-memory-button').first().click();
+const memoryTrigger = win.locator('.project-memory-button').first();
+const contentBeforeMemory = await win.evaluate(() => {
+  const r = document.getElementById('content').getBoundingClientRect();
+  return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+});
+await memoryTrigger.focus();
+await memoryTrigger.click();
 await win.waitForSelector('.pm-modal:not(.loading) .pm-timeline-item', { timeout: 10000 });
+const memoryWide = await win.evaluate(() => {
+  const modal = document.querySelector('.pm-modal');
+  const r = modal?.getBoundingClientRect();
+  const c = document.getElementById('content').getBoundingClientRect();
+  return {
+    surface: modal?.dataset.surface,
+    rightAligned: !!r && Math.abs(r.right - window.innerWidth) <= 1,
+    content: [Math.round(c.x), Math.round(c.y), Math.round(c.width), Math.round(c.height)],
+  };
+});
 await shot('project-memory');
 await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
 await win.waitForTimeout(150);
@@ -240,16 +256,26 @@ const memoryGeometry = await win.evaluate(() => {
   const modal = document.querySelector('.pm-modal');
   return {
     present: !!modal,
+    surface: modal?.dataset.surface,
     overflow: !!modal && modal.scrollWidth > modal.clientWidth + 1,
+    fullWidth: !!modal && Math.abs(modal.getBoundingClientRect().width - window.innerWidth) <= 1,
+    contained: !!modal && modal.getBoundingClientRect().left >= 0 && modal.getBoundingClientRect().right <= window.innerWidth + 1,
     events: document.querySelectorAll('.pm-timeline-item').length,
   };
 });
 await shot('project-memory-narrow');
-if (!memoryGeometry.present || memoryGeometry.overflow || memoryGeometry.events < 1) {
-  console.error('QA FAILED — Project Memory modal missing, empty, or horizontally clipped:', JSON.stringify(memoryGeometry));
+if (memoryWide.surface !== 'drawer' || !memoryWide.rightAligned || JSON.stringify(memoryWide.content) !== JSON.stringify(contentBeforeMemory)
+  || !memoryGeometry.present || memoryGeometry.surface !== 'sheet' || !memoryGeometry.fullWidth || !memoryGeometry.contained
+  || memoryGeometry.overflow || memoryGeometry.events < 1) {
+  console.error('QA FAILED — Project Memory drawer/sheet geometry regressed:', JSON.stringify({ memoryWide, memoryGeometry, contentBeforeMemory }));
   await closeApp(); process.exit(1);
 }
 await win.keyboard.press('Escape');
+const memoryFocusReturned = await memoryTrigger.evaluate((el) => document.activeElement === el).catch(() => false);
+if (!memoryFocusReturned) {
+  console.error('QA FAILED — Project Memory did not return focus to its trigger after Escape.');
+  await closeApp(); process.exit(1);
+}
 await win.setViewportSize({ width: 1000, height: 720 }).catch(() => {});
 await showView('next');
 await win.waitForSelector('#view-next .provider-open, #view-next .empty', { timeout: 5000 }).catch(() => {});
