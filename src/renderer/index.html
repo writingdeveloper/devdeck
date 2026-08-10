@@ -47,15 +47,16 @@
         </div>
         <div id="shell-quick-wrap">
           <span class="shell-search-icon"></span>
-          <input id="shell-quick-open" type="search" autocomplete="off" />
+          <input id="shell-quick-open" type="search" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="shell-quick-results" />
         </div>
         <nav class="shell-nav" aria-label="Views">
           <button class="rail-item active" data-view="projects" aria-current="page"><span class="rail-label"></span></button>
           <button class="rail-item" data-view="next"><span class="rail-label"></span></button>
           <button class="rail-item" data-view="usage"><span class="rail-label"></span></button>
         </nav>
+        <button id="shell-collapsed-status" class="shell-collapsed-status hidden" type="button"></button>
         <div class="shell-scroll">
-          <div id="shell-quick-results" class="hidden"></div>
+          <div id="shell-quick-results" class="hidden" role="listbox"></div>
           <section id="shell-session-section">
             <button id="shell-restore-all" class="shell-restore-all hidden" type="button"></button>
             <div id="shell-session-groups"></div>

@@ -33,6 +33,7 @@
   "shell.collapse": "사이드바 접기",
   "shell.expand": "사이드바 펼치기",
   "shell.mobile_sessions": "세션",
+  "shell.no_results": "검색 결과가 없습니다",
   "shell.session_actions": "세션 작업",
   "shell.status_attention": "질문 대기",
   "shell.status_working": "작업 중",

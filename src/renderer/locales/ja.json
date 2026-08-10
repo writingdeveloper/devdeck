@@ -33,6 +33,7 @@
   "shell.collapse": "サイドバーを折りたたむ",
   "shell.expand": "サイドバーを展開",
   "shell.mobile_sessions": "セッション",
+  "shell.no_results": "一致する項目はありません",
   "shell.session_actions": "セッション操作",
   "shell.status_attention": "確認待ち",
   "shell.status_working": "実行中",

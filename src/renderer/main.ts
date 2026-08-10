@@ -7,7 +7,7 @@ import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { activateCockpitSession, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitPreviousSession, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -261,7 +261,7 @@ async function boot(): Promise<void> {
       activateCockpitSession(id);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
     },
-    onPreviousAction: (id, action) => manageCockpitPreviousSession(id, action),
+    onSessionAction: (id, action) => manageCockpitSessionAction(id, action),
     onRestoreAll: () => restoreAllCockpitSessions(),
   });
   // Renderer-local QA seam: PTYs cannot be spawned in the screenshot harness, so a validated

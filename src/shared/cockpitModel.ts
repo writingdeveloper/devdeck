@@ -21,6 +21,7 @@ export function sessionNavigationItem(
   label: string,
   detail: string,
   pinned: boolean,
+  summary: string | null = null,
 ): ShellSessionInput {
   return {
     id: session.id,
@@ -29,6 +30,7 @@ export function sessionNavigationItem(
     detail,
     activity: session.activity,
     pinned,
+    summary,
   };
 }
 

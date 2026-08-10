@@ -33,6 +33,7 @@
   "shell.collapse": "Collapse sidebar",
   "shell.expand": "Expand sidebar",
   "shell.mobile_sessions": "Sessions",
+  "shell.no_results": "No matches",
   "shell.session_actions": "Session actions",
   "shell.status_attention": "Awaiting you",
   "shell.status_working": "Working",

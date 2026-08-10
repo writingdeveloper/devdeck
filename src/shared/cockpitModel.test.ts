@@ -9,8 +9,11 @@ const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
 it('adapts a cockpit session without losing project ownership or activity', () => {
   const session = { id: 'a', projectPath: 'C:/a', name: 'repo', agentId: 'codex', status: 'running', staleLevel: 'fresh', branch: 'main', dirty: 0, activity: 'attention' } as CockpitSession;
   expect(sessionNavigationItem(session, 'review api', 'main · Codex', true)).toEqual({
-    id: 'a', projectPath: 'C:/a', label: 'review api', detail: 'main · Codex', activity: 'attention', pinned: true,
+    id: 'a', projectPath: 'C:/a', label: 'review api', detail: 'main · Codex', activity: 'attention', pinned: true, summary: null,
   });
+  // The per-turn summary is the sidebar's third line — it must survive the adaptation, not be dropped.
+  expect(sessionNavigationItem(session, 'review api', 'main · Codex', false, 'Fixing the auth guard').summary)
+    .toBe('Fixing the auth guard');
 });
 
 describe('filterSessions', () => {

@@ -33,6 +33,7 @@
   "shell.collapse": "收起侧栏",
   "shell.expand": "展开侧栏",
   "shell.mobile_sessions": "会话",
+  "shell.no_results": "没有匹配项",
   "shell.session_actions": "会话操作",
   "shell.status_attention": "等待确认",
   "shell.status_working": "工作中",

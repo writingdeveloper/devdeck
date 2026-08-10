@@ -5,9 +5,13 @@ import {
   attentionCount,
   filterShellItems,
   sessionAccessibleLabel,
+  sessionActionsFor,
+  sessionStatusCounts,
+  sessionStatusShape,
   shellEntityKey,
   type ShellGroupKind,
   type ShellProjectInput,
+  type ShellSessionAction,
   type ShellSessionInput,
 } from '../shared/shellNavigation';
 import type { ViewId } from './nav';
@@ -23,6 +27,15 @@ const viewLabels: Record<ViewId, string> = {
 const groupLabels: Record<string, string> = {
   attention: 'shell.needs_you', working: 'shell.working', pinned: 'cockpit.grp_pinned',
   turn: 'cockpit.grp_turn', quiet: 'cockpit.grp_idle', previous: 'cockpit.prev_sessions',
+};
+
+const actionLabels: Record<ShellSessionAction, string> = {
+  pin: 'cockpit.pin', unpin: 'cockpit.unpin', rename: 'cockpit.rename',
+  close: 'cockpit.close', forget: 'cockpit.forget',
+};
+
+const actionIcons: Record<ShellSessionAction, IconName> = {
+  pin: 'pin', unpin: 'pin', rename: 'edit', close: 'close', forget: 'trash',
 };
 
 export interface ShellController {
@@ -44,7 +57,7 @@ export function mountShell(options: {
   onCollapse(collapsed: boolean): void;
   onProject(path: string): void;
   onSession(id: string): void;
-  onPreviousAction(id: string, action: 'pin' | 'unpin' | 'forget'): void;
+  onSessionAction(id: string, action: ShellSessionAction): void;
   onRestoreAll(): void;
 }): ShellController {
   const sidebar = document.getElementById('app-sidebar')!;
@@ -53,6 +66,8 @@ export function mountShell(options: {
   const resultHost = document.getElementById('shell-quick-results')!;
   const sessionHost = document.getElementById('shell-session-groups')!;
   const projectHost = document.getElementById('shell-projects')!;
+  const sessionSection = document.getElementById('shell-session-section')!;
+  const projectSection = document.getElementById('shell-project-section')!;
   const restoreAll = document.getElementById('shell-restore-all') as HTMLButtonElement;
   const mobileToggle = document.getElementById('shell-mobile-toggle') as HTMLButtonElement;
   const mobileToggleLabel = document.getElementById('shell-mobile-toggle-label')!;
@@ -91,11 +106,33 @@ export function mountShell(options: {
   collapse.prepend(createIcon('panel-left'));
   document.querySelector('#shell-quick-wrap .shell-search-icon')?.append(createIcon('search'));
 
+  // Collapsing hides the whole session list to buy terminal width. Without this pill, a session that
+  // needs you would then have NO in-app signal at all — the very state the sidebar exists to surface.
+  const collapsedStatus = document.getElementById('shell-collapsed-status') as HTMLButtonElement;
+  const renderCollapsedStatus = (): void => {
+    const { attention, working } = sessionStatusCounts(sessions);
+    const collapsed = sidebar.classList.contains('collapsed');
+    collapsedStatus.classList.toggle('hidden', !collapsed || attention + working === 0);
+    collapsedStatus.classList.toggle('has-attention', attention > 0);
+    if (!collapsed || attention + working === 0) return;
+    const parts = [
+      attention > 0 ? `${tr('shell.needs_you')} ${attention}` : '',
+      working > 0 ? `${tr('shell.working')} ${working}` : '',
+    ].filter(Boolean);
+    collapsedStatus.replaceChildren(
+      createIcon(attention > 0 ? 'sessions' : 'restart', 'ui-icon shell-collapsed-icon'),
+      Object.assign(document.createElement('span'), { textContent: String(attention > 0 ? attention : working) }),
+    );
+    collapsedStatus.title = parts.join(' · ');
+    collapsedStatus.setAttribute('aria-label', parts.join(' · '));
+  };
+
   const setCollapsed = (collapsed: boolean): void => {
     sidebar.classList.toggle('collapsed', collapsed);
     collapse.setAttribute('aria-expanded', String(!collapsed));
     collapse.title = tr(collapsed ? 'shell.expand' : 'shell.collapse');
     collapse.setAttribute('aria-label', collapse.title);
+    renderCollapsedStatus();
   };
 
   const applyEntityState = (row: HTMLButtonElement, key: string): void => {
@@ -152,6 +189,10 @@ export function mountShell(options: {
     mobileToggle.classList.toggle('has-attention', waiting > 0);
   };
 
+  /** Only the actions this row currently offers take part in roving focus — the rest stay `.hidden`. */
+  const menuItems = (menu: HTMLElement): HTMLButtonElement[] =>
+    Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).filter((item) => !item.classList.contains('hidden'));
+
   const createSessionRow = (key: string): HTMLButtonElement => {
     const wrap = document.createElement('div'); wrap.className = 'shell-session-wrap';
     const row = document.createElement('button'); row.type = 'button';
@@ -162,22 +203,24 @@ export function mountShell(options: {
       closeMobileDrawer();
       options.onSession(id);
     });
-    const actions = document.createElement('button'); actions.type = 'button'; actions.className = 'shell-session-actions hidden';
+    const actions = document.createElement('button'); actions.type = 'button'; actions.className = 'shell-session-actions';
     actions.append(createIcon('more')); actions.setAttribute('aria-haspopup', 'menu'); actions.setAttribute('aria-expanded', 'false');
     const menu = document.createElement('div'); menu.className = 'menu shell-session-menu hidden'; menu.setAttribute('role', 'menu');
-    const pin = document.createElement('button'); pin.type = 'button'; pin.className = 'menu-item'; pin.setAttribute('role', 'menuitem'); pin.dataset.sessionAction = 'pin';
-    const forget = document.createElement('button'); forget.type = 'button'; forget.className = 'menu-item'; forget.setAttribute('role', 'menuitem'); forget.dataset.sessionAction = 'forget';
-    pin.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const id = row.dataset.sessionId; if (!id) return;
-      options.onPreviousAction(id, row.dataset.pinned === 'true' ? 'unpin' : 'pin');
-      closeSessionMenus(true);
-    });
-    forget.addEventListener('click', (event) => {
-      event.stopPropagation();
-      const id = row.dataset.sessionId; if (!id) return;
-      closeSessionMenus(); options.onPreviousAction(id, 'forget');
-    });
+    // One menu item per action the row can currently offer. `close` and `forget` both destroy state,
+    // so they keep the destructive styling — and `close` still routes through cockpit's confirm.
+    for (const action of ['pin', 'unpin', 'rename', 'close', 'forget'] as ShellSessionAction[]) {
+      const item = document.createElement('button');
+      item.type = 'button'; item.className = `menu-item${action === 'close' || action === 'forget' ? ' menu-item-danger' : ''}`;
+      item.setAttribute('role', 'menuitem'); item.dataset.sessionAction = action;
+      item.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const id = row.dataset.sessionId; if (!id) return;
+        // Pin keeps the menu anchored (its label flips in place); the rest change or remove the row.
+        if (action === 'pin' || action === 'unpin') closeSessionMenus(true); else closeSessionMenus();
+        options.onSessionAction(id, action);
+      });
+      menu.appendChild(item);
+    }
     actions.addEventListener('click', (event) => {
       event.stopPropagation();
       const opening = menu.classList.contains('hidden');
@@ -188,11 +231,11 @@ export function mountShell(options: {
       if (event.key !== 'ArrowDown') return;
       event.preventDefault();
       if (menu.classList.contains('hidden')) actions.click();
-      menu.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+      menuItems(menu)[0]?.focus();
     });
     menu.addEventListener('click', (event) => event.stopPropagation());
     menu.addEventListener('keydown', (event) => {
-      const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+      const items = menuItems(menu);
       const current = items.indexOf(document.activeElement as HTMLButtonElement);
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSessionMenus(true); }
       else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -201,7 +244,7 @@ export function mountShell(options: {
         items[(current + step + items.length) % items.length]?.focus();
       }
     });
-    menu.append(pin, forget); wrap.append(row, actions, menu);
+    wrap.append(row, actions, menu);
     sessionRows.set(key, row);
     sessionWraps.set(key, wrap);
     sessionMenus.set(key, menu);
@@ -212,31 +255,42 @@ export function mountShell(options: {
     const wrap = sessionWraps.get(key)!;
     row.dataset.sessionId = item.id;
     row.dataset.pinned = String(item.pinned);
+    const status = tr(`shell.status_${item.activity}`);
     row.className = `shell-entity shell-session activity-${item.activity}`;
-    row.setAttribute('aria-label', sessionAccessibleLabel(item, tr(`shell.status_${item.activity}`)));
+    row.setAttribute('aria-label', sessionAccessibleLabel(item, status));
     let signal = row.querySelector<HTMLElement>('.shell-signal');
     let copy = row.querySelector<HTMLElement>('.shell-entity-copy');
     if (!signal || !copy) {
       signal = document.createElement('span'); signal.className = 'shell-signal'; signal.setAttribute('aria-hidden', 'true');
       copy = document.createElement('span'); copy.className = 'shell-entity-copy';
-      copy.append(document.createElement('strong'), document.createElement('small'));
+      copy.append(document.createElement('strong'), document.createElement('small'), document.createElement('em'));
       row.replaceChildren(signal, copy);
     }
+    // Shape (not just hue) carries the state, and "working" spins — a still sidebar reads as a dead one.
+    signal.className = `shell-signal signal-${sessionStatusShape(item)}`;
     copy.querySelector('strong')!.textContent = item.label;
     const detail = copy.querySelector('small')!;
     detail.textContent = item.detail;
     detail.classList.toggle('shell-session-warning', item.conversationGone === true);
+    // Third line: what this session is working on right now. Absent for previous rows and until the
+    // first summary lands, and then it must not reserve empty height.
+    const summary = copy.querySelector('em')!;
+    summary.textContent = item.summary ?? '';
+    summary.title = item.summary ? `${tr('cockpit.summary')}: ${item.summary}` : '';
+    summary.classList.toggle('hidden', !item.summary);
+    row.title = `${item.label} · ${status}`;
     wrap.className = `shell-session-wrap${item.previous ? ' is-previous' : ''}${item.conversationGone ? ' is-gone' : ''}`;
     wrap.dataset.previous = String(item.previous === true);
     wrap.dataset.conversationGone = String(item.conversationGone === true);
     const actions = wrap.querySelector<HTMLButtonElement>('.shell-session-actions')!;
-    actions.classList.toggle('hidden', item.previous !== true);
     actions.title = tr('shell.session_actions'); actions.setAttribute('aria-label', `${tr('shell.session_actions')}: ${item.label}`);
-    const pin = wrap.querySelector<HTMLButtonElement>('[data-session-action="pin"]')!;
-    pin.replaceChildren(createIcon('pin'), document.createTextNode(tr(item.pinned ? 'cockpit.unpin' : 'cockpit.pin')));
-    pin.dataset.sessionAction = 'pin';
-    const forget = wrap.querySelector<HTMLButtonElement>('[data-session-action="forget"]')!;
-    forget.replaceChildren(createIcon('trash'), document.createTextNode(tr('cockpit.forget')));
+    const offered = new Set(sessionActionsFor(item));
+    for (const entry of Array.from(wrap.querySelectorAll<HTMLButtonElement>('[data-session-action]'))) {
+      const action = entry.dataset.sessionAction as ShellSessionAction;
+      const shown = offered.has(action);
+      entry.classList.toggle('hidden', !shown);
+      if (shown) entry.replaceChildren(createIcon(actionIcons[action]), document.createTextNode(tr(actionLabels[action])));
+    }
     applyEntityState(row, key);
   };
 
@@ -276,6 +330,8 @@ export function mountShell(options: {
     restoreAll.disabled = previousCount === 0;
     restoreAll.replaceChildren(createIcon('restart'), document.createTextNode(`${tr('cockpit.restore_all')} · ${previousCount}`));
     updateMobileToggle();
+    renderCollapsedStatus();
+    applyProjectActivity(); // session state changed → the project rows' inherited marks follow
     preserveFocusedRow(focusedKey, sessionRows);
   };
 
@@ -292,14 +348,42 @@ export function mountShell(options: {
     return row;
   };
 
+  /** A project inherits the loudest state of its live sessions — the sidebar must answer "which repo
+   *  is waiting on me" without first expanding the session groups (the deck stripe already does this
+   *  in the main pane). Derived from the session models the shell already holds, so no extra plumbing. */
+  const projectActivity = (): Map<string, 'attention' | 'working'> => {
+    const map = new Map<string, 'attention' | 'working'>();
+    for (const item of sessions) {
+      if (item.previous) continue;
+      if (item.activity === 'attention') map.set(item.projectPath, 'attention');
+      else if (item.activity === 'working' && map.get(item.projectPath) !== 'attention') map.set(item.projectPath, 'working');
+    }
+    return map;
+  };
+
+  const applyProjectActivity = (): void => {
+    const activity = projectActivity();
+    for (const row of projectRows.values()) {
+      const state = activity.get(row.dataset.projectPath ?? '') ?? null;
+      const signal = row.querySelector<HTMLElement>('.shell-signal');
+      if (!signal) continue;
+      signal.className = `shell-signal ${state === 'attention' ? 'signal-diamond' : state === 'working' ? 'signal-spinner' : 'signal-blank'}`;
+      const label = state ? `${row.dataset.projectName ?? ''}, ${tr(state === 'attention' ? 'shell.needs_you' : 'shell.working')}` : row.dataset.projectName ?? '';
+      row.setAttribute('aria-label', label);
+      row.title = label;
+    }
+  };
+
   const updateProjectRow = (row: HTMLButtonElement, item: ShellProjectInput, key: string): void => {
     row.dataset.projectPath = item.path;
+    row.dataset.projectName = item.name;
     row.className = 'shell-entity shell-project';
     let copy = row.querySelector<HTMLElement>('.shell-entity-copy');
     if (!copy) {
+      const signal = document.createElement('span'); signal.className = 'shell-signal signal-blank'; signal.setAttribute('aria-hidden', 'true');
       copy = document.createElement('span'); copy.className = 'shell-entity-copy';
       copy.append(document.createElement('strong'), document.createElement('small'));
-      row.replaceChildren(copy);
+      row.replaceChildren(signal, copy);
     }
     copy.querySelector('strong')!.textContent = item.name;
     copy.querySelector('small')!.textContent = item.branch ?? '—';
@@ -319,43 +403,84 @@ export function mountShell(options: {
       updateProjectRow(row, item, key);
       projectHost.appendChild(row);
     }
+    applyProjectActivity();
     preserveFocusedRow(focusedKey, projectRows);
+  };
+
+  let quickIndex = 0;
+  const quickResults = (): HTMLButtonElement[] => Array.from(resultHost.querySelectorAll<HTMLButtonElement>('.shell-quick-result'));
+  const highlightQuickResult = (index: number, focus = false): void => {
+    const results = quickResults();
+    if (!results.length) { quickIndex = 0; return; }
+    quickIndex = (index + results.length) % results.length;
+    results.forEach((button, position) => {
+      button.classList.toggle('active', position === quickIndex);
+      button.setAttribute('aria-selected', String(position === quickIndex));
+    });
+    quickOpen.setAttribute('aria-activedescendant', results[quickIndex].id);
+    if (focus) results[quickIndex].scrollIntoView({ block: 'nearest' });
+  };
+
+  const quickResultRow = (id: string, mark: Element | null, title: string, detail: string, onPick: () => void): HTMLButtonElement => {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'shell-quick-result'; button.id = id; button.setAttribute('role', 'option');
+    const copy = document.createElement('span'); copy.className = 'shell-entity-copy';
+    const strong = document.createElement('strong'); strong.textContent = title;
+    const small = document.createElement('small'); small.textContent = detail;
+    copy.append(strong, small);
+    if (mark) button.append(mark);
+    button.append(copy);
+    button.setAttribute('aria-label', `${title}, ${detail}`);
+    button.addEventListener('click', onPick);
+    return button;
   };
 
   const applyQuery = (): void => {
     const filtered = filterShellItems(quickOpen.value, sessions, projects);
     const hasQuery = quickOpen.value.trim().length > 0;
     resultHost.classList.toggle('hidden', !hasQuery);
-    sessionHost.classList.toggle('quick-filtered', hasQuery);
-    projectHost.classList.toggle('quick-filtered', hasQuery);
-    if (!hasQuery) { resultHost.replaceChildren(); return; }
+    quickOpen.setAttribute('aria-expanded', String(hasQuery));
+    // Whole SECTIONS step aside while filtering — hiding only the inner lists left the "Projects"
+    // heading and the "Restore all" button floating above an empty rail.
+    sessionSection.classList.toggle('quick-filtered', hasQuery);
+    projectSection.classList.toggle('quick-filtered', hasQuery);
+    if (!hasQuery) { resultHost.replaceChildren(); quickOpen.removeAttribute('aria-activedescendant'); return; }
     resultHost.replaceChildren();
-    const activateSession = (item: ShellSessionInput): void => {
-      markActiveEntity(shellEntityKey('session', item.id));
-      closeMobileDrawer();
-      options.onSession(item.id);
-      quickOpen.value = ''; applyQuery();
-    };
-    const activateProject = (item: ShellProjectInput): void => {
-      markActiveEntity(shellEntityKey('project', item.path));
-      closeMobileDrawer();
-      options.onProject(item.path);
-      quickOpen.value = ''; applyQuery();
-    };
+    const dismiss = (): void => { quickOpen.value = ''; applyQuery(); };
+    let index = 0;
     for (const item of buildSessionGroups(filtered.sessions).flatMap((group) => group.items)) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'shell-quick-result';
-      button.textContent = `${item.label} — ${item.detail}`; button.addEventListener('click', () => activateSession(item)); resultHost.appendChild(button);
+      const mark = document.createElement('span'); mark.className = `shell-signal signal-${sessionStatusShape(item)}`; mark.setAttribute('aria-hidden', 'true');
+      resultHost.appendChild(quickResultRow(`shell-quick-${index++}`, mark, item.label, item.detail, () => {
+        markActiveEntity(shellEntityKey('session', item.id));
+        closeMobileDrawer(); options.onSession(item.id); dismiss();
+      }));
     }
     for (const item of filtered.projects) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'shell-quick-result';
-      button.textContent = `${item.name} — ${item.branch ?? '—'}`; button.addEventListener('click', () => activateProject(item)); resultHost.appendChild(button);
+      resultHost.appendChild(quickResultRow(`shell-quick-${index++}`, createIcon('projects', 'ui-icon shell-quick-icon'), item.name, item.branch ?? '—', () => {
+        markActiveEntity(shellEntityKey('project', item.path));
+        closeMobileDrawer(); options.onProject(item.path); dismiss();
+      }));
     }
+    if (!index) {
+      const empty = document.createElement('div'); empty.className = 'shell-quick-empty'; empty.setAttribute('role', 'status');
+      empty.textContent = tr('shell.no_results');
+      resultHost.appendChild(empty);
+      quickOpen.removeAttribute('aria-activedescendant');
+      return;
+    }
+    highlightQuickResult(0);
   };
 
   quickOpen.addEventListener('input', applyQuery);
   quickOpen.addEventListener('keydown', (event) => {
+    // Arrow keys walk the results from the input itself (aria-activedescendant), so a second match is
+    // reachable without leaving the field — Enter used to always fire the FIRST result and nothing else.
     if (event.key === 'Escape') { quickOpen.value = ''; applyQuery(); }
-    else if (event.key === 'Enter') (resultHost.querySelector<HTMLButtonElement>('button'))?.click();
+    else if (event.key === 'ArrowDown') { event.preventDefault(); highlightQuickResult(quickIndex + 1, true); }
+    else if (event.key === 'ArrowUp') { event.preventDefault(); highlightQuickResult(quickIndex - 1, true); }
+    else if (event.key === 'Home') { if (quickResults().length) { event.preventDefault(); highlightQuickResult(0, true); } }
+    else if (event.key === 'End') { if (quickResults().length) { event.preventDefault(); highlightQuickResult(quickResults().length - 1, true); } }
+    else if (event.key === 'Enter') { event.preventDefault(); quickResults()[quickIndex]?.click(); }
   });
   restoreAll.addEventListener('click', () => { closeMobileDrawer(); options.onRestoreAll(); });
   mobileToggle.addEventListener('click', () => {
@@ -383,6 +508,7 @@ export function mountShell(options: {
   collapse.addEventListener('click', () => {
     const next = !sidebar.classList.contains('collapsed'); setCollapsed(next); options.onCollapse(next);
   });
+  collapsedStatus.addEventListener('click', () => { setCollapsed(false); options.onCollapse(false); });
   setCollapsed(options.initialCollapsed);
 
   const refreshLabels = (): void => {
@@ -407,7 +533,7 @@ export function mountShell(options: {
   return {
     showView: options.showView,
     setCockpitAvailable: (available) => {
-      document.getElementById('shell-session-section')!.classList.toggle('hidden', !available);
+      sessionSection.classList.toggle('hidden', !available);
       mobileToggle.classList.toggle('hidden', !available);
       if (!available) closeMobileDrawer();
       document.querySelector<HTMLElement>('.rail-item[data-view="cockpit"]')?.classList.toggle('hidden', !available);

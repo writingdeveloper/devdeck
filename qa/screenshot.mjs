@@ -152,6 +152,7 @@ if (!shellNavGeometry.present || shellNavGeometry.width < 200 || shellNavGeometr
   await closeApp(); process.exit(1);
 }
 
+
 const shellGeometry = await win.evaluate(() => {
   const shell = document.getElementById('shell')?.getBoundingClientRect();
   const sidebar = document.getElementById('app-sidebar')?.getBoundingClientRect();
@@ -211,6 +212,50 @@ if (cockpitAvailable) {
     console.error('QA FAILED — shared-shell pin/forget did not route through Cockpit handlers:', JSON.stringify({ pinPersisted, beforeForget, afterForget }));
     await closeApp(); process.exit(1);
   }
+}
+
+// Quick Open must be operable from the keyboard alone (Enter once only ever fired the FIRST result),
+// and a filtered rail must not leave section headings or "Restore all" hanging over an empty list.
+const quickOpen = await win.evaluate(async () => {
+  const input = document.getElementById('shell-quick-open');
+  const host = document.getElementById('shell-quick-results');
+  const type = async (value) => {
+    input.value = value; input.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 150));
+  };
+  const key = async (k) => {
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 80));
+  };
+  await type('e'); // broad enough to match several sessions AND the project, in every locale
+  const results = () => Array.from(host.querySelectorAll('.shell-quick-result'));
+  const activeIndex = () => results().findIndex((item) => item.classList.contains('active'));
+  const matched = results().length; // captured while the query is live — the field is cleared below
+  const initial = activeIndex();
+  await key('ArrowDown');
+  const afterDown = activeIndex();
+  await key('ArrowUp');
+  const afterUp = activeIndex();
+  const listbox = host.getAttribute('role') === 'listbox'
+    && input.getAttribute('aria-expanded') === 'true'
+    && !!input.getAttribute('aria-activedescendant')
+    && results().every((item) => item.getAttribute('role') === 'option');
+  await type('zzz-definitely-no-match');
+  const empty = {
+    message: !!host.querySelector('.shell-quick-empty')?.textContent?.trim(),
+    sectionsHidden: (document.getElementById('shell-session-section')?.getClientRects().length ?? 0) === 0
+      && (document.getElementById('shell-project-section')?.getClientRects().length ?? 0) === 0,
+    restoreAllHidden: (document.getElementById('shell-restore-all')?.getClientRects().length ?? 0) === 0,
+  };
+  await type('');
+  return { matched, initial, afterDown, afterUp, listbox, empty, restored: (document.getElementById('shell-project-section')?.getClientRects().length ?? 0) > 0 };
+});
+console.log('quick open:', JSON.stringify(quickOpen));
+const arrowsOk = quickOpen.matched >= 2 && quickOpen.initial === 0 && quickOpen.afterDown === 1 && quickOpen.afterUp === 0;
+if (!arrowsOk || !quickOpen.listbox
+  || !quickOpen.empty.message || !quickOpen.empty.sectionsHidden || !quickOpen.empty.restoreAllHidden || !quickOpen.restored) {
+  console.error('QA FAILED — Quick Open is not keyboard-navigable or leaves stale sections behind:', JSON.stringify(quickOpen));
+  await closeApp(); process.exit(1);
 }
 
 await win.click('#shell-collapse');
@@ -376,6 +421,33 @@ await win.click('#project-display');
 await shot('projects-display-menu-narrow');
 await win.keyboard.press('Escape');
 await shot('projects-narrow');
+
+// List-row columns must never render on top of each other. `.prow-git` / `.prow-sess` are nowrap and
+// right-aligned, so a track narrower than their text spills LEFT over its neighbour instead of
+// clipping — which once made the metadata unreadable at ordinary desktop widths.
+const rowCollisions = [];
+for (const width of [1280, 1360, 1440, 1600, 1920]) {
+  await win.setViewportSize({ width, height: 820 }).catch(() => {});
+  await win.waitForTimeout(220);
+  rowCollisions.push(await win.evaluate((viewportWidth) => {
+    const row = document.querySelector('#cards.as-list .prow');
+    if (!row) return { width: viewportWidth, collisions: ['no-row'] };
+    const cells = Array.from(row.children).filter((cell) => cell.getClientRects().length > 0)
+      .map((cell) => ({ cls: cell.className.split(' ')[0], rect: cell.getBoundingClientRect() }));
+    return {
+      width: viewportWidth,
+      collisions: cells.filter((cell, index) => index > 0 && cell.rect.left < cells[index - 1].rect.right - 1).map((cell) => cell.cls),
+      rowOverflow: row.scrollWidth > row.clientWidth + 1,
+    };
+  }, width));
+}
+console.log('project list row columns:', JSON.stringify(rowCollisions));
+if (rowCollisions.some((entry) => entry.collisions.length > 0 || entry.rowOverflow)) {
+  console.error('QA FAILED — project list columns overlap:', JSON.stringify(rowCollisions));
+  await closeApp(); process.exit(1);
+}
+await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
+await win.waitForTimeout(200);
 
 // At supported narrow widths, the shared session navigation remains reachable as an overlay drawer.
 if (cockpitAvailable) {
@@ -693,6 +765,40 @@ await shot('cockpit-provider-tooltip');
 console.log(`session navigation keyboard: focusable=${tooltip.focused} labelled=${tooltip.labelled}`);
 if (!tooltip.focused || !tooltip.labelled) {
   console.error('QA FAILED — the unified session row is not keyboard reachable or labelled.');
+  await closeApp();
+  process.exit(1);
+}
+
+// A LIVE session must keep the row controls it had in the old cockpit list (pin / rename / close),
+// and its status must be readable without color: distinct shapes, and a spinning "working" mark —
+// the redesign once shipped an actions menu on previous rows only and a single static grey dot.
+const liveRowControls = await win.evaluate(async () => {
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
+    { id: 'qa-live-attention', projectPath: 'C:/qa/attention', label: 'attention row', detail: 'main · Claude', activity: 'attention', pinned: false },
+    { id: 'qa-live-working', projectPath: 'C:/qa/working', label: 'working row', detail: 'feat · Codex', activity: 'working', pinned: false, summary: 'writing the regression guard' },
+    { id: 'qa-live-idle', projectPath: 'C:/qa/idle', label: 'idle row', detail: 'main · Claude', activity: 'idle', pinned: true },
+  ] }));
+  await new Promise((r) => setTimeout(r, 250));
+  const wraps = Array.from(document.querySelectorAll('.shell-session-wrap'));
+  const actionsOf = (wrap) => Array.from(wrap.querySelectorAll('[data-session-action]'))
+    .filter((item) => !item.classList.contains('hidden')).map((item) => item.dataset.sessionAction);
+  const working = document.querySelector('.activity-working .shell-signal');
+  const shapes = wraps.map((wrap) => wrap.querySelector('.shell-signal')?.className.replace('shell-signal ', ''));
+  return {
+    triggersVisible: wraps.every((wrap) => (wrap.querySelector('.shell-session-actions')?.getClientRects().length ?? 0) > 0),
+    liveActions: actionsOf(wraps[0]),
+    pinnedActions: actionsOf(wraps.find((wrap) => wrap.querySelector('[data-pinned="true"]'))),
+    workingAnimated: getComputedStyle(working).animationName === 'shell-spin',
+    distinctShapes: new Set(shapes).size === shapes.length,
+    summaryShown: !!document.querySelector('.activity-working')?.parentElement?.querySelector('.shell-entity-copy em:not(.hidden)')?.textContent,
+  };
+});
+console.log(`live session row controls: ${JSON.stringify(liveRowControls)}`);
+if (!liveRowControls.triggersVisible
+  || liveRowControls.liveActions.join() !== 'pin,rename,close'
+  || liveRowControls.pinnedActions.join() !== 'unpin,rename,close'
+  || !liveRowControls.workingAnimated || !liveRowControls.distinctShapes || !liveRowControls.summaryShown) {
+  console.error('QA FAILED — a live session row lost its pin/rename/close menu or its non-color status mark.');
   await closeApp();
   process.exit(1);
 }

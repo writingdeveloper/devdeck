@@ -61,8 +61,12 @@
   padding: 12px 20px 32px;
 }
 
+/* `.prow-git` / `.prow-sess` are `white-space: nowrap; text-align: right`, so a track narrower than
+   their text does not clip — it spills LEFT over the neighbouring column and the two strings render
+   on top of each other. Size both tracks to their content (`auto`) and let the resume cue, which
+   already ellipsizes, absorb every pixel of shrink instead. */
 #view-projects .prow {
-  grid-template-columns: 20px minmax(88px, auto) minmax(150px, .72fr) minmax(220px, 1.5fr) minmax(112px, .55fr) minmax(128px, .65fr) auto;
+  grid-template-columns: 20px minmax(88px, auto) minmax(150px, .72fr) minmax(0, 1.5fr) auto auto auto;
   min-height: 68px;
   padding: 10px 12px;
   border: 0;
@@ -132,9 +136,11 @@
 #view-projects .shape-square { border-radius: 1px; background: var(--dd-destructive); }
 #view-projects .shape-hollow { border: 1px solid var(--dd-text-faint); border-radius: 2px; background: transparent; }
 
-@media (max-width: 1200px) {
+/* Below this the metadata columns cost more than the cue they would squeeze, so they step aside
+   entirely rather than shrink the row to two illegible words. */
+@media (max-width: 1400px) {
   #view-projects .prow {
-    grid-template-columns: 20px minmax(84px, auto) minmax(130px, .8fr) minmax(180px, 1.3fr) auto;
+    grid-template-columns: 20px minmax(84px, auto) minmax(130px, .8fr) minmax(0, 1.3fr) auto;
   }
 
   #view-projects .prow-git,

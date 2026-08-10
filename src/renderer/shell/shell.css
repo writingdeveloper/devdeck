@@ -40,7 +40,22 @@
   border: 1px solid var(--dd-border); border-radius: var(--dd-radius-sm);
   background: var(--dd-canvas); color: var(--dd-text);
 }
-.shell-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* Sessions and projects scroll INDEPENDENTLY. Sharing one scroller meant a dozen live sessions
+   (grouped, three lines each) pushed the whole project list past the fold — on a 100-project deck the
+   projects section was only reachable by scrolling through every session first. The session block is
+   capped at ~62% of the rail and scrolls inside itself; projects take whatever is left, never zero. */
+.shell-scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#shell-quick-results { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* `0 0 auto` + max-height, not `0 1 auto`: with both sections over-length, flex-shrink would divide
+   the rail in proportion to content and squeeze the sessions down to a couple of rows. */
+#shell-session-section { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; max-height: 62%; }
+#shell-session-groups { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+#shell-project-section { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+#shell-projects { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* With no cockpit (or while quick-open filters), projects own the whole rail. */
+#shell-session-section.hidden, #shell-session-section.quick-filtered { display: none; }
+#shell-project-section.quick-filtered { display: none; }
+.shell-quick-empty { padding: 14px 8px; color: var(--dd-text-faint); font-size: var(--dd-fs-meta); }
 .shell-section-label { margin: 0; padding: 12px 8px 5px; color: var(--dd-text-muted); font-size: var(--dd-fs-meta); font-weight: inherit; text-transform: uppercase; letter-spacing: .07em; }
 .shell-entity, .shell-quick-result {
   width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
@@ -50,24 +65,54 @@
 .shell-entity:hover, .shell-quick-result:hover { background: var(--dd-surface-raised); }
 .shell-entity.selected { background: var(--dd-surface-selected); box-shadow: inset 2px 0 0 var(--dd-working); }
 .shell-entity-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.shell-entity-copy strong, .shell-entity-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-entity-copy strong, .shell-entity-copy small, .shell-entity-copy em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell-entity-copy strong { font-weight: 550; }
 .shell-entity-copy small { color: var(--dd-text-muted); font-size: var(--dd-fs-meta); }
-.shell-signal { width: 7px; height: 7px; border-radius: 50%; background: var(--dd-text-faint); flex: 0 0 auto; }
-.activity-attention .shell-signal { background: var(--dd-attention); }
-.activity-working .shell-signal { background: var(--dd-working); }
+.shell-entity-copy em { color: var(--dd-text-faint); font-size: var(--dd-fs-meta); font-style: normal; }
+
+/* Status is carried by SHAPE first (a color-blind or monochrome reading must still separate the
+   states) and by motion for "working" — the spin is what tells you the sidebar is live. */
+.shell-signal { width: 8px; height: 8px; border-radius: 50%; background: var(--dd-text-faint); flex: 0 0 auto; }
+/* Keeps a project row's text aligned with its live siblings when it has no session running. */
+.shell-signal.signal-blank { background: transparent; }
+.shell-quick-icon { flex: 0 0 auto; color: var(--dd-text-faint); }
+.shell-signal.signal-dot { width: 7px; height: 7px; }
+.shell-signal.signal-ring { border: 1.6px solid var(--dd-text-muted); background: transparent; }
+.shell-signal.signal-diamond { border-radius: 2px; background: var(--dd-attention); rotate: 45deg; }
+.shell-signal.signal-square { border-radius: 1px; background: var(--dd-text-faint); }
+.shell-signal.signal-spinner {
+  border: 1.6px solid var(--dd-working); border-right-color: transparent; background: transparent;
+  animation: shell-spin .7s linear infinite;
+}
+@keyframes shell-spin { to { rotate: 360deg; } }
+@media (prefers-reduced-motion: reduce) {
+  .shell-signal.signal-spinner { animation: none; border-right-color: var(--dd-canvas); }
+}
+
 .shell-session-wrap { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
-.shell-session-wrap .shell-session { grid-column: 1 / -1; min-width: 0; }
-.shell-session-wrap.is-previous .shell-session { grid-column: 1; }
+.shell-session-wrap .shell-session { grid-column: 1; min-width: 0; }
 .shell-session-actions { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: var(--dd-radius-sm); background: transparent; color: var(--dd-text-muted); }
 .shell-session-actions:hover, .shell-session-actions:focus-visible { background: var(--dd-surface-raised); color: var(--dd-text); }
 .shell-session-menu { top: calc(100% - 2px); right: 2px; min-width: 150px; z-index: 90; }
 .shell-session-menu .menu-item { display: flex; align-items: center; gap: 8px; }
+.shell-session-menu .menu-item-danger { color: var(--dd-destructive); }
 .shell-session-warning { color: var(--warn) !important; }
-.shell-session-wrap.is-gone .shell-signal { width: 8px; height: 8px; border-radius: 2px; background: var(--warn); rotate: 45deg; }
+.shell-session-wrap.is-gone .shell-signal { background: var(--warn); }
+
+.shell-collapsed-status {
+  align-self: center; min-height: 26px; margin: 2px 0; padding: 0 7px;
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid var(--dd-border); border-radius: var(--dd-radius-sm);
+  background: var(--dd-surface); color: var(--dd-text-muted); font-size: var(--dd-fs-meta);
+}
+.shell-collapsed-status.has-attention { border-color: color-mix(in srgb, var(--dd-attention) 65%, var(--dd-border)); color: var(--dd-text); }
+.shell-collapsed-status:hover, .shell-collapsed-status:focus-visible { background: var(--dd-surface-raised); color: var(--dd-text); }
+#app-sidebar:not(.collapsed) .shell-collapsed-status { display: none; }
 .shell-restore-all { width: calc(100% - 8px); min-height: 28px; margin: 6px 4px 0; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--dd-border); border-radius: var(--dd-radius-sm); background: transparent; color: var(--dd-text-muted); font-size: var(--dd-fs-meta); }
 .shell-restore-all:hover, .shell-restore-all:focus-visible { background: var(--dd-surface-raised); color: var(--dd-text); }
-.shell-quick-result { padding: 8px; color: var(--dd-text-muted); }
+.shell-quick-result { padding: 7px 8px; color: var(--dd-text-muted); }
+.shell-quick-result .shell-entity-copy { min-width: 0; }
+.shell-quick-result.active, .shell-quick-result:focus-visible { background: var(--dd-surface-selected); color: var(--dd-text); }
 .quick-filtered { display: none; }
 .shell-footer { display: flex; flex-direction: column; gap: 2px; }
 #content { flex: 1; min-width: 0; overflow-y: auto; }
@@ -84,9 +129,13 @@
   #app-sidebar.mobile-open .shell-side-brand { display: block; }
   #app-sidebar.mobile-open .rail-label { display: inline; }
   #app-sidebar.mobile-open #shell-quick-wrap,
-  #app-sidebar.mobile-open .shell-scroll,
   #app-sidebar.mobile-open .shell-section-label,
   #app-sidebar.mobile-open .lang-wrap { display: block; }
+  /* `display: block` here would strand the two independently scrolling sections inside an
+     `overflow: hidden` box — the drawer would clip its own list with no way to scroll. */
+  #app-sidebar.mobile-open .shell-scroll { display: flex; }
   #app-sidebar.mobile-open .rail-item { width: 100%; justify-content: flex-start; padding: 0 9px; }
+  /* The drawer always shows the full list, so the collapsed-state pill would just duplicate it. */
+  #app-sidebar.mobile-open .shell-collapsed-status { display: none; }
   #shell-collapse { display: none; }
 }

@@ -7,6 +7,8 @@ export interface ShellSessionInput {
   detail: string;
   activity: ActivityState;
   pinned: boolean;
+  /** What the session is working on right now (the per-turn AI summary) — the sidebar's third line. */
+  summary?: string | null;
   previous?: boolean;
   conversationGone?: boolean;
 }
@@ -34,8 +36,46 @@ export function shellEntityKey(kind: 'project' | 'session', id: string): string 
   return `${kind}:${id}`;
 }
 
+/** Every row action the sidebar's ⋯ menu can offer, live or previous. */
+export type ShellSessionAction = 'pin' | 'unpin' | 'rename' | 'close' | 'forget';
+
+/** Which actions a row offers. A LIVE session can be pinned, renamed, and closed exactly as it could
+ *  from the old cockpit list; a not-yet-restored entry has no terminal to rename or close, so it is
+ *  pinned or forgotten instead. Pin/unpin is one toggle, labelled by the row's current state. */
+export function sessionActionsFor(item: ShellSessionInput): ShellSessionAction[] {
+  const pin: ShellSessionAction = item.pinned ? 'unpin' : 'pin';
+  return item.previous === true ? [pin, 'forget'] : [pin, 'rename', 'close'];
+}
+
+/** The status mark's SHAPE. Activity must never be carried by color alone (a monochrome or
+ *  color-blind reading of the sidebar has to stay unambiguous), so every state also gets a
+ *  distinct silhouette — and "working" additionally spins, which is what makes the sidebar
+ *  read as live rather than static. */
+export type ShellStatusShape = 'spinner' | 'diamond' | 'ring' | 'dot' | 'square';
+
+export function sessionStatusShape(item: ShellSessionInput): ShellStatusShape {
+  if (item.conversationGone === true) return 'square';
+  if (item.activity === 'attention') return 'diamond';
+  if (item.activity === 'working') return 'spinner';
+  if (item.activity === 'turn') return 'ring';
+  if (item.activity === 'exited') return 'square';
+  return 'dot';
+}
+
+/** Counts for the collapsed sidebar's status pill — collapsing to reclaim terminal width must not
+ *  hide the fact that a session is waiting on you. */
+export function sessionStatusCounts(items: readonly ShellSessionInput[]): { attention: number; working: number } {
+  return {
+    attention: items.filter((item) => item.activity === 'attention').length,
+    working: items.filter((item) => item.activity === 'working').length,
+  };
+}
+
+/** The row renders its summary as a third line, so assistive tech has to hear it too — the row is a
+ *  single button whose aria-label replaces its contents. */
 export function sessionAccessibleLabel(item: ShellSessionInput, localizedStatus: string): string {
-  return `${item.label}, ${item.detail}, ${localizedStatus}`;
+  const base = `${item.label}, ${item.detail}, ${localizedStatus}`;
+  return item.summary ? `${base}, ${item.summary}` : base;
 }
 
 const groupOrder: ShellGroupKind[] = ['attention', 'working', 'pinned', 'turn', 'quiet', 'previous'];

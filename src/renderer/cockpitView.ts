@@ -2,7 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
-import type { ShellSessionInput } from '../shared/shellNavigation';
+import type { ShellSessionAction, ShellSessionInput } from '../shared/shellNavigation';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
@@ -262,10 +262,17 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
   const labels = numberCollidingNames(union);
   const current = liveItems.map((item, index) => {
     const session = item.session;
-    const detailBits = [session.branch ?? '—', providerName(session.agentId)];
+    // The same facts the old cockpit row carried: branch (+ uncommitted count), provider, model, and
+    // context %. Dropping the model made two sessions of the same repo indistinguishable at a glance.
+    const detailBits = [`${session.branch ?? '—'}${session.dirty > 0 ? ` ✎${session.dirty}` : ''}`, providerName(session.agentId)];
+    const model = friendlyModel(item.meta?.model ?? null);
+    if (model) detailBits.push(model);
     const context = contextPercent(item.meta?.contextTokens ?? 0, windowFor(item.meta));
     if (context != null) detailBits.push(`${context}%`);
-    return sessionNavigationItem({ ...session, id: navigationIdForLive(item) }, labels[index], detailBits.join(' · '), item.pinned);
+    return sessionNavigationItem(
+      { ...session, id: navigationIdForLive(item) }, labels[index], detailBits.join(' · '), item.pinned,
+      summaryEnabled ? item.meta?.summary ?? null : null,
+    );
   });
   const previous = previousItems.map((entry, index): ShellSessionInput => ({
     id: cockpitNavigationId(entry),
@@ -721,6 +728,31 @@ function renderList(): void {
   if (sig === lastListSig) return;
   lastListSig = sig;
 
+  // #ck-empty and the "+ New session" label live in the terminal pane and are still shown; the group
+  // list below is the hidden compatibility surface (features/cockpit/cockpit.css) that the shared shell
+  // replaced. Rebuilding its rows from scratch on every activity tick — one provider SVG, three text
+  // nodes and four buttons per session, for every session — is pure waste while it is not displayed.
+  if (legacyListVisible()) renderLegacyList(liveSessions, prev, prevLabels);
+  emptyEl.textContent = liveSessions.length > 0 ? '' : (prev.length > 0 ? tr('cockpit.empty_prev') : tr('cockpit.empty'));
+  const newBtn = document.getElementById('ck-new-session') as HTMLButtonElement | null;
+  if (newBtn) {
+    newBtn.disabled = live.size === 0; // "+ New session" needs a project context (a live session)
+    // Show WHICH project it targets (the selected session's repo) so it's clearly "another session here".
+    const sel = selectedId ? live.get(selectedId) : null;
+    const text = sel ? `${tr('cockpit.new_session')} · ${sel.session.name}` : tr('cockpit.new_session');
+    const lbl = document.getElementById('ck-new-label'); if (lbl) lbl.textContent = text;
+    newBtn.title = text;
+  }
+}
+
+/** Is the pre-redesign session list on screen? It is hidden today, and this is the single question
+ *  every legacy-list code path asks before doing DOM work for it. */
+function legacyListVisible(): boolean {
+  return (document.getElementById('ck-list')?.getClientRects().length ?? 0) > 0;
+}
+
+function renderLegacyList(liveSessions: CockpitSession[], prev: PersistedSession[], prevLabels: string[]): void {
+  const liveLive = [...live.values()];
   // Search matches what the list shows: folder name, branch, AND the custom (renamed) label.
   const customLabels = new Map(liveLive.map((l) => [l.session.id, l.customLabel ?? '']));
   const filtered = filterSessions(liveSessions, searchEl?.value ?? '', customLabels);
@@ -766,16 +798,6 @@ function renderList(): void {
     h.append(label, allBtn);
     groupsEl.appendChild(h);
     for (const x of prevRest) groupsEl.appendChild(prevRow(x.r, x.label));
-  }
-  emptyEl.textContent = liveSessions.length > 0 ? '' : (prev.length > 0 ? tr('cockpit.empty_prev') : tr('cockpit.empty'));
-  const newBtn = document.getElementById('ck-new-session') as HTMLButtonElement | null;
-  if (newBtn) {
-    newBtn.disabled = live.size === 0; // "+ New session" needs a project context (a live session)
-    // Show WHICH project it targets (the selected session's repo) so it's clearly "another session here".
-    const sel = selectedId ? live.get(selectedId) : null;
-    const text = sel ? `${tr('cockpit.new_session')} · ${sel.session.name}` : tr('cockpit.new_session');
-    const lbl = document.getElementById('ck-new-label'); if (lbl) lbl.textContent = text;
-    newBtn.title = text;
   }
 }
 
@@ -835,8 +857,7 @@ function row(s: CockpitSession): HTMLElement {
   else if (a === 'attention') ind.textContent = '❓';
   else ind.innerHTML = '<span class="ck-dot"></span>';
   const nm = el.querySelector('.nm') as HTMLElement;
-  const legacyListVisible = (document.getElementById('ck-list')?.getClientRects().length ?? 0) > 0;
-  if (s.id === editingId && legacyListVisible) {
+  if (s.id === editingId && legacyListVisible()) {
     nm.replaceChildren(renameInput(s.id, live.get(s.id)?.customLabel ?? s.name));
   } else {
     applyFullName(nm, liveLabels.get(s.id) ?? s.name);
@@ -904,13 +925,23 @@ function notifyAttention(l: Live): void {
   } catch { /* notifications unavailable (rare) — the tray dot still alerts */ }
 }
 
-export type CockpitPreviousAction = 'pin' | 'unpin' | 'forget';
-
-/** Shared-shell previous-row actions route to the same state mutations as the hidden compatibility list. */
-export function manageCockpitPreviousSession(id: string, action: CockpitPreviousAction): void {
+/** Shared-shell row actions route to the same state mutations the old cockpit list row buttons used.
+ *  A LIVE session resolves to its tile (pin / rename / close); a not-yet-restored entry resolves to
+ *  the persisted record (pin / forget). Renaming a live session needs its editor on screen, so it
+ *  brings the cockpit forward first — the same navigation an attention notification click performs. */
+export function manageCockpitSessionAction(id: string, action: ShellSessionAction): void {
+  const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id || legacyCockpitNavigationId(navigationIdentity(entry)) === id);
+  if (current) {
+    const sid = current.session.id;
+    if (action === 'close') { void requestClose(sid); return; }
+    if (action === 'rename') { cockpitNavigationCallback?.(navigationIdForLive(current)); beginRename(sid); return; }
+    if (current.pinned !== (action === 'pin')) togglePin(sid);
+    return;
+  }
   const entry = restorable.find((item) => cockpitNavigationId(item) === id || legacyCockpitNavigationId(item) === id);
   if (!entry) return;
   if (action === 'forget') { forgetSession(entry); return; }
+  if (action === 'rename' || action === 'close') return; // no terminal to rename or close yet
   entry.pinned = action === 'pin' ? true : undefined;
   persist(); renderList();
 }
@@ -925,8 +956,8 @@ function publishSessionSelection(liveSession: Live): void {
 function updateRailBadge(): void {
   const sessions = [...live.values()].map((l) => l.session);
   const attention = needsAttentionCount(sessions); // genuine agent questions only
-  const badge = document.getElementById('ck-badge');
-  if (badge) { badge.textContent = String(attention); badge.classList.toggle('hidden', attention === 0); }
+  // In-app, attention is surfaced by the sidebar's own "needs you" group (and its collapsed pill) —
+  // there is no separate cockpit rail item to badge since the shared shell replaced the icon rail.
   // Tray attention indicator: send both counts; the main process reddens the tray per the user's setting.
   const turn = sessions.filter((s) => s.activity === 'turn').length;
   window.devdeck.setTrayCounts({ attention, turn });
