@@ -16,6 +16,7 @@
 .ui-status.success::before { background: var(--dd-success); }
 .ui-row { border-bottom: 1px solid var(--dd-border); }
 .ui-drawer { background: var(--dd-sidebar); border-left: 1px solid var(--dd-border); }
+.ui-dialog { background: var(--dd-sidebar); border: 1px solid var(--dd-border-strong); }
 
 body .pm-overlay {
   align-items: stretch;

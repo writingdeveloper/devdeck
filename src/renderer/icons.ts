@@ -1,7 +1,8 @@
 export type IconName =
   | 'search' | 'projects' | 'sessions' | 'tasks' | 'usage'
   | 'settings' | 'refresh' | 'more' | 'play' | 'panel-left'
-  | 'folder' | 'plus' | 'restart' | 'close' | 'pin' | 'edit' | 'brain' | 'clock';
+  | 'folder' | 'plus' | 'restart' | 'close' | 'pin' | 'edit' | 'brain' | 'clock'
+  | 'trash' | 'chevron-left' | 'chevron-right';
 
 const paths: Record<IconName, string> = {
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>',
@@ -22,6 +23,9 @@ const paths: Record<IconName, string> = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="m13.5 6.5 4 4"></path>',
   brain: '<path d="M9.5 4.5A3 3 0 0 0 4 6a3 3 0 0 0 0 5 3 3 0 0 0 1 5.5A3 3 0 0 0 10 19V5"></path><path d="M14.5 4.5A3 3 0 0 1 20 6a3 3 0 0 1 0 5 3 3 0 0 1-1 5.5A3 3 0 0 1 14 19V5"></path><path d="M7 9h3M14 9h3M7 14h3M14 14h3"></path>',
   clock: '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>',
+  trash: '<path d="M4 7h16"></path><path d="M9 7V4h6v3"></path><path d="m6 7 1 14h10l1-14"></path><path d="M10 11v6M14 11v6"></path>',
+  'chevron-left': '<path d="m15 18-6-6 6-6"></path>',
+  'chevron-right': '<path d="m9 18 6-6-6-6"></path>',
 };
 
 export function iconMarkup(name: IconName): string {

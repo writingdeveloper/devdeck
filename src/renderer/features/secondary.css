@@ -1,0 +1,203 @@
+/* Secondary product surfaces share the command-center density and hierarchy.
+   These rules intentionally change presentation only; feature modules retain
+   their existing IPC, filtering, focus, and persistence behavior. */
+#view-next,
+#view-usage,
+#view-settings {
+  background: var(--dd-canvas);
+  color: var(--dd-text);
+}
+
+#view-next .next-head,
+#view-usage .usage-scope {
+  padding: 20px 24px 8px;
+}
+
+#view-next .next-head {
+  font-size: var(--dd-fs-title);
+  font-weight: 650;
+}
+
+#view-next .tk-bar,
+#view-usage .usage-toolbar {
+  gap: 8px;
+  padding: 10px 24px 14px;
+  border-bottom: 1px solid var(--dd-border);
+}
+
+#view-next .tk-row {
+  min-height: 50px;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--dd-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+#view-next .tk-row:hover,
+#view-next .tk-row:focus-within {
+  background: var(--dd-surface-raised);
+}
+
+#view-next .tk-list {
+  gap: 0;
+  padding: 0 24px 8px;
+}
+
+#view-next .tk-group {
+  margin-left: 24px;
+  padding: 14px 0 6px 10px;
+  border-left-width: 2px;
+}
+
+#view-next .tk-del,
+#view-next .cal-navbtn {
+  display: inline-grid;
+  min-width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+}
+
+#view-next .tk-del .ui-icon,
+#view-next .cal-navbtn .ui-icon {
+  width: 14px;
+  height: 14px;
+}
+
+#view-usage .usage-scope-title {
+  font-size: var(--dd-fs-view);
+  font-weight: 650;
+}
+
+#view-usage .usage-scope-note {
+  max-width: 900px;
+  color: var(--dd-text-muted);
+  font-size: var(--dd-fs-body);
+}
+
+#view-usage .usage-cost-cards {
+  gap: 12px;
+  padding: 20px 24px 0;
+}
+
+#view-usage .usage-cost-card {
+  min-height: 108px;
+  padding: 16px;
+  border-color: var(--dd-border);
+  border-radius: var(--dd-radius-md);
+  background: var(--dd-surface);
+  box-shadow: none;
+}
+
+#view-usage .usage-cost-card.lead {
+  border-color: var(--dd-border-strong);
+  background: var(--dd-surface-raised);
+}
+
+#view-usage .usage-summary,
+#view-usage .chart-box {
+  padding-inline: 24px;
+}
+
+#view-usage .usage-table {
+  width: calc(100% - 48px);
+  margin-inline: 24px;
+}
+
+#view-usage .usage-table th,
+#view-usage .usage-table td {
+  height: 38px;
+  padding-inline: 10px;
+  border-bottom-color: var(--dd-border);
+}
+
+#settings-form {
+  width: min(920px, 100%);
+  max-width: none;
+  padding: 28px 32px 56px;
+}
+
+#settings-form .set-title {
+  margin: 0 0 20px;
+  font-size: var(--dd-fs-view);
+  font-weight: 650;
+}
+
+#settings-form .set-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 220px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  margin: 0;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--dd-border);
+}
+
+#settings-form .set-label {
+  padding-top: 7px;
+  color: var(--dd-text-muted);
+  font-size: var(--dd-fs-body);
+  font-weight: 540;
+}
+
+#settings-form .set-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  border-color: var(--dd-border-strong);
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-surface);
+}
+
+#settings-form .set-num {
+  min-height: 34px;
+  border-color: var(--dd-border-strong);
+  background: var(--dd-surface);
+}
+
+#settings-form .set-hint {
+  color: var(--dd-text-muted);
+  opacity: 1;
+}
+
+#settings-form .about {
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-md);
+  background: var(--dd-surface);
+}
+
+body .usage-modal-overlay {
+  background: rgb(0 0 0 / .55);
+}
+
+body .usage-modal {
+  border-color: var(--dd-border-strong);
+  border-radius: var(--dd-radius-lg);
+  background: var(--dd-sidebar);
+  box-shadow: 0 20px 56px rgb(0 0 0 / .55);
+}
+
+body .um-head {
+  min-height: 54px;
+  background: var(--dd-sidebar);
+  border-bottom-color: var(--dd-border);
+}
+
+body .um-provider {
+  border-bottom-color: var(--dd-border);
+}
+
+#usage-bar {
+  border-top-color: var(--dd-border);
+  background: color-mix(in srgb, var(--dd-canvas) 94%, var(--dd-sidebar));
+}
+
+@media (max-width: 760px) {
+  #settings-form { padding: 20px 18px 44px; }
+  #settings-form .set-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  #settings-form .set-label { padding-top: 0; }
+  #view-usage .usage-cost-cards { grid-template-columns: minmax(0, 1fr); }
+}

@@ -6,7 +6,7 @@ describe('iconMarkup', () => {
     const names: IconName[] = [
       'search', 'projects', 'sessions', 'tasks', 'usage', 'settings',
       'refresh', 'more', 'play', 'panel-left', 'folder', 'plus', 'restart',
-      'close', 'pin', 'edit', 'brain', 'clock',
+      'close', 'pin', 'edit', 'brain', 'clock', 'trash', 'chevron-left', 'chevron-right',
     ];
 
     for (const name of names) {
