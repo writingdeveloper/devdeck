@@ -6,7 +6,7 @@ import { restoreShellContext } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { mountCockpit, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, cockpitNavigationItems, mountCockpit, onCockpitNavigationChange, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -209,9 +209,18 @@ async function boot(): Promise<void> {
       focusProject(path);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'project', path }));
     },
-    onSession: () => { if (cockpitOn) nav.show('cockpit'); },
+    onSession: (id) => {
+      if (!cockpitOn) return;
+      nav.show('cockpit');
+      activateCockpitSession(id);
+      localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
+    },
   });
   shellController.setCockpitAvailable(cockpitOn);
+  if (cockpitOn) {
+    onCockpitNavigationChange((items) => shellController?.setSessionGroups([...items]));
+    shellController.setSessionGroups(cockpitNavigationItems());
+  }
   const syncShellProjects = (items: readonly import('../shared/types').ProjectViewModel[]): void => {
     shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch }) => ({ path, name, branch })));
   };

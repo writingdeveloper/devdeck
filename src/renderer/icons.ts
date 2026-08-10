@@ -1,6 +1,7 @@
 export type IconName =
   | 'search' | 'projects' | 'sessions' | 'tasks' | 'usage'
-  | 'settings' | 'refresh' | 'more' | 'play' | 'panel-left';
+  | 'settings' | 'refresh' | 'more' | 'play' | 'panel-left'
+  | 'folder' | 'plus' | 'restart' | 'close' | 'pin' | 'edit' | 'brain' | 'clock';
 
 const paths: Record<IconName, string> = {
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>',
@@ -13,6 +14,14 @@ const paths: Record<IconName, string> = {
   more: '<circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle>',
   play: '<path d="m8 5 11 7-11 7z"></path>',
   'panel-left': '<rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M9 4v16"></path>',
+  folder: '<path d="M3 7.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M3 7.5v-2a2 2 0 0 1 2-2h4l2 2h4"></path>',
+  plus: '<path d="M12 5v14M5 12h14"></path>',
+  restart: '<path d="M20 6v5h-5"></path><path d="M18.5 16a8 8 0 1 1 .8-7.5L20 11"></path>',
+  close: '<path d="m6 6 12 12M18 6 6 18"></path>',
+  pin: '<path d="m9 3 6 6"></path><path d="m6 10 8 8"></path><path d="m14 5 5 5-3 3-2-1-5 5-2-2 5-5-1-2z"></path><path d="m7 17-4 4"></path>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="m13.5 6.5 4 4"></path>',
+  brain: '<path d="M9.5 4.5A3 3 0 0 0 4 6a3 3 0 0 0 0 5 3 3 0 0 0 1 5.5A3 3 0 0 0 10 19V5"></path><path d="M14.5 4.5A3 3 0 0 1 20 6a3 3 0 0 1 0 5 3 3 0 0 1-1 5.5A3 3 0 0 1 14 19V5"></path><path d="M7 9h3M14 9h3M7 14h3M14 14h3"></path>',
+  clock: '<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>',
 };
 
 export function iconMarkup(name: IconName): string {

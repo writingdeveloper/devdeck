@@ -1,7 +1,8 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
+import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
+import type { ShellSessionInput } from '../shared/shellNavigation';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
@@ -15,6 +16,7 @@ import { tr, currentLang } from './i18n-runtime';
 import { toast } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
+import { createIcon, type IconName } from './icons';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
@@ -23,6 +25,8 @@ interface Live { session: CockpitSession; term: Terminal; fit: FitAddon; search:
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; }
 
 const live = new Map<string, Live>();
+const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
+let lastNavigationSignature = '';
 let restorable: PersistedSession[] = []; // previous sessions persisted across restarts, not yet restored
 let restorableLoaded = false; // guard: don't persist (and clobber the on-disk list) until the initial load resolves
 /** Saved entries whose conversation is no longer on disk — their row warns BEFORE it is clicked, since
@@ -237,6 +241,58 @@ export function liveSessionsForPersist(): PersistedSession[] {
 }
 /** How many cockpit sessions are live right now (for the update-restart button label). */
 export function liveSessionCount(): number { return live.size; }
+
+function previousNavigationId(entry: PersistedSession): string {
+  return `previous:${encodeURIComponent(entry.projectPath)}:${encodeURIComponent(entry.sessionId ?? '')}`;
+}
+
+export function cockpitNavigationItems(): ShellSessionInput[] {
+  const liveItems = [...live.values()];
+  const liveConversationIds = new Set(liveItems.map((item) => item.openedSessionId).filter((id): id is string => !!id));
+  const previousItems = restorable.filter((item) => !(item.sessionId && liveConversationIds.has(item.sessionId)));
+  const union = [
+    ...liveItems.map((item) => item.customLabel || item.session.name),
+    ...previousItems.map((item) => item.label || item.name),
+  ];
+  const labels = numberCollidingNames(union);
+  const current = liveItems.map((item, index) => {
+    const session = item.session;
+    const detailBits = [session.branch ?? '—', providerName(session.agentId)];
+    const context = contextPercent(item.meta?.contextTokens ?? 0, windowFor(item.meta));
+    if (context != null) detailBits.push(`${context}%`);
+    return sessionNavigationItem(session, labels[index], detailBits.join(' · '), item.pinned);
+  });
+  const previous = previousItems.map((entry, index): ShellSessionInput => ({
+    id: previousNavigationId(entry),
+    projectPath: entry.projectPath,
+    label: labels[liveItems.length + index],
+    detail: `${providerName(toAgentId(entry.agentId) ?? 'claude')} · ${tr('cockpit.restore')}`,
+    activity: 'idle',
+    pinned: entry.pinned === true,
+    previous: true,
+  }));
+  return [...current, ...previous];
+}
+
+export function onCockpitNavigationChange(listener: (items: readonly ShellSessionInput[]) => void): () => void {
+  navigationListeners.add(listener);
+  listener(cockpitNavigationItems());
+  return () => navigationListeners.delete(listener);
+}
+
+function publishCockpitNavigation(): void {
+  const items = cockpitNavigationItems();
+  const signature = JSON.stringify(items);
+  if (signature === lastNavigationSignature) return;
+  lastNavigationSignature = signature;
+  for (const listener of navigationListeners) listener(items);
+}
+
+export function activateCockpitSession(id: string): void {
+  if (live.has(id)) { select(id); return; }
+  const previous = restorable.find((entry) => previousNavigationId(entry) === id);
+  if (previous) void restoreSession(previous);
+}
 
 /** Per-project live status for the deck's summary + card stripes (no IPC — renderer-shared). */
 export function liveProjectActivity(): Map<string, 'attention' | 'working'> {
@@ -600,6 +656,7 @@ function renderList(): void {
   const labels = numberCollidingNames(union);
   liveLabels = new Map(liveLive.map((l, i) => [l.session.id, labels[i]]));
   const prevLabels = prev.map((_r, i) => labels[liveLive.length + i]);
+  publishCockpitNavigation();
 
   // Skip the full DOM rebuild when nothing the list shows has changed (this runs on every 1s activity
   // tick + per-session meta/git refresh, so most calls become no-ops once the deck settles).
@@ -730,7 +787,8 @@ function row(s: CockpitSession): HTMLElement {
   else if (a === 'attention') ind.textContent = '❓';
   else ind.innerHTML = '<span class="ck-dot"></span>';
   const nm = el.querySelector('.nm') as HTMLElement;
-  if (s.id === editingId) {
+  const legacyListVisible = (document.getElementById('ck-list')?.getClientRects().length ?? 0) > 0;
+  if (s.id === editingId && legacyListVisible) {
     nm.replaceChildren(renameInput(s.id, live.get(s.id)?.customLabel ?? s.name));
   } else {
     applyFullName(nm, liveLabels.get(s.id) ?? s.name);
@@ -838,10 +896,12 @@ function renderHeader(): void {
   const s = l.session;
   const title = document.createElement('span'); title.className = 'title';
   const fullName = liveLabels.get(s.id) ?? s.name;
-  title.textContent = fullName; title.setAttribute('aria-label', fullName);
+  if (editingId === s.id) title.appendChild(renameInput(s.id, l.customLabel ?? s.name));
+  else title.textContent = fullName;
+  title.setAttribute('aria-label', fullName);
   title.title = tr('cockpit.rename');
   title.addEventListener('dblclick', () => beginRename(s.id)); // edits in the session's list row (single editor, survives re-render)
-  const branch = document.createElement('span'); branch.className = 'ck-pill'; branch.textContent = `⎇ ${s.branch ?? '-'}${s.dirty > 0 ? ` ✎${s.dirty}` : ''}`;
+  const branch = document.createElement('span'); branch.className = 'ck-pill'; branch.textContent = `${s.branch ?? '-'}${s.dirty > 0 ? ` · ✎${s.dirty}` : ''}`;
   // Same mark component as the rows; the localized provider name rides along as alt/title, so identity
   // never depends on the logo's color alone.
   const ag = document.createElement('span'); ag.className = 'ck-pill ck-pill-provider';
@@ -850,14 +910,16 @@ function renderHeader(): void {
   const model = friendlyModel(l.meta?.model ?? null);
   if (model) { const mp = document.createElement('span'); mp.className = 'ck-pill'; mp.textContent = model; pills.push(mp); }
   const ctxPct = contextPercent(l.meta?.contextTokens ?? 0, windowFor(l.meta));
-  if (ctxPct !== null) { const cp = document.createElement('span'); cp.className = 'ck-pill'; cp.textContent = `🧠 ${ctxPct}%`; cp.title = tr('cockpit.context'); pills.push(cp); }
-  if (l.meta && l.meta.activeMs > 0) { const tp = document.createElement('span'); tp.className = 'ck-pill'; tp.textContent = `⏱️ ${formatDuration(l.meta.activeMs)}`; pills.push(tp); }
+  if (ctxPct !== null) { const cp = document.createElement('span'); cp.className = 'ck-pill'; cp.append(createIcon('brain'), `${ctxPct}%`); cp.title = tr('cockpit.context'); pills.push(cp); }
+  if (l.meta && l.meta.activeMs > 0) { const tp = document.createElement('span'); tp.className = 'ck-pill'; tp.append(createIcon('clock'), formatDuration(l.meta.activeMs)); pills.push(tp); }
   const sp = document.createElement('span'); sp.className = 'sp';
-  const newSession = actBtn('+', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
-  const folder = actBtn('📁', tr('cockpit.open_folder'), () => window.devdeck.openFolder(s.projectPath));
-  const restart = actBtn('⟳', tr('cockpit.restart'), () => restartSession(s.id));
-  const close = actBtn('✕', tr('cockpit.close'), () => void requestClose(s.id));
-  headerEl.append(...pills, sp, newSession, folder, restart, close);
+  const newSession = actBtn('plus', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
+  const pin = actBtn('pin', tr(l.pinned ? 'cockpit.unpin' : 'cockpit.pin'), () => togglePin(s.id));
+  const rename = actBtn('edit', tr('cockpit.rename'), () => beginRename(s.id));
+  const folder = actBtn('folder', tr('cockpit.open_folder'), () => window.devdeck.openFolder(s.projectPath));
+  const restart = actBtn('restart', tr('cockpit.restart'), () => restartSession(s.id));
+  const close = actBtn('close', tr('cockpit.close'), () => void requestClose(s.id));
+  headerEl.append(...pills, sp, newSession, pin, rename, folder, restart, close);
 }
 
 /** "+ New session": spawn another, fresh conversation in the SAME project as the selected session. */
@@ -867,8 +929,8 @@ async function addSessionToCurrentProject(): Promise<void> {
   await createSession({ path: s.projectPath, name: s.name, staleLevel: s.staleLevel, branch: s.branch, dirty: s.dirty, mode: 'new', agentId: s.agentId });
 }
 
-function actBtn(glyph: string, title: string, onClick: () => void): HTMLButtonElement {
-  const b = document.createElement('button'); b.className = 'ck-act'; b.textContent = glyph; b.title = title; b.addEventListener('click', onClick); return b;
+function actBtn(icon: IconName, title: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement('button'); b.className = 'ck-act'; b.appendChild(createIcon(icon)); b.title = title; b.setAttribute('aria-label', title); b.addEventListener('click', onClick); return b;
 }
 
 async function restartSession(id: string): Promise<void> {
@@ -974,8 +1036,8 @@ function renameSession(id: string, label: string): void {
 
 // Editing is RENDER STATE (editingId), not a mutated DOM node: a list rebuild (e.g. row click → select)
 // would otherwise orphan a captured <input> and the editor would silently never appear.
-function beginRename(id: string): void { editingId = id; renderList(); }
-function cancelRename(): void { editingId = null; renderList(); }
+function beginRename(id: string): void { editingId = id; renderList(); renderHeader(); }
+function cancelRename(): void { editingId = null; renderList(); renderHeader(); }
 function commitRename(id: string, value: string): void { editingId = null; renameSession(id, value); }
 
 /** Build the inline rename <input> rendered into the editing row's name slot. */

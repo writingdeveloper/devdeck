@@ -328,93 +328,56 @@ const ckOk = await win.evaluate(() => {
 console.log(`cockpit structure + new-session button present: ${ckOk}`);
 if (!ckOk) { console.error('QA FAILED — cockpit structure / + New session button missing'); await closeApp(); process.exit(1); }
 
-// Provider marks + two-line names: the sidebar must stay 250px, a very long ASCII name and an
-// unbroken CJK name must clamp at two lines (never widen the sidebar or spill), and the hover-only
-// row actions must reserve no width while hidden. The harness can't spawn a live PTY session, so
-// inject representative row markup and measure the real CSS.
+// Unified session navigation: long names/details must stay inside the shared 224px sidebar and
+// the old nested Cockpit sidebar must not consume any terminal width. The harness cannot spawn a
+// live PTY session, so inject representative shell rows and measure the real command-center CSS.
 const sidebar = await win.evaluate(async () => {
-  const groups = document.getElementById('ck-groups');
+  const groups = document.getElementById('shell-session-groups');
   const long = 'devdeck-monorepo-frontend-experimental-feature-branch-session-42-x';
   const cjk = '데브덱코크핏세션이름아주아주긴한글이름테스트용으로만든것';
-  // Line 3 (.sm) is the auto summary — deliberately longer than the sidebar so the clamp is exercised.
-  const summary = 'cockpitView.ts에 세션 요약 줄을 붙이고 CSS와 i18n을 정리하는 중';
-  const rowHtml = (name, logo) => `<div class="ck-row act-idle">
-    <span class="ck-ind"><span class="ck-dot"></span></span>
-    <img class="ck-provider-logo" src="./assets/provider-${logo}.svg" alt="${logo}">
-    <div class="ck-row-main"><div class="ck-line1"><span class="nm" tabindex="0" aria-label="${name}" data-full-name="${name}">${name}</span><span class="ck-ctx-col">🧠41%</span></div><div class="mt">main · Opus</div><div class="sm" title="${summary}">${summary}</div></div>
-    <span class="ck-row-acts"><button class="ck-pin">📌</button><button class="ck-rename">✎</button><button class="ck-close">✕</button></span></div>`;
-  groups.innerHTML = rowHtml(long, 'claude') + rowHtml(cjk, 'codex')
-    // A restorable entry whose conversation is gone: its meta line warns in the accent colour, since
-    // restoring it opens a FRESH session under the same name.
-    + `<div class="ck-row ck-row-prev"><span class="ck-ind"><span class="ck-dot"></span></span><img class="ck-provider-logo" src="./assets/provider-antigravity.svg" alt="antigravity"><div class="ck-row-main"><div class="nm" tabindex="0" aria-label="${long}" data-full-name="${long}">${long}</div><div class="mt gone">⚠ conversation gone</div></div><span class="ck-prev-acts"><button class="ck-pin">📌</button><button class="ck-forget">✕</button></span></div>`;
+  const rowHtml = (name, activity, detail) => `<button class="shell-entity shell-session activity-${activity}" type="button" aria-label="${name}">
+    <span class="shell-signal" aria-hidden="true"></span><span class="shell-entity-copy"><strong>${name}</strong><small>${detail}</small></span></button>`;
+  groups.innerHTML = `<section class="shell-group group-attention"><div class="shell-section-label">Needs You · 1</div>${rowHtml(long, 'attention', 'main · Claude · 41%')}</section>
+    <section class="shell-group group-working"><div class="shell-section-label">Working · 1</div>${rowHtml(cjk, 'working', 'feature/command-center · Codex · 82%')}</section>`;
   await new Promise((r) => setTimeout(r, 250));
-  const list = document.querySelector('#view-cockpit .ck-list').getBoundingClientRect();
-  const names = [...document.querySelectorAll('#ck-groups .nm')];
-  const lh = parseFloat(getComputedStyle(names[0]).lineHeight);
-  const logos = document.querySelectorAll('#ck-groups .ck-provider-logo');
-  const loaded = [...logos].every((i) => i.complete && i.naturalWidth > 0);
-  const sums = [...document.querySelectorAll('#ck-groups .sm')];
-  const sumLh = sums.length ? parseFloat(getComputedStyle(sums[0]).lineHeight) || 16 : 0;
+  const list = document.getElementById('app-sidebar').getBoundingClientRect();
+  const names = [...groups.querySelectorAll('strong')];
+  const details = [...groups.querySelectorAll('small')];
+  const nested = document.querySelector('#view-cockpit .ck-list');
+  const main = document.querySelector('#view-cockpit .ck-main').getBoundingClientRect();
+  const wrap = document.querySelector('#view-cockpit .ck-wrap').getBoundingClientRect();
   return {
     sidebarWidth: Math.round(list.width),
-    twoLines: names.every((n) => n.getBoundingClientRect().height <= lh * 2 + 1),
     inside: names.every((n) => n.getBoundingClientRect().right <= list.right + 1),
-    logos: logos.length,
-    loaded,
-    actsHidden: getComputedStyle(document.querySelector('#ck-groups .ck-row-acts')).opacity === '0',
-    // The summary line must stay ONE clipped line inside the sidebar — it is long by construction here.
-    summaries: sums.length,
-    summaryOneLine: sums.every((s) => s.getBoundingClientRect().height <= sumLh + 1),
-    summaryInside: sums.every((s) => s.getBoundingClientRect().right <= list.right + 1),
-    summaryClipped: sums.every((s) => s.scrollWidth > s.clientWidth), // actually overflowing → ellipsis in play
-    rowHeight: Math.round(document.querySelector('#ck-groups .ck-row').getBoundingClientRect().height),
-    // The gone warning must be visually distinct from the ordinary dim "Restore" line AND stay inside
-    // the sidebar — a warning that reads like normal metadata is one the user scrolls past.
-    goneTinted: (() => {
-      const g = document.querySelector('#ck-groups .ck-row-prev .mt.gone');
-      const plain = document.querySelector('#ck-groups .ck-row:not(.ck-row-prev) .mt');
-      return !!g && getComputedStyle(g).color !== getComputedStyle(plain).color;
-    })(),
-    goneInside: (() => {
-      const g = document.querySelector('#ck-groups .ck-row-prev .mt.gone');
-      return !!g && g.getBoundingClientRect().right <= list.right + 1;
-    })(),
+    detailInside: details.every((n) => n.getBoundingClientRect().right <= list.right + 1),
+    clipped: [...names, ...details].every((n) => n.scrollWidth >= n.clientWidth),
+    signals: groups.querySelectorAll('.shell-signal').length,
+    nestedHidden: getComputedStyle(nested).display === 'none',
+    mainFillsWrap: Math.abs(main.width - wrap.width) <= 1,
   };
 });
 await shot('cockpit-provider-sidebar');
-console.log(`cockpit sidebar: width=${sidebar.sidebarWidth}px twoLines=${sidebar.twoLines} inside=${sidebar.inside} logos=${sidebar.logos} svgLoaded=${sidebar.loaded} actionsHiddenByDefault=${sidebar.actsHidden}`);
-console.log(`cockpit summary line: rows=${sidebar.summaries} oneLine=${sidebar.summaryOneLine} inside=${sidebar.summaryInside} clipped=${sidebar.summaryClipped} rowHeight=${sidebar.rowHeight}px`);
-if (sidebar.sidebarWidth !== 250 || !sidebar.twoLines || !sidebar.inside || sidebar.logos !== 3 || !sidebar.loaded || !sidebar.actsHidden) {
-  console.error('QA FAILED — cockpit sidebar geometry / provider marks regressed (expect 250px, 2-line clamp, contained names, 3 loaded SVG marks, hidden row actions).');
+console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInside=${sidebar.inside} detailsInside=${sidebar.detailInside} signals=${sidebar.signals} nestedHidden=${sidebar.nestedHidden} terminalFills=${sidebar.mainFillsWrap}`);
+if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
+  console.error('QA FAILED — unified session navigation overflowed or the legacy Cockpit list still consumes terminal width.');
   await closeApp();
   process.exit(1);
 }
-if (sidebar.summaries !== 2 || !sidebar.summaryOneLine || !sidebar.summaryInside || !sidebar.summaryClipped) {
-  console.error('QA FAILED — session summary line regressed (expect one clipped line per live row, contained in the 250px sidebar).');
-  await closeApp();
-  process.exit(1);
-}
-console.log(`cockpit gone marker: tinted=${sidebar.goneTinted} inside=${sidebar.goneInside}`);
-if (!sidebar.goneTinted || !sidebar.goneInside) {
-  console.error('QA FAILED — the "conversation gone" warning on a restorable row is not visually distinct or overflows the sidebar.');
-  await closeApp();
-  process.exit(1);
-}
-// The full-name tooltip must be reachable by KEYBOARD, not only pointer.
+// The full session row must be reachable by keyboard in the shared sidebar.
 const tooltip = await win.evaluate(async () => {
-  const nm = document.querySelector('#ck-groups .nm');
-  nm.focus();
+  const row = document.querySelector('#shell-session-groups .shell-session');
+  row.focus();
   await new Promise((r) => setTimeout(r, 150));
-  return { focused: document.activeElement === nm, hasFullName: !!nm.dataset.fullName, labelled: nm.getAttribute('aria-label') === nm.dataset.fullName };
+  return { focused: document.activeElement === row, labelled: !!row.getAttribute('aria-label') };
 });
 await shot('cockpit-provider-tooltip');
-console.log(`cockpit name help: keyboardFocusable=${tooltip.focused} fullName=${tooltip.hasFullName} ariaLabel=${tooltip.labelled}`);
-if (!tooltip.focused || !tooltip.hasFullName) {
-  console.error('QA FAILED — the complete session name is not reachable by keyboard.');
+console.log(`session navigation keyboard: focusable=${tooltip.focused} labelled=${tooltip.labelled}`);
+if (!tooltip.focused || !tooltip.labelled) {
+  console.error('QA FAILED — the unified session row is not keyboard reachable or labelled.');
   await closeApp();
   process.exit(1);
 }
-await win.evaluate(() => { document.getElementById('ck-groups').innerHTML = ''; });
+await win.evaluate(() => { document.getElementById('shell-session-groups').innerHTML = ''; });
 
 // Usage bar fill — regression guard for the inline-span bug where the fill (width/height
 // ignored on an inline box) rendered empty. window.devdeck is a frozen contextBridge object

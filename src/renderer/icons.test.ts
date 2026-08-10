@@ -5,13 +5,15 @@ describe('iconMarkup', () => {
   it('returns local, currentColor SVG markup for every shell icon', () => {
     const names: IconName[] = [
       'search', 'projects', 'sessions', 'tasks', 'usage', 'settings',
-      'refresh', 'more', 'play', 'panel-left',
+      'refresh', 'more', 'play', 'panel-left', 'folder', 'plus', 'restart',
+      'close', 'pin', 'edit', 'brain', 'clock',
     ];
 
     for (const name of names) {
       expect(iconMarkup(name)).toContain('<svg');
       expect(iconMarkup(name)).toContain('stroke="currentColor"');
       expect(iconMarkup(name)).not.toContain('http');
+      expect(iconMarkup(name)).not.toContain('undefined');
     }
   });
 });

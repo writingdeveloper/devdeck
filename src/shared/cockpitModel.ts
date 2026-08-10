@@ -1,5 +1,6 @@
 import type { AgentId, StaleLevel } from './types';
 import type { ActivityState } from './sessionStatus';
+import type { ShellSessionInput } from './shellNavigation';
 
 export type SessionStatus = 'running' | 'exited';
 
@@ -13,6 +14,22 @@ export interface CockpitSession {
   branch: string | null;
   dirty: number;
   activity: ActivityState;
+}
+
+export function sessionNavigationItem(
+  session: CockpitSession,
+  label: string,
+  detail: string,
+  pinned: boolean,
+): ShellSessionInput {
+  return {
+    id: session.id,
+    projectPath: session.projectPath,
+    label,
+    detail,
+    activity: session.activity,
+    pinned,
+  };
 }
 
 export function filterSessions(list: CockpitSession[], query: string, labels?: Map<string, string>): CockpitSession[] {
