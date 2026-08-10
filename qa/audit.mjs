@@ -77,33 +77,99 @@ ipc.providerOpen = await win.evaluate(async (p) => {
 }, root);
 await win.click('.rail-item[data-view="projects"]');
 await win.waitForTimeout(150);
-ipc.projectDisplay = await win.evaluate(() => {
+const displayTrigger = win.locator('#project-display');
+const displayMenu = win.locator('#project-display-menu');
+const displayItem = (id) => win.locator(`#${id}`);
+const displayState = () => win.evaluate(() => {
   const trigger = document.getElementById('project-display');
   const menu = document.getElementById('project-display-menu');
-  const showHidden = document.getElementById('show-hidden');
-  trigger?.click();
-  const opened = trigger?.getAttribute('aria-expanded') === 'true' && !menu?.classList.contains('hidden');
-  const menuItems = Array.from(menu?.querySelectorAll('[role^="menuitem"]') ?? []);
-  const labeledItems = menuItems.length >= 3 && menuItems.every((item) => !!item.textContent?.trim());
-  const providerLabel = menu?.querySelector('label[for="agent-select"]')?.textContent?.trim() ?? '';
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  const escapeClosed = trigger?.getAttribute('aria-expanded') === 'false' && !!menu?.classList.contains('hidden') && document.activeElement === trigger;
-  trigger?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-  const enterOpened = trigger?.getAttribute('aria-expanded') === 'true' && !menu?.classList.contains('hidden');
-  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  return { open: trigger?.getAttribute('aria-expanded') === 'true' && !menu?.classList.contains('hidden'), focusId: document.activeElement?.id ?? '' };
+});
+const displayModel = await win.evaluate(() => {
+  const menu = document.getElementById('project-display-menu');
+  const items = ['show-hidden', 'view-cards', 'view-list']
+    .map((id) => document.getElementById(id))
+    .filter((item) => item instanceof HTMLButtonElement && !item.disabled);
+  const selected = items.find((item) => item.getAttribute('role') === 'menuitemradio' && item.getAttribute('aria-checked') === 'true');
   return {
-    trigger: !!trigger,
-    hasPopup: trigger?.getAttribute('aria-haspopup') === 'menu',
-    initialExpanded: trigger?.getAttribute('aria-expanded') === 'false',
-    opened,
+    actionableIds: items.map((item) => item.id),
+    initialFocusId: selected?.id ?? items[0]?.id ?? '',
     menuRole: menu?.getAttribute('role') === 'menu',
-    labeledItems,
-    providerLabel: !!providerLabel,
-    showHiddenRole: showHidden?.getAttribute('role') === 'menuitemcheckbox',
-    escapeClosed,
-    enterOpened,
+    labeledItems: items.length >= 3 && items.every((item) => !!item.textContent?.trim()),
+    providerLabel: !!menu?.querySelector('label[for="agent-select"]')?.textContent?.trim(),
   };
 });
+
+await displayTrigger.focus();
+await win.keyboard.press('Space');
+let state = await displayState();
+const spaceOpened = state.open;
+const focusOnOpen = state.focusId === displayModel.initialFocusId;
+await win.keyboard.press('ArrowDown');
+state = await displayState();
+const arrowDown = state.focusId === displayModel.actionableIds[(displayModel.actionableIds.indexOf(displayModel.initialFocusId) + 1) % displayModel.actionableIds.length];
+await win.keyboard.press('ArrowUp');
+state = await displayState();
+const arrowUp = state.focusId === displayModel.initialFocusId;
+await win.keyboard.press('Home');
+state = await displayState();
+const home = state.focusId === displayModel.actionableIds[0];
+await win.keyboard.press('End');
+state = await displayState();
+const end = state.focusId === displayModel.actionableIds.at(-1);
+
+await displayItem('view-cards').focus();
+await win.keyboard.press('Enter');
+state = await displayState();
+const itemActivateCloseFocus = !state.open && state.focusId === 'project-display';
+
+await displayTrigger.click();
+await displayItem('view-list').click();
+state = await displayState();
+const itemClickCloseFocus = !state.open && state.focusId === 'project-display';
+
+await displayTrigger.click();
+await win.locator('#proj-search').click();
+state = await displayState();
+const outsideClosed = !state.open;
+
+await displayTrigger.focus();
+await win.keyboard.press('Space');
+const agentSelect = win.locator('#agent-select');
+const agentOptions = await agentSelect.locator('option').count();
+let agentSelectNative = agentOptions < 2;
+if (agentOptions >= 2) {
+  await agentSelect.focus();
+  const before = await agentSelect.inputValue();
+  await win.keyboard.press('ArrowDown');
+  await win.waitForTimeout(200); // the real provider-change handler refreshes the deck asynchronously
+  state = await displayState();
+  agentSelectNative = state.open && state.focusId === 'agent-select' && await agentSelect.inputValue() !== before;
+}
+await win.keyboard.press('Escape');
+state = await displayState();
+const escapeClosed = !state.open && state.focusId === 'project-display';
+
+ipc.projectDisplay = {
+  trigger: await displayTrigger.count() === 1,
+  hasPopup: await displayTrigger.getAttribute('aria-haspopup') === 'menu',
+  initialExpanded: await displayTrigger.getAttribute('aria-expanded') === 'false',
+  spaceOpened,
+  menuRole: displayModel.menuRole,
+  labeledItems: displayModel.labeledItems,
+  providerLabel: displayModel.providerLabel,
+  showHiddenRole: await displayItem('show-hidden').getAttribute('role') === 'menuitemcheckbox',
+  focusOnOpen,
+  arrowDown,
+  arrowUp,
+  home,
+  end,
+  itemActivateCloseFocus,
+  itemClickCloseFocus,
+  outsideClosed,
+  agentSelectNative,
+  escapeClosed,
+};
 ipc.usageShape = await win.evaluate(async () => {
   const r = await window.devdeck.usageReport(0);
   return { hasGlobal: !!r.global, hasByProject: Array.isArray(r.byProject), hasByModel: Array.isArray(r.byModel), hasByProvider: Array.isArray(r.byProvider) && r.byProvider.length === 2 };

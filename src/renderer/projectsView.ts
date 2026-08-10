@@ -768,6 +768,10 @@ export function mountProjects(): void {
   displayBtn = document.getElementById('project-display') as HTMLButtonElement;
   displayMenu = document.getElementById('project-display-menu')!;
 
+  const displayActionItems = (): HTMLButtonElement[] => Array.from(
+    displayMenu.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]'),
+  ).filter((item) => !item.disabled);
+
   const closeDisplayMenu = (restoreFocus = false): void => {
     if (!displayMenu || !displayBtn) return;
     displayMenu.classList.add('hidden');
@@ -780,6 +784,8 @@ export function mountProjects(): void {
     displayMenu.classList.remove('hidden');
     if (displayMenu.getBoundingClientRect().right > window.innerWidth) displayMenu.classList.add('align-end');
     displayBtn.setAttribute('aria-expanded', 'true');
+    const items = displayActionItems();
+    (items.find((item) => item.getAttribute('role') === 'menuitemradio' && item.getAttribute('aria-checked') === 'true') ?? items[0])?.focus();
   };
   const toggleDisplayMenu = (): void => {
     if (displayMenu?.classList.contains('hidden')) openDisplayMenu();
@@ -793,9 +799,23 @@ export function mountProjects(): void {
     event.preventDefault(); toggleDisplayMenu();
   });
   displayMenu.addEventListener('click', (event) => event.stopPropagation());
-  viewCardsBtn.addEventListener('click', () => { setView('cards'); closeDisplayMenu(); });
-  viewListBtn.addEventListener('click', () => { setView('list'); closeDisplayMenu(); });
-  showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); closeDisplayMenu(); });
+  displayMenu.addEventListener('keydown', (event) => {
+    if (event.target instanceof HTMLSelectElement) return;
+    const items = displayActionItems();
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next = current;
+    if (event.key === 'ArrowDown') next = (current + 1 + items.length) % items.length;
+    else if (event.key === 'ArrowUp') next = (current - 1 + items.length) % items.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = items.length - 1;
+    else return;
+    event.preventDefault();
+    items[next].focus();
+  });
+  viewCardsBtn.addEventListener('click', () => { setView('cards'); closeDisplayMenu(true); });
+  viewListBtn.addEventListener('click', () => { setView('list'); closeDisplayMenu(true); });
+  showHiddenBtn.addEventListener('click', () => { showHidden = !showHidden; render(); closeDisplayMenu(true); });
   openBtn.addEventListener('click', () => {
     if (selected.size === 0) return;
     openInTerminal(projects.filter((p) => selected.has(p.path)).map((p) => toOpenReq(p)));
