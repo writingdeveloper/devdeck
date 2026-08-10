@@ -259,10 +259,33 @@ const taskSeeded = await win.evaluate(async () => {
   return true;
 });
 
+// Shell reconciliation must keep the exact focused project row through the real project refresh
+// path. A replace-children implementation would detach the button and lose keyboard focus.
+if (!taskSeeded) {
+  console.error('QA FAILED — unable to seed a project for shell refresh reconciliation.');
+  await closeApp(); process.exit(1);
+}
+await showView('projects');
+await win.click('#refresh');
+await win.waitForSelector('#shell-projects .shell-project', { timeout: 10000 });
+const shellRefresh = await win.evaluate(async () => {
+  const before = document.querySelector('#shell-projects .shell-project');
+  before.focus();
+  const key = before.dataset.shellEntityKey;
+  document.getElementById('refresh').click();
+  await new Promise((r) => setTimeout(r, 2500));
+  const after = document.querySelector(`#shell-projects .shell-project[data-shell-entity-key="${CSS.escape(key)}"]`);
+  return { sameNode: before === after, focused: document.activeElement === after };
+});
+console.log(`shell refresh reuse: sameNode=${shellRefresh.sameNode} focused=${shellRefresh.focused}`);
+if (!shellRefresh.sameNode || !shellRefresh.focused) {
+  console.error('QA FAILED — shell refresh replaced or defocused an unchanged project row.');
+  await closeApp(); process.exit(1);
+}
+
 // Project Memory: the same real allowed checkout supplies recent commits and the seeded task. Capture
 // both normal and narrow geometry, and fail if the modal itself overflows horizontally.
 await showView('projects');
-await win.click('#refresh');
 await win.waitForSelector('.project-memory-button', { timeout: 10000 });
 await win.click('#view-list');
 await win.waitForSelector('#cards.as-list .prow', { timeout: 5000 });
@@ -410,10 +433,10 @@ const sidebar = await win.evaluate(async () => {
   const groups = document.getElementById('shell-session-groups');
   const long = 'devdeck-monorepo-frontend-experimental-feature-branch-session-42-x';
   const cjk = '데브덱코크핏세션이름아주아주긴한글이름테스트용으로만든것';
-  const rowHtml = (name, activity, detail) => `<button class="shell-entity shell-session activity-${activity}" type="button" aria-label="${name}">
+  const rowHtml = (name, activity, detail, status) => `<button class="shell-entity shell-session activity-${activity}" type="button" aria-label="${name}, ${detail}, ${status}">
     <span class="shell-signal" aria-hidden="true"></span><span class="shell-entity-copy"><strong>${name}</strong><small>${detail}</small></span></button>`;
-  groups.innerHTML = `<section class="shell-group group-attention"><div class="shell-section-label">Needs You · 1</div>${rowHtml(long, 'attention', 'main · Claude · 41%')}</section>
-    <section class="shell-group group-working"><div class="shell-section-label">Working · 1</div>${rowHtml(cjk, 'working', 'feature/command-center · Codex · 82%')}</section>`;
+  groups.innerHTML = `<section class="shell-group group-attention" aria-labelledby="qa-shell-attention"><h2 id="qa-shell-attention" class="shell-section-label">Needs You · 1</h2>${rowHtml(long, 'attention', 'main · Claude · 41%', 'Awaiting you')}</section>
+    <section class="shell-group group-working" aria-labelledby="qa-shell-working"><h2 id="qa-shell-working" class="shell-section-label">Working · 1</h2>${rowHtml(cjk, 'working', 'feature/command-center · Codex · 82%', 'Working')}</section>`;
   const selectedRow = groups.querySelector('.group-attention .shell-session');
   selectedRow.classList.add('selected'); selectedRow.setAttribute('aria-current', 'true');
   await new Promise((r) => setTimeout(r, 250));
@@ -430,13 +453,18 @@ const sidebar = await win.evaluate(async () => {
     clipped: [...names, ...details].every((n) => n.scrollWidth >= n.clientWidth),
     signals: groups.querySelectorAll('.shell-signal').length,
     selected: selectedRow.classList.contains('selected') && selectedRow.getAttribute('aria-current') === 'true',
+    semanticGroups: Array.from(groups.querySelectorAll('.shell-group')).every((section) => {
+      const headingId = section.getAttribute('aria-labelledby');
+      return !!headingId && document.getElementById(headingId)?.tagName === 'H2';
+    }),
+    sessionStatusNames: Array.from(groups.querySelectorAll('.shell-session')).every((row) => row.getAttribute('aria-label')?.includes('Awaiting you') || row.getAttribute('aria-label')?.includes('Working')),
     nestedHidden: getComputedStyle(nested).display === 'none',
     mainFillsWrap: Math.abs(main.width - wrap.width) <= 1,
   };
 });
 await shot('cockpit-provider-sidebar');
-console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInside=${sidebar.inside} detailsInside=${sidebar.detailInside} signals=${sidebar.signals} nestedHidden=${sidebar.nestedHidden} terminalFills=${sidebar.mainFillsWrap}`);
-if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
+console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInside=${sidebar.inside} detailsInside=${sidebar.detailInside} signals=${sidebar.signals} semanticGroups=${sidebar.semanticGroups} sessionStatusNames=${sidebar.sessionStatusNames} nestedHidden=${sidebar.nestedHidden} terminalFills=${sidebar.mainFillsWrap}`);
+if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.semanticGroups || !sidebar.sessionStatusNames || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
   console.error('QA FAILED — unified session navigation overflowed or the legacy Cockpit list still consumes terminal width.');
   await closeApp();
   process.exit(1);

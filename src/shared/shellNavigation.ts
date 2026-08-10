@@ -29,6 +29,14 @@ export type ShellContext =
   | { kind: 'project'; path: string }
   | { kind: 'session'; id: string };
 
+export function shellEntityKey(kind: 'project' | 'session', id: string): string {
+  return `${kind}:${id}`;
+}
+
+export function sessionAccessibleLabel(item: ShellSessionInput, localizedStatus: string): string {
+  return `${item.label}, ${item.detail}, ${localizedStatus}`;
+}
+
 const groupOrder: ShellGroupKind[] = ['attention', 'working', 'pinned', 'turn', 'quiet', 'previous'];
 
 function groupOf(item: ShellSessionInput): ShellGroupKind {

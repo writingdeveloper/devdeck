@@ -5,6 +5,8 @@ import {
   filterShellItems,
   normalizeSidebarState,
   restoreShellContext,
+  sessionAccessibleLabel,
+  shellEntityKey,
   type ShellSessionInput,
 } from './shellNavigation';
 
@@ -45,5 +47,12 @@ describe('shell navigation', () => {
     expect(normalizeSidebarState(false)).toBe(false);
     expect(normalizeSidebarState('true')).toBe(false);
     expect(normalizeSidebarState(undefined)).toBe(false);
+  });
+
+  it('uses immutable entity identifiers and exposes session activity to assistive technology', () => {
+    const session = { id: 'session-42', projectPath: 'C:/repo', label: 'Review API', detail: 'feature/api · Codex', activity: 'attention', pinned: false } as const;
+    expect(shellEntityKey('project', 'C:/repo')).toBe('project:C:/repo');
+    expect(shellEntityKey('session', session.id)).toBe('session:session-42');
+    expect(sessionAccessibleLabel(session, 'Awaiting you')).toBe('Review API, feature/api · Codex, Awaiting you');
   });
 });

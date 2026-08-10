@@ -205,12 +205,14 @@ async function boot(): Promise<void> {
     activeView: nav.active,
     onCollapse: (collapsed) => { setCockpitSidebarCollapsed(collapsed); void window.devdeck.setCockpitSidebar(collapsed); },
     onProject: (path) => {
+      shellController?.setActiveProject(path);
       nav.show('projects');
       focusProject(path);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'project', path }));
     },
     onSession: (id) => {
       if (!cockpitOn) return;
+      shellController?.setActiveSession(id);
       nav.show('cockpit');
       activateCockpitSession(id);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
@@ -228,10 +230,10 @@ async function boot(): Promise<void> {
     const requestedKind = typeof pendingContext === 'object' && pendingContext !== null && 'kind' in pendingContext
       ? (pendingContext as { kind?: unknown }).kind : null;
     if (requestedKind === 'project' && restored.kind === 'project') {
-      nav.show('projects'); focusProject(restored.path);
+      shellController?.setActiveProject(restored.path); nav.show('projects'); focusProject(restored.path);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(restored)); pendingContext = null;
     } else if (requestedKind === 'session' && restored.kind === 'session' && cockpitOn) {
-      nav.show('cockpit'); activateCockpitSession(restored.id);
+      shellController?.setActiveSession(restored.id); nav.show('cockpit'); activateCockpitSession(restored.id);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(restored)); pendingContext = null;
     } else if (requestedKind === 'view' && restored.kind === 'view') {
       nav.show(restored.id); pendingContext = null;

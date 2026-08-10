@@ -35,7 +35,7 @@
   background: var(--dd-canvas); color: var(--dd-text);
 }
 .shell-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.shell-section-label { padding: 12px 8px 5px; color: var(--dd-text-muted); font-size: var(--dd-fs-meta); text-transform: uppercase; letter-spacing: .07em; }
+.shell-section-label { margin: 0; padding: 12px 8px 5px; color: var(--dd-text-muted); font-size: var(--dd-fs-meta); font-weight: inherit; text-transform: uppercase; letter-spacing: .07em; }
 .shell-entity, .shell-quick-result {
   width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
   border: 0; border-radius: var(--dd-radius-sm); background: transparent; color: var(--dd-text); cursor: pointer;
