@@ -3,6 +3,7 @@ import { setCockpitEnabled } from './openRouter';
 import { mountNav } from './nav';
 import { mountShell, type ShellController } from './shell';
 import { restoreShellContext } from '../shared/shellNavigation';
+import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
@@ -17,6 +18,17 @@ import type { AgentId } from '../shared/types';
 
 let shellController: ShellController | null = null;
 const SHELL_CONTEXT_KEY = 'devdeck:shell-context:v1';
+
+function isShellSessionFixture(value: unknown): value is ShellSessionInput[] {
+  return Array.isArray(value) && value.every((item) => {
+    if (!item || typeof item !== 'object') return false;
+    const candidate = item as Partial<ShellSessionInput>;
+    return typeof candidate.id === 'string' && typeof candidate.projectPath === 'string'
+      && typeof candidate.label === 'string' && typeof candidate.detail === 'string'
+      && typeof candidate.pinned === 'boolean'
+      && ['attention', 'working', 'turn', 'idle', 'exited'].includes(candidate.activity ?? '');
+  });
+}
 
 const toastHost = document.getElementById('toast-host')!;
 window.devdeck.onError((msg) => {
@@ -217,6 +229,12 @@ async function boot(): Promise<void> {
       activateCockpitSession(id);
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
     },
+  });
+  // Renderer-local QA seam: PTYs cannot be spawned in the screenshot harness, so a validated
+  // fixture reaches the actual mounted controller without exposing IPC or a general debug API.
+  document.addEventListener('devdeck:qa-shell-sessions', (event) => {
+    const fixture = (event as CustomEvent<unknown>).detail;
+    if (isShellSessionFixture(fixture)) shellController?.setSessionGroups(fixture);
   });
   shellController.setCockpitAvailable(cockpitOn);
   let savedContext: unknown = null;

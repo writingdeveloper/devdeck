@@ -428,17 +428,21 @@ if (!ckOk) { console.error('QA FAILED — cockpit structure / + New session butt
 
 // Unified session navigation: long names/details must stay inside the shared 224px sidebar and
 // the old nested Cockpit sidebar must not consume any terminal width. The harness cannot spawn a
-// live PTY session, so inject representative shell rows and measure the real command-center CSS.
+// live PTY session, so send a representative fixture through the mounted shell controller's narrow
+// renderer-local QA seam and inspect its real reconciliation output.
 const sidebar = await win.evaluate(async () => {
   const groups = document.getElementById('shell-session-groups');
   const long = 'devdeck-monorepo-frontend-experimental-feature-branch-session-42-x';
   const cjk = '데브덱코크핏세션이름아주아주긴한글이름테스트용으로만든것';
-  const rowHtml = (name, activity, detail, status) => `<button class="shell-entity shell-session activity-${activity}" type="button" aria-label="${name}, ${detail}, ${status}">
-    <span class="shell-signal" aria-hidden="true"></span><span class="shell-entity-copy"><strong>${name}</strong><small>${detail}</small></span></button>`;
-  groups.innerHTML = `<section class="shell-group group-attention" aria-labelledby="qa-shell-attention"><h2 id="qa-shell-attention" class="shell-section-label">Needs You · 1</h2>${rowHtml(long, 'attention', 'main · Claude · 41%', 'Awaiting you')}</section>
-    <section class="shell-group group-working" aria-labelledby="qa-shell-working"><h2 id="qa-shell-working" class="shell-section-label">Working · 1</h2>${rowHtml(cjk, 'working', 'feature/command-center · Codex · 82%', 'Working')}</section>`;
+  const fixture = [
+    { id: 'qa-shell-attention', projectPath: 'C:/qa/attention', label: long, detail: 'main · Claude · 41%', activity: 'attention', pinned: false },
+    { id: 'qa-shell-working', projectPath: 'C:/qa/working', label: cjk, detail: 'feature/command-center · Codex · 82%', activity: 'working', pinned: false },
+  ];
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: fixture }));
+  await new Promise((r) => setTimeout(r, 250));
   const selectedRow = groups.querySelector('.group-attention .shell-session');
-  selectedRow.classList.add('selected'); selectedRow.setAttribute('aria-current', 'true');
+  selectedRow.focus(); selectedRow.click();
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: fixture }));
   await new Promise((r) => setTimeout(r, 250));
   const list = document.getElementById('app-sidebar').getBoundingClientRect();
   const names = [...groups.querySelectorAll('strong')];
@@ -453,18 +457,25 @@ const sidebar = await win.evaluate(async () => {
     clipped: [...names, ...details].every((n) => n.scrollWidth >= n.clientWidth),
     signals: groups.querySelectorAll('.shell-signal').length,
     selected: selectedRow.classList.contains('selected') && selectedRow.getAttribute('aria-current') === 'true',
+    reused: selectedRow === groups.querySelector('.group-attention .shell-session') && document.activeElement === selectedRow,
     semanticGroups: Array.from(groups.querySelectorAll('.shell-group')).every((section) => {
       const headingId = section.getAttribute('aria-labelledby');
       return !!headingId && document.getElementById(headingId)?.tagName === 'H2';
     }),
-    sessionStatusNames: Array.from(groups.querySelectorAll('.shell-session')).every((row) => row.getAttribute('aria-label')?.includes('Awaiting you') || row.getAttribute('aria-label')?.includes('Working')),
+    sessionStatusNames: (() => {
+      const statuses = {
+        en: ['Awaiting you', 'Working'], ko: ['질문 대기', '작업 중'],
+        ja: ['確認待ち', '実行中'], zh: ['等待确认', '工作中'],
+      }[document.documentElement.lang] ?? [];
+      return Array.from(groups.querySelectorAll('.shell-session')).every((row, index) => row.getAttribute('aria-label')?.includes(statuses[index]));
+    })(),
     nestedHidden: getComputedStyle(nested).display === 'none',
     mainFillsWrap: Math.abs(main.width - wrap.width) <= 1,
   };
 });
 await shot('cockpit-provider-sidebar');
-console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInside=${sidebar.inside} detailsInside=${sidebar.detailInside} signals=${sidebar.signals} semanticGroups=${sidebar.semanticGroups} sessionStatusNames=${sidebar.sessionStatusNames} nestedHidden=${sidebar.nestedHidden} terminalFills=${sidebar.mainFillsWrap}`);
-if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.semanticGroups || !sidebar.sessionStatusNames || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
+console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInside=${sidebar.inside} detailsInside=${sidebar.detailInside} signals=${sidebar.signals} selected=${sidebar.selected} reused=${sidebar.reused} semanticGroups=${sidebar.semanticGroups} sessionStatusNames=${sidebar.sessionStatusNames} nestedHidden=${sidebar.nestedHidden} terminalFills=${sidebar.mainFillsWrap}`);
+if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.reused || !sidebar.semanticGroups || !sidebar.sessionStatusNames || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
   console.error('QA FAILED — unified session navigation overflowed or the legacy Cockpit list still consumes terminal width.');
   await closeApp();
   process.exit(1);
