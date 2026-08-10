@@ -217,19 +217,44 @@ async function boot(): Promise<void> {
     },
   });
   shellController.setCockpitAvailable(cockpitOn);
+  let savedContext: unknown = null;
+  try { savedContext = JSON.parse(localStorage.getItem(SHELL_CONTEXT_KEY) ?? 'null'); } catch { localStorage.removeItem(SHELL_CONTEXT_KEY); }
+  let pendingContext: unknown = savedContext;
+  let availableProjectPaths = new Set<string>();
+  let availableSessionIds = new Set<string>();
+  const attemptContextRestore = (): void => {
+    if (pendingContext == null) return;
+    const restored = restoreShellContext(pendingContext, availableProjectPaths, availableSessionIds);
+    const requestedKind = typeof pendingContext === 'object' && pendingContext !== null && 'kind' in pendingContext
+      ? (pendingContext as { kind?: unknown }).kind : null;
+    if (requestedKind === 'project' && restored.kind === 'project') {
+      nav.show('projects'); focusProject(restored.path);
+      localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(restored)); pendingContext = null;
+    } else if (requestedKind === 'session' && restored.kind === 'session' && cockpitOn) {
+      nav.show('cockpit'); activateCockpitSession(restored.id);
+      localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify(restored)); pendingContext = null;
+    } else if (requestedKind === 'view' && restored.kind === 'view') {
+      nav.show(restored.id); pendingContext = null;
+    } else if (requestedKind === 'session' && !cockpitOn) {
+      nav.show('projects'); pendingContext = null;
+    }
+  };
   if (cockpitOn) {
-    onCockpitNavigationChange((items) => shellController?.setSessionGroups([...items]));
+    onCockpitNavigationChange((items) => {
+      shellController?.setSessionGroups([...items]);
+      availableSessionIds = new Set(items.map((item) => item.id));
+      attemptContextRestore();
+    });
     shellController.setSessionGroups(cockpitNavigationItems());
   }
   const syncShellProjects = (items: readonly import('../shared/types').ProjectViewModel[]): void => {
     shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch }) => ({ path, name, branch })));
+    availableProjectPaths = new Set(items.map((item) => item.path));
+    attemptContextRestore();
   };
   onProjectsChanged(syncShellProjects);
   syncShellProjects(currentProjects());
-  let saved: unknown = null;
-  try { saved = JSON.parse(localStorage.getItem(SHELL_CONTEXT_KEY) ?? 'null'); } catch { localStorage.removeItem(SHELL_CONTEXT_KEY); }
-  const restored = restoreShellContext(saved, new Set(), new Set());
-  if (restored.kind === 'view') nav.show(restored.id);
+  attemptContextRestore();
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
   if (agents.length > 1) {

@@ -42,6 +42,7 @@
 }
 .shell-entity { padding: 7px 8px; }
 .shell-entity:hover, .shell-quick-result:hover { background: var(--dd-surface-raised); }
+.shell-entity.selected { background: var(--dd-surface-selected); box-shadow: inset 2px 0 0 var(--dd-working); }
 .shell-entity-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .shell-entity-copy strong, .shell-entity-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell-entity-copy strong { font-weight: 550; }

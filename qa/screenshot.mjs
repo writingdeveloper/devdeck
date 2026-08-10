@@ -103,6 +103,39 @@ if (!shellNavGeometry.present || shellNavGeometry.width < 200 || shellNavGeometr
   await closeApp(); process.exit(1);
 }
 
+const shellGeometry = await win.evaluate(() => {
+  const shell = document.getElementById('shell')?.getBoundingClientRect();
+  const sidebar = document.getElementById('app-sidebar')?.getBoundingClientRect();
+  const content = document.getElementById('content')?.getBoundingClientRect();
+  return {
+    present: !!shell && !!sidebar && !!content,
+    contained: !!shell && !!sidebar && !!content && sidebar.left >= shell.left && content.right <= shell.right,
+    overlap: !!sidebar && !!content && sidebar.right > content.left + 1,
+  };
+});
+if (!shellGeometry.present || !shellGeometry.contained || shellGeometry.overlap) {
+  console.error('QA FAILED — shared shell geometry is invalid:', JSON.stringify(shellGeometry));
+  await closeApp(); process.exit(1);
+}
+
+await win.click('#shell-collapse');
+await win.waitForTimeout(180);
+const collapsedShell = await win.evaluate(() => {
+  const sidebar = document.getElementById('app-sidebar');
+  return {
+    collapsed: sidebar?.classList.contains('collapsed') === true,
+    width: Math.round(sidebar?.getBoundingClientRect().width ?? 0),
+    labelsHidden: Array.from(document.querySelectorAll('#app-sidebar .rail-label')).every((label) => getComputedStyle(label).display === 'none'),
+  };
+});
+await shot('shell-collapsed');
+if (!collapsedShell.collapsed || collapsedShell.width !== 52 || !collapsedShell.labelsHidden) {
+  console.error('QA FAILED — collapsed shell geometry is invalid:', JSON.stringify(collapsedShell));
+  await closeApp(); process.exit(1);
+}
+await win.click('#shell-collapse');
+await win.waitForTimeout(180);
+
 const LANGS = ['ko', 'en', 'ja', 'zh'];
 for (let i = 0; i < LANGS.length; i++) {
   const l = await lang();
@@ -231,6 +264,22 @@ const taskSeeded = await win.evaluate(async () => {
 await showView('projects');
 await win.click('#refresh');
 await win.waitForSelector('.project-memory-button', { timeout: 10000 });
+await win.click('#view-list');
+await win.waitForSelector('#cards.as-list .prow', { timeout: 5000 });
+const populatedProjectGeometry = await win.evaluate(() => {
+  const view = document.getElementById('view-projects');
+  const row = view?.querySelector('.prow')?.getBoundingClientRect();
+  const content = document.getElementById('content')?.getBoundingClientRect();
+  return {
+    overflow: !!view && view.scrollWidth > view.clientWidth + 1,
+    rowContained: !!row && !!content && row.left >= content.left - 1 && row.right <= content.right + 1,
+  };
+});
+if (populatedProjectGeometry.overflow || !populatedProjectGeometry.rowContained) {
+  console.error('QA FAILED — populated project row overflows the command-center content:', JSON.stringify(populatedProjectGeometry));
+  await closeApp(); process.exit(1);
+}
+await shot('projects-populated');
 const memoryTrigger = win.locator('.project-memory-button').first();
 const contentBeforeMemory = await win.evaluate(() => {
   const r = document.getElementById('content').getBoundingClientRect();
@@ -365,6 +414,8 @@ const sidebar = await win.evaluate(async () => {
     <span class="shell-signal" aria-hidden="true"></span><span class="shell-entity-copy"><strong>${name}</strong><small>${detail}</small></span></button>`;
   groups.innerHTML = `<section class="shell-group group-attention"><div class="shell-section-label">Needs You · 1</div>${rowHtml(long, 'attention', 'main · Claude · 41%')}</section>
     <section class="shell-group group-working"><div class="shell-section-label">Working · 1</div>${rowHtml(cjk, 'working', 'feature/command-center · Codex · 82%')}</section>`;
+  const selectedRow = groups.querySelector('.group-attention .shell-session');
+  selectedRow.classList.add('selected'); selectedRow.setAttribute('aria-current', 'true');
   await new Promise((r) => setTimeout(r, 250));
   const list = document.getElementById('app-sidebar').getBoundingClientRect();
   const names = [...groups.querySelectorAll('strong')];
@@ -378,13 +429,14 @@ const sidebar = await win.evaluate(async () => {
     detailInside: details.every((n) => n.getBoundingClientRect().right <= list.right + 1),
     clipped: [...names, ...details].every((n) => n.scrollWidth >= n.clientWidth),
     signals: groups.querySelectorAll('.shell-signal').length,
+    selected: selectedRow.classList.contains('selected') && selectedRow.getAttribute('aria-current') === 'true',
     nestedHidden: getComputedStyle(nested).display === 'none',
     mainFillsWrap: Math.abs(main.width - wrap.width) <= 1,
   };
 });
 await shot('cockpit-provider-sidebar');
 console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInside=${sidebar.inside} detailsInside=${sidebar.detailInside} signals=${sidebar.signals} nestedHidden=${sidebar.nestedHidden} terminalFills=${sidebar.mainFillsWrap}`);
-if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
+if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
   console.error('QA FAILED — unified session navigation overflowed or the legacy Cockpit list still consumes terminal width.');
   await closeApp();
   process.exit(1);

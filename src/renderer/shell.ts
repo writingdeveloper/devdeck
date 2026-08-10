@@ -47,6 +47,16 @@ export function mountShell(options: {
   const projectHost = document.getElementById('shell-projects')!;
   let sessions: ShellSessionInput[] = [];
   let projects: ShellProjectInput[] = [];
+  let activeEntityKey = '';
+
+  const markActiveEntity = (row: HTMLButtonElement, key: string): void => {
+    activeEntityKey = key;
+    for (const item of Array.from(sidebar.querySelectorAll<HTMLButtonElement>('.shell-entity'))) {
+      const active = item === row;
+      item.classList.toggle('selected', active);
+      if (active) item.setAttribute('aria-current', 'true'); else item.removeAttribute('aria-current');
+    }
+  };
 
   for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.rail-item[data-view]'))) {
     const view = button.dataset.view as ViewId;
@@ -71,12 +81,15 @@ export function mountShell(options: {
       section.appendChild(heading);
       for (const item of group.items) {
         const row = document.createElement('button'); row.type = 'button'; row.className = `shell-entity shell-session activity-${item.activity}`;
+        const key = `session:${item.id}`;
         const signal = document.createElement('span'); signal.className = 'shell-signal'; signal.setAttribute('aria-hidden', 'true');
         const copy = document.createElement('span'); copy.className = 'shell-entity-copy';
         const label = document.createElement('strong'); label.textContent = item.label;
         const detail = document.createElement('small'); detail.textContent = item.detail;
         copy.append(label, detail); row.append(signal, copy);
-        row.addEventListener('click', () => options.onSession(item.id));
+        row.classList.toggle('selected', activeEntityKey === key);
+        if (activeEntityKey === key) row.setAttribute('aria-current', 'true');
+        row.addEventListener('click', () => { markActiveEntity(row, key); options.onSession(item.id); });
         section.appendChild(row);
       }
       sessionHost.appendChild(section);
@@ -87,11 +100,14 @@ export function mountShell(options: {
     projectHost.replaceChildren();
     for (const item of items) {
       const row = document.createElement('button'); row.type = 'button'; row.className = 'shell-entity shell-project';
+      const key = `project:${item.path}`;
       const copy = document.createElement('span'); copy.className = 'shell-entity-copy';
       const label = document.createElement('strong'); label.textContent = item.name;
       const detail = document.createElement('small'); detail.textContent = item.branch ?? '—';
       copy.append(label, detail); row.appendChild(copy);
-      row.addEventListener('click', () => options.onProject(item.path));
+      row.classList.toggle('selected', activeEntityKey === key);
+      if (activeEntityKey === key) row.setAttribute('aria-current', 'true');
+      row.addEventListener('click', () => { markActiveEntity(row, key); options.onProject(item.path); });
       projectHost.appendChild(row);
     }
   };

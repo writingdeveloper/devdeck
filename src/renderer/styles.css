@@ -44,11 +44,6 @@ body {
 .winbtn-close:hover { background: var(--bad); color: #fff; }
 
 #shell { display: flex; flex: 1; min-height: 0; }
-#rail { width: 48px; flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0; background: #101218; border-right: 1px solid var(--border); }
-.rail-item { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid transparent; border-radius: 8px; font-size: 16px; color: var(--text-dim); cursor: pointer; }
-.rail-item:hover { background: var(--surface-hover); color: var(--text); }
-.rail-item.active { background: #1b1e3a; border-color: var(--accent); color: var(--accent-hover); box-shadow: inset 2px 0 0 var(--accent); }
-.rail-spacer { flex: 1; }
 
 #content { flex: 1; overflow-y: auto; }
 .view { display: none; }
