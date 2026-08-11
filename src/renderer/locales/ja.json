@@ -332,6 +332,9 @@
   "shutdown.idle_minutes": "アイドル判定時間（分）",
   "shutdown.history": "シャットダウン履歴",
   "shutdown.hist_empty": "まだ記録がありません",
+  "shutdown.hist_clear": "履歴を消去",
+  "shutdown.hist_count": "記録 {total} 件",
+  "shutdown.hist_more": "{total} 件中 最新 {shown} 件",
   "shutdown.hist_auto": "自動",
   "shutdown.hist_manual": "手動",
   "shutdown.hist_cancelled": "取り消し"

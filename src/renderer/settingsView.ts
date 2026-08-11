@@ -136,20 +136,42 @@ async function render(): Promise<void> {
     hold.addEventListener('change', () => void window.devdeck.shutdown.setIdleMinutes(Number(hold.value)));
     host.appendChild(field('shutdown.idle_minutes', hold, hold));
 
+    // The history was the one thing here the user could read but never act on: it only ever grew, and
+    // with more than ten entries it never even said how many were behind the ten on screen.
     const hist = document.createElement('div'); hist.className = 'shutdown-hist';
-    const records = await window.devdeck.shutdown.history();
-    if (!records.length) {
-      const empty = document.createElement('div'); empty.className = 'shutdown-hist-empty'; empty.textContent = tr('shutdown.hist_empty');
-      hist.appendChild(empty);
-    }
-    for (const r of records.slice(0, 10)) {
-      const row = document.createElement('div'); row.className = 'shutdown-hist-row';
-      const when = new Date(r.scheduledAt).toLocaleString();
-      const kind = tr(r.kind === 'auto' ? 'shutdown.hist_auto' : 'shutdown.hist_manual');
-      const state = r.status === 'cancelled' ? ` · ${tr('shutdown.hist_cancelled')}` : '';
-      row.textContent = `⏻ ${when} · ${kind}${state}`;
-      hist.appendChild(row);
-    }
+    const SHOWN = 10;
+    const renderHistory = async (): Promise<void> => {
+      hist.replaceChildren();
+      const records = await window.devdeck.shutdown.history();
+      if (!records.length) {
+        const empty = document.createElement('div'); empty.className = 'shutdown-hist-empty'; empty.textContent = tr('shutdown.hist_empty');
+        hist.appendChild(empty);
+        return;
+      }
+      for (const r of records.slice(0, SHOWN)) {
+        const row = document.createElement('div'); row.className = 'shutdown-hist-row';
+        const when = new Date(r.scheduledAt).toLocaleString();
+        const kind = tr(r.kind === 'auto' ? 'shutdown.hist_auto' : 'shutdown.hist_manual');
+        const state = r.status === 'cancelled' ? ` · ${tr('shutdown.hist_cancelled')}` : '';
+        row.textContent = `⏻ ${when} · ${kind}${state}`;
+        hist.appendChild(row);
+      }
+      const foot = document.createElement('div'); foot.className = 'shutdown-hist-foot';
+      const count = document.createElement('span'); count.className = 'shutdown-hist-count';
+      count.textContent = records.length > SHOWN
+        ? tr('shutdown.hist_more', { shown: SHOWN, total: records.length })
+        : tr('shutdown.hist_count', { total: records.length });
+      const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'chip';
+      clear.textContent = tr('shutdown.hist_clear');
+      clear.addEventListener('click', async () => {
+        clear.disabled = true;
+        await window.devdeck.shutdown.clearHistory();
+        await renderHistory();
+      });
+      foot.append(count, clear);
+      hist.appendChild(foot);
+    };
+    await renderHistory();
     host.appendChild(field('shutdown.history', hist));
   }
 

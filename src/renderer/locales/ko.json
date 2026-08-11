@@ -332,6 +332,9 @@
   "shutdown.idle_minutes": "유휴 판정 시간 (분)",
   "shutdown.history": "종료 이력",
   "shutdown.hist_empty": "아직 종료 기록이 없습니다",
+  "shutdown.hist_clear": "기록 지우기",
+  "shutdown.hist_count": "기록 {total}건",
+  "shutdown.hist_more": "{total}건 중 최근 {shown}건",
   "shutdown.hist_auto": "자동",
   "shutdown.hist_manual": "수동",
   "shutdown.hist_cancelled": "취소됨"

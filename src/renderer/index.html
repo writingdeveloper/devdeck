@@ -21,6 +21,9 @@
       <div class="tb-brand">
         <img class="tb-logo" src="./assets/icon-256.png" alt="" />
         <span class="tb-title">DevDeck</span>
+        <!-- The fold control lives here, not in the rail: as the rail's only occupant it cost a whole
+             row of vertical space, and from the title bar it stays reachable while the rail is folded. -->
+        <button id="shell-collapse" class="tb-toggle" type="button" aria-expanded="true" aria-controls="app-sidebar"></button>
       </div>
       <div class="tb-drag"></div>
       <div class="top-actions">
@@ -41,11 +44,6 @@
     <div id="shell">
       <button id="shell-mobile-backdrop" class="shell-mobile-backdrop hidden" type="button" tabindex="-1" aria-label="Close sidebar"></button>
       <aside id="app-sidebar" aria-label="DevDeck">
-        <!-- No wordmark here: the title bar directly above already shows the logo and "DevDeck", and
-             two of them a few pixels apart read as a rendering mistake. This row is the fold control. -->
-        <div class="shell-side-head">
-          <button id="shell-collapse" class="ui-icon-button" type="button" aria-expanded="true"></button>
-        </div>
         <div id="shell-quick-wrap">
           <span class="shell-search-icon"></span>
           <input id="shell-quick-open" type="search" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="shell-quick-results" />

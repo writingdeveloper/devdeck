@@ -32,6 +32,19 @@ describe('ShutdownLog', () => {
     expect(JSON.parse(readFileSync(join(dir, 'shutdown-log.json'), 'utf8'))).toHaveLength(2);
   });
 
+  // The list only ever grew, and Settings could show it but never act on it.
+  it('clear empties the history and survives a re-read', () => {
+    const f = join(dir, 'shutdown-log.json');
+    const log = new ShutdownLog(f);
+    log.append(rec(1)); log.append(rec(2));
+    expect(log.clear()).toBe(true);
+    expect(log.read()).toEqual([]);
+    expect(new ShutdownLog(f).read()).toEqual([]); // a fresh process sees it too
+    // Still usable afterwards — clearing is not a teardown.
+    expect(log.append(rec(3))).toBe(true);
+    expect(log.read().map((r) => r.at)).toEqual([3]);
+  });
+
   it('caps at the 50 most recent records', () => {
     const log = new ShutdownLog(join(dir, 'shutdown-log.json'));
     for (let i = 0; i < 55; i++) log.append(rec(i));

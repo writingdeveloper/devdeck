@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     cancel: () => ipcRenderer.invoke('shutdown:cancel'),
     status: () => ipcRenderer.invoke('shutdown:status'),
     history: () => ipcRenderer.invoke('shutdown:history'),
+    clearHistory: () => ipcRenderer.invoke('shutdown:clearHistory'),
     bootBanner: () => ipcRenderer.invoke('shutdown:bootBanner'),
     ackBanner: () => ipcRenderer.invoke('shutdown:ackBanner'),
     setIdleMinutes: (m: number) => ipcRenderer.invoke('shutdown:setIdleMinutes', m),

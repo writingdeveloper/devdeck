@@ -87,6 +87,7 @@ declare global {
         cancel(): Promise<import('../main/shutdownScheduler').ShutdownStatus>;
         status(): Promise<import('../main/shutdownScheduler').ShutdownStatus>;
         history(): Promise<import('../shared/shutdownIdle').ShutdownRecord[]>;
+        clearHistory(): Promise<boolean>;
         bootBanner(): Promise<{ record: import('../shared/shutdownIdle').ShutdownRecord; verdict: 'confirmed' | 'not-executed' } | null>;
         ackBanner(): Promise<boolean>;
         setIdleMinutes(m: number): Promise<void>;

@@ -31,6 +31,18 @@ export class ShutdownLog {
     return this.write(sanitizeShutdownRecords([...this.read(), r]));
   }
 
+  /**
+   * Forget every recorded shutdown.
+   *
+   * The list is capped at 50 and otherwise only ever grows, and it is the one thing in Settings the
+   * user could read but never act on — a log that accumulates with no way to end it. Clearing loses
+   * nothing operational: the next-boot verification banner reads the NEWEST record, so an empty
+   * history simply means "nothing pending to confirm".
+   */
+  clear(): boolean {
+    return this.write([]);
+  }
+
   /** Patch the newest record in place (cancel / next-boot acknowledge). */
   updateLast(patch: Partial<ShutdownRecord>): boolean {
     const all = this.read();

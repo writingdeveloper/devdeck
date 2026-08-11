@@ -13,6 +13,25 @@ export function textOf(content: unknown): string {
 
 const WRAPPER_PREFIXES = ['<command-', '<local-command', 'Caveat:', 'Base directory for this skill:', '[SYSTEM NOTIFICATION', '<task-notification'];
 
+/**
+ * Remove attached-image bookkeeping from a user message.
+ *
+ * Pasting a screenshot leaves no prose behind: the agent records the attachment as
+ * `[Image: source: C:\\…\\devdeck-paste-<uuid>.png]`, and DevDeck's own Ctrl+V handler is what writes
+ * that temp path in the first place. As the newest user message it became the project's resume cue, so
+ * a deck row asking "what was I doing here?" answered with a temp filename. Stripping it lets the cue
+ * fall back to the last thing the user actually said.
+ */
+export function stripAttachmentNoise(text: string): string {
+  return text
+    // Both shapes the agent writes: `[Image: source: <path>]` for a pasted file and `[Image #4]` for
+    // one it has already numbered. \b keeps it off words that merely start with "image".
+    .replace(/\[Image\b[^\]]*\]/gi, ' ')
+    .replace(/\S*devdeck-paste-[0-9a-f-]+\.(?:png|jpe?g|gif|webp)/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** True for harness scaffolding that is not something the user actually typed (commands, reminders, caveats). */
 export function isWrapper(text: string): boolean {
   const t = text.trimStart();
@@ -37,7 +56,9 @@ export function firstUserMessage(jsonlText: string): string | null {
     if (obj.type !== 'user' || !obj.message) continue;
     const text = textOf(obj.message.content).trim();
     if (!text || isWrapper(text)) continue;
-    return text;
+    const clean = stripAttachmentNoise(text);
+    if (!clean) continue; // a bare screenshot paste says nothing about what the user was doing
+    return clean;
   }
   return null;
 }
@@ -57,7 +78,9 @@ export function lastUserMessage(jsonlText: string): string | null {
     if (obj.type !== 'user' || !obj.message) continue;
     const text = textOf(obj.message.content).trim();
     if (!text || isWrapper(text)) continue;
-    return text;
+    const clean = stripAttachmentNoise(text);
+    if (!clean) continue;
+    return clean;
   }
   return null;
 }

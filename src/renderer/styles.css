@@ -50,6 +50,11 @@ body {
 .tb-brand { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
 .tb-logo { width: 20px; height: 20px; border-radius: 5px; display: block; }
 .tb-title { font-size: 13px; font-weight: 600; letter-spacing: .2px; color: var(--text); }
+/* The rail's fold control, hosted by the title bar. In the rail it was the only thing on its row, so it
+   spent ~34px of vertical space on one 30px button; up here it costs nothing and stays reachable while
+   the rail is folded. Sized like the other title-bar actions, not like a rail button. */
+.tb-toggle { margin-left: 6px; width: 26px; height: 26px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--text-faint); cursor: pointer; }
+.tb-toggle:hover, .tb-toggle:focus-visible { background: var(--surface-hover); color: var(--text); }
 .tb-drag { flex: 1; align-self: stretch; -webkit-app-region: drag; }
 .top-actions { display: flex; gap: 6px; align-items: center; -webkit-app-region: no-drag; padding-right: 4px; }
 .win-controls { display: flex; align-items: stretch; height: 100%; -webkit-app-region: no-drag; }
@@ -760,4 +765,6 @@ button.primary:hover { background: var(--accent-hover); }
 .shutdown-menu { right: 0; top: 34px; min-width: 220px; }
 .ub-msg { opacity: .8; }
 .shutdown-hist { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #a5a5a5; }
+.shutdown-hist-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; }
+.shutdown-hist-count { color: var(--text-faint); font-size: 12px; }
 .shutdown-hist-empty { color: #a5a5a5; font-style: italic; } /* same tone as rows — #6b7690 failed axe color-contrast (serious) */

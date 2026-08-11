@@ -36,8 +36,6 @@
 .shell-resizer:focus-visible { outline: none; }
 /* Nothing to resize when the rail is folded to its icon width or floating as a drawer. */
 #shell:has(#app-sidebar.collapsed) .shell-resizer { display: none; }
-.shell-side-head { display: flex; align-items: center; justify-content: flex-end; min-height: 26px; }
-#shell-collapse { flex: 0 0 auto; }
 #app-sidebar.collapsed .rail-label,
 #app-sidebar.collapsed #shell-quick-wrap,
 #app-sidebar.collapsed .shell-scroll,
@@ -167,7 +165,15 @@
 .shell-quick-result .shell-entity-copy { min-width: 0; }
 .shell-quick-result.active, .shell-quick-result:focus-visible { background: var(--dd-surface-selected); color: var(--dd-text); }
 .quick-filtered { display: none; }
-.shell-footer { display: flex; flex-direction: column; gap: 2px; }
+/* Settings and Language share ONE row. Stacked they spent 70px of a 854px rail on two controls that
+   are each used a handful of times a session — half a session row, taken from the list every launch.
+   Side by side both keep their icon and their label. */
+.shell-footer { display: flex; align-items: stretch; gap: 4px; }
+.shell-footer > * { flex: 1 1 0; min-width: 0; }
+.shell-footer .rail-item { width: 100%; }
+.rail-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Folded to the icon rail the language control is hidden, so Settings takes the row on its own. */
+#app-sidebar.collapsed .shell-footer > * { flex: 0 0 auto; }
 #content { flex: 1; min-width: 0; overflow-y: auto; }
 
 @media (max-width: 720px) {

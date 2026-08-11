@@ -332,6 +332,9 @@
   "shutdown.idle_minutes": "空闲判定时间（分钟）",
   "shutdown.history": "关机记录",
   "shutdown.hist_empty": "暂无关机记录",
+  "shutdown.hist_clear": "清除历史",
+  "shutdown.hist_count": "共 {total} 条",
+  "shutdown.hist_more": "{total} 条中最近 {shown} 条",
   "shutdown.hist_auto": "自动",
   "shutdown.hist_manual": "手动",
   "shutdown.hist_cancelled": "已取消"

@@ -663,6 +663,7 @@ export function registerIpc(cfg: IpcConfig): void {
     ipcMain.handle('shutdown:cancel', () => { sd.cancel(); return sd.status(); });
     ipcMain.handle('shutdown:status', () => sd.status());
     ipcMain.handle('shutdown:history', () => sdLog.read().slice().reverse()); // newest first for the settings list
+    ipcMain.handle('shutdown:clearHistory', () => sdLog.clear());
     ipcMain.handle('shutdown:bootBanner', () => pendingBootBanner(sdLog.read(), cfg.bootTimeMs()));
     ipcMain.handle('shutdown:ackBanner', () => sdLog.updateLast({ acknowledged: true }));
     ipcMain.handle('shutdown:setIdleMinutes', (_e, m: number) => cfg.store.setShutdownIdleMinutes(Number(m)));

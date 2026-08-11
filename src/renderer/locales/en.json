@@ -332,6 +332,9 @@
   "shutdown.idle_minutes": "Idle hold (minutes)",
   "shutdown.history": "Shutdown history",
   "shutdown.hist_empty": "No shutdown records yet",
+  "shutdown.hist_clear": "Clear history",
+  "shutdown.hist_count": "{total} recorded",
+  "shutdown.hist_more": "Latest {shown} of {total}",
   "shutdown.hist_auto": "auto",
   "shutdown.hist_manual": "manual",
   "shutdown.hist_cancelled": "cancelled"
