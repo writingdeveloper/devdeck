@@ -3,10 +3,11 @@ import { resolve } from 'node:path';
 import type { StoreEntry, Folder } from '../shared/types';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import { sanitizeTodos, type Todo } from '../shared/tasks';
+import { sanitizeWindowBounds, type WindowBounds } from '../shared/windowBounds';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; windowBounds?: WindowBounds };
 }
 
 const EMPTY: StoreEntry = {
@@ -153,6 +154,17 @@ export class Store {
   // Context window (tokens) for the cockpit's per-session context % — 1M (Claude's beta) or the 200k default.
   getContextWindow(): number { return this.state.settings?.contextWindow === 200_000 ? 200_000 : 1_000_000; }
   setContextWindow(w: number): void { this.state.settings = { ...(this.state.settings ?? {}), contextWindow: w === 200_000 ? 200_000 : 1_000_000 }; this.save(); }
+
+  // Window geometry across launches. DevDeck reopened at a fixed 1000x720 every time no matter what
+  // the user had resized it to, which is too small to hold the sidebar, a full project row and a
+  // terminal at once — so the app arrived already clipping its own content on every launch.
+  getWindowBounds(): WindowBounds | null { return sanitizeWindowBounds(this.state.settings?.windowBounds); }
+  setWindowBounds(bounds: WindowBounds): void {
+    const clean = sanitizeWindowBounds(bounds);
+    if (!clean) return;
+    this.state.settings = { ...(this.state.settings ?? {}), windowBounds: clean };
+    this.save();
+  }
 
   // Whether the cockpit's session sidebar is collapsed (terminal gets the full width).
   getCockpitSidebarCollapsed(): boolean { return this.state.settings?.cockpitSidebarCollapsed === true; }

@@ -147,7 +147,9 @@ const shellNavGeometry = await win.evaluate(() => {
   };
 });
 console.log('shell navigation geometry:', JSON.stringify(shellNavGeometry));
-if (!shellNavGeometry.present || shellNavGeometry.width < 200 || shellNavGeometry.width > 240 || shellNavGeometry.overflow) {
+// The width is a user preference now, so this asserts the supported range rather than one constant —
+// what must never happen is the rail inheriting the old 36px icon-rail geometry or clipping a label.
+if (!shellNavGeometry.present || shellNavGeometry.width < 180 || shellNavGeometry.width > 460 || shellNavGeometry.overflow) {
   console.error('QA FAILED — expanded shell navigation is clipped:', JSON.stringify(shellNavGeometry));
   await closeApp(); process.exit(1);
 }
@@ -296,6 +298,31 @@ if (!langControl.hasIcon || !langControl.showsEndonym || !langControl.labelled |
   await closeApp(); process.exit(1);
 }
 
+// Its menu opened OUTSIDE a rail that clips its overflow, so the popup was invisible and focusing its
+// first item scrolled that clipped box sideways — the whole sidebar slid across. A click-through check
+// cannot see this (a clipped element still has a box and is still clickable), so measure containment
+// against the rail and confirm the rail never scrolls.
+await win.click('#lang-btn');
+await win.waitForTimeout(220);
+const langMenu = await win.evaluate(() => {
+  const rail = document.getElementById('app-sidebar').getBoundingClientRect();
+  const menu = document.querySelector('.lang-menu:not(.hidden)')?.getBoundingClientRect();
+  const sidebar = document.getElementById('app-sidebar');
+  return {
+    open: !!menu,
+    inside: !!menu && menu.left >= rail.left - 1 && menu.right <= rail.right + 1
+      && menu.top >= 0 && menu.bottom <= innerHeight + 1,
+    railNotScrolled: sidebar.scrollLeft === 0 && sidebar.scrollTop === 0,
+    focusInMenu: document.activeElement?.closest('.lang-menu') != null,
+  };
+});
+await win.keyboard.press('Escape');
+console.log('language menu:', JSON.stringify(langMenu));
+if (!langMenu.open || !langMenu.inside || !langMenu.railNotScrolled || !langMenu.focusInMenu) {
+  console.error('QA FAILED — the language menu opens outside the rail or shifts it:', JSON.stringify(langMenu));
+  await closeApp(); process.exit(1);
+}
+
 // The rail is user-sized: 224px could never fit "master ✎1 · Claude · Opus 4.8 · 35%". The handle has
 // to survive the sidebar's own `overflow: hidden` (it lives outside the rail for that reason), take
 // arrow keys, persist, and stay out of the way when the rail is folded.
@@ -330,7 +357,7 @@ const resize = await win.evaluate(async () => {
 });
 console.log('sidebar resize:', JSON.stringify(resize));
 if (resize.wider <= resize.start || resize.narrower >= resize.wider || resize.maxed <= resize.narrower
-  || resize.reset !== 224 || resize.stored !== '224'
+  || resize.reset !== 300 || resize.stored !== "300"
   || !resize.grabbable || !resize.tracksRail || !resize.labelled || !resize.valued) {
   console.error('QA FAILED — the sidebar cannot be resized or the handle is unreachable:', JSON.stringify(resize));
   await closeApp(); process.exit(1);
@@ -886,7 +913,7 @@ const sidebar = await win.evaluate(async () => {
 });
 await shot('cockpit-provider-sidebar');
 console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInside=${sidebar.inside} detailsInside=${sidebar.detailInside} signals=${sidebar.signals} selected=${sidebar.selected} reused=${sidebar.reused} semanticGroups=${sidebar.semanticGroups} sessionStatusNames=${sidebar.sessionStatusNames} nestedHidden=${sidebar.nestedHidden} terminalFills=${sidebar.mainFillsWrap}`);
-if (sidebar.sidebarWidth !== 224 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.reused || !sidebar.semanticGroups || !sidebar.sessionStatusNames || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
+if (sidebar.sidebarWidth < 180 || sidebar.sidebarWidth > 460 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.reused || !sidebar.semanticGroups || !sidebar.sessionStatusNames || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
   console.error('QA FAILED — unified session navigation overflowed or the legacy Cockpit list still consumes terminal width.');
   await closeApp();
   process.exit(1);

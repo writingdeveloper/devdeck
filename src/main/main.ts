@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, crashReporter } from 'electron';
+import { app, BrowserWindow, globalShortcut, crashReporter, screen } from 'electron';
 import * as path from 'node:path';
 import { appendFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -14,6 +14,7 @@ import { ShutdownLog } from './shutdownLog';
 import { ShutdownScheduler } from './shutdownScheduler';
 import { latestTranscriptMtime } from './transcriptFreshness';
 import { cleanupPasteImages } from './tempClean';
+import { resolveWindowBounds, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/windowBounds';
 
 // Local-only crash capture (no upload — nothing is ever sent anywhere) so a NATIVE crash (a fault
 // inside node-pty/conpty or Chromium itself) writes an inspectable minidump instead of vanishing —
@@ -45,14 +46,18 @@ const ptyHost = new PtyHost(realSpawn);
 
 let win: BrowserWindow | null = null;
 
-function createWindow(): BrowserWindow {
+function createWindow(store: Store): BrowserWindow {
+  // Reopen where the user left it. Falls back to a size chosen to hold the sidebar, a full project
+  // row and a terminal at once — the old 1000x720 default arrived already clipping its own content.
+  const bounds = resolveWindowBounds(store.getWindowBounds(), screen.getAllDisplays().map((d) => d.workArea));
   const w = new BrowserWindow({
-    width: 1000,
-    height: 720,
-    minWidth: 720,
-    minHeight: 480,
+    width: bounds.width,
+    height: bounds.height,
+    ...(bounds.x !== undefined && bounds.y !== undefined ? { x: bounds.x, y: bounds.y } : {}),
+    minWidth: WINDOW_MIN_WIDTH,
+    minHeight: WINDOW_MIN_HEIGHT,
     frame: false,
-    backgroundColor: '#0d0e12',
+    backgroundColor: '#0a0a0a',
     icon: path.join(__dirname, '..', 'renderer', 'assets', 'icon-256.png'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
@@ -61,9 +66,28 @@ function createWindow(): BrowserWindow {
       sandbox: true,
     },
   });
+  if (bounds.maximized) w.maximize();
   w.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   w.webContents.on('will-navigate', (e) => e.preventDefault());
+  // Persist on settle, not on every frame of a drag: resize/move fire continuously, and state.json is
+  // rewritten in full on each save. The un-maximized rectangle is what gets stored, so un-maximizing
+  // later returns to the size the user actually picked rather than to a full-screen one.
+  let saveTimer: NodeJS.Timeout | null = null;
+  const rememberBounds = (): void => {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (w.isDestroyed() || w.isMinimized()) return;
+      store.setWindowBounds({ ...w.getNormalBounds(), maximized: w.isMaximized() });
+    }, 400);
+  };
+  w.on('resize', rememberBounds); w.on('move', rememberBounds);
+  w.on('maximize', rememberBounds); w.on('unmaximize', rememberBounds);
+  // A close can beat the debounce, so take the final reading synchronously.
+  w.on('close', () => {
+    if (saveTimer) clearTimeout(saveTimer);
+    if (!w.isMinimized()) store.setWindowBounds({ ...w.getNormalBounds(), maximized: w.isMaximized() });
+  });
   return w;
 }
 
@@ -123,7 +147,7 @@ if (!gotLock) {
     // Reconcile the OS login item with the saved preference (e.g. after a
     // reinstall/update the registered exe path may be stale). No-op in dev / off Windows.
     applyOpenAtLogin(store.getOpenAtLogin());
-    const w = createWindow();
+    const w = createWindow(store);
     win = w;
     // One-shot idle shutdown (🌙) — win32 only: shutdown.exe semantics and the cockpit itself are Windows-scoped.
     // `shutdown` is declared before setupTray so the tray's hook closures can late-bind to it —
@@ -180,7 +204,7 @@ if (!gotLock) {
     });
     registerUpdater(w);
     globalShortcut.register('Control+Alt+D', showWindow);
-    app.on('activate', () => { if (!win) win = createWindow(); });
+    app.on('activate', () => { if (!win) win = createWindow(store); });
   });
 
   app.on('window-all-closed', () => { /* stay alive in tray */ });

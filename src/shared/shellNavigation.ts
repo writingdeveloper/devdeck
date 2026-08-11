@@ -184,14 +184,17 @@ export function normalizeSidebarState(value: unknown): boolean {
  * The sidebar's width in pixels.
  *
  * A session row shows branch + working-tree count + provider + model + context %, and its third line
- * is a sentence — none of that fits in a fixed 224px, so every row ended in an ellipsis regardless of
- * how much window the user had spare. The width is a stored preference; these bounds keep it useful at
- * both ends (below ~180px the three lines stop being readable at all, and past ~460px the rail starts
- * eating the terminal it exists to point at).
+ * is a sentence — none of that fits in the old fixed 224px, so every row ended in an ellipsis
+ * regardless of how much window the user had spare. The width is a stored preference now.
+ *
+ * The default is measured, not guessed: `master ✎1 · Claude · Opus 4.8 · 35%` needs 188px of text and
+ * fits exactly at 264, which leaves no room at all for a longer branch name — 300 clears it with
+ * headroom. The bounds keep the rail useful at both ends (below ~180px the three lines stop being
+ * readable, and past ~460px the rail starts eating the terminal it exists to point at).
  */
 export const SIDEBAR_WIDTH_MIN = 180;
 export const SIDEBAR_WIDTH_MAX = 460;
-export const SIDEBAR_WIDTH_DEFAULT = 224;
+export const SIDEBAR_WIDTH_DEFAULT = 300;
 
 export function clampSidebarWidth(value: number): number {
   if (!Number.isFinite(value)) return SIDEBAR_WIDTH_DEFAULT;

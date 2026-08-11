@@ -7,13 +7,16 @@
 .shell-mobile-backdrop { position: absolute; inset: 0; z-index: 79; border: 0; background: rgb(0 0 0 / .52); }
 
 /* The rail is user-sized. A session row carries branch + working-tree count + provider + model +
-   context %, which needs more than 224px could ever give it, so the width is a preference rather
+   context %, which needs more than any one default can give it, so the width is a preference rather
    than a constant — --shell-width is written by the drag handle and restored at boot. */
 #app-sidebar {
-  width: var(--shell-width, 224px); flex: 0 0 var(--shell-width, 224px); min-width: 0;
+  width: var(--shell-width, 300px); flex: 0 0 var(--shell-width, 300px); min-width: 0;
   position: relative;
   display: flex; flex-direction: column; gap: 4px;
-  padding: 8px; overflow: hidden;
+  /* `clip`, not `hidden`: a hidden box is still programmatically scrollable, so focusing anything that
+     lands outside it (a popup, a long row) makes the browser scroll the whole rail sideways to reveal
+     it. `clip` has no scroll container, so that shift cannot happen again. */
+  padding: 8px; overflow: clip;
   background: var(--dd-sidebar); border-right: 1px solid var(--dd-border);
   transition: width var(--dd-motion-fast), flex-basis var(--dd-motion-fast);
 }
@@ -22,7 +25,7 @@
 #shell.is-resizing { cursor: col-resize; user-select: none; }
 #app-sidebar.collapsed { width: 52px; flex-basis: 52px; align-items: center; }
 .shell-resizer {
-  position: absolute; inset-block: 0; left: calc(var(--shell-width, 224px) - 3px);
+  position: absolute; inset-block: 0; left: calc(var(--shell-width, 300px) - 3px);
   width: 7px; z-index: 20; cursor: col-resize; background: transparent;
 }
 .shell-resizer::after {

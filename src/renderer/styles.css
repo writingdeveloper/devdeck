@@ -294,7 +294,11 @@ button.primary:hover { background: var(--accent-hover); }
 .provider-open-option:hover, .provider-open-new:hover { background: var(--surface-hover); }
 
 /* Language picker: a popup hanging to the right of the rail, bottom-aligned to the 🌐 button. */
-.lang-menu { right: auto; left: calc(100% + 6px); top: auto; bottom: 0; min-width: 132px; }
+/* Opens UPWARD, inside the rail. It used to open to the right (`left: calc(100% + 6px)`), which put it
+   entirely outside a sidebar that clips its own overflow — so the menu was invisible, and focusing its
+   first item made the browser scroll that clipped box sideways to reveal it: the whole rail visibly
+   slid across. Sitting at the bottom of the footer, upward is the only direction with room anyway. */
+.lang-menu { right: 0; left: 0; top: auto; bottom: calc(100% + 6px); min-width: 0; }
 .lang-menu .menu-item { display: flex; align-items: center; gap: 6px; }
 .lang-menu .menu-item.active { color: var(--accent-hover); }
 .mi-mark { display: inline-block; flex: 0 0 1em; width: 1em; text-align: center; color: var(--accent-hover); }
