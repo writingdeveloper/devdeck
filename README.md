@@ -22,7 +22,7 @@ AI coding work gets fragmented quickly: one repository is waiting for a response
 
 The interface is organized as one command center:
 
-- An expanded 224px sidebar contains Quick Open, primary views, urgency-grouped live sessions, and compact projects.
+- The sidebar contains Quick Open, primary views, urgency-grouped live sessions, and compact projects. Drag its edge to any width between 180 and 460px; the choice is remembered.
 - The sidebar collapses to 52px on desktop and becomes a Sessions/Needs You drawer at narrow widths.
 - The main project overview defaults to a row-first status board with localized text-and-shape status; cards remain optional.
 - Selecting a session focuses its existing embedded terminal without respawning or remounting it.
