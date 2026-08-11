@@ -34,6 +34,7 @@
   "shell.expand": "Expand sidebar",
   "shell.mobile_sessions": "Sessions",
   "shell.no_results": "No matches",
+  "shell.resize": "Resize sidebar (double-click to reset)",
   "shell.projects_recent": "Recent projects",
   "shell.group_collapse": "Collapse {name}",
   "shell.group_expand": "Expand {name}",

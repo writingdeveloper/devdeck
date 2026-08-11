@@ -42,3 +42,20 @@ export function basename(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : p;
 }
+
+/**
+ * A short, stable caption for where a folder lives: its immediate parent, prefixed with an ellipsis
+ * when there is more path above it.
+ *
+ * A settings row showed the full path with a right-side ellipsis, which cut off the END — so
+ * `C:\Users\me\Documents\GitHub\devdeck` rendered as `C:\Users\me\AppData\Local\Te…` and the folder's
+ * own name, the only part that identifies it, was the part guaranteed to be missing. The name is shown
+ * separately now, and this answers "which one" for two folders that share a name. '' when the path has
+ * no parent (a drive root).
+ */
+export function parentLabel(p: string): string {
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  if (parts.length < 2) return '';
+  const parent = parts[parts.length - 2];
+  return parts.length > 2 ? `…/${parent}` : parent;
+}

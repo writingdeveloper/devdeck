@@ -1,5 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { encodeProjectPath, cwdKey } from './paths';
+import { encodeProjectPath, cwdKey, parentLabel } from './paths';
+
+// The settings row used to ellipsise the full path on the right, cutting off the folder's own name —
+// the only part that identifies it. The name is its own element now; this captions where it lives.
+describe('parentLabel', () => {
+  it('names the immediate parent, marking that there is more path above it', () => {
+    expect(parentLabel('C:\\Users\\me\\Documents\\GitHub\\devdeck')).toBe('…/GitHub');
+    expect(parentLabel('/home/me/src/devdeck')).toBe('…/src');
+  });
+  it('omits the ellipsis when the parent IS the whole prefix', () => {
+    expect(parentLabel('/src/devdeck')).toBe('src');
+    // A drive letter is a segment like any other, so there genuinely is something above `GitHub`.
+    expect(parentLabel('C:\\GitHub\\devdeck')).toBe('…/GitHub');
+  });
+  it('has nothing to say for a root or a bare name', () => {
+    expect(parentLabel('C:\\')).toBe('');
+    expect(parentLabel('devdeck')).toBe('');
+    expect(parentLabel('')).toBe('');
+  });
+  it('tolerates trailing separators and mixed slashes', () => {
+    expect(parentLabel('C:/Users/me/GitHub/devdeck/')).toBe('…/GitHub');
+  });
+});
 
 describe('encodeProjectPath', () => {
   it('encodes a Windows path the way Claude names its session dir', () => {

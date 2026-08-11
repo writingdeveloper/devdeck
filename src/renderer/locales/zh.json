@@ -34,6 +34,7 @@
   "shell.expand": "展开侧栏",
   "shell.mobile_sessions": "会话",
   "shell.no_results": "没有匹配项",
+  "shell.resize": "调整侧边栏宽度（双击恢复默认）",
   "shell.projects_recent": "最近的项目",
   "shell.group_collapse": "折叠{name}",
   "shell.group_expand": "展开{name}",

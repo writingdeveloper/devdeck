@@ -41,8 +41,9 @@
     <div id="shell">
       <button id="shell-mobile-backdrop" class="shell-mobile-backdrop hidden" type="button" tabindex="-1" aria-label="Close sidebar"></button>
       <aside id="app-sidebar" aria-label="DevDeck">
+        <!-- No wordmark here: the title bar directly above already shows the logo and "DevDeck", and
+             two of them a few pixels apart read as a rendering mistake. This row is the fold control. -->
         <div class="shell-side-head">
-          <span class="shell-side-brand">DevDeck</span>
           <button id="shell-collapse" class="ui-icon-button" type="button" aria-expanded="true"></button>
         </div>
         <div id="shell-quick-wrap">
@@ -76,6 +77,9 @@
           </div>
         </div>
       </aside>
+      <!-- Sibling of the rail, not a child: inside it the handle would be clipped by the sidebar's
+           own `overflow: hidden` and would sit on top of the session list's scrollbar. -->
+      <div id="shell-resizer" class="shell-resizer" role="separator" aria-orientation="vertical" tabindex="0"></div>
       <main id="content">
         <section id="view-projects" class="view active">
           <div class="view-toolbar">

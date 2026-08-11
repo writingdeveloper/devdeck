@@ -296,6 +296,67 @@ if (!langControl.hasIcon || !langControl.showsEndonym || !langControl.labelled |
   await closeApp(); process.exit(1);
 }
 
+// The rail is user-sized: 224px could never fit "master ✎1 · Claude · Opus 4.8 · 35%". The handle has
+// to survive the sidebar's own `overflow: hidden` (it lives outside the rail for that reason), take
+// arrow keys, persist, and stay out of the way when the rail is folded.
+const resize = await win.evaluate(async () => {
+  const shell = document.getElementById('shell');
+  const sidebar = document.getElementById('app-sidebar');
+  const handle = document.getElementById('shell-resizer');
+  const width = () => Math.round(sidebar.getBoundingClientRect().width);
+  const key = (k, shift = false) => {
+    handle.dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey: shift, bubbles: true, cancelable: true }));
+    return new Promise((r) => setTimeout(r, 120));
+  };
+  const start = width();
+  const handleBox = handle.getBoundingClientRect();
+  const shellBox = shell.getBoundingClientRect();
+  await key('ArrowRight'); await key('ArrowRight');
+  const wider = width();
+  await key('ArrowLeft');
+  const narrower = width();
+  await key('End');
+  const maxed = width();
+  await key('Enter'); // reset to default
+  const reset = width();
+  const stored = localStorage.getItem('devdeck.shell.width');
+  return {
+    start, wider, narrower, maxed, reset, stored,
+    grabbable: handleBox.width >= 5 && handleBox.left >= shellBox.left && handleBox.right <= shellBox.right,
+    tracksRail: Math.abs(handleBox.left + handleBox.width / 2 - sidebar.getBoundingClientRect().right) <= 4,
+    labelled: (handle.getAttribute('aria-label')?.length ?? 0) > 0 && handle.getAttribute('role') === 'separator',
+    valued: handle.getAttribute('aria-valuenow') === String(width()),
+  };
+});
+console.log('sidebar resize:', JSON.stringify(resize));
+if (resize.wider <= resize.start || resize.narrower >= resize.wider || resize.maxed <= resize.narrower
+  || resize.reset !== 224 || resize.stored !== '224'
+  || !resize.grabbable || !resize.tracksRail || !resize.labelled || !resize.valued) {
+  console.error('QA FAILED — the sidebar cannot be resized or the handle is unreachable:', JSON.stringify(resize));
+  await closeApp(); process.exit(1);
+}
+
+// The title bar right above already shows the logo and "DevDeck"; a second wordmark in the rail read
+// as a rendering mistake. And the chrome must be ONE colour — the title bar used to be a blue-black
+// while everything beside it was neutral grey.
+const chrome = await win.evaluate(() => {
+  const rgb = (el) => getComputedStyle(el).backgroundColor;
+  const neutral = (c) => { const [r, g, b] = c.match(/\d+/g).map(Number); return Math.max(r, g, b) - Math.min(r, g, b) <= 1; };
+  const topbar = rgb(document.getElementById('topbar'));
+  return {
+    topbar, sidebar: rgb(document.getElementById('app-sidebar')),
+    matches: topbar === rgb(document.getElementById('app-sidebar')),
+    neutralTopbar: neutral(topbar),
+    neutralCanvas: neutral(rgb(document.body)),
+    singleWordmark: document.querySelectorAll('#app-sidebar .shell-side-brand').length === 0,
+  };
+});
+console.log('chrome:', JSON.stringify(chrome));
+if (!chrome.matches || !chrome.neutralTopbar || !chrome.neutralCanvas || !chrome.singleWordmark) {
+  console.error('QA FAILED — the app chrome is tinted or duplicates the wordmark:', JSON.stringify(chrome));
+  await closeApp(); process.exit(1);
+}
+
 // The project list is the other unbounded one (100+ repos here). Its header must carry the same
 // foldable/counted treatment, and folding it must not take the session list with it.
 const projectSection = await win.evaluate(async () => {
@@ -533,6 +594,9 @@ if (cockpitAvailable) {
     // to undo every collapsed-state hide — the headers are what name and count each list.
     headingsVisible: Array.from(document.querySelectorAll('#app-sidebar .shell-group-heading'))
       .every((heading) => heading.getClientRects().length > 0),
+    // The rail floats at this width; a resize handle pinned to a fixed x would land on the drawer's
+    // own rows and eat their clicks.
+    resizerHidden: (document.getElementById('shell-resizer')?.getClientRects().length ?? 0) === 0,
   }));
   await win.keyboard.press('Escape');
   const mobileEscaped = await mobileTrigger.evaluate((button) => document.activeElement === button && button.getAttribute('aria-expanded') === 'false');
@@ -542,7 +606,7 @@ if (cockpitAvailable) {
     closed: document.getElementById('app-sidebar')?.classList.contains('mobile-open') !== true,
     cockpit: document.getElementById('view-cockpit')?.classList.contains('active') === true,
   }));
-  if (!mobileOpen.open || !mobileOpen.expanded || !mobileOpen.count || !mobileOpen.rowVisible || !mobileOpen.headingsVisible || !mobileEscaped || !mobileSelected.closed || !mobileSelected.cockpit) {
+  if (!mobileOpen.open || !mobileOpen.expanded || !mobileOpen.count || !mobileOpen.rowVisible || !mobileOpen.headingsVisible || !mobileOpen.resizerHidden || !mobileEscaped || !mobileSelected.closed || !mobileSelected.cockpit) {
     console.error('QA FAILED — narrow shared-session drawer is not keyboard/pointer reachable:', JSON.stringify({ mobileOpen, mobileEscaped, mobileSelected }));
     await closeApp(); process.exit(1);
   }

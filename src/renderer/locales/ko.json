@@ -34,6 +34,7 @@
   "shell.expand": "사이드바 펼치기",
   "shell.mobile_sessions": "세션",
   "shell.no_results": "검색 결과가 없습니다",
+  "shell.resize": "사이드바 너비 조절 (더블클릭: 기본값)",
   "shell.projects_recent": "최근 프로젝트",
   "shell.group_collapse": "{name} 접기",
   "shell.group_expand": "{name} 펼치기",

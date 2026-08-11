@@ -1,20 +1,32 @@
 ﻿:root {
   color-scheme: dark;
-  --bg: #0d0e12;
-  --surface: #15171c;
-  --surface-hover: #191c22;
-  --border: #23262e;
-  --border-strong: #2d313b;
-  --text: #e6e8ee;
-  --text-dim: #9aa1ad;
-  --text-faint: #8b93a1;
+  /*
+   * The app carried TWO palettes: this one, whose darks are all tinted toward blue (#0d0e12,
+   * #15171c, #23262e — hue ~225°), and the neutral --dd-* token set the redesigned surfaces use.
+   * Anything still on these names — the title bar, the cockpit header, dialogs, the task board —
+   * read as a different, slightly colder shade than everything beside it.
+   *
+   * These are aliases now, not values, so the ~290 rules that reference them de-tint at once
+   * instead of drifting apart again. Surfaces snap to the token set outright; the TEXT colors are
+   * matched by lightness rather than snapped, because --dd-text-faint is darker than the old
+   * --text-faint and adopting it here would turn a color correction into a contrast regression on
+   * every raised surface.
+   */
+  --bg: var(--dd-canvas);
+  --surface: var(--dd-surface);
+  --surface-hover: var(--dd-surface-raised);
+  --border: var(--dd-border);
+  --border-strong: var(--dd-border-strong);
+  --text: var(--dd-text);
+  --text-dim: var(--dd-text-muted);
+  --text-faint: #8f8f8f; /* neutral twin of #8b93a1 — same lightness, no hue */
   --accent: #5558ef;
   --accent-hover: #8b8ef7;
   --ok: #3b82f6;
   --neutral: #6b7280;
   --warn: #d98a1f;
   --bad: #e0623f;
-  --input-bg: #0f1115;
+  --input-bg: var(--dd-canvas);
   --mono: "Cascadia Mono", "Consolas", ui-monospace, monospace;
   /* type scale — 산발적 font-size를 5단으로 통일 (리디자인 Phase 0) */
   --fs-meta: 11px; --fs-body: 12.5px; --fs-row: 14px; --fs-title: 16px; --fs-view: 19px;
@@ -32,7 +44,9 @@ body {
   display: flex; flex-direction: column; height: 100vh; overflow: hidden;
 }
 
-#topbar { -webkit-app-region: drag; position: sticky; top: 0; z-index: 10; display: flex; align-items: center; height: 40px; padding-left: 12px; background: #0b0c10; border-bottom: 1px solid var(--border); user-select: none; }
+/* Chrome, not canvas: the title bar sits on the same surface as the sidebar directly under it so
+   the two read as one frame around the recessed content area. It used to be a lone blue-black. */
+#topbar { -webkit-app-region: drag; position: sticky; top: 0; z-index: 10; display: flex; align-items: center; height: 40px; padding-left: 12px; background: var(--dd-sidebar); border-bottom: 1px solid var(--border); user-select: none; }
 .tb-brand { display: flex; align-items: center; gap: 8px; -webkit-app-region: no-drag; }
 .tb-logo { width: 20px; height: 20px; border-radius: 5px; display: block; }
 .tb-title { font-size: 13px; font-weight: 600; letter-spacing: .2px; color: var(--text); }
@@ -64,7 +78,7 @@ button[disabled]:hover { background: var(--surface); border-color: var(--border-
 .sig { display:inline-block; width:9px; height:9px; border-radius:2px; background: var(--border-strong); flex:0 0 auto; }
 .sig.attn { background: var(--warn); box-shadow: 0 0 7px color-mix(in srgb, var(--warn) 60%, transparent); }
 .sig.work { background: var(--accent); }
-.skeleton { height: 120px; border-radius: 8px; border: 1px solid var(--border); background: linear-gradient(90deg,#15171c 25%,#1b1e24 50%,#15171c 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+.skeleton { height: 120px; border-radius: 8px; border: 1px solid var(--border); background: linear-gradient(90deg,var(--dd-surface) 25%,var(--dd-surface-raised) 50%,var(--dd-surface) 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
 /* Retryable error state for a view whose load failed (replaces a stuck skeleton / blank pane). */
 .load-error { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 16px; color: var(--text-dim); }
 .load-error-msg { font-size: 13px; }
@@ -111,7 +125,7 @@ button.primary:hover { background: var(--accent-hover); }
 .card-title { font-size: 15px; font-weight: 650; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 10px; white-space: nowrap; }
 .badge.lvl-fresh { background: #14304f; color: #9cc4ff; }
-.badge.lvl-neutral { background: #23262e; color: var(--text-dim); }
+.badge.lvl-neutral { background: var(--dd-surface-selected); color: var(--text-dim); }
 .badge.lvl-warn { background: #4a371259; color: #f0c178; }
 .badge.lvl-neglected { background: #4a201859; color: #f2a78e; }
 .badge.norecord { background: transparent; color: var(--text-faint); border: 1px dashed var(--border-strong); }
@@ -347,9 +361,9 @@ button.primary:hover { background: var(--accent-hover); }
 .usage-show-deleted { display: flex; align-items: center; gap: 6px; margin: 0 16px 4px; color: var(--text-dim); font-size: 11px; cursor: pointer; user-select: none; }
 .usage-show-deleted input { cursor: pointer; }
 /* Muted via COLOR, not opacity — a half-opacity row drove the 10px .pu-badge below WCAG AA
-   contrast (axe color-contrast, serious). #8f96a3 keeps the greyed-out look at ~6.5:1. */
-.usage-table tr.pu-deleted td { color: #8f96a3; }
-.pu-badge { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 6px; font-size: 10px; color: #8f96a3; border: 1px solid var(--border-strong); font-family: system-ui, sans-serif; }
+   contrast (axe color-contrast, serious). #959595 keeps the greyed-out look at ~6.5:1. */
+.usage-table tr.pu-deleted td { color: #959595; }
+.pu-badge { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 6px; font-size: 10px; color: #959595; border: 1px solid var(--border-strong); font-family: system-ui, sans-serif; }
 @media (max-width: 720px) {
   .usage-cost-cards { grid-template-columns: 1fr 1fr; }
   .usage-cost-card.lead { grid-column: 1 / -1; }
@@ -384,7 +398,10 @@ button.primary:hover { background: var(--accent-hover); }
 }
 .folder-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .folder-row { display: flex; align-items: center; gap: 8px; }
-.folder-path { flex: 1; font-family: var(--mono, monospace); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The folder's own name never shrinks; only its location does, and the row's title carries the rest. */
+.folder-path { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; overflow: hidden; }
+.folder-name { flex: 0 1 auto; font-family: var(--mono, monospace); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-parent { flex: 0 1 auto; font-family: var(--mono, monospace); font-size: 11px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-kind { opacity: 0.6; font-size: 11px; white-space: nowrap; }
 .folder-rm { background: none; border: none; cursor: pointer; color: inherit; opacity: 0.6; flex-shrink: 0; }
 .folder-rm:hover { opacity: 1; }
@@ -456,14 +473,14 @@ button.primary:hover { background: var(--accent-hover); }
    giving the view height:100% lets the percentage chain resolve and the terminal fill. */
 #view-cockpit { height: 100%; overflow: hidden; }
 .ck-wrap { display: flex; height: 100%; }
-.ck-list { width: 250px; flex: 0 0 250px; border-right: 1px solid var(--border); background: #101218; display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+.ck-list { width: 250px; flex: 0 0 250px; border-right: 1px solid var(--border); background: var(--dd-sidebar); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
 /* Top row of the session list: "+ New session" + the sidebar collapse toggle. */
 .ck-side-head { display: flex; align-items: stretch; gap: 7px; margin: 11px 11px 0; }
 .ck-side-head .ck-new { flex: 1 1 auto; margin: 0; }
 .ck-collapse { flex: 0 0 auto; background: var(--surface); border: 1px solid var(--border-strong); color: var(--text-dim); border-radius: 8px; padding: 0 9px; font: inherit; cursor: pointer; }
 .ck-collapse:hover { background: var(--surface-hover); color: var(--text); }
 /* Collapsed: the list is hidden and a slim strip re-expands it — the terminal gets the width. */
-.ck-expand { display: none; flex: 0 0 22px; align-items: center; justify-content: center; background: #101218; border: 0; border-right: 1px solid var(--border); color: var(--text-dim); font: inherit; cursor: pointer; }
+.ck-expand { display: none; flex: 0 0 22px; align-items: center; justify-content: center; background: var(--dd-sidebar); border: 0; border-right: 1px solid var(--border); color: var(--text-dim); font: inherit; cursor: pointer; }
 .ck-expand:hover { background: var(--surface-hover); color: var(--text); }
 .ck-wrap.list-collapsed .ck-list { display: none; }
 .ck-wrap.list-collapsed .ck-expand { display: flex; }
@@ -496,7 +513,7 @@ button.primary:hover { background: var(--accent-hover); }
    comes from custom properties the row sets on pointerenter/focus. */
 .ck-row .nm[data-full-name]:hover::after, .ck-row .nm[data-full-name]:focus-visible::after {
   content: attr(data-full-name); position: fixed; left: var(--tt-x, 0); top: var(--tt-y, 0); z-index: 80;
-  max-width: 360px; padding: 5px 8px; border-radius: 6px; background: #0d0e12; border: 1px solid var(--border-strong);
+  max-width: 360px; padding: 5px 8px; border-radius: 6px; background: var(--dd-canvas); border: 1px solid var(--border-strong);
   color: var(--text); font-weight: 500; font-size: 11.5px; line-height: 1.35; white-space: normal; overflow-wrap: anywhere;
   box-shadow: 0 6px 18px rgba(0,0,0,.5); pointer-events: none;
 }
@@ -521,8 +538,10 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-ctx-col { margin-left: auto; flex: 0 0 auto; white-space: nowrap; font-family: var(--mono); font-size: var(--fs-meta); color: var(--text-faint); }
 .ck-ctx-col.sev-warn { color: var(--warn); }
 .ck-ctx-col.sev-crit { color: var(--bad); font-weight: 700; }
-.ck-main { flex: 1; display: flex; flex-direction: column; background: #0a0b0e; min-width: 0; }
-.ck-header { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), #0e1015); min-height: 42px; }
+.ck-main { flex: 1; display: flex; flex-direction: column; background: var(--dd-canvas); min-width: 0; }
+/* Flat and neutral: the old gradient faded into a blue-black that did not match the terminal it
+   captions or the sidebar beside it. */
+.ck-header { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--dd-sidebar); min-height: 42px; }
 .ck-header .title { font-weight: 700; font-size: 13.5px; }
 .ck-pill { font-family: var(--mono); font-size: 10.5px; padding: 2px 8px; border-radius: 11px; border: 1px solid var(--border-strong); color: var(--text-dim); }
 .ck-header .sp { flex: 1; }
@@ -540,7 +559,7 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-empty { padding: 24px; color: var(--text-faint); }
 .ck-main.has-session .ck-empty { display: none; }
 .rail-item { position: relative; }
-.rail-badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--warn); color: var(--bg); font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px #101218; }
+.rail-badge { position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--warn); color: var(--bg); font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 2px var(--dd-sidebar); }
 .rail-badge.hidden { display: none; }
 .ck-ind { width: 16px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
 .ck-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
@@ -571,7 +590,7 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-row-acts, .ck-prev-acts {
   position: absolute; inset-inline-end: 4px; top: 50%; transform: translateY(-50%);
   opacity: 0; pointer-events: none; padding-left: 18px; border-radius: 6px;
-  background: linear-gradient(90deg, transparent, #14161d 24%);
+  background: linear-gradient(90deg, transparent, var(--dd-surface) 24%);
 }
 .ck-row.sel .ck-row-acts { background: linear-gradient(90deg, transparent, #16182b 24%); }
 .ck-row:hover .ck-row-acts, .ck-row:focus-within .ck-row-acts,
@@ -607,7 +626,7 @@ button.primary:hover { background: var(--accent-hover); }
 
 /* Exactly 26px, always: the footer must never change the terminal's height (min/max pin it against
    content growth, and the modal below is an overlay so opening it cannot reflow this row). */
-#usage-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; height: 26px; min-height: 26px; max-height: 26px; padding: 0 12px; background: #0d0e12; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); user-select: none; }
+#usage-bar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; height: 26px; min-height: 26px; max-height: 26px; padding: 0 12px; background: var(--dd-sidebar); border-top: 1px solid var(--border); font-size: 11px; color: var(--text-dim); user-select: none; }
 #usage-bar.hidden { display: none; }
 .ub-providers { display: inline-flex; align-items: center; gap: 5px; }
 /* The footer reports ONE provider (the selected session's). Its mark is fully lit; the other
@@ -622,7 +641,7 @@ button.primary:hover { background: var(--accent-hover); }
 .ub-summary.multi .ub-limit + .ub-limit { margin-left: 8px; padding-left: 10px; border-left: 1px solid var(--border); }
 .ub-summary.multi .ub-track { width: 48px; }
 .ub-sp { flex: 1; }
-.ub-stale { color: #7d828c; }
+.ub-stale { color: #828282; }
 .ub-all { background: transparent; border: 1px solid var(--border-strong); color: var(--text-dim); font: inherit; font-size: 10.5px; border-radius: 6px; padding: 1px 8px; cursor: pointer; }
 .ub-all:hover { background: var(--surface-hover); color: var(--text); border-color: var(--accent); }
 .ub-plan { font-weight: 600; color: var(--text); opacity: .85; }
@@ -635,7 +654,7 @@ button.primary:hover { background: var(--accent-hover); }
 .ub-fill.crit { background: #f85149; }
 .ub-lab { color: var(--text-dim); }
 .ub-val { color: var(--text); opacity: .9; }
-.ub-rst { color: #7d828c; } /* muted but still ~5:1 on #0d0e12 — text-dim at opacity .6 failed WCAG AA (axe color-contrast, serious) */
+.ub-rst { color: #8a8a8a; } /* neutral twin of #828282; text-dim at opacity .6 failed WCAG AA (axe color-contrast, serious) */
 .ub-dot { opacity: .35; }
 
 /* All-provider live limits dialog. Fixed overlay appended to <body>, deliberately OUTSIDE the shell
@@ -706,7 +725,7 @@ button.primary:hover { background: var(--accent-hover); }
 .um-p-head { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
 .um-p-name { font-weight: 600; font-size: 12.5px; color: var(--text); }
 .um-plan { font-family: var(--mono); font-size: 10.5px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--border-strong); color: var(--text-dim); }
-.um-state { margin-left: auto; font-size: 10.5px; color: #7d828c; }
+.um-state { margin-left: auto; font-size: 10.5px; color: #828282; }
 .um-state.st-ready { color: #3fb950; }
 .um-state.st-stale, .um-state.st-rate-limited { color: #d29922; }
 .um-state.st-expired, .um-state.st-login-required { color: #f0883e; }
@@ -718,7 +737,7 @@ button.primary:hover { background: var(--accent-hover); }
 .um-fill.warn { background: #d29922; }
 .um-fill.crit { background: #f85149; }
 .um-val { flex: 0 0 auto; min-width: 34px; text-align: right; color: var(--text); }
-.um-reset { flex: 0 0 auto; color: #7d828c; }
+.um-reset { flex: 0 0 auto; color: #828282; }
 .um-credits { margin-top: 6px; font-size: 11px; color: var(--text-dim); }
 .um-guidance { margin-top: 4px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--text-dim); }
 .um-cmd { font-family: var(--mono); font-size: 10.5px; background: var(--bg); border: 1px solid var(--border-strong); color: var(--text); border-radius: 6px; padding: 1px 7px; cursor: pointer; }
@@ -736,5 +755,5 @@ button.primary:hover { background: var(--accent-hover); }
 #shutdown-btn.shutdown-counting { color: #ff7b72; }
 .shutdown-menu { right: 0; top: 34px; min-width: 220px; }
 .ub-msg { opacity: .8; }
-.shutdown-hist { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #9aa7c0; }
-.shutdown-hist-empty { color: #9aa7c0; font-style: italic; } /* same tone as rows — #6b7690 failed axe color-contrast (serious) */
+.shutdown-hist { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #a5a5a5; }
+.shutdown-hist-empty { color: #a5a5a5; font-style: italic; } /* same tone as rows — #6b7690 failed axe color-contrast (serious) */

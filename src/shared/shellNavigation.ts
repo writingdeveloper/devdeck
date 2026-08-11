@@ -180,6 +180,30 @@ export function normalizeSidebarState(value: unknown): boolean {
   return value === true;
 }
 
+/**
+ * The sidebar's width in pixels.
+ *
+ * A session row shows branch + working-tree count + provider + model + context %, and its third line
+ * is a sentence — none of that fits in a fixed 224px, so every row ended in an ellipsis regardless of
+ * how much window the user had spare. The width is a stored preference; these bounds keep it useful at
+ * both ends (below ~180px the three lines stop being readable at all, and past ~460px the rail starts
+ * eating the terminal it exists to point at).
+ */
+export const SIDEBAR_WIDTH_MIN = 180;
+export const SIDEBAR_WIDTH_MAX = 460;
+export const SIDEBAR_WIDTH_DEFAULT = 224;
+
+export function clampSidebarWidth(value: number): number {
+  if (!Number.isFinite(value)) return SIDEBAR_WIDTH_DEFAULT;
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)));
+}
+
+/** Restore a persisted width, falling back to the default for anything unusable. */
+export function normalizeSidebarWidth(value: unknown): number {
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? clampSidebarWidth(parsed) : SIDEBAR_WIDTH_DEFAULT;
+}
+
 export function filterShellItems(
   query: string,
   sessions: ShellSessionInput[],

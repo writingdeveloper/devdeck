@@ -4,8 +4,13 @@ import { undoToast } from './loadError';
 import {
   buildSessionGroups,
   attentionCount,
+  clampSidebarWidth,
   filterShellItems,
   normalizeCollapsedGroups,
+  normalizeSidebarWidth,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
   sessionAccessibleLabel,
   sessionActionsFor,
   sessionGroupOf,
@@ -60,6 +65,7 @@ const PROJECT_LIMIT = 8;
 const COLLAPSED_GROUPS_KEY = 'devdeck.shell.collapsedGroups';
 const PROJECTS_COLLAPSED_KEY = 'devdeck.shell.projectsCollapsed';
 const QUICK_OPEN_CHORD = 'Ctrl+Shift+P';
+const SIDEBAR_WIDTH_KEY = 'devdeck.shell.width';
 
 function readCollapsedGroups(): ShellGroupKind[] {
   try { return normalizeCollapsedGroups(JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) ?? '[]')); }
@@ -352,7 +358,9 @@ export function mountShell(options: {
     summary.textContent = item.summary ?? '';
     summary.title = item.summary ? `${tr('cockpit.summary')}: ${item.summary}` : '';
     summary.classList.toggle('hidden', !item.summary);
-    row.title = `${item.label} · ${status}`;
+    // Every line is single-line + ellipsis, so hovering has to be able to reveal what was cut —
+    // otherwise a truncated model name or summary is simply unreadable at narrow widths.
+    row.title = [`${item.label} · ${status}`, item.detail, item.summary].filter(Boolean).join('\n');
     wrap.className = `shell-session-wrap${item.previous ? ' is-previous' : ''}${item.conversationGone ? ' is-gone' : ''}`;
     wrap.dataset.previous = String(item.previous === true);
     wrap.dataset.conversationGone = String(item.conversationGone === true);
@@ -506,7 +514,8 @@ export function mountShell(options: {
       signal.className = `shell-signal ${state === 'attention' ? 'signal-diamond' : state === 'working' ? 'signal-spinner' : 'signal-blank'}`;
       const label = state ? `${row.dataset.projectName ?? ''}, ${tr(state === 'attention' ? 'shell.needs_you' : 'shell.working')}` : row.dataset.projectName ?? '';
       row.setAttribute('aria-label', label);
-      row.title = label;
+      // The path is what disambiguates two repos with the same folder name, and it never fits the row.
+      row.title = [label, row.dataset.projectPath].filter(Boolean).join('\n');
     }
   };
 
@@ -706,6 +715,53 @@ export function mountShell(options: {
     const next = !sidebar.classList.contains('collapsed'); setCollapsed(next); options.onCollapse(next);
   });
   collapsedStatus.addEventListener('click', () => { setCollapsed(false); options.onCollapse(false); });
+
+  // ---- user-sized rail ----
+  // 224px could never hold "master ✎1 · Claude · Opus 4.8 · 35%", so every row ended in an ellipsis no
+  // matter how much window was going spare. The width is a preference now, dragged from the right edge.
+  const shell = document.getElementById('shell')!;
+  const resizer = document.getElementById('shell-resizer') as HTMLElement;
+  let sidebarWidth = normalizeSidebarWidth(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+  const applyWidth = (width: number, persist: boolean): void => {
+    sidebarWidth = clampSidebarWidth(width);
+    // On #shell, not the rail: the handle is a sibling and positions itself from the same variable.
+    shell.style.setProperty('--shell-width', `${sidebarWidth}px`);
+    resizer.setAttribute('aria-valuenow', String(sidebarWidth));
+    if (persist) { try { localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth)); } catch { /* private mode / quota */ } }
+  };
+  resizer.setAttribute('aria-valuemin', String(SIDEBAR_WIDTH_MIN));
+  resizer.setAttribute('aria-valuemax', String(SIDEBAR_WIDTH_MAX));
+  applyWidth(sidebarWidth, false);
+  resizer.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || sidebar.classList.contains('collapsed')) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    resizer.setPointerCapture(event.pointerId);
+    shell.classList.add('is-resizing');
+    const move = (moveEvent: PointerEvent): void => applyWidth(startWidth + (moveEvent.clientX - startX), false);
+    const finish = (): void => {
+      resizer.removeEventListener('pointermove', move);
+      shell.classList.remove('is-resizing');
+      applyWidth(sidebarWidth, true); // one write at the end, not one per pointermove
+    };
+    resizer.addEventListener('pointermove', move);
+    resizer.addEventListener('pointerup', finish, { once: true });
+    resizer.addEventListener('pointercancel', finish, { once: true });
+  });
+  // A pointer-only resize is unusable without a mouse, and a separator is expected to take arrow keys.
+  resizer.addEventListener('keydown', (event) => {
+    const step = event.shiftKey ? 32 : 8;
+    if (event.key === 'ArrowLeft') applyWidth(sidebarWidth - step, true);
+    else if (event.key === 'ArrowRight') applyWidth(sidebarWidth + step, true);
+    else if (event.key === 'Home') applyWidth(SIDEBAR_WIDTH_MIN, true);
+    else if (event.key === 'End') applyWidth(SIDEBAR_WIDTH_MAX, true);
+    else if (event.key !== 'Enter') return;
+    else applyWidth(SIDEBAR_WIDTH_DEFAULT, true);
+    event.preventDefault();
+  });
+  resizer.addEventListener('dblclick', () => applyWidth(SIDEBAR_WIDTH_DEFAULT, true));
+
   setCollapsed(options.initialCollapsed);
 
   const refreshLabels = (): void => {
@@ -720,6 +776,8 @@ export function mountShell(options: {
       button.title = label; button.setAttribute('aria-label', label);
     }
     projectSection.setAttribute('aria-labelledby', 'shell-projects-label');
+    resizer.title = tr('shell.resize');
+    resizer.setAttribute('aria-label', tr('shell.resize'));
     mobileBackdrop.setAttribute('aria-label', tr('shell.collapse'));
     setCollapsed(sidebar.classList.contains('collapsed'));
     renderSessions(sessions);

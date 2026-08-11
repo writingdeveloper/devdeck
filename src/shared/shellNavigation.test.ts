@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   attentionCount,
   buildSessionGroups,
+  clampSidebarWidth,
   filterShellItems,
+  normalizeSidebarWidth,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
   normalizeCollapsedGroups,
   normalizeSidebarState,
   restoreShellContext,
@@ -108,6 +113,25 @@ describe('shell navigation', () => {
     const projects = [{ path: 'C:/checkout', name: 'checkout-api', branch: 'main' }];
     expect(filterShellItems('CHECKOUT', rows, projects)).toEqual({ sessions: [], projects });
     expect(filterShellItems('FEAT', rows, projects).sessions.map((item) => item.id)).toEqual(['work']);
+  });
+
+  // 224px could never fit "master ✎1 · Claude · Opus 4.8 · 35%", so the width is a stored preference.
+  it('clamps the sidebar width to a range where the rail stays useful at both ends', () => {
+    expect(clampSidebarWidth(300)).toBe(300);
+    expect(clampSidebarWidth(20)).toBe(SIDEBAR_WIDTH_MIN);
+    expect(clampSidebarWidth(9999)).toBe(SIDEBAR_WIDTH_MAX);
+    expect(clampSidebarWidth(240.6)).toBe(241);
+    expect(clampSidebarWidth(Number.NaN)).toBe(SIDEBAR_WIDTH_DEFAULT);
+  });
+
+  it('restores a persisted width and falls back to the default for anything unusable', () => {
+    expect(normalizeSidebarWidth('300')).toBe(300);
+    expect(normalizeSidebarWidth(300)).toBe(300);
+    expect(normalizeSidebarWidth('9999')).toBe(SIDEBAR_WIDTH_MAX); // a stale value from a wider screen
+    expect(normalizeSidebarWidth(null)).toBe(SIDEBAR_WIDTH_DEFAULT);
+    expect(normalizeSidebarWidth('wide')).toBe(SIDEBAR_WIDTH_DEFAULT);
+    expect(normalizeSidebarWidth(0)).toBe(SIDEBAR_WIDTH_DEFAULT);
+    expect(normalizeSidebarWidth(-40)).toBe(SIDEBAR_WIDTH_DEFAULT);
   });
 
   it('accepts only a persisted boolean sidebar state', () => {

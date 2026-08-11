@@ -2,6 +2,7 @@ import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i1
 import { setCockpitContextWindow, setCockpitTrayAlert, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import type { Folder } from '../shared/types';
 import { IDLE_HOLD_CHOICES } from '../shared/shutdownIdle';
+import { basename, parentLabel } from '../shared/paths';
 import { createIcon } from './icons';
 
 let host: HTMLElement;
@@ -25,7 +26,12 @@ async function render(): Promise<void> {
   const list = document.createElement('div'); list.className = 'folder-list';
   const renderRow = (f: Folder) => {
     const row = document.createElement('div'); row.className = 'folder-row';
-    const path = document.createElement('span'); path.className = 'folder-path'; path.textContent = f.path;
+    // Name first, location second. The old single-span path ellipsised on the RIGHT, which is where
+    // the folder's own name lives — the row was cut down to a shared prefix like "C:\Users\me\App…".
+    const path = document.createElement('span'); path.className = 'folder-path'; path.title = f.path;
+    const name = document.createElement('span'); name.className = 'folder-name'; name.textContent = basename(f.path);
+    const parent = document.createElement('span'); parent.className = 'folder-parent'; parent.textContent = parentLabel(f.path);
+    path.append(name, parent);
     // Read-only label, not an editable control: 'repo' → 'root' would widen the path allowlist to
     // every descendant, and the ONE invariant here is that the allowlist only ever changes through
     // the native picker (which a compromised renderer can't confirm on its own). To switch a folder's

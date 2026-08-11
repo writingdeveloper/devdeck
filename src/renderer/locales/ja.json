@@ -34,6 +34,7 @@
   "shell.expand": "サイドバーを展開",
   "shell.mobile_sessions": "セッション",
   "shell.no_results": "一致する項目はありません",
+  "shell.resize": "サイドバーの幅を変更 (ダブルクリックで既定値)",
   "shell.projects_recent": "最近のプロジェクト",
   "shell.group_collapse": "{name}を折りたたむ",
   "shell.group_expand": "{name}を展開",

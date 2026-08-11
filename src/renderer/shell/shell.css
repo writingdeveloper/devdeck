@@ -6,18 +6,35 @@
 .shell-mobile-toggle.has-attention { border-color: color-mix(in srgb, var(--dd-attention) 65%, var(--dd-border)); color: var(--dd-text); }
 .shell-mobile-backdrop { position: absolute; inset: 0; z-index: 79; border: 0; background: rgb(0 0 0 / .52); }
 
+/* The rail is user-sized. A session row carries branch + working-tree count + provider + model +
+   context %, which needs more than 224px could ever give it, so the width is a preference rather
+   than a constant — --shell-width is written by the drag handle and restored at boot. */
 #app-sidebar {
-  width: 224px; flex: 0 0 224px; min-width: 0;
+  width: var(--shell-width, 224px); flex: 0 0 var(--shell-width, 224px); min-width: 0;
+  position: relative;
   display: flex; flex-direction: column; gap: 4px;
   padding: 8px; overflow: hidden;
   background: var(--dd-sidebar); border-right: 1px solid var(--dd-border);
   transition: width var(--dd-motion-fast), flex-basis var(--dd-motion-fast);
 }
+/* While dragging, the width must track the pointer exactly — an easing curve turns it to rubber. */
+#shell.is-resizing #app-sidebar { transition: none; }
+#shell.is-resizing { cursor: col-resize; user-select: none; }
 #app-sidebar.collapsed { width: 52px; flex-basis: 52px; align-items: center; }
-.shell-side-head { display: flex; align-items: center; gap: 8px; min-height: 30px; }
-.shell-side-brand { flex: 1; font-size: var(--dd-fs-title); font-weight: 650; overflow: hidden; white-space: nowrap; }
+.shell-resizer {
+  position: absolute; inset-block: 0; left: calc(var(--shell-width, 224px) - 3px);
+  width: 7px; z-index: 20; cursor: col-resize; background: transparent;
+}
+.shell-resizer::after {
+  content: ""; position: absolute; inset-block: 0; left: 3px; width: 1px;
+  background: var(--dd-focus); opacity: 0; transition: opacity var(--dd-motion-fast);
+}
+.shell-resizer:hover::after, .shell-resizer:focus-visible::after, #shell.is-resizing .shell-resizer::after { opacity: 1; }
+.shell-resizer:focus-visible { outline: none; }
+/* Nothing to resize when the rail is folded to its icon width or floating as a drawer. */
+#shell:has(#app-sidebar.collapsed) .shell-resizer { display: none; }
+.shell-side-head { display: flex; align-items: center; justify-content: flex-end; min-height: 26px; }
 #shell-collapse { flex: 0 0 auto; }
-#app-sidebar.collapsed .shell-side-brand,
 #app-sidebar.collapsed .rail-label,
 #app-sidebar.collapsed #shell-quick-wrap,
 #app-sidebar.collapsed .shell-scroll,
@@ -63,7 +80,9 @@
 /* Foldable, counted section headers. The count stays visible while folded — a group that hides its
    rows without saying how many it holds is just another way to lose a session. The header sticks to
    the top of its own scroller so you always know which group you are looking at. */
-.shell-group-heading { position: sticky; top: 0; z-index: 2; margin: 0; background: var(--dd-sidebar); }
+/* The hairline matters once the list scrolls: rows pass UNDER the sticky header, and without an edge
+   a half-covered three-line row reads as a broken row rather than as content continuing above. */
+.shell-group-heading { position: sticky; top: 0; z-index: 2; margin: 0; background: var(--dd-sidebar); box-shadow: 0 1px 0 var(--dd-border); }
 .shell-group-toggle {
   width: 100%; display: flex; align-items: center; gap: 6px;
   margin: 0; padding: 10px 8px 5px; border: 0; background: transparent;
@@ -157,7 +176,6 @@
     transition: transform var(--dd-motion-fast);
   }
   #app-sidebar.mobile-open { transform: translateX(0); }
-  #app-sidebar.mobile-open .shell-side-brand { display: block; }
   #app-sidebar.mobile-open .rail-label { display: inline; }
   /* `.collapsed` and `.mobile-open` coexist (the desktop fold is persisted), so the drawer has to
      undo every collapsed-state hide — including the section headers, which are the only thing
@@ -172,4 +190,7 @@
   /* The drawer always shows the full list, so the collapsed-state pill would just duplicate it. */
   #app-sidebar.mobile-open .shell-collapsed-status { display: none; }
   #shell-collapse { display: none; }
+  /* The rail is a floating drawer at this width, so there is no edge to drag — and left where it was,
+     the handle would sit on top of the drawer's own rows and swallow their clicks. */
+  .shell-resizer { display: none; }
 }
