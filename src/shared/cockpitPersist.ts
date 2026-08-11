@@ -9,6 +9,9 @@ export interface PersistedSession {
   agentId: string;          // 'claude' | 'antigravity' | 'codex' — which agent the session was opened with
   label?: string | null;    // user-given custom name (overrides the auto label); null/absent = auto
   pinned?: boolean;         // user pinned this session to the top group (absent = not pinned)
+  /** Epoch ms of the tile's last activity. The sidebar orders by it, so it has to outlive the restart
+   *  that turned the tile back into a saved entry — absent (pre-v1.32 state.json) sorts last by name. */
+  lastActiveMs?: number;
 }
 
 /** Identity available at the Cockpit navigation boundary. Runtime IDs distinguish id-less live tiles. */
@@ -248,6 +251,9 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
     const o = r as Record<string, unknown>;
     if (typeof o.projectPath !== 'string' || !o.projectPath) continue;
     const label = typeof o.label === 'string' && o.label.trim() ? o.label.trim().slice(0, MAX_LABEL) : null;
+    // Only a finite positive number is an ordering key; NaN/Infinity/negatives would poison the sort.
+    const lastActiveMs = typeof o.lastActiveMs === 'number' && Number.isFinite(o.lastActiveMs) && o.lastActiveMs > 0
+      ? o.lastActiveMs : undefined;
     out.push({
       tileId: uniqueTileId(o.tileId),
       projectPath: o.projectPath,
@@ -256,6 +262,7 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
       agentId: o.agentId === 'antigravity' || o.agentId === 'codex' ? o.agentId : 'claude',
       label,
       pinned: o.pinned === true ? true : undefined, // omit when not pinned (keeps state.json minimal)
+      lastActiveMs,
     });
     if (out.length >= MAX_PERSISTED) break;
   }

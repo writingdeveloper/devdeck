@@ -49,6 +49,11 @@ describe('decideKeyAction', () => {
     expect(decideKeyAction(key({ ctrlKey: true, key: 'c', repeat: true }), true)).toBe('pass');
   });
   it('Ctrl+F => find (open in-terminal search instead of sending \\x06 to the PTY)', () => {
+    // Ctrl+Shift+P opens the sidebar search. Without this it would reach the PTY as Ctrl+P
+    // (readline "previous history") — shift doesn't alter the control char a terminal derives.
+    expect(decideKeyAction(key({ ctrlKey: true, shiftKey: true, key: 'p' }), false)).toBe('quickopen');
+    expect(decideKeyAction(key({ ctrlKey: true, shiftKey: true, key: 'P' }), true)).toBe('quickopen');
+    expect(decideKeyAction(key({ ctrlKey: true, key: 'p' }), false)).toBe('pass'); // plain Ctrl+P still belongs to the shell
     expect(decideKeyAction(key({ ctrlKey: true, key: 'f' }), false)).toBe('find');
     expect(decideKeyAction(key({ ctrlKey: true, key: 'F' }), true)).toBe('find');
   });

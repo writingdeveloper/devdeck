@@ -76,6 +76,18 @@ describe('sanitizePersistedList', () => {
     expect(sanitizePersistedList('x')).toEqual([]);
   });
 
+  // The sidebar orders by lastActiveMs; junk here would silently corrupt that order for every row.
+  it('keeps a usable lastActiveMs and drops anything that is not one', () => {
+    const read = (lastActiveMs: unknown): number | undefined =>
+      sanitizePersistedList([{ tileId: 't', projectPath: 'C:/a', name: 'a', sessionId: null, agentId: 'claude', lastActiveMs }])[0].lastActiveMs;
+    expect(read(1_700_000_000_000)).toBe(1_700_000_000_000);
+    expect(read('1700000000000')).toBeUndefined();
+    expect(read(Number.NaN)).toBeUndefined();
+    expect(read(Number.POSITIVE_INFINITY)).toBeUndefined();
+    expect(read(-1)).toBeUndefined();
+    expect(read(undefined)).toBeUndefined(); // pre-v1.32 state.json — must load, just unordered
+  });
+
   it('keeps valid provider entries verbatim (label defaults to null)', () => {
     const r = sanitizePersistedList([
       { tileId: 'tile-b', projectPath: 'C:/a/b', name: 'b', sessionId: 's1', agentId: 'antigravity' },

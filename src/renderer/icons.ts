@@ -2,7 +2,7 @@ export type IconName =
   | 'search' | 'projects' | 'sessions' | 'tasks' | 'usage'
   | 'settings' | 'refresh' | 'more' | 'play' | 'panel-left'
   | 'folder' | 'plus' | 'restart' | 'close' | 'pin' | 'edit' | 'brain' | 'clock'
-  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power';
+  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power' | 'globe';
 
 const paths: Record<IconName, string> = {
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>',
@@ -27,6 +27,9 @@ const paths: Record<IconName, string> = {
   'chevron-left': '<path d="m15 18-6-6 6-6"></path>',
   'chevron-right': '<path d="m9 18 6-6-6-6"></path>',
   'chevron-down': '<path d="m6 9 6 6 6-6"></path>',
+  // The language control used to be the glyph 文, which only reads as "language" if you already read
+  // CJK — to everyone else it was an unlabelled foreign character. A globe is the universal sign.
+  globe: '<circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"></path>',
   minimize: '<path d="M5 18h14"></path>',
   maximize: '<rect x="5" y="5" width="14" height="14" rx="1"></rect>',
   restore: '<rect x="7" y="7" width="12" height="12" rx="1"></rect><path d="M5 17V5h12"></path>',

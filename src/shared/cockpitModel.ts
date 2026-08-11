@@ -16,12 +16,29 @@ export interface CockpitSession {
   activity: ActivityState;
 }
 
+/**
+ * Coarsen an activity timestamp before it becomes the sidebar's ordering key.
+ *
+ * `publishCockpitNavigation` skips its listeners when the serialized item list is unchanged, so a raw
+ * millisecond stamp would bust that guard on every PTY output chunk and re-render the whole sidebar
+ * continuously while an agent streams. It would also reshuffle rows under the cursor. A 30s bucket is
+ * far finer than "which session did I last touch" needs and turns the churn into at most one reorder
+ * per bucket. Non-finite input yields 0 (sorts last) rather than NaN, which would poison the sort.
+ */
+export const ACTIVITY_BUCKET_MS = 30_000;
+
+export function activityOrderStamp(ms: number, bucketMs: number = ACTIVITY_BUCKET_MS): number {
+  if (!Number.isFinite(ms) || ms <= 0) return 0;
+  return Math.floor(ms / bucketMs) * bucketMs;
+}
+
 export function sessionNavigationItem(
   session: CockpitSession,
   label: string,
   detail: string,
   pinned: boolean,
   summary: string | null = null,
+  lastActiveMs: number | null = null,
 ): ShellSessionInput {
   return {
     id: session.id,
@@ -31,6 +48,7 @@ export function sessionNavigationItem(
     activity: session.activity,
     pinned,
     summary,
+    lastActiveMs,
   };
 }
 

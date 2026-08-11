@@ -242,6 +242,11 @@ button.primary:hover { background: var(--accent-hover); }
 
 #toast-host { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
 .toast { background: #2a1416; border: 1px solid #5c1a1a; color: #f3d6d6; padding: 10px 14px; border-radius: 8px; font-size: 13px; max-width: 360px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+/* Not every toast is a failure: a reversible change reports itself in the app's own surface colors. */
+.toast.toast-info { display: flex; align-items: center; gap: 12px; background: var(--dd-surface-raised); border-color: var(--dd-border); color: var(--dd-text); }
+.toast-text { flex: 1; min-width: 0; }
+.toast-action { flex: 0 0 auto; padding: 4px 10px; border: 1px solid var(--dd-border); border-radius: var(--dd-radius-sm); background: transparent; color: var(--dd-text); font-size: var(--dd-fs-meta); cursor: pointer; }
+.toast-action:hover, .toast-action:focus-visible { background: var(--dd-surface-selected); }
 
 @media (prefers-reduced-motion: reduce) {
   .card, button, .caret { transition: none; }

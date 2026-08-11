@@ -23,3 +23,23 @@ export function toast(message: string): void {
   host.appendChild(el);
   setTimeout(() => el.remove(), 6000);
 }
+
+/**
+ * A neutral toast that reports a reversible change and offers to undo it.
+ *
+ * Used for actions whose *result* is off-screen — unpinning moves a row to a group you may not be
+ * looking at, and with nothing to say so it reads as a deletion. Saying where it went, plus a way back,
+ * is what makes the action safe to try. Announced politely so a screen reader hears it without being
+ * interrupted mid-sentence.
+ */
+export function undoToast(message: string, undoLabel: string, onUndo: () => void): void {
+  const host = document.getElementById('toast-host');
+  if (!host) return;
+  const el = document.createElement('div'); el.className = 'toast toast-info'; el.setAttribute('role', 'status');
+  const text = document.createElement('span'); text.className = 'toast-text'; text.textContent = message;
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'toast-action'; button.textContent = undoLabel;
+  button.addEventListener('click', () => { el.remove(); onUndo(); });
+  el.append(text, button);
+  host.appendChild(el);
+  setTimeout(() => el.remove(), 8000);
+}

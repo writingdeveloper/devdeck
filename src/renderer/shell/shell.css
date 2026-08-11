@@ -21,7 +21,7 @@
 #app-sidebar.collapsed .rail-label,
 #app-sidebar.collapsed #shell-quick-wrap,
 #app-sidebar.collapsed .shell-scroll,
-#app-sidebar.collapsed .shell-section-label,
+#app-sidebar.collapsed .shell-group-heading,
 #app-sidebar.collapsed .lang-wrap { display: none; }
 .shell-nav { display: flex; flex-direction: column; gap: 2px; }
 .rail-item {
@@ -52,11 +52,39 @@
 #shell-session-groups { min-height: 0; overflow-y: auto; overflow-x: hidden; }
 #shell-project-section { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 #shell-projects { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* Folding the project list away is a request for session room — without this the 62% cap would leave
+   the bottom third of the rail blank and the fold would buy the user nothing. */
+.shell-scroll:has(#shell-project-section.is-collapsed) #shell-session-section { flex: 1 1 auto; max-height: none; }
 /* With no cockpit (or while quick-open filters), projects own the whole rail. */
 #shell-session-section.hidden, #shell-session-section.quick-filtered { display: none; }
 #shell-project-section.quick-filtered { display: none; }
 .shell-quick-empty { padding: 14px 8px; color: var(--dd-text-faint); font-size: var(--dd-fs-meta); }
-.shell-section-label { margin: 0; padding: 12px 8px 5px; color: var(--dd-text-muted); font-size: var(--dd-fs-meta); font-weight: inherit; text-transform: uppercase; letter-spacing: .07em; }
+
+/* Foldable, counted section headers. The count stays visible while folded — a group that hides its
+   rows without saying how many it holds is just another way to lose a session. The header sticks to
+   the top of its own scroller so you always know which group you are looking at. */
+.shell-group-heading { position: sticky; top: 0; z-index: 2; margin: 0; background: var(--dd-sidebar); }
+.shell-group-toggle {
+  width: 100%; display: flex; align-items: center; gap: 6px;
+  margin: 0; padding: 10px 8px 5px; border: 0; background: transparent;
+  color: var(--dd-text-muted); font-size: var(--dd-fs-meta); font-weight: inherit;
+  text-align: left; text-transform: uppercase; letter-spacing: .07em; cursor: pointer;
+}
+.shell-group-toggle:hover, .shell-group-toggle:focus-visible { color: var(--dd-text); }
+.shell-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shell-group-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.shell-group-chevron { flex: 0 0 auto; transition: rotate var(--dd-motion-fast); }
+.shell-group.is-collapsed .shell-group-chevron,
+#shell-project-section.is-collapsed .shell-group-chevron { rotate: -90deg; }
+@media (prefers-reduced-motion: reduce) { .shell-group-chevron { transition: none; } }
+.shell-more {
+  width: calc(100% - 8px); min-height: 26px; margin: 2px 4px 4px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px dashed var(--dd-border); border-radius: var(--dd-radius-sm);
+  background: transparent; color: var(--dd-text-muted); font-size: var(--dd-fs-meta); cursor: pointer;
+}
+.shell-more:hover, .shell-more:focus-visible { border-style: solid; background: var(--dd-surface-raised); color: var(--dd-text); }
+.shell-project-pin { flex: 0 0 auto; color: var(--dd-text-faint); }
 .shell-entity, .shell-quick-result {
   width: 100%; display: flex; align-items: center; gap: 8px; text-align: left;
   border: 0; border-radius: var(--dd-radius-sm); background: transparent; color: var(--dd-text); cursor: pointer;
@@ -64,7 +92,7 @@
 .shell-entity { padding: 7px 8px; }
 .shell-entity:hover, .shell-quick-result:hover { background: var(--dd-surface-raised); }
 .shell-entity.selected { background: var(--dd-surface-selected); box-shadow: inset 2px 0 0 var(--dd-working); }
-.shell-entity-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.shell-entity-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .shell-entity-copy strong, .shell-entity-copy small, .shell-entity-copy em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell-entity-copy strong { font-weight: 550; }
 .shell-entity-copy small { color: var(--dd-text-muted); font-size: var(--dd-fs-meta); }
@@ -94,6 +122,8 @@
 .shell-session-actions { width: 28px; height: 28px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: var(--dd-radius-sm); background: transparent; color: var(--dd-text-muted); }
 .shell-session-actions:hover, .shell-session-actions:focus-visible { background: var(--dd-surface-raised); color: var(--dd-text); }
 .shell-session-menu { top: calc(100% - 2px); right: 2px; min-width: 150px; z-index: 90; }
+/* Opened upward when the row sits too close to the bottom of the session scroller to drop down. */
+.shell-session-menu.drop-up { top: auto; bottom: calc(100% - 2px); }
 .shell-session-menu .menu-item { display: flex; align-items: center; gap: 8px; }
 .shell-session-menu .menu-item-danger { color: var(--dd-destructive); }
 .shell-session-warning { color: var(--warn) !important; }
@@ -110,6 +140,7 @@
 #app-sidebar:not(.collapsed) .shell-collapsed-status { display: none; }
 .shell-restore-all { width: calc(100% - 8px); min-height: 28px; margin: 6px 4px 0; display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--dd-border); border-radius: var(--dd-radius-sm); background: transparent; color: var(--dd-text-muted); font-size: var(--dd-fs-meta); }
 .shell-restore-all:hover, .shell-restore-all:focus-visible { background: var(--dd-surface-raised); color: var(--dd-text); }
+.shell-quick-heading { padding: 10px 8px 4px; color: var(--dd-text-faint); font-size: var(--dd-fs-meta); text-transform: uppercase; letter-spacing: .07em; }
 .shell-quick-result { padding: 7px 8px; color: var(--dd-text-muted); }
 .shell-quick-result .shell-entity-copy { min-width: 0; }
 .shell-quick-result.active, .shell-quick-result:focus-visible { background: var(--dd-surface-selected); color: var(--dd-text); }
@@ -128,8 +159,11 @@
   #app-sidebar.mobile-open { transform: translateX(0); }
   #app-sidebar.mobile-open .shell-side-brand { display: block; }
   #app-sidebar.mobile-open .rail-label { display: inline; }
+  /* `.collapsed` and `.mobile-open` coexist (the desktop fold is persisted), so the drawer has to
+     undo every collapsed-state hide — including the section headers, which are the only thing
+     naming and counting each list. */
   #app-sidebar.mobile-open #shell-quick-wrap,
-  #app-sidebar.mobile-open .shell-section-label,
+  #app-sidebar.mobile-open .shell-group-heading,
   #app-sidebar.mobile-open .lang-wrap { display: block; }
   /* `display: block` here would strand the two independently scrolling sections inside an
      `overflow: hidden` box — the drawer would clip its own list with no way to scroll. */

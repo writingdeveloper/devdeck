@@ -1,4 +1,4 @@
-export type KeyAction = 'copy' | 'paste' | 'find' | 'pass';
+export type KeyAction = 'copy' | 'paste' | 'find' | 'quickopen' | 'pass';
 
 /** The keyboard-event shape we need — a subset of DOM KeyboardEvent, so it's unit-testable without a DOM. */
 export interface KeyLike {
@@ -21,6 +21,9 @@ export interface KeyLike {
  *   through to 'pass' so the interrupt still works.
  * - Ctrl+V / Ctrl+Shift+V -> paste (Windows-terminal convention).
  * - Ctrl+F -> find (open the in-terminal search bar instead of sending \x06 to the PTY).
+ * - Ctrl+Shift+P -> quickopen (the sidebar's search). Shift does not change the control character a
+ *   terminal derives from a letter, so without this the chord would reach the PTY as a plain Ctrl+P
+ *   (readline's "previous history") while the user was trying to jump to another session.
  * - Everything else passes through to the PTY unchanged.
  *
  * Alt is excluded so Alt+C / Alt+V (rare app bindings) are never hijacked.
@@ -41,6 +44,7 @@ export function decideKeyAction(e: KeyLike, hasSelection: boolean): KeyAction {
   if (e.repeat) return 'pass'; // ignore OS key auto-repeat — a held Ctrl+V must paste once, not repeatedly
   if (e.altKey || !e.ctrlKey) return 'pass';
   const k = e.key.toLowerCase();
+  if (k === 'p' && e.shiftKey) return 'quickopen';
   if (k === 'c' && hasSelection) return 'copy';
   if (k === 'v') return 'paste';
   if (k === 'f') return 'find';

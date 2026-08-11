@@ -31,11 +31,13 @@
   margin-top: 2px;
 }
 
-#shell-session-groups .group-attention .shell-section-label {
+/* The urgent groups keep their hue on the header itself, folded or not — the count next to it is
+   what tells you a folded "needs you" group still holds something. */
+#shell-session-groups .group-attention .shell-group-toggle {
   color: var(--dd-attention);
 }
 
-#shell-session-groups .group-working .shell-section-label {
+#shell-session-groups .group-working .shell-group-toggle {
   color: var(--dd-working);
 }
 

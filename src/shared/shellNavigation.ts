@@ -9,6 +9,8 @@ export interface ShellSessionInput {
   pinned: boolean;
   /** What the session is working on right now (the per-turn AI summary) — the sidebar's third line. */
   summary?: string | null;
+  /** Epoch ms of this session's last activity — what the list is ORDERED by. Absent = never observed. */
+  lastActiveMs?: number | null;
   previous?: boolean;
   conversationGone?: boolean;
 }
@@ -17,6 +19,8 @@ export interface ShellProjectInput {
   path: string;
   name: string;
   branch: string | null;
+  /** The deck's pin. A pinned project is never truncated away by the "recent N" cut. */
+  pinned?: boolean;
 }
 
 export type ShellGroupKind = 'attention' | 'working' | 'pinned' | 'turn' | 'quiet' | 'previous';
@@ -89,17 +93,87 @@ function groupOf(item: ShellSessionInput): ShellGroupKind {
   return 'quiet';
 }
 
+/**
+ * Order inside every group: MOST RECENTLY ACTIVE FIRST, name only as a tie-break.
+ *
+ * Alphabetical order was the root of the "pin of a pin" problem. A pin means two different things to
+ * the user — "this is what I'm on right now" and "don't let me lose this" — and with an alphabetical
+ * pinned group the first meaning has no way to express itself, so the session they touched a minute ago
+ * sits wherever its name lands and the group reads as an undifferentiated pile. Recency answers "what
+ * am I on" automatically, which leaves the pin to mean only "don't lose this".
+ *
+ * A session with no observed activity (an older saved entry from before this was persisted) sorts after
+ * every timestamped one rather than jumping to the top, and those fall back to name order among
+ * themselves so their relative order is at least stable.
+ */
+export function compareSessionsByRecency(a: ShellSessionInput, b: ShellSessionInput): number {
+  const at = a.lastActiveMs ?? null;
+  const bt = b.lastActiveMs ?? null;
+  if (at !== bt) {
+    if (at == null) return 1;
+    if (bt == null) return -1;
+    return bt - at;
+  }
+  return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+}
+
 export function buildSessionGroups(items: ShellSessionInput[]): ShellSessionGroup[] {
   return groupOrder.flatMap((kind) => {
-    const grouped = items
-      .filter((item) => groupOf(item) === kind)
-      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    const grouped = items.filter((item) => groupOf(item) === kind).sort(compareSessionsByRecency);
     return grouped.length ? [{ kind, items: grouped }] : [];
   });
 }
 
+/** Where a row lives now — and, given a modified copy, where an action would MOVE it. */
+export function sessionGroupOf(item: ShellSessionInput): ShellGroupKind {
+  return groupOf(item);
+}
+
+/**
+ * The group an unpin would drop this row into. Unpinning was the scariest action in the sidebar for
+ * exactly one reason: nothing told the user where the row went, so "unpin" felt like "delete" and pins
+ * accumulated forever. The caller names this group in the confirmation toast.
+ */
+export function unpinDestination(item: ShellSessionInput): ShellGroupKind {
+  return groupOf({ ...item, pinned: false });
+}
+
 export function attentionCount(items: ShellSessionInput[]): number {
   return items.filter((item) => item.activity === 'attention').length;
+}
+
+const collapsibleGroups = new Set<string>(groupOrder);
+
+/** Sanitize the persisted set of folded group headers (localStorage is user-writable and survives
+ *  downgrades, so an unknown kind must be dropped rather than rendered). */
+export function normalizeCollapsedGroups(value: unknown): ShellGroupKind[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<ShellGroupKind>();
+  for (const entry of value) {
+    if (typeof entry === 'string' && collapsibleGroups.has(entry)) seen.add(entry as ShellGroupKind);
+  }
+  return groupOrder.filter((kind) => seen.has(kind));
+}
+
+export function toggleCollapsedGroup(current: readonly ShellGroupKind[], kind: ShellGroupKind): ShellGroupKind[] {
+  return current.includes(kind)
+    ? current.filter((entry) => entry !== kind)
+    : normalizeCollapsedGroups([...current, kind]);
+}
+
+/**
+ * Cut a long list down to a head of `limit`, keeping anything `keep` protects no matter how far down it
+ * sits. Two lists in the sidebar are unbounded — restorable sessions (up to 50) and projects (100+ for
+ * this user) — and an always-full render buries every other section under them. `hidden` drives the
+ * "show N more" control, so nothing is ever silently dropped.
+ */
+export function truncateList<T>(
+  items: readonly T[],
+  opts: { limit: number; expanded: boolean; keep?: (item: T) => boolean },
+): { shown: T[]; hidden: number } {
+  if (opts.expanded || items.length <= opts.limit) return { shown: [...items], hidden: 0 };
+  const shown = items.filter((item, index) => index < opts.limit || opts.keep?.(item) === true);
+  return { shown, hidden: items.length - shown.length };
 }
 
 export function normalizeSidebarState(value: unknown): boolean {

@@ -62,14 +62,17 @@
             <div id="shell-session-groups"></div>
           </section>
           <section id="shell-project-section">
-            <div id="shell-projects-label" class="shell-section-label"></div>
+            <h2 id="shell-projects-label" class="shell-group-heading">
+              <button id="shell-projects-toggle" class="shell-group-toggle" type="button" aria-controls="shell-projects" aria-expanded="true"></button>
+            </h2>
             <div id="shell-projects"></div>
+            <button id="shell-projects-more" class="shell-more hidden" type="button"></button>
           </section>
         </div>
         <div class="shell-footer">
           <button class="rail-item" data-view="settings"><span class="rail-label"></span></button>
           <div class="menu-wrap lang-wrap">
-            <button id="lang-btn" class="rail-item" title="Language" aria-label="Language" aria-haspopup="menu" aria-expanded="false"><span aria-hidden="true">文</span><span class="rail-label"></span></button>
+            <button id="lang-btn" class="rail-item" title="Language" aria-label="Language" aria-haspopup="menu" aria-expanded="false"><span class="rail-label"></span></button>
           </div>
         </div>
       </aside>

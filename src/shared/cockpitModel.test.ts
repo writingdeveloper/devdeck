@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, isCockpitAvailable, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from './cockpitModel';
+import { ACTIVITY_BUCKET_MS, activityOrderStamp, filterSessions, groupByActivity, needsAttentionCount, isCockpitPlatform, isCockpitAvailable, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from './cockpitModel';
 
 const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
   id: 'p#1', projectPath: 'C:\\g\\proj', name: 'proj', agentId: 'claude',
@@ -9,11 +9,35 @@ const s = (over: Partial<CockpitSession> = {}): CockpitSession => ({
 it('adapts a cockpit session without losing project ownership or activity', () => {
   const session = { id: 'a', projectPath: 'C:/a', name: 'repo', agentId: 'codex', status: 'running', staleLevel: 'fresh', branch: 'main', dirty: 0, activity: 'attention' } as CockpitSession;
   expect(sessionNavigationItem(session, 'review api', 'main · Codex', true)).toEqual({
-    id: 'a', projectPath: 'C:/a', label: 'review api', detail: 'main · Codex', activity: 'attention', pinned: true, summary: null,
+    id: 'a', projectPath: 'C:/a', label: 'review api', detail: 'main · Codex', activity: 'attention', pinned: true, summary: null, lastActiveMs: null,
   });
+  // The recency stamp is the sidebar's ordering key — it must survive the adaptation too.
+  expect(sessionNavigationItem(session, 'review api', 'main · Codex', false, null, 1_700_000_000_000).lastActiveMs)
+    .toBe(1_700_000_000_000);
   // The per-turn summary is the sidebar's third line — it must survive the adaptation, not be dropped.
   expect(sessionNavigationItem(session, 'review api', 'main · Codex', false, 'Fixing the auth guard').summary)
     .toBe('Fixing the auth guard');
+});
+
+// A raw ms stamp in the navigation item would bust publishCockpitNavigation's signature guard on every
+// PTY output chunk — the sidebar would rebuild continuously while an agent streams.
+describe('activityOrderStamp', () => {
+  it('collapses everything inside one bucket to a single value', () => {
+    const base = 1_700_000_000_000 - (1_700_000_000_000 % ACTIVITY_BUCKET_MS);
+    expect(activityOrderStamp(base)).toBe(base);
+    expect(activityOrderStamp(base + 1)).toBe(base);
+    expect(activityOrderStamp(base + ACTIVITY_BUCKET_MS - 1)).toBe(base);
+    expect(activityOrderStamp(base + ACTIVITY_BUCKET_MS)).toBe(base + ACTIVITY_BUCKET_MS);
+  });
+  it('keeps the ordering direction across buckets', () => {
+    expect(activityOrderStamp(9_000_000)).toBeGreaterThan(activityOrderStamp(1_000_000));
+  });
+  it('maps junk to 0 (sorts last) instead of NaN, which would poison the comparator', () => {
+    expect(activityOrderStamp(Number.NaN)).toBe(0);
+    expect(activityOrderStamp(Number.POSITIVE_INFINITY)).toBe(0);
+    expect(activityOrderStamp(0)).toBe(0);
+    expect(activityOrderStamp(-5)).toBe(0);
+  });
 });
 
 describe('filterSessions', () => {

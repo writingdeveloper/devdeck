@@ -258,6 +258,64 @@ if (!arrowsOk || !quickOpen.listbox
   await closeApp(); process.exit(1);
 }
 
+// Search had to be reached with the mouse, and from inside a terminal there was no way to it at all.
+// Ctrl+Shift+P works anywhere and re-opens a collapsed rail on the way (the chord is swallowed before
+// the PTY sees it, so it can't reach the agent as a stray Ctrl+P).
+await win.click('#shell-collapse');
+await win.waitForTimeout(180);
+await win.keyboard.press('Control+Shift+P');
+await win.waitForTimeout(220);
+const chord = await win.evaluate(() => ({
+  focused: document.activeElement === document.getElementById('shell-quick-open'),
+  reExpanded: document.getElementById('app-sidebar')?.classList.contains('collapsed') === false,
+  hinted: document.getElementById('shell-quick-open')?.placeholder?.includes('Ctrl+Shift+P') === true,
+}));
+console.log('quick open chord:', JSON.stringify(chord));
+if (!chord.focused || !chord.reExpanded || !chord.hinted) {
+  console.error('QA FAILED — Ctrl+Shift+P does not reach Quick Open:', JSON.stringify(chord));
+  await closeApp(); process.exit(1);
+}
+
+// The language control was the bare glyph 文 — only legible to someone who already reads CJK, and it
+// never said which language was active. It must now be an icon plus the ACTIVE language's own name.
+const langControl = await win.evaluate(() => {
+  const button = document.getElementById('lang-btn');
+  const endonyms = { ko: '한국어', en: 'English', ja: '日本語', zh: '中文' };
+  return {
+    hasIcon: !!button?.querySelector('svg'),
+    showsEndonym: button?.querySelector('.rail-label')?.textContent === endonyms[document.documentElement.lang],
+    labelled: (button?.getAttribute('aria-label')?.length ?? 0) > 0,
+    // The old markup was a lone <span aria-hidden>文</span>. Scoped to the button's own children —
+    // the language MENU legitimately lists 中文, which contains the same character.
+    noBareGlyph: !Array.from(button?.querySelectorAll('*') ?? []).some((el) => el.textContent?.trim() === '文'),
+  };
+});
+console.log('language control:', JSON.stringify(langControl));
+if (!langControl.hasIcon || !langControl.showsEndonym || !langControl.labelled || !langControl.noBareGlyph) {
+  console.error('QA FAILED — the language control is not self-explanatory:', JSON.stringify(langControl));
+  await closeApp(); process.exit(1);
+}
+
+// The project list is the other unbounded one (100+ repos here). Its header must carry the same
+// foldable/counted treatment, and folding it must not take the session list with it.
+const projectSection = await win.evaluate(async () => {
+  const toggle = document.getElementById('shell-projects-toggle');
+  const host = document.getElementById('shell-projects');
+  const visible = () => (host?.getClientRects().length ?? 0) > 0;
+  const before = { count: toggle?.querySelector('.shell-group-count')?.textContent, expanded: toggle?.getAttribute('aria-expanded'), visible: visible() };
+  toggle?.click(); await new Promise((r) => setTimeout(r, 200));
+  const folded = { count: toggle?.querySelector('.shell-group-count')?.textContent, expanded: toggle?.getAttribute('aria-expanded'), visible: visible() };
+  toggle?.click(); await new Promise((r) => setTimeout(r, 200));
+  return { before, folded, reopened: visible(), named: (toggle?.querySelector('.shell-group-name')?.textContent?.length ?? 0) > 0 };
+});
+console.log('project section:', JSON.stringify(projectSection));
+if (!projectSection.before.visible || projectSection.before.expanded !== 'true' || !projectSection.named
+  || projectSection.folded.visible || projectSection.folded.expanded !== 'false'
+  || projectSection.folded.count !== projectSection.before.count || !projectSection.reopened) {
+  console.error('QA FAILED — the project section header does not fold/count correctly:', JSON.stringify(projectSection));
+  await closeApp(); process.exit(1);
+}
+
 await win.click('#shell-collapse');
 await win.waitForTimeout(180);
 const collapsedShell = await win.evaluate(() => {
@@ -366,9 +424,15 @@ const reuse = await win.evaluate(async () => {
   document.getElementById('refresh').click();
   await new Promise((r) => setTimeout(r, 2500)); // wait out the reload + background cost re-render
   const survived = Array.from(document.querySelectorAll('#cards .card')).filter((el) => el.dataset.qaMark !== undefined).length;
-  return { total: before.length, survived };
+  // Reported alongside the verdict so a failure says WHICH failure it was: a genuine wipe-and-rebuild,
+  // or the deck having flipped back to list mode / not finished reloading inside the wait.
+  return {
+    total: before.length, survived,
+    cardsNow: document.querySelectorAll('#cards .card').length,
+    rowsNow: document.querySelectorAll('#cards .prow').length,
+  };
 });
-console.log(`refresh reuse: ${reuse.survived}/${reuse.total} card nodes reused`);
+console.log(`refresh reuse: ${reuse.survived}/${reuse.total} card nodes reused ${JSON.stringify(reuse)}`);
 if (reuse.total > 0 && reuse.survived === 0) {
   console.error(`QA FAILED — deck refresh wiped all ${reuse.total} cards instead of reconciling in place`);
   await closeApp();
@@ -454,6 +518,9 @@ if (cockpitAvailable) {
   await win.evaluate(() => document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
     { id: 'qa-mobile-attention', projectPath: 'C:/qa/mobile', label: 'Mobile session', detail: 'main · Claude', activity: 'attention', pinned: false },
   ] })));
+  // A desktop fold is persisted, so `.collapsed` is normally still set when the window narrows and the
+  // drawer opens. Reproduce that pairing — the collapsed-state hides must all be undone by the drawer.
+  await win.evaluate(() => document.getElementById('app-sidebar')?.classList.add('collapsed'));
   const mobileTrigger = win.locator('#shell-mobile-toggle');
   await mobileTrigger.focus();
   await mobileTrigger.click();
@@ -462,6 +529,10 @@ if (cockpitAvailable) {
     expanded: document.getElementById('shell-mobile-toggle')?.getAttribute('aria-expanded') === 'true',
     count: document.getElementById('shell-mobile-toggle')?.textContent?.includes('1') === true,
     rowVisible: document.querySelector('.shell-session')?.getClientRects().length > 0,
+    // `.collapsed` persists from the desktop fold and coexists with `.mobile-open`, so the drawer has
+    // to undo every collapsed-state hide — the headers are what name and count each list.
+    headingsVisible: Array.from(document.querySelectorAll('#app-sidebar .shell-group-heading'))
+      .every((heading) => heading.getClientRects().length > 0),
   }));
   await win.keyboard.press('Escape');
   const mobileEscaped = await mobileTrigger.evaluate((button) => document.activeElement === button && button.getAttribute('aria-expanded') === 'false');
@@ -471,10 +542,12 @@ if (cockpitAvailable) {
     closed: document.getElementById('app-sidebar')?.classList.contains('mobile-open') !== true,
     cockpit: document.getElementById('view-cockpit')?.classList.contains('active') === true,
   }));
-  if (!mobileOpen.open || !mobileOpen.expanded || !mobileOpen.count || !mobileOpen.rowVisible || !mobileEscaped || !mobileSelected.closed || !mobileSelected.cockpit) {
+  if (!mobileOpen.open || !mobileOpen.expanded || !mobileOpen.count || !mobileOpen.rowVisible || !mobileOpen.headingsVisible || !mobileEscaped || !mobileSelected.closed || !mobileSelected.cockpit) {
     console.error('QA FAILED — narrow shared-session drawer is not keyboard/pointer reachable:', JSON.stringify({ mobileOpen, mobileEscaped, mobileSelected }));
     await closeApp(); process.exit(1);
   }
+  // Undo the simulated desktop fold so the later wide-viewport scenes see the normal sidebar.
+  await win.evaluate(() => document.getElementById('app-sidebar')?.classList.remove('collapsed'));
 }
 
 // Title bar: both accessible action states track the maximize state and current locale.
@@ -802,6 +875,91 @@ if (!liveRowControls.triggersVisible
   await closeApp();
   process.exit(1);
 }
+
+// The sidebar has to stay legible when the lists get LONG — this user runs a dozen concurrent
+// sessions and keeps far more pinned than fit on screen. Three things carry that: recency order
+// inside every group (alphabetical order is what forced "a pin for the pins"), a per-group cut with
+// an explicit "show N more", and foldable headers that keep advertising their count while folded.
+const atScale = await win.evaluate(async () => {
+  const base = 1_700_000_000_000;
+  const row = (i, over) => ({
+    id: `qa-scale-${i}`, projectPath: `C:/qa/scale/${i}`, label: `session ${String(i).padStart(2, '0')}`,
+    detail: 'main · Claude', activity: 'idle', pinned: true, lastActiveMs: base + i * 60_000, ...over,
+  });
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
+    ...Array.from({ length: 12 }, (_, i) => row(i)),                                  // pinned, limit 10
+    ...Array.from({ length: 8 }, (_, i) => row(50 + i, { pinned: false, previous: true })), // previous, limit 5
+  ] }));
+  await new Promise((r) => setTimeout(r, 250));
+  const read = (kind) => {
+    const section = document.querySelector(`.group-${kind}`);
+    const toggle = section?.querySelector('.shell-group-toggle');
+    return {
+      count: toggle?.querySelector('.shell-group-count')?.textContent,
+      expanded: toggle?.getAttribute('aria-expanded'),
+      labels: Array.from(section?.querySelectorAll('.shell-group-body .shell-entity-copy strong') ?? []).map((e) => e.textContent),
+      moreShown: (section?.querySelector('.shell-more')?.getClientRects().length ?? 0) > 0,
+      bodyVisible: (section?.querySelector('.shell-group-body')?.getClientRects().length ?? 0) > 0,
+    };
+  };
+  const click = async (selector) => { document.querySelector(selector)?.click(); await new Promise((r) => setTimeout(r, 200)); };
+  const pinnedCut = read('pinned');
+  const previousCut = read('previous');
+  await click('.group-pinned .shell-more');
+  const pinnedFull = read('pinned');
+  await click('.group-pinned .shell-group-toggle');
+  const pinnedFolded = read('pinned');
+  await click('.group-pinned .shell-group-toggle');
+  return { pinnedCut, previousCut, pinnedFull, pinnedFolded, reopened: read('pinned').bodyVisible };
+});
+console.log('sidebar at scale:', JSON.stringify(atScale));
+const scaleOk =
+  // 12 pinned cut to 10, newest FIRST — alphabetical order would put "session 00" on top.
+  atScale.pinnedCut.count === '12' && atScale.pinnedCut.labels.length === 10
+  && atScale.pinnedCut.labels[0] === 'session 11' && atScale.pinnedCut.labels.at(-1) === 'session 02'
+  && atScale.pinnedCut.moreShown
+  && atScale.previousCut.count === '8' && atScale.previousCut.labels.length === 5 && atScale.previousCut.moreShown
+  // "show more" reveals the rest and retires itself.
+  && atScale.pinnedFull.labels.length === 12 && !atScale.pinnedFull.moreShown
+  // Folded: rows gone, but the count still says how many are in there.
+  && !atScale.pinnedFolded.bodyVisible && atScale.pinnedFolded.count === '12' && atScale.pinnedFolded.expanded === 'false'
+  && atScale.reopened;
+await shot('sidebar-at-scale');
+if (!scaleOk) {
+  console.error('QA FAILED — the sidebar does not stay legible at scale (order, per-group cut, or foldable headers):', JSON.stringify(atScale));
+  await closeApp(); process.exit(1);
+}
+
+// Unpinning must say WHERE the row went and offer a way back — with neither, it reads as a delete,
+// which is why pins accumulated until the pinned group was as unreadable as the list it shortcuts.
+const unpinFeedback = await win.evaluate(async () => {
+  // The neighbour exists so the destination group is actually on screen — the toast names it, and this
+  // reads that name off the rendered header rather than hardcoding one locale's wording.
+  document.dispatchEvent(new CustomEvent('devdeck:qa-shell-sessions', { detail: [
+    { id: 'qa-unpin', projectPath: 'C:/qa/unpin', label: 'unpin me', detail: 'main · Claude', activity: 'idle', pinned: true, lastActiveMs: 2 },
+    { id: 'qa-unpin-neighbour', projectPath: 'C:/qa/quiet', label: 'quiet neighbour', detail: 'main · Claude', activity: 'idle', pinned: false, lastActiveMs: 1 },
+  ] }));
+  await new Promise((r) => setTimeout(r, 200));
+  const destination = document.querySelector('.group-quiet .shell-group-name')?.textContent ?? '';
+  document.querySelector('.group-pinned .shell-session-actions')?.click();
+  document.querySelector('.group-pinned [data-session-action="unpin"]')?.click();
+  await new Promise((r) => setTimeout(r, 200));
+  const toast = document.querySelector('#toast-host .toast-info');
+  return {
+    text: toast?.textContent ?? '', destination,
+    shown: (toast?.getClientRects().length ?? 0) > 0,
+    polite: toast?.getAttribute('role') === 'status',
+    namesRow: toast?.textContent?.includes('unpin me') === true,
+    namesDestination: destination.length > 0 && toast?.textContent?.includes(destination) === true,
+    undoable: (toast?.querySelector('.toast-action')?.getClientRects().length ?? 0) > 0,
+  };
+});
+console.log('unpin feedback:', JSON.stringify(unpinFeedback));
+if (!unpinFeedback.shown || !unpinFeedback.polite || !unpinFeedback.namesRow || !unpinFeedback.namesDestination || !unpinFeedback.undoable) {
+  console.error('QA FAILED — unpinning gives no destination or no undo:', JSON.stringify(unpinFeedback));
+  await closeApp(); process.exit(1);
+}
+await win.evaluate(() => { document.querySelectorAll('#toast-host .toast-info').forEach((t) => t.remove()); });
 }
 
 // Usage bar fill — regression guard for the inline-span bug where the fill (width/height

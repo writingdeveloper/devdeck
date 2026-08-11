@@ -1,7 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
+import { activityOrderStamp, filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
 import type { ShellSessionAction, ShellSessionInput } from '../shared/shellNavigation';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessionMeta';
@@ -20,7 +20,7 @@ import { createIcon, type IconName } from './icons';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
-interface Live { tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; }
+interface Live { tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number; }
 /** The renderer's display metadata plus the explicit provider launch intent. */
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; }
 
@@ -238,7 +238,7 @@ async function refreshMissingConversations(): Promise<void> {
 
 /** The currently-live sessions in PersistedSession form (for saving / update auto-restore). */
 export function liveSessionsForPersist(): PersistedSession[] {
-  return [...live.values()].map((l) => ({ tileId: l.tileId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned }));
+  return [...live.values()].map((l) => ({ tileId: l.tileId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned, lastActiveMs: liveActivityAt(l) }));
 }
 /** How many cockpit sessions are live right now (for the update-restart button label). */
 export function liveSessionCount(): number { return live.size; }
@@ -249,6 +249,11 @@ function navigationIdentity(liveSession: Live): { tileId: string; projectPath: s
 
 function navigationIdForLive(liveSession: Live): string {
   return cockpitNavigationId(navigationIdentity(liveSession));
+}
+
+/** "Last time anything happened here" — agent output, the user typing, or the user opening the tile. */
+function liveActivityAt(liveSession: Live): number {
+  return Math.max(liveSession.openedAt, liveSession.lastDataAt, liveSession.lastInputAt, liveSession.lastSelectedAt);
 }
 
 export function cockpitNavigationItems(): ShellSessionInput[] {
@@ -272,6 +277,7 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
     return sessionNavigationItem(
       { ...session, id: navigationIdForLive(item) }, labels[index], detailBits.join(' · '), item.pinned,
       summaryEnabled ? item.meta?.summary ?? null : null,
+      activityOrderStamp(liveActivityAt(item)),
     );
   });
   const previous = previousItems.map((entry, index): ShellSessionInput => ({
@@ -281,6 +287,7 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
     detail: `${providerName(toAgentId(entry.agentId) ?? 'claude')} · ${missingConversations.has(prevKey(entry)) ? tr('cockpit.prev_gone') : tr('cockpit.restore')}`,
     activity: 'idle',
     pinned: entry.pinned === true,
+    lastActiveMs: entry.lastActiveMs ?? null,
     previous: true,
     conversationGone: missingConversations.has(prevKey(entry)),
   }));
@@ -470,6 +477,9 @@ async function createSession(p: OpenReq): Promise<boolean> {
       return false;
     }
     if (action === 'find') { e.preventDefault(); openFindBar(); return false; } // Ctrl+F searches scrollback, never reaches the PTY
+    // Swallowed here so the PTY never sees it; the shell's own document listener does the focusing
+    // (the DOM event still bubbles — returning false only stops xterm from forwarding it).
+    if (action === 'quickopen') { e.preventDefault(); return false; }
     return true;
   });
   const search = new SearchAddon(); term.loadAddon(search);
@@ -510,7 +520,7 @@ async function createSession(p: OpenReq): Promise<boolean> {
   // its pin + label when the open request has none (deck/board opens don't know about pins).
   const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { tileId: p.tileId, label: p.label ?? null, pinned: !!p.pinned });
   restorable = adopted.rest;
-  live.set(res.id, { tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned });
+  live.set(res.id, { tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now() });
   select(res.id);
   updateRailBadge();
   persist();
@@ -610,7 +620,9 @@ function select(id: string): void {
   if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
   selectedId = id;
   const selected = live.get(id);
-  if (selected) publishSessionSelection(selected);
+  // Opening a session counts as activity for the sidebar's recency order even when nothing is typed —
+  // "the one I was last in" is exactly what the user is looking for at the top of a group.
+  if (selected) { selected.lastSelectedAt = Date.now(); publishSessionSelection(selected); }
   // The always-on usage footer reports the provider of the session you're working in — hand it over
   // on every selection change (a Claude tile must not be captioned with Codex's percentage).
   setActiveUsageProvider(live.get(id)?.session.agentId ?? null);

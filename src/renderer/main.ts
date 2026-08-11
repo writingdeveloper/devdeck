@@ -98,8 +98,21 @@ function applyStaticLabels(): void {
   refreshBtn.replaceChildren(createIcon('refresh'));
   refreshBtn.title = tr('app.refresh');
   refreshBtn.setAttribute('aria-label', tr('app.refresh'));
-  const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next'], ['#lang-btn', 'nav.language']];
+  const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next']];
   for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) { el.title = tr(key); el.setAttribute('aria-label', tr(key)); } }
+  // The language control now reads as one: a globe (understood without knowing any script) plus the
+  // ACTIVE language's own name. It used to be the bare glyph 文 — unreadable as "language" to anyone
+  // who doesn't already read CJK, and it never said which language was currently in use.
+  const langBtn = document.getElementById('lang-btn');
+  if (langBtn) {
+    const current = languageName(currentLang());
+    langBtn.replaceChildren(
+      createIcon('globe'),
+      Object.assign(document.createElement('span'), { className: 'rail-label', textContent: current }),
+    );
+    const label = `${tr('nav.language')}: ${current}`;
+    langBtn.title = label; langBtn.setAttribute('aria-label', label);
+  }
   const agentSel = document.getElementById('agent-select');
   const agentLabel = document.getElementById('agent-select-label');
   if (agentSel) agentSel.setAttribute('aria-label', tr('agent.label'));
@@ -308,11 +321,11 @@ async function boot(): Promise<void> {
     applyRestore(contextRestore.sessionsLoaded(new Set()));
   }
   const syncShellProjects = (items: readonly import('../shared/types').ProjectViewModel[]): void => {
-    shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch }) => ({ path, name, branch })));
+    shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })));
     applyRestore(contextRestore?.projectsLoaded(new Set(items.map((item) => item.path))) ?? null);
   };
   onProjectsChanged(syncShellProjects);
-  shellController.setProjects(currentProjects().filter((item) => !item.hidden).map(({ path, name, branch }) => ({ path, name, branch })));
+  shellController.setProjects(currentProjects().filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })));
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
   const agentControl = document.getElementById('agent-select-control');

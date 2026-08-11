@@ -1,14 +1,20 @@
 import { createIcon, type IconName } from './icons';
 import { tr } from './i18n-runtime';
+import { undoToast } from './loadError';
 import {
   buildSessionGroups,
   attentionCount,
   filterShellItems,
+  normalizeCollapsedGroups,
   sessionAccessibleLabel,
   sessionActionsFor,
+  sessionGroupOf,
   sessionStatusCounts,
   sessionStatusShape,
   shellEntityKey,
+  toggleCollapsedGroup,
+  truncateList,
+  unpinDestination,
   type ShellGroupKind,
   type ShellProjectInput,
   type ShellSessionAction,
@@ -37,6 +43,28 @@ const actionLabels: Record<ShellSessionAction, string> = {
 const actionIcons: Record<ShellSessionAction, IconName> = {
   pin: 'pin', unpin: 'pin', rename: 'edit', close: 'close', forget: 'trash',
 };
+
+/**
+ * How many rows a group renders before it offers "show N more".
+ *
+ * The two unbounded groups are what buried the rail: `previous` holds up to 50 saved entries and
+ * `quiet` grows with every session left open. The urgent groups are deliberately uncapped — hiding a
+ * session that is *waiting on you* behind a "show more" would defeat the reason the sidebar exists.
+ */
+const groupLimits: Record<ShellGroupKind, number> = {
+  attention: Infinity, working: Infinity, pinned: 10, turn: 8, quiet: 6, previous: 5,
+};
+
+/** Recent-first project rows shown before the list offers the full deck. Pinned ones are never cut. */
+const PROJECT_LIMIT = 8;
+const COLLAPSED_GROUPS_KEY = 'devdeck.shell.collapsedGroups';
+const PROJECTS_COLLAPSED_KEY = 'devdeck.shell.projectsCollapsed';
+const QUICK_OPEN_CHORD = 'Ctrl+Shift+P';
+
+function readCollapsedGroups(): ShellGroupKind[] {
+  try { return normalizeCollapsedGroups(JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) ?? '[]')); }
+  catch { return []; }
+}
 
 export interface ShellController {
   showView(view: ViewId): void;
@@ -68,6 +96,8 @@ export function mountShell(options: {
   const projectHost = document.getElementById('shell-projects')!;
   const sessionSection = document.getElementById('shell-session-section')!;
   const projectSection = document.getElementById('shell-project-section')!;
+  const projectsToggle = document.getElementById('shell-projects-toggle') as HTMLButtonElement;
+  const projectsMore = document.getElementById('shell-projects-more') as HTMLButtonElement;
   const restoreAll = document.getElementById('shell-restore-all') as HTMLButtonElement;
   const mobileToggle = document.getElementById('shell-mobile-toggle') as HTMLButtonElement;
   const mobileToggleLabel = document.getElementById('shell-mobile-toggle-label')!;
@@ -80,6 +110,12 @@ export function mountShell(options: {
   const sessionMenus = new Map<string, HTMLElement>();
   const projectRows = new Map<string, HTMLButtonElement>();
   const sessionSections = new Map<ShellGroupKind, HTMLElement>();
+  let collapsedGroups = readCollapsedGroups();
+  /** Groups the user asked to see in full. Deliberately NOT persisted: "show all 40 previous
+   *  sessions" answers one moment's question and should not be the shape of the next launch. */
+  const expandedGroups = new Set<ShellGroupKind>();
+  let projectsExpanded = false;
+  let projectsCollapsed = localStorage.getItem(PROJECTS_COLLAPSED_KEY) === '1';
 
   const markActiveEntity = (key: string | null): void => {
     activeEntityKey = key ?? '';
@@ -148,6 +184,17 @@ export function mountShell(options: {
 
   mobileToggle.querySelector('.shell-mobile-toggle-icon')?.append(createIcon('sessions'));
   restoreAll.prepend(createIcon('restart'));
+  projectsToggle.append(
+    createIcon('chevron-down', 'ui-icon shell-group-chevron'),
+    Object.assign(document.createElement('span'), { className: 'shell-group-name' }),
+    Object.assign(document.createElement('span'), { className: 'shell-group-count' }),
+  );
+  projectsToggle.addEventListener('click', () => {
+    projectsCollapsed = !projectsCollapsed;
+    try { localStorage.setItem(PROJECTS_COLLAPSED_KEY, projectsCollapsed ? '1' : '0'); } catch { /* private mode / quota */ }
+    renderProjects(projects);
+  });
+  projectsMore.addEventListener('click', () => { projectsExpanded = true; renderProjects(projects); });
 
   const closeSessionMenus = (restoreFocus = false): void => {
     for (const [key, menu] of sessionMenus) {
@@ -189,6 +236,21 @@ export function mountShell(options: {
     mobileToggle.classList.toggle('has-attention', waiting > 0);
   };
 
+  /**
+   * Unpinning was the one action nobody dared use. The row silently relocates to a group that may be
+   * folded or below the fold, so "unpin" felt indistinguishable from "lose it", and pins piled up until
+   * the pinned group was as unreadable as the list it was supposed to shortcut. Naming the destination
+   * group and offering one click back makes it an ordinary, reversible move.
+   */
+  const announceUnpin = (item: ShellSessionInput): void => {
+    const group = tr(groupLabels[unpinDestination(item)]);
+    undoToast(
+      tr('shell.unpinned_to', { label: item.label, group }),
+      tr('shell.undo'),
+      () => options.onSessionAction(item.id, 'pin'),
+    );
+  };
+
   /** Only the actions this row currently offers take part in roving focus — the rest stay `.hidden`. */
   const menuItems = (menu: HTMLElement): HTMLButtonElement[] =>
     Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).filter((item) => !item.classList.contains('hidden'));
@@ -217,7 +279,10 @@ export function mountShell(options: {
         const id = row.dataset.sessionId; if (!id) return;
         // Pin keeps the menu anchored (its label flips in place); the rest change or remove the row.
         if (action === 'pin' || action === 'unpin') closeSessionMenus(true); else closeSessionMenus();
+        // Capture the model BEFORE the action lands — afterwards the row has already moved.
+        const before = action === 'unpin' ? sessions.find((entry) => entry.id === id) : undefined;
         options.onSessionAction(id, action);
+        if (before) announceUnpin(before);
       });
       menu.appendChild(item);
     }
@@ -225,7 +290,16 @@ export function mountShell(options: {
       event.stopPropagation();
       const opening = menu.classList.contains('hidden');
       closeSessionMenus();
-      if (opening) { menu.classList.remove('hidden'); actions.setAttribute('aria-expanded', 'true'); }
+      if (!opening) return;
+      menu.classList.remove('hidden'); actions.setAttribute('aria-expanded', 'true');
+      // The session list is its own `overflow-y: auto` box, so a menu dropping DOWN from a row near
+      // the bottom is clipped by the scroller and its lower items become unreachable. Flip it above
+      // the row when there isn't room below.
+      menu.classList.remove('drop-up');
+      const scroller = menu.closest('#shell-session-groups');
+      if (scroller && menu.getBoundingClientRect().bottom > scroller.getBoundingClientRect().bottom) {
+        menu.classList.add('drop-up');
+      }
     });
     actions.addEventListener('keydown', (event) => {
       if (event.key !== 'ArrowDown') return;
@@ -294,36 +368,80 @@ export function mountShell(options: {
     applyEntityState(row, key);
   };
 
+  /** A counted, foldable header. The count is the point: a folded group has to keep advertising that
+   *  its rows still exist, or folding becomes another way to lose track of a session. */
+  const createGroupSection = (kind: ShellGroupKind): HTMLElement => {
+    const section = document.createElement('section'); section.className = `shell-group group-${kind}`;
+    const heading = document.createElement('h2'); heading.className = 'shell-group-heading'; heading.id = `shell-session-${kind}`;
+    const toggle = document.createElement('button');
+    toggle.type = 'button'; toggle.className = 'shell-group-toggle'; toggle.setAttribute('aria-controls', `shell-session-${kind}-body`);
+    toggle.append(
+      createIcon('chevron-down', 'ui-icon shell-group-chevron'),
+      Object.assign(document.createElement('span'), { className: 'shell-group-name' }),
+      Object.assign(document.createElement('span'), { className: 'shell-group-count' }),
+    );
+    toggle.addEventListener('click', () => {
+      collapsedGroups = toggleCollapsedGroup(collapsedGroups, kind);
+      try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(collapsedGroups)); } catch { /* private mode / quota — folding just won't survive the restart */ }
+      renderSessions(sessions);
+    });
+    heading.appendChild(toggle);
+    const body = document.createElement('div'); body.className = 'shell-group-body'; body.id = `shell-session-${kind}-body`;
+    const more = document.createElement('button'); more.type = 'button'; more.className = 'shell-more hidden';
+    more.addEventListener('click', () => { expandedGroups.add(kind); renderSessions(sessions); });
+    section.setAttribute('aria-labelledby', heading.id);
+    section.append(heading, body, more);
+    return section;
+  };
+
   const renderSessions = (items: ShellSessionInput[]): void => {
     const focusedKey = document.activeElement instanceof HTMLButtonElement
       ? document.activeElement.dataset.shellEntityKey : undefined;
-    const nextKeys = new Set(items.map((item) => shellEntityKey('session', item.id)));
+    const groups = buildSessionGroups(items);
+    // Only rows that are actually RENDERED may keep their DOM: a row cut by a "show more" limit is
+    // gone from the rail, so leaving its node cached would resurrect it under the next group.
+    const rendered = new Map<ShellGroupKind, { shown: ShellSessionInput[]; hidden: number }>();
+    for (const group of groups) {
+      const collapsed = collapsedGroups.includes(group.kind);
+      const cut = truncateList(group.items, { limit: groupLimits[group.kind], expanded: expandedGroups.has(group.kind) });
+      rendered.set(group.kind, collapsed ? { shown: [], hidden: 0 } : cut);
+    }
+    const liveKeys = new Set([...rendered.values()].flatMap((cut) => cut.shown).map((item) => shellEntityKey('session', item.id)));
     for (const [key, row] of sessionRows) {
-      if (!nextKeys.has(key)) {
+      if (!liveKeys.has(key)) {
         sessionWraps.get(key)?.remove(); sessionRows.delete(key); sessionWraps.delete(key); sessionMenus.delete(key);
       }
     }
-    for (const group of buildSessionGroups(items)) {
+    for (const group of groups) {
       let section = sessionSections.get(group.kind);
-      if (!section) {
-        section = document.createElement('section'); section.className = `shell-group group-${group.kind}`;
-        const heading = document.createElement('h2'); heading.className = 'shell-section-label'; heading.id = `shell-session-${group.kind}`;
-        section.setAttribute('aria-labelledby', heading.id); section.appendChild(heading);
-        sessionSections.set(group.kind, section);
-      }
-      const heading = section.querySelector<HTMLHeadingElement>('.shell-section-label')!;
-      heading.textContent = `${tr(groupLabels[group.kind])} · ${group.items.length}`;
-      for (const item of group.items) {
+      if (!section) { section = createGroupSection(group.kind); sessionSections.set(group.kind, section); }
+      const collapsed = collapsedGroups.includes(group.kind);
+      const toggle = section.querySelector<HTMLButtonElement>('.shell-group-toggle')!;
+      const name = tr(groupLabels[group.kind]);
+      toggle.querySelector<HTMLElement>('.shell-group-name')!.textContent = name;
+      toggle.querySelector<HTMLElement>('.shell-group-count')!.textContent = String(group.items.length);
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+      toggle.setAttribute('aria-label', `${name}, ${group.items.length}`);
+      toggle.title = tr(collapsed ? 'shell.group_expand' : 'shell.group_collapse', { name });
+      section.classList.toggle('is-collapsed', collapsed);
+      const body = section.querySelector<HTMLElement>('.shell-group-body')!;
+      body.classList.toggle('hidden', collapsed);
+      const cut = rendered.get(group.kind)!;
+      for (const item of cut.shown) {
         const key = shellEntityKey('session', item.id);
         const row = sessionRows.get(key) ?? createSessionRow(key);
         updateSessionRow(row, item, key);
-        section.appendChild(sessionWraps.get(key)!);
+        body.appendChild(sessionWraps.get(key)!);
       }
+      const hidden = cut.hidden;
+      const more = section.querySelector<HTMLButtonElement>('.shell-more')!;
+      more.classList.toggle('hidden', hidden === 0);
+      if (hidden > 0) more.textContent = tr('shell.show_more', { n: hidden });
       sessionHost.appendChild(section);
     }
-    const visibleGroups = new Set(buildSessionGroups(items).map((group) => group.kind));
+    const visibleGroups = new Set(groups.map((group) => group.kind));
     for (const [kind, section] of sessionSections) {
-      if (!visibleGroups.has(kind)) { section.remove(); sessionSections.delete(kind); }
+      if (!visibleGroups.has(kind)) { section.remove(); sessionSections.delete(kind); expandedGroups.delete(kind); }
     }
     const previousCount = items.filter((item) => item.previous).length;
     restoreAll.classList.toggle('hidden', previousCount === 0);
@@ -333,6 +451,24 @@ export function mountShell(options: {
     renderCollapsedStatus();
     applyProjectActivity(); // session state changed → the project rows' inherited marks follow
     preserveFocusedRow(focusedKey, sessionRows);
+  };
+
+  /** Selecting a session that lives in a folded (or truncated-away) group must not select something
+   *  invisible — open whatever is hiding it, and say so by leaving the group open. */
+  const revealSession = (id: string): void => {
+    const item = sessions.find((entry) => entry.id === id);
+    if (!item) return;
+    const kind = sessionGroupOf(item);
+    const group = buildSessionGroups(sessions).find((entry) => entry.kind === kind);
+    const cut = group ? truncateList(group.items, { limit: groupLimits[kind], expanded: expandedGroups.has(kind) }) : null;
+    const truncatedAway = cut != null && !cut.shown.some((entry) => entry.id === id);
+    if (!collapsedGroups.includes(kind) && !truncatedAway) return;
+    if (collapsedGroups.includes(kind)) {
+      collapsedGroups = toggleCollapsedGroup(collapsedGroups, kind);
+      try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(collapsedGroups)); } catch { /* see above */ }
+    }
+    if (truncatedAway) expandedGroups.add(kind);
+    renderSessions(sessions);
   };
 
   const createProjectRow = (key: string): HTMLButtonElement => {
@@ -387,24 +523,62 @@ export function mountShell(options: {
     }
     copy.querySelector('strong')!.textContent = item.name;
     copy.querySelector('small')!.textContent = item.branch ?? '—';
+    // The deck sorts pinned projects first; without a mark on the row, that ordering reads as arbitrary.
+    const pin = row.querySelector('.shell-project-pin');
+    if (item.pinned && !pin) {
+      const icon = createIcon('pin', 'ui-icon shell-project-pin');
+      icon.setAttribute('aria-hidden', 'true');
+      row.appendChild(icon);
+    } else if (!item.pinned && pin) pin.remove();
     applyEntityState(row, key);
   };
 
   const renderProjects = (items: ShellProjectInput[]): void => {
     const focusedKey = document.activeElement instanceof HTMLButtonElement
       ? document.activeElement.dataset.shellEntityKey : undefined;
-    const nextKeys = new Set(items.map((item) => shellEntityKey('project', item.path)));
+    const collapsed = projectsCollapsed;
+    // Pinned projects survive the cut wherever they sit — pinning one must never be what removes it.
+    const cut = truncateList(items, { limit: PROJECT_LIMIT, expanded: projectsExpanded, keep: (item) => item.pinned === true });
+    const shown = collapsed ? [] : cut.shown;
+    const shownKeys = new Set(shown.map((item) => shellEntityKey('project', item.path)));
     for (const [key, row] of projectRows) {
-      if (!nextKeys.has(key)) { row.remove(); projectRows.delete(key); }
+      if (!shownKeys.has(key)) { row.remove(); projectRows.delete(key); }
     }
-    for (const item of items) {
+    for (const item of shown) {
       const key = shellEntityKey('project', item.path);
       const row = projectRows.get(key) ?? createProjectRow(key);
       updateProjectRow(row, item, key);
       projectHost.appendChild(row);
     }
+    // Naming the truncated state is what makes the list legible: "why these eight?" is answered by the
+    // heading itself rather than left for the user to infer from an unexplained cut.
+    const truncated = !collapsed && cut.hidden > 0;
+    const name = tr(truncated ? 'shell.projects_recent' : 'shell.projects');
+    projectsToggle.querySelector<HTMLElement>('.shell-group-name')!.textContent = name;
+    projectsToggle.querySelector<HTMLElement>('.shell-group-count')!.textContent = String(items.length);
+    projectsToggle.setAttribute('aria-expanded', String(!collapsed));
+    projectsToggle.setAttribute('aria-label', `${name}, ${items.length}`);
+    projectsToggle.title = tr(collapsed ? 'shell.group_expand' : 'shell.group_collapse', { name });
+    projectSection.classList.toggle('is-collapsed', collapsed);
+    projectHost.classList.toggle('hidden', collapsed);
+    projectsMore.classList.toggle('hidden', !truncated);
+    if (truncated) projectsMore.textContent = tr('shell.show_all_projects', { n: items.length });
     applyProjectActivity();
     preserveFocusedRow(focusedKey, projectRows);
+  };
+
+  /** Same contract as revealSession: a project selected from Quick Open (or restored on boot) must
+   *  end up VISIBLE, even when it sits past the recent-N cut or the section is folded shut. */
+  const revealProject = (path: string): void => {
+    if (!projects.some((item) => item.path === path)) return;
+    const rendered = projectRows.has(shellEntityKey('project', path));
+    if (rendered && !projectsCollapsed) return;
+    if (projectsCollapsed) {
+      projectsCollapsed = false;
+      try { localStorage.setItem(PROJECTS_COLLAPSED_KEY, '0'); } catch { /* see above */ }
+    }
+    if (!rendered) projectsExpanded = true;
+    renderProjects(projects);
   };
 
   let quickIndex = 0;
@@ -447,14 +621,24 @@ export function mountShell(options: {
     if (!hasQuery) { resultHost.replaceChildren(); quickOpen.removeAttribute('aria-activedescendant'); return; }
     resultHost.replaceChildren();
     const dismiss = (): void => { quickOpen.value = ''; applyQuery(); };
+    // Sessions and projects can share a name (a session is usually NAMED after its project), so a flat
+    // result list left the user guessing which of two identical-looking rows opened a terminal.
+    const heading = (key: string, count: number): void => {
+      const label = document.createElement('div'); label.className = 'shell-quick-heading';
+      label.setAttribute('role', 'presentation'); label.textContent = `${tr(key)} · ${count}`;
+      resultHost.appendChild(label);
+    };
     let index = 0;
-    for (const item of buildSessionGroups(filtered.sessions).flatMap((group) => group.items)) {
+    const matchedSessions = buildSessionGroups(filtered.sessions).flatMap((group) => group.items);
+    if (matchedSessions.length) heading('shell.quick_sessions', matchedSessions.length);
+    for (const item of matchedSessions) {
       const mark = document.createElement('span'); mark.className = `shell-signal signal-${sessionStatusShape(item)}`; mark.setAttribute('aria-hidden', 'true');
       resultHost.appendChild(quickResultRow(`shell-quick-${index++}`, mark, item.label, item.detail, () => {
         markActiveEntity(shellEntityKey('session', item.id));
         closeMobileDrawer(); options.onSession(item.id); dismiss();
       }));
     }
+    if (filtered.projects.length) heading('shell.quick_projects', filtered.projects.length);
     for (const item of filtered.projects) {
       resultHost.appendChild(quickResultRow(`shell-quick-${index++}`, createIcon('projects', 'ui-icon shell-quick-icon'), item.name, item.branch ?? '—', () => {
         markActiveEntity(shellEntityKey('project', item.path));
@@ -498,7 +682,20 @@ export function mountShell(options: {
     button.addEventListener('click', () => closeMobileDrawer());
   }
   document.addEventListener('click', () => closeSessionMenus());
+  /**
+   * One chord to reach any session or project from anywhere, including from inside a terminal — the
+   * sidebar's search was previously only reachable by taking your hands off the keyboard. Ctrl+Shift+P
+   * is the palette chord users already know, and the cockpit swallows it before the PTY can see it.
+   */
+  const focusQuickOpen = (): void => {
+    if (matchMedia('(max-width: 720px)').matches) openMobileDrawer();
+    else if (sidebar.classList.contains('collapsed')) { setCollapsed(false); options.onCollapse(false); }
+    requestAnimationFrame(() => { quickOpen.focus(); quickOpen.select(); });
+  };
   document.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
+      event.preventDefault(); focusQuickOpen(); return;
+    }
     if (event.key !== 'Escape' || !sidebar.classList.contains('mobile-open')) return;
     event.preventDefault(); closeMobileDrawer(true);
   });
@@ -512,17 +709,17 @@ export function mountShell(options: {
   setCollapsed(options.initialCollapsed);
 
   const refreshLabels = (): void => {
-    quickOpen.placeholder = tr('shell.quick_open'); quickOpen.setAttribute('aria-label', tr('shell.quick_open'));
+    // The chord is discoverable only if the field advertises it; the accessible name stays clean.
+    quickOpen.placeholder = `${tr('shell.quick_open')}  ${QUICK_OPEN_CHORD}`;
+    quickOpen.setAttribute('aria-label', tr('shell.quick_open'));
+    quickOpen.title = `${tr('shell.quick_open')} (${QUICK_OPEN_CHORD})`;
     for (const button of Array.from(document.querySelectorAll<HTMLButtonElement>('.rail-item[data-view]'))) {
       const view = button.dataset.view as ViewId;
       const label = tr(viewLabels[view]);
       const text = button.querySelector<HTMLElement>('.rail-label'); if (text) text.textContent = label;
       button.title = label; button.setAttribute('aria-label', label);
     }
-    document.getElementById('shell-projects-label')!.textContent = tr('shell.projects');
-    document.getElementById('shell-projects-label')!.setAttribute('role', 'heading');
-    document.getElementById('shell-projects-label')!.setAttribute('aria-level', '2');
-    document.getElementById('shell-project-section')!.setAttribute('aria-labelledby', 'shell-projects-label');
+    projectSection.setAttribute('aria-labelledby', 'shell-projects-label');
     mobileBackdrop.setAttribute('aria-label', tr('shell.collapse'));
     setCollapsed(sidebar.classList.contains('collapsed'));
     renderSessions(sessions);
@@ -540,8 +737,14 @@ export function mountShell(options: {
     },
     setSessionGroups: (items) => { sessions = [...items]; renderSessions(sessions); applyQuery(); },
     setProjects: (items) => { projects = [...items]; renderProjects(projects); applyQuery(); },
-    setActiveProject: (path) => { markActiveEntity(path == null ? null : shellEntityKey('project', path)); },
-    setActiveSession: (id) => { markActiveEntity(id == null ? null : shellEntityKey('session', id)); },
+    setActiveProject: (path) => {
+      if (path != null) revealProject(path);
+      markActiveEntity(path == null ? null : shellEntityKey('project', path));
+    },
+    setActiveSession: (id) => {
+      if (id != null) revealSession(id);
+      markActiveEntity(id == null ? null : shellEntityKey('session', id));
+    },
     setCollapsed,
     activeView: options.activeView,
     refreshLabels,

@@ -34,7 +34,8 @@ The interface is organized as one command center:
 
 ## Highlights
 
-- **Unified project and session navigation** — Needs You and Working sessions stay visible from Projects, Tasks, Usage, and Settings. Previous sessions expose restore, warning, pin, forget, and Restore All actions in the same shell. Quick Open filters both sessions and projects.
+- **Unified project and session navigation** — Needs You and Working sessions stay visible from Projects, Tasks, Usage, and Settings. Previous sessions expose restore, warning, pin, forget, and Restore All actions in the same shell. Quick Open (`Ctrl+Shift+P`, reachable from inside a terminal) filters both sessions and projects.
+- **Built for long lists** — every group orders by last activity, folds to a counted header, and caps itself with a "show more"; the project list shows your recent repositories with the rest one click away. Unpinning names the group it moved the session to and offers an undo.
 - **Row-first project overview** — resume cues lead each row; branch, working-tree state, providers, sessions, cost, tasks, GitHub, editor, folder, and provider-aware Open remain available.
 - **Provider-aware Open** — focus a live session, continue the correct provider-owned conversation, start a fresh session, or explicitly choose another installed provider.
 - **Cockpit on Windows** — embedded Claude Code, Codex, and Antigravity terminals with persistence, restart, fork, rename, pin, close confirmation, search, clipboard handling, clickable links and image paths, context percentage, and summaries.
