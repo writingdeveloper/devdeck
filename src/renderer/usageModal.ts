@@ -1,8 +1,9 @@
 import { tr } from './i18n-runtime';
 import { createProviderLogo, providerName } from './providerLogo';
 import { staleAgeMinutes } from '../shared/usagePresentation';
-import { formatReset, usageSeverity, usageStateKey, type ProviderUsage, type UsageSnapshot } from '../shared/usageWindows';
+import { formatReset, usageActionFor, usageSeverity, usageStateKey, type ProviderUsage, type UsageSnapshot } from '../shared/usageWindows';
 import { createIcon } from './icons';
+import { openUsageLoginTerminal } from './usageLoginTerminal';
 
 // The all-provider limits dialog. It is an OVERLAY (fixed, outside the flex column) precisely so that
 // opening it cannot change the shell, cockpit, or xterm geometry — a terminal resize storm was a real
@@ -132,6 +133,22 @@ function providerSection(p: ProviderUsage): HTMLElement {
     if (!parts.length && p.credits.hasCredits != null) parts.push(tr(p.credits.hasCredits ? 'usage.credits_on' : 'usage.credits_off'));
     c.textContent = `${tr('usage.credits')} · ${parts.join(' · ')}`;
     sec.appendChild(c);
+  }
+
+  const action = usageActionFor(p.providerId, p.state);
+  if (action === 'login') {
+    const row = document.createElement('div'); row.className = 'um-guidance';
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'um-action';
+    button.textContent = tr('usage.login_open');
+    button.addEventListener('click', () => { void openUsageLoginTerminal(p.providerId as 'claude' | 'codex'); });
+    row.appendChild(button); sec.appendChild(row);
+  } else if (action === 'install') {
+    const command = p.providerId === 'codex' ? 'npm install -g @openai/codex' : 'npm install -g @anthropic-ai/claude-code';
+    const row = document.createElement('div'); row.className = 'um-guidance';
+    const text = document.createElement('span'); text.textContent = tr('usage.install_hint');
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'um-cmd'; button.textContent = command;
+    button.addEventListener('click', () => { window.devdeck.clipboard.writeText(command); button.classList.add('copied'); setTimeout(() => button.classList.remove('copied'), 1200); });
+    row.append(text, button); sec.appendChild(row);
   }
 
   if (p.guidance) {

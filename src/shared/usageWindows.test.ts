@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   usageSeverity, clampPercent, parseResetTime, safeUsageLabel, formatReset,
-  parseClaudeUsageResponse, usageStateKey,
+  parseClaudeUsageResponse, usageStateKey, usageActionFor,
 } from './usageWindows';
 
 describe('usageSeverity', () => {
@@ -68,6 +68,16 @@ describe('usageStateKey', () => {
     for (const s of ['ready', 'stale', 'login-required', 'expired', 'not-applicable', 'cli-missing', 'offline', 'rate-limited', 'unsupported'] as const) {
       expect(usageStateKey(s)).toMatch(/^usage\.state_/);
     }
+  });
+});
+
+describe('usageActionFor', () => {
+  it('offers login for missing/expired credentials and install help only for a missing CLI', () => {
+    expect(usageActionFor('codex', 'login-required')).toBe('login');
+    expect(usageActionFor('claude', 'expired')).toBe('login');
+    expect(usageActionFor('codex', 'cli-missing')).toBe('install');
+    expect(usageActionFor('claude', 'ready')).toBeNull();
+    expect(usageActionFor('antigravity', 'unsupported')).toBeNull();
   });
 });
 

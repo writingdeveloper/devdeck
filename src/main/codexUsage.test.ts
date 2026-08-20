@@ -2,7 +2,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { getCodexUsage, parseCodexRateLimits, type CodexUsageDeps } from './codexUsage';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { getCodexUsage, parseCodexRateLimits, spawnCodexAppServer, type CodexUsageDeps } from './codexUsage';
 
 const NOW = 1_700_000_000_000;
 
@@ -258,5 +261,58 @@ describe('getCodexUsage protocol', () => {
     h.child.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, result: { rate_limits: { primary: { used_percent: 99 } } } })}\n`);
     expect((await p).limits[0].percent).toBe(8);
     expect(h.child.kill).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe.runIf(process.platform === 'win32')('spawnCodexAppServer on Windows', () => {
+  it('runs an npm codex.cmd shim instead of reporting the CLI missing', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'devdeck-codex-shim-'));
+    const dir = join(home, 'npm');
+    const previousPath = process.env.PATH;
+    const previousAppData = process.env.APPDATA;
+    const previousLocalAppData = process.env.LOCALAPPDATA;
+    try {
+      mkdirSync(dir);
+      writeFileSync(join(dir, 'codex.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
+      process.env.APPDATA = home;
+      process.env.LOCALAPPDATA = home;
+      process.env.PATH = dir;
+      const child = spawnCodexAppServer();
+      const result = await new Promise<{ code: number | null; error: NodeJS.ErrnoException | null }>((resolve) => {
+        let error: NodeJS.ErrnoException | null = null;
+        child.on('error', (value) => { error = value; });
+        child.on('close', (code) => resolve({ code, error }));
+      });
+      expect(result).toEqual({ code: 0, error: null });
+    } finally {
+      process.env.PATH = previousPath;
+      process.env.APPDATA = previousAppData;
+      process.env.LOCALAPPDATA = previousLocalAppData;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('finds the npm shim from APPDATA when the tray process has a stale PATH', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'devdeck-stale-path-'));
+    const npmDir = join(home, 'npm');
+    const previousPath = process.env.PATH;
+    const previousAppData = process.env.APPDATA;
+    try {
+      mkdirSync(npmDir);
+      writeFileSync(join(npmDir, 'codex.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
+      process.env.APPDATA = home;
+      process.env.PATH = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
+      const child = spawnCodexAppServer();
+      const result = await new Promise<{ code: number | null; error: NodeJS.ErrnoException | null }>((resolve) => {
+        let error: NodeJS.ErrnoException | null = null;
+        child.on('error', (value) => { error = value; });
+        child.on('close', (code) => resolve({ code, error }));
+      });
+      expect(result).toEqual({ code: 0, error: null });
+    } finally {
+      process.env.PATH = previousPath;
+      process.env.APPDATA = previousAppData;
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
