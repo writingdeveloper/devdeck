@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { getProvider, availableAgents, resolveProjectOpenCommand } from './agents';
+import { join } from 'node:path';
+import { getProvider, availableAgents, resolveProjectOpenCommand, agentAvailableAtHome } from './agents';
 
 describe('agent providers', () => {
   it('claude buildCommand maps kinds correctly', () => {
@@ -29,6 +30,13 @@ describe('agent providers', () => {
   it('availableAgents filters by isAvailable', () => {
     expect(availableAgents(() => false)).toEqual([]);
     expect(availableAgents(() => true).sort()).toEqual(['antigravity', 'claude', 'codex']);
+  });
+
+  it('recognizes a fresh login root before the first session creates a projects/sessions folder', () => {
+    const home = join(process.cwd(), 'fresh-home');
+    expect(agentAvailableAtHome('codex', home, (path) => path === join(home, '.codex'))).toBe(true);
+    expect(agentAvailableAtHome('claude', home, (path) => path === join(home, '.claude'))).toBe(true);
+    expect(agentAvailableAtHome('codex', home, () => false)).toBe(false);
   });
 
   it('resolves an external launch only inside the explicitly requested provider', () => {

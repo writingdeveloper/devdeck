@@ -40,6 +40,7 @@ declare global {
       setAiSessionSummary(on: boolean): Promise<void>;
       usageSnapshot(): Promise<import('../shared/usageWindows').UsageSnapshot | null>;
       refreshUsageProviders(opts?: { force?: boolean }): Promise<import('../shared/usageWindows').UsageSnapshot>;
+      openUsageLogin(providerId: 'claude' | 'codex', cols: number, rows: number): Promise<{ id: string; providerId: 'claude' | 'codex' } | null>;
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
       downloadUpdate(): Promise<void>;
       installUpdate(): Promise<void>;

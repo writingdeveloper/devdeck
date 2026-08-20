@@ -11,6 +11,13 @@ const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
 const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
 const CODEX_SESSIONS = join(homedir(), '.codex', 'sessions');
 
+/** A login creates the provider root before the first conversation creates its session subfolder. */
+export function agentAvailableAtHome(id: AgentId, home: string, exists: (path: string) => boolean = existsSync): boolean {
+  if (id === 'claude') return exists(join(home, '.claude'));
+  if (id === 'codex') return exists(join(home, '.codex'));
+  return exists(join(home, '.gemini', 'antigravity'));
+}
+
 export type LaunchKind = 'new' | 'continue' | 'resume';
 
 export interface AgentProvider {
@@ -30,7 +37,7 @@ const claudeProvider: AgentProvider = {
   id: 'claude',
   label: 'Claude',
   supportsSessionId: true,
-  isAvailable: () => existsSync(CLAUDE_PROJECTS),
+  isAvailable: () => agentAvailableAtHome('claude', homedir()),
   listSessions: (p, limit) => listSessions(p, CLAUDE_PROJECTS, limit),
   listSessionIds: (p) => listSessionIds(p, CLAUDE_PROJECTS),
   lastUserMessage: (p, id) => lastUserMessageForSession(p, id, CLAUDE_PROJECTS),
@@ -46,7 +53,7 @@ const antigravityProvider: AgentProvider = {
   id: 'antigravity',
   label: 'Antigravity',
   supportsSessionId: false, // agy has no --session-id pin; --conversation resumes by id only
-  isAvailable: () => antigravityAvailable(ANTIGRAVITY_DIR),
+  isAvailable: () => agentAvailableAtHome('antigravity', homedir()) || antigravityAvailable(ANTIGRAVITY_DIR),
   // Async to match the interface; antigravity's own reads stay sync (rare provider, small .db files).
   listSessions: async (p, limit) => listAntigravitySessions(p, ANTIGRAVITY_DIR, limit),
   listSessionIds: (p) => listAntigravitySessionIds(p, ANTIGRAVITY_DIR),
@@ -61,7 +68,7 @@ const codexProvider: AgentProvider = {
   id: 'codex',
   label: 'Codex',
   supportsSessionId: false,
-  isAvailable: () => codexAvailable(CODEX_SESSIONS),
+  isAvailable: () => agentAvailableAtHome('codex', homedir()) || codexAvailable(CODEX_SESSIONS),
   listSessions: async (p, limit) => listCodexSessions(p, CODEX_SESSIONS, limit),
   listSessionIds: (p) => listCodexSessionIds(p, CODEX_SESSIONS),
   lastUserMessage: async (p, id) => lastUserMessageForCodexSession(p, id, CODEX_SESSIONS),
@@ -91,7 +98,7 @@ export function resolveProjectOpenCommand(
   return provider.buildCommand(intent.hasHistory ? 'continue' : 'new');
 }
 
-/** Installed agents (claude, antigravity, and Codex when their session directories exist). `probe` overridable for tests. */
+/** Known agents (a login/config root is enough; the first session may not exist yet). `probe` overridable for tests. */
 export function availableAgents(probe?: (id: AgentId) => boolean): AgentId[] {
   const ids: AgentId[] = ['claude', 'antigravity', 'codex'];
   const isAvail = probe ?? ((id) => PROVIDERS[id].isAvailable());

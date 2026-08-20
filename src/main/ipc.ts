@@ -32,6 +32,7 @@ import { getCodexUsage, spawnCodexAppServer } from './codexUsage';
 import { UsageCoordinator, antigravityUsage } from './usageProviders';
 import { pickAdoptedSessionId, pickDriftedSessionId, type PersistedSession } from '../shared/cockpitPersist';
 import { makeAgentProbe } from './agentProcess';
+import { loginPowerShellCommand } from './cliExecutable';
 import { listSessionStats, listSessionIds } from './sessions';
 import { listCodexSessionStats, indexCodexSessionsByCwd, readCodexSessionMeta } from './codexSessions';
 import { indexAntigravitySessionsByCwd } from './antigravitySessions';
@@ -391,6 +392,25 @@ export function registerIpc(cfg: IpcConfig): void {
   // Coalesce pty output (~one frame) before it crosses IPC so many streaming sessions don't flood the
   // renderer's single UI thread; input is never batched, and a big burst flushes immediately via the cap.
   const ptyBatch = new PtyBatcher((id, chunk) => sendToWin('cockpit:data', { id, chunk }), (flush) => { setTimeout(flush, 16); });
+  // Visible, interactive OAuth setup inside DevDeck. This is intentionally NOT a general command
+  // runner: the renderer chooses only a provider id and main owns the two fixed login commands.
+  ipcMain.handle('usage:login', (_e, rawProviderId: unknown, cols: number, rows: number) => {
+    const providerId = rawProviderId === 'claude' || rawProviderId === 'codex' ? rawProviderId : null;
+    if (!providerId || !cfg.ptyAvailable) return null;
+    const id = `usage-login:${providerId}:${++cockpitSeq}`;
+    try {
+      cfg.ptyHost.create(
+        id, resolveShellPath(), ['-NoExit', '-Command', loginPowerShellCommand(providerId)], homedir(),
+        Math.max(20, Number(cols) | 0), Math.max(5, Number(rows) | 0),
+        (chunk) => ptyBatch.push(id, chunk),
+        (exit) => { ptyBatch.flush(); sendToWin('cockpit:exit', { id, exitCode: exit.exitCode }); },
+      );
+      return { id, providerId };
+    } catch (err) {
+      cfg.sendError(`Could not open ${providerId} login: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  });
   ipcMain.handle('cockpit:open', async (_e, req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode?: OpenMode; agentId?: AgentId }) => {
     const folders = effFolders();
     if (!isAllowedPath(folders, req.projectPath)) {

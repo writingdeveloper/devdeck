@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { join } from 'node:path';
+import { homedir } from 'node:os';
 
 const { handlers, claudeStats, codexStats, codexIndex, codexSessions, claudeIds, probe } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
@@ -238,6 +239,34 @@ describe('cockpit:sessionMeta summary per provider', () => {
   it('returns the neutral shape for a provider with no transcript reader', () => {
     expect(handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'antigravity'))
       .toEqual({ model: null, activeMs: 0, contextTokens: 0, contextWindow: 0, summary: null, summarySource: null });
+  });
+});
+
+describe('usage:login embedded terminal', () => {
+  it('opens the requested provider login in a visible PTY using fixed commands', async () => {
+    const open = handlers.get('usage:login')!;
+    ptyCreate.mockClear();
+
+    const codex = await open(null, 'codex', 92, 28) as { id: string; providerId: string };
+    expect(codex).toMatchObject({ providerId: 'codex' });
+    expect(codex.id).toMatch(/^usage-login:codex:/);
+    expect(ptyCreate).toHaveBeenLastCalledWith(
+      codex.id, expect.any(String), ['-NoExit', '-Command', expect.stringMatching(/codex(?:\.cmd|\.exe)?['"]?\s+login/i)],
+      homedir(), 92, 28, expect.any(Function), expect.any(Function),
+    );
+
+    const claude = await open(null, 'claude', 80, 24) as { id: string; providerId: string };
+    expect(claude).toMatchObject({ providerId: 'claude' });
+    expect(ptyCreate).toHaveBeenLastCalledWith(
+      claude.id, expect.any(String), ['-NoExit', '-Command', expect.stringMatching(/claude(?:\.cmd|\.exe)?['"]?\s+auth\s+login/i)],
+      homedir(), 80, 24, expect.any(Function), expect.any(Function),
+    );
+  });
+
+  it('refuses unsupported providers instead of exposing a general command terminal', async () => {
+    ptyCreate.mockClear();
+    expect(await handlers.get('usage:login')!(null, 'antigravity', 80, 24)).toBeNull();
+    expect(ptyCreate).not.toHaveBeenCalled();
   });
 });
 

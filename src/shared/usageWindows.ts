@@ -50,6 +50,13 @@ export function usageStateKey(state: UsageProviderState): string {
   return `usage.state_${state.replace(/-/g, '_')}`;
 }
 
+/** Actionable recovery shown beside a provider state; Antigravity has its own CLI guidance. */
+export function usageActionFor(providerId: AgentId, state: UsageProviderState): 'login' | 'install' | null {
+  if (providerId !== 'claude' && providerId !== 'codex') return null;
+  if (state === 'login-required' || state === 'expired') return 'login';
+  return state === 'cli-missing' ? 'install' : null;
+}
+
 export function clampPercent(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.round(Math.max(0, Math.min(100, value))) : null;

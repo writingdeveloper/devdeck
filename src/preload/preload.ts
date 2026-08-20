@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   setAiSessionSummary: (on: boolean) => ipcRenderer.invoke('settings:setAiSessionSummary', on),
   usageSnapshot: () => ipcRenderer.invoke('usage:snapshot'),
   refreshUsageProviders: (opts?: { force?: boolean }) => ipcRenderer.invoke('usage:refresh', { force: opts?.force === true }),
+  openUsageLogin: (providerId: 'claude' | 'codex', cols: number, rows: number) => ipcRenderer.invoke('usage:login', providerId, cols, rows),
   onUpdate: (cb: (p: import('../shared/update').UpdatePayload) => void) =>
     ipcRenderer.on('devdeck:update', (_e, p) => cb(p as import('../shared/update').UpdatePayload)),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
