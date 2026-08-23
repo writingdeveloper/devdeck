@@ -171,3 +171,16 @@
   #view-projects .prow-actions { grid-area: actions; width: 100%; min-width: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; justify-self: stretch; }
   #view-projects .prow-actions .provider-open { flex: 0 0 auto; }
 }
+
+/* Machine switcher — hidden until a second machine is paired, so a single-machine deck is unchanged. */
+.view-toolbar .machine-switch {
+  max-width: 200px;
+  min-width: 0;
+}
+
+/* A remote deck is marked on the control itself, so "why is this repo list different" always has a
+   visible answer without hunting for a badge elsewhere. */
+.view-toolbar .machine-switch.is-remote {
+  border-color: var(--dd-accent, var(--dd-border-strong));
+  font-weight: 560;
+}

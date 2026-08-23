@@ -201,3 +201,131 @@ body .um-provider {
   #settings-form .set-label { padding-top: 0; }
   #view-usage .usage-cost-cards { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---- DevDeck Link (Settings → Machines) ---- */
+
+#settings-form .link-section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+#settings-form .link-heading {
+  margin: 6px 0 0;
+  font-size: var(--dd-fs-body);
+  font-weight: 650;
+  color: var(--dd-text);
+}
+
+#settings-form .link-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-md);
+  background: var(--dd-surface);
+  min-width: 0;
+}
+
+#settings-form .link-toggle { display: flex; align-items: center; gap: 8px; }
+#settings-form .link-toggle-label { font-weight: 540; }
+
+#settings-form .link-meta { display: flex; flex-direction: column; gap: 3px; }
+#settings-form .link-meta-row {
+  color: var(--dd-text-muted);
+  font-size: var(--dd-fs-small);
+  /* Addresses and fingerprints are long and must never widen the settings column. */
+  overflow-wrap: anywhere;
+}
+
+/* The code is the one thing on this screen a person interacts with directly, so it is selectable,
+   wraps rather than scrolls, and is visually a single object to grab. */
+#settings-form .link-code {
+  display: block;
+  padding: 10px 12px;
+  border: 1px solid var(--dd-border-strong);
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-canvas);
+  font-family: var(--dd-font-mono, monospace);
+  font-size: var(--dd-fs-small);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+#settings-form .link-invite { display: flex; flex-direction: column; gap: 8px; }
+#settings-form .link-invite-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#settings-form .link-expiry,
+#settings-form .link-copied { color: var(--dd-text-muted); font-size: var(--dd-fs-small); }
+
+#settings-form .link-add-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#settings-form .link-code-input { flex: 1 1 260px; min-width: 0; }
+#settings-form .link-add-status { margin: 0; color: var(--dd-text-muted); font-size: var(--dd-fs-small); }
+
+#settings-form .link-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--dd-accent, var(--dd-border-strong));
+  border-radius: var(--dd-radius-sm);
+  background: color-mix(in srgb, var(--dd-canvas) 88%, var(--dd-surface));
+}
+#settings-form .link-banner-text { flex: 1 1 200px; min-width: 0; }
+
+#settings-form .link-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid var(--dd-border);
+  min-width: 0;
+}
+#settings-form .link-row-name { flex: 1 1 140px; min-width: 0; font-weight: 540; overflow-wrap: anywhere; }
+#settings-form .link-row-meta { color: var(--dd-text-muted); font-size: var(--dd-fs-small); }
+#settings-form .link-row-actions { display: flex; gap: 6px; margin-left: auto; }
+#settings-form .link-row-perms,
+#settings-form .link-perms { display: flex; gap: 10px; flex-wrap: wrap; flex-basis: 100%; }
+#settings-form .link-perm-holder { display: inline-flex; align-items: center; gap: 5px; }
+#settings-form .link-perm-toggle,
+#settings-form .link-perm { color: var(--dd-text-muted); font-size: var(--dd-fs-small); }
+#settings-form .link-perm-none { font-style: italic; }
+
+/* State reads as text first; colour only reinforces it, so it survives a colour-blind reader and a
+   monochrome screenshot. */
+#settings-form .link-state { font-size: var(--dd-fs-small); color: var(--dd-text-muted); }
+#settings-form .link-state.is-on,
+#settings-form .link-state.is-connected { color: var(--dd-ok, #3fb950); }
+#settings-form .link-state.is-connecting { color: var(--dd-text-muted); }
+#settings-form .link-state.is-refused,
+#settings-form .link-state.is-impostor { color: var(--dd-danger, #f85149); font-weight: 620; }
+
+#settings-form .link-row-problem {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--dd-text-muted);
+  font-size: var(--dd-fs-small);
+}
+#settings-form .link-row-problem.is-alarming,
+#settings-form .link-error { color: var(--dd-danger, #f85149); }
+#settings-form .link-error { margin: 0; font-size: var(--dd-fs-small); }
+
+#settings-form .link-sub { margin: 8px 0 0; font-size: var(--dd-fs-small); color: var(--dd-text-muted); font-weight: 620; }
+
+#settings-form .link-log { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; }
+#settings-form .link-log-row {
+  display: grid;
+  grid-template-columns: minmax(0, 150px) minmax(0, 90px) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid var(--dd-border);
+  color: var(--dd-text-muted);
+  font-size: var(--dd-fs-small);
+}
+#settings-form .link-log-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#settings-form .link-log-row.is-rejected .link-log-kind,
+#settings-form .link-log-row.is-denied .link-log-kind { color: var(--dd-danger, #f85149); }
+
+@media (max-width: 760px) {
+  #settings-form .link-row-actions { margin-left: 0; }
+  #settings-form .link-log-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}

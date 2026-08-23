@@ -317,3 +317,29 @@ describe('resolveRestoreTarget', () => {
     expect(resolveRestoreTarget(saved(null), [], new Set())).toEqual({ sessionId: null, fresh: false });
   });
 });
+
+describe('a saved tile remembers which machine it ran on', () => {
+  const base = { tileId: 't1', projectPath: 'C:\repo', name: 'repo', sessionId: 's1', agentId: 'claude' };
+
+  it('keeps a real machine id', () => {
+    const [entry] = sanitizePersistedList([{ ...base, machineId: '3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b' }]);
+    expect(entry.machineId).toBe('3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b');
+  });
+
+  it('treats an unreadable or reserved id as this machine, never as some machine', () => {
+    // The alternative is worse than losing the tile: a saved entry names a project by PATH, and the
+    // same path exists on both machines. Resolving a junk id to a remote would open a session against
+    // whatever unrelated work happens to live at that path over there.
+    for (const machineId of ['local', 'desktop', '', null, 42, '../../etc']) {
+      expect(sanitizePersistedList([{ ...base, machineId }])[0].machineId, String(machineId)).toBeUndefined();
+    }
+  });
+
+  it('leaves a single-machine list byte-identical to what it was before', () => {
+    // Nothing about an install that never pairs anything should change on disk.
+    expect(sanitizePersistedList([base])[0]).toEqual({
+      tileId: 't1', projectPath: 'C:\repo', name: 'repo', sessionId: 's1', agentId: 'claude',
+      label: null, pinned: undefined, lastActiveMs: undefined, machineId: undefined,
+    });
+  });
+});

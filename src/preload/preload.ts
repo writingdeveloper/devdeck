@@ -94,6 +94,57 @@ contextBridge.exposeInMainWorld('devdeck', {
     report: (p: { working: number; sessions: { project: string; activity: string }[] }) => ipcRenderer.send('shutdown:report', p),
     onStatus: (cb: (s: unknown) => void) => ipcRenderer.on('shutdown:status', (_e, s) => cb(s)),
   },
+  /**
+   * DevDeck Link.
+   *
+   * `machine(id)` returns the SAME deck calls, aimed at another machine. Local work keeps calling
+   * `window.devdeck.*` exactly as before — the local path is untouched, so nothing about a
+   * single-machine install changes — while a remote view routes the same method names over one
+   * channel. Adding a deck method therefore does not mean adding an IPC channel to reach it remotely.
+   */
+  link: {
+    hostStatus: () => ipcRenderer.invoke('link:hostStatus'),
+    setHostMode: (on: boolean) => ipcRenderer.invoke('link:setHostMode', on),
+    setPort: (port: number) => ipcRenderer.invoke('link:setPort', port),
+    createInvite: (permissions?: string[]) => ipcRenderer.invoke('link:createInvite', permissions),
+    revokeInvite: () => ipcRenderer.invoke('link:revokeInvite'),
+    machines: () => ipcRenderer.invoke('link:machines'),
+    addMachine: (code: string) => ipcRenderer.invoke('link:addMachine', code),
+    removeMachine: (machineId: string) => ipcRenderer.invoke('link:removeMachine', machineId),
+    setDevicePermissions: (fingerprint: string, permissions: string[]) => ipcRenderer.invoke('link:setDevicePermissions', fingerprint, permissions),
+    revokeDevice: (fingerprint: string) => ipcRenderer.invoke('link:revokeDevice', fingerprint),
+    disconnectDevice: (fingerprint: string) => ipcRenderer.invoke('link:disconnectDevice', fingerprint),
+    clipboardInvite: () => ipcRenderer.invoke('link:clipboardInvite'),
+    log: (limit?: number) => ipcRenderer.invoke('link:log', limit),
+    clearLog: () => ipcRenderer.invoke('link:clearLog'),
+    onChanged: (cb: () => void) => ipcRenderer.on('link:changed', () => cb()),
+  },
+  machine: (machineId: string) => ({
+    listProjects: () => ipcRenderer.invoke('link:call', machineId, 'projects:list', []),
+    projectMemory: (path: string, fresh?: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:memory', [path, fresh === true]),
+    setNote: (path: string, note: string) => ipcRenderer.invoke('link:call', machineId, 'project:setNote', [path, note]),
+    setTodos: (path: string, todos: unknown) => ipcRenderer.invoke('link:call', machineId, 'project:setTodos', [path, todos]),
+    setPinned: (path: string, pinned: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:setPinned', [path, pinned]),
+    setHidden: (path: string, hidden: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:setHidden', [path, hidden]),
+    usageReport: (sinceMs: number) => ipcRenderer.invoke('link:call', machineId, 'usage:report', [sinceMs]),
+    usageSnapshot: () => ipcRenderer.invoke('link:call', machineId, 'usage:snapshot', []),
+    getSettings: () => ipcRenderer.invoke('link:call', machineId, 'settings:get', []),
+    getFolders: () => ipcRenderer.invoke('link:call', machineId, 'settings:getFolders', []),
+    availableAgents: () => ipcRenderer.invoke('link:call', machineId, 'settings:availableAgents', []),
+    appInfo: () => ipcRenderer.invoke('link:call', machineId, 'app:info', []),
+    cockpit: {
+      // Answers with an id already qualified by this machine, so every id-taking call below — and the
+      // input/resize/close path in the deck API — routes itself without further bookkeeping.
+      open: (req: unknown) => ipcRenderer.invoke('link:call', machineId, 'cockpit:open', [req]),
+      sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) =>
+        ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionMeta', [projectPath, sessionId, agentId, wantAi]),
+      sessionIds: (projectPath: string, agentId?: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionIds', [projectPath, agentId]),
+      sessionsExist: (items: unknown) => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionsExist', [items]),
+      liveSessionId: (projectPath: string, opts: unknown) => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveSessionId', [projectPath, opts]),
+      liveAgent: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveAgent', [id]),
+      gitInfo: (projectPath: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:gitInfo', [projectPath]),
+    },
+  }),
   setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),
   setContextWindow: (w: number) => ipcRenderer.invoke('settings:setContextWindow', w),
   setTrayCounts: (counts: { attention?: number; turn?: number; overdue?: number }) => ipcRenderer.send('tray:counts', counts),

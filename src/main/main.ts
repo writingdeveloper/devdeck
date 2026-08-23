@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, crashReporter, screen } from 'electron';
+import { app, BrowserWindow, globalShortcut, crashReporter, powerSaveBlocker, safeStorage, screen } from 'electron';
 import * as path from 'node:path';
 import { appendFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -15,6 +15,7 @@ import { ShutdownScheduler } from './shutdownScheduler';
 import { latestTranscriptMtime } from './transcriptFreshness';
 import { cleanupPasteImages } from './tempClean';
 import { resolveWindowBounds, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/windowBounds';
+import { createLinkService, type LinkService } from './link/linkService';
 
 // Local-only crash capture (no upload — nothing is ever sent anywhere) so a NATIVE crash (a fault
 // inside node-pty/conpty or Chromium itself) writes an inspectable minidump instead of vanishing —
@@ -45,6 +46,8 @@ const realSpawn: PtySpawn = (file, args, opts) => {
 const ptyHost = new PtyHost(realSpawn);
 
 let win: BrowserWindow | null = null;
+// Module-scoped so the quit handler can shut the link down; assigned once the app is ready.
+let linkService: LinkService | null = null;
 
 function createWindow(store: Store): BrowserWindow {
   // Reopen where the user left it. Falls back to a size chosen to hold the sidebar, a full project
@@ -189,7 +192,10 @@ if (!gotLock) {
         schedule: (fn, ms) => { setTimeout(fn, ms); },
       });
     }
-    registerIpc({
+    // Declared before registerIpc so the API table's `link:*` methods can late-bind to it: building
+    // the link needs the table, so the table cannot be handed a finished link.
+    let link: LinkService | null = null;
+    const deckApi = registerIpc({
       win: w,
       defaultBaseDir: path.join(app.getPath('home'), 'Documents', 'GitHub'),
       store,
@@ -201,13 +207,62 @@ if (!gotLock) {
       shutdown,
       shutdownLog,
       bootTimeMs: () => Date.now() - uptime() * 1000,
+      link: () => link,
     });
+
+    // DevDeck Link. Accepting connections stays off until someone turns it on; constructing the
+    // service only loads this machine's identity and reconnects to machines already paired with.
+    const toRenderer = (channel: string, payload: unknown): void => {
+      try { if (!w.isDestroyed()) w.webContents.send(channel, payload); } catch { /* renderer gone */ }
+    };
+    link = createLinkService({
+      userDataDir: userData,
+      safeStorage,
+      api: deckApi,
+      machineId: store.getMachineId(),
+      machineName: () => store.getMachineName(),
+      appVersion: app.getVersion(),
+      store: {
+        getHostMode: () => store.getLinkHostMode(),
+        setHostMode: (on) => store.setLinkHostMode(on),
+        getPort: () => store.getLinkPort(),
+        setPort: (port) => store.setLinkPort(port),
+        getPairedDevices: () => store.getPairedDevices(),
+        setPairedDevices: (devices) => store.setPairedDevices(devices),
+        getKnownHosts: () => store.getKnownHosts(),
+        setKnownHosts: (hosts) => store.setKnownHosts(hosts),
+      },
+      onError: (message) => { logLine(`[link] ${message}`); toRenderer('devdeck:error', message); },
+      onChanged: () => toRenderer('link:changed', null),
+      // Remote output goes STRAIGHT to this window rather than through the API's event hub. The hub
+      // is this machine's own output, and republishing another machine's bytes into it would offer
+      // them onward to anyone viewing THIS machine.
+      onRemoteEvent: (channel, payload) => toRenderer(channel, payload),
+      onRemotePty: (id, bytes) => toRenderer('cockpit:data', { id, chunk: bytes.toString('utf8') }),
+      onRemoteActivity: () => shutdown?.noteBusy(),
+    });
+    linkService = link;
+
+    // Someone working here from another machine must not have this one power down or sleep under
+    // them. The idle watcher only counts local activity, and remote keystrokes never touch this
+    // machine's input devices — so while a viewer is attached, keep saying it is busy.
+    let sleepBlocker: number | null = null;
+    setInterval(() => {
+      const watched = link?.hasRemoteViewers() === true;
+      if (watched) shutdown?.noteBusy();
+      if (watched && sleepBlocker === null) {
+        sleepBlocker = powerSaveBlocker.start('prevent-app-suspension');
+      } else if (!watched && sleepBlocker !== null) {
+        powerSaveBlocker.stop(sleepBlocker);
+        sleepBlocker = null;
+      }
+    }, 30_000);
     registerUpdater(w);
     globalShortcut.register('Control+Alt+D', showWindow);
     app.on('activate', () => { if (!win) win = createWindow(store); });
   });
 
   app.on('window-all-closed', () => { /* stay alive in tray */ });
-  app.on('before-quit', () => ptyHost.killAll());
+  app.on('before-quit', () => { ptyHost.killAll(); void linkService?.dispose(); });
   app.on('will-quit', () => globalShortcut.unregisterAll());
 }

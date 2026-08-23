@@ -3,6 +3,7 @@ import { shouldAutoRefresh } from '../shared/autoRefresh';
 import { projectSignature, diffCards, filterByDeckState, neglectedCount, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
 import { type OpenReq, liveProjectActivity, liveProjectProviders } from './cockpitView';
+import { deckFor, knownMachines, machineName, machineState, onMachinesChanged, selectMachine, selectedMachineId, watchMachines, LOCAL_MACHINE_ID } from './machineDeck';
 import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
@@ -155,6 +156,8 @@ function toOpenReq(p: ProjectViewModel, session: { id: string; agentId: AgentId 
     sessionId: session?.id ?? null,
     agentId: session?.agentId ?? selectedAgent(),
     mode: 'auto',
+    // A path alone does not say which machine it is on — the same repo path exists on both.
+    machineId: selectedMachineId(),
   };
 }
 
@@ -166,6 +169,10 @@ function providerOpenControl(p: ProjectViewModel, compact = false): HTMLElement 
     compact,
     onOpen: (intent) => openInTerminal([{
       ...intent, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted,
+      // The deck's Open button is how a project is normally opened, so leaving the machine off here
+      // meant pressing Open on a REMOTE project quietly opened it locally — against whatever happens
+      // to sit at that path on this computer, or against nothing at all.
+      machineId: selectedMachineId(),
     }]),
   });
 }
@@ -738,8 +745,10 @@ async function reload(): Promise<void> {
   if (!hasRenderedOnce) showSkeleton();
   let proj, settings;
   try {
+    // The deck shows ONE machine at a time. Settings stay local: view mode and the like belong to
+    // the app you are sitting in front of, not to the machine being looked at.
     [proj, settings] = await Promise.all([
-      window.devdeck.listProjects(), window.devdeck.getSettings(),
+      deckFor(selectedMachineId()).listProjects(), window.devdeck.getSettings(),
     ]);
   } catch (e) {
     console.error('DevDeck: projects load failed', e);
@@ -818,6 +827,61 @@ function applyProjectLabels(): void {
   syncProjectDisplayAgentChoices();
 }
 
+
+// ---- machine switcher ----
+
+let machineSwitchEl: HTMLSelectElement | null = null;
+
+/**
+ * Which machine's deck is on screen.
+ *
+ * A plain select, and hidden entirely while nothing is paired: someone who only ever uses one machine
+ * should not have to notice that this feature exists. It appears the moment a second machine does.
+ */
+function mountMachineSwitch(): void {
+  machineSwitchEl = document.getElementById('machine-switch') as HTMLSelectElement | null;
+  machineSwitchEl?.addEventListener('change', () => {
+    selectMachine(machineSwitchEl!.value);
+    // A different machine is a different set of projects, so nothing about the old deck survives:
+    // rebuild rather than reconcile, or rows would be matched across machines by path.
+    cardCache.clear();
+    selected.clear();
+    void reload();
+    renderMachineSwitch();
+  });
+  renderMachineSwitch();
+}
+
+function renderMachineSwitch(): void {
+  const el = machineSwitchEl;
+  if (!el) return;
+  const machines = knownMachines();
+  el.classList.toggle('hidden', machines.length === 0);
+  if (machines.length === 0) return;
+  const wanted = selectedMachineId();
+  const options = [
+    { id: LOCAL_MACHINE_ID, label: tr('link.this_pc') },
+    ...machines.map((m) => ({
+      id: m.machineId,
+      // The state travels in the label rather than in colour alone, so "offline" survives a
+      // colour-blind reader and a select element's very limited styling.
+      label: m.state === 'connected' ? m.machineName : `${m.machineName} · ${tr(`link.state_${m.state}`)}`,
+    })),
+  ];
+  const signature = JSON.stringify([options, wanted]);
+  if (el.dataset.sig === signature) return; // rebuilding steals focus mid-interaction
+  el.dataset.sig = signature;
+  el.replaceChildren();
+  for (const option of options) {
+    const node = document.createElement('option');
+    node.value = option.id;
+    node.textContent = option.label;
+    el.appendChild(node);
+  }
+  el.value = wanted;
+  el.classList.toggle('is-remote', wanted !== LOCAL_MACHINE_ID);
+}
+
 export function mountProjects(): void {
   cardsEl = document.getElementById('cards')!;
   showHiddenBtn = document.getElementById('show-hidden') as HTMLButtonElement;
@@ -836,6 +900,9 @@ export function mountProjects(): void {
   };
 
   document.getElementById('refresh')!.addEventListener('click', reload);
+  mountMachineSwitch();
+  onMachinesChanged(() => { renderMachineSwitch(); });
+  watchMachines();
   displayBtn.addEventListener('click', (event) => { event.stopPropagation(); toggleDisplayMenu(); });
   displayBtn.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -865,7 +932,7 @@ export function mountProjects(): void {
   });
   document.getElementById('new-project')!.addEventListener('click', () => {
     openNewProjectModal((path) => {
-      openInTerminal([{ path, name: basename(path), staleLevel: 'neutral', branch: null, dirty: 0, mode: 'new', agentId: selectedAgent() }]); // open the new project (cockpit on Windows, external terminal otherwise)
+      openInTerminal([{ path, name: basename(path), staleLevel: 'neutral', branch: null, dirty: 0, mode: 'new', agentId: selectedAgent(), machineId: LOCAL_MACHINE_ID }]); // open the new project (cockpit on Windows, external terminal otherwise)
       reload();
     });
   });

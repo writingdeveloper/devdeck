@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from './store';
 
@@ -300,5 +300,30 @@ describe('session summary settings', () => {
     expect(new Store(file).getAiSessionSummary()).toBe(true);
     store.setAiSessionSummary('sure' as unknown as boolean);
     expect(store.getAiSessionSummary()).toBe(false);
+  });
+  it('generates a machine id once and keeps it across restarts', () => {
+    // A regenerated id would orphan every pairing that addresses this machine and every remote tile
+    // pointing at it, so persistence here is the whole point.
+    const first = new Store(file).getMachineId();
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(new Store(file).getMachineId()).toBe(first);
+  });
+
+  it('replaces a corrupted or reserved machine id instead of addressing the wrong machine', () => {
+    writeFileSync(file, JSON.stringify({ projects: {}, settings: { machineId: 'local' } }), 'utf8');
+    const id = new Store(file).getMachineId();
+    expect(id).not.toBe('local'); // 'local' means 'the viewer itself' — it can never name a host
+    expect(new Store(file).getMachineId()).toBe(id); // and the repair persists
+  });
+
+  it('defaults the machine name to the hostname and sanitizes what is set', () => {
+    const store = new Store(file);
+    expect(store.getMachineName()).toBe(hostname());
+    store.setMachineName('  Studio  Desktop ');
+    expect(new Store(file).getMachineName()).toBe('Studio Desktop');
+    store.setMachineName('lap\ntop'); // control chars are drawn in the sidebar — strip, do not escape
+    expect(store.getMachineName()).toBe('lap top');
+    store.setMachineName('   ');
+    expect(store.getMachineName()).toBe(hostname()); // empty falls back rather than showing a blank chip
   });
 });

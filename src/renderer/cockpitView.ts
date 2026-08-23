@@ -17,12 +17,13 @@ import { toast } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 import { createIcon, type IconName } from './icons';
+import { deckFor, machineName, machineState, LOCAL_MACHINE_ID } from './machineDeck';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
-interface Live { tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number; }
+interface Live { /** The machine this tile's terminal actually runs on. */ machineId: string; tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number; }
 /** The renderer's display metadata plus the explicit provider launch intent. */
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; }
 
 const live = new Map<string, Live>();
 const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
@@ -227,18 +228,36 @@ async function refreshMissingConversations(): Promise<void> {
   missingCheckedAt = Date.now();
   const list = restorable.filter((r) => r.sessionId);
   if (!list.length) { missingConversations.clear(); return; }
-  let exists: boolean[];
-  try {
-    exists = await window.devdeck.cockpit.sessionsExist(list.map((r) => ({ projectPath: r.projectPath, sessionId: r.sessionId, agentId: r.agentId })));
-  } catch { return; }
+  // One batched call PER MACHINE. Asking a single machine about every entry would report another
+  // machine's conversations as missing — which the row renders as "this session's history is gone".
+  const byMachine = new Map<string, PersistedSession[]>();
+  for (const entry of list) {
+    const machineId = entry.machineId ?? LOCAL_MACHINE_ID;
+    const bucket = byMachine.get(machineId);
+    if (bucket) bucket.push(entry); else byMachine.set(machineId, [entry]);
+  }
+  const gone = new Set<string>();
+  let anyAnswered = false;
+  await Promise.all([...byMachine].map(async ([machineId, entries]) => {
+    // An unreachable machine cannot say anything about its conversations, and silence must never be
+    // read as "gone" — those rows are simply left as they are.
+    if (machineId !== LOCAL_MACHINE_ID && machineState(machineId) !== 'connected') return;
+    let exists: boolean[];
+    try {
+      exists = await deckFor(machineId).cockpit.sessionsExist(entries.map((r) => ({ projectPath: r.projectPath, sessionId: r.sessionId, agentId: r.agentId })));
+    } catch { return; }
+    anyAnswered = true;
+    entries.forEach((r, i) => { if (exists[i] === false) gone.add(prevKey(r)); });
+  }));
+  if (!anyAnswered) return;
   missingConversations.clear();
-  list.forEach((r, i) => { if (exists[i] === false) missingConversations.add(prevKey(r)); });
+  for (const key of gone) missingConversations.add(key);
   renderList();
 }
 
 /** The currently-live sessions in PersistedSession form (for saving / update auto-restore). */
 export function liveSessionsForPersist(): PersistedSession[] {
-  return [...live.values()].map((l) => ({ tileId: l.tileId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned, lastActiveMs: liveActivityAt(l) }));
+  return [...live.values()].map((l) => ({ tileId: l.tileId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned, lastActiveMs: liveActivityAt(l), machineId: l.machineId === LOCAL_MACHINE_ID ? undefined : l.machineId }));
 }
 /** How many cockpit sessions are live right now (for the update-restart button label). */
 export function liveSessionCount(): number { return live.size; }
@@ -270,6 +289,10 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
     // The same facts the old cockpit row carried: branch (+ uncommitted count), provider, model, and
     // context %. Dropping the model made two sessions of the same repo indistinguishable at a glance.
     const detailBits = [`${session.branch ?? '—'}${session.dirty > 0 ? ` ✎${session.dirty}` : ''}`, providerName(session.agentId)];
+    // Which machine this terminal is actually on — shown ONLY when it is not this one, so a
+    // single-machine sidebar reads exactly as it did before. Without it two sessions of the same
+    // repository on two machines are indistinguishable, and typing into the wrong one is silent.
+    if (item.machineId !== LOCAL_MACHINE_ID) detailBits.unshift(`⇄ ${machineName(item.machineId)}`);
     const model = friendlyModel(item.meta?.model ?? null);
     if (model) detailBits.push(model);
     const context = contextPercent(item.meta?.contextTokens ?? 0, windowFor(item.meta));
@@ -453,7 +476,13 @@ async function createSession(p: OpenReq): Promise<boolean> {
         // — click opens the OS default app (inert-content extensions only, re-checked in main).
         ...findFilePathLinks(rows).filter(onRow).map((h) => ({
           range: toRange(h), text: h.url,
-          activate: (_e: MouseEvent, text: string) => { void window.devdeck.cockpit.openFile(p.path, text); },
+          activate: (_e: MouseEvent, text: string) => {
+            // A remote session's paths belong to the OTHER machine. Opening them here would either
+            // fail the allowlist or — far worse — open a same-named file that exists locally and is
+            // entirely unrelated work. Refuse and say why rather than open the wrong thing.
+            if (machineId !== LOCAL_MACHINE_ID) { toast(tr('cockpit.remote_file_unavailable', { machine: machineName(machineId) })); return; }
+            void window.devdeck.cockpit.openFile(p.path, text);
+          },
         })),
       ];
       callback(links.length ? links : undefined);
@@ -471,6 +500,10 @@ async function createSession(p: OpenReq): Promise<boolean> {
       // we inject as text — Claude Code reads an image off a path even where native clipboard-image paste
       // can't (e.g. Windows). No image on the clipboard → fall back to the normal text paste.
       window.devdeck.clipboard.readImage().then((imgPath) => {
+        // The image trick writes a temp file HERE and injects its path, which an agent on another
+        // machine cannot read. Pasting the path anyway would hand it a filename that silently
+        // resolves to nothing — so say what happened and paste nothing.
+        if (imgPath && machineId !== LOCAL_MACHINE_ID) { toast(tr('cockpit.remote_image_unsupported')); return; }
         if (imgPath) { term.paste(imgPath + ' '); toast(tr('cockpit.image_pasted')); return; }
         window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
       });
@@ -501,11 +534,14 @@ async function createSession(p: OpenReq): Promise<boolean> {
     }, 50);
   });
   const { cols, rows } = term;
+  const machineId = p.machineId ?? LOCAL_MACHINE_ID;
   // Main answers a failed open with id:'' (allowlist refusal / pty spawn error) — but guard the invoke
   // itself too, so a reject can't leak the terminal we already mounted or abort a restore-all loop.
   let res: { id: string; agentId: AgentId; sessionId: string | null };
   try {
-    res = await window.devdeck.cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, mode: p.mode, agentId: p.agentId });
+    // The machine that owns the project opens it. A remote answer carries an id already qualified
+    // with that machine, which is what lets input/resize/close below stay machine-agnostic.
+    res = await deckFor(machineId).cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, mode: p.mode, agentId: p.agentId });
   } catch {
     res = { id: '', agentId: 'claude', sessionId: null };
   }
@@ -520,7 +556,7 @@ async function createSession(p: OpenReq): Promise<boolean> {
   // its pin + label when the open request has none (deck/board opens don't know about pins).
   const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { tileId: p.tileId, label: p.label ?? null, pinned: !!p.pinned });
   restorable = adopted.rest;
-  live.set(res.id, { tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now() });
+  live.set(res.id, { machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now() });
   select(res.id);
   updateRailBadge();
   persist();
@@ -536,7 +572,7 @@ async function refreshMeta(id: string): Promise<void> {
   // Only ask the (opt-in, paid) AI summarizer to generate once the turn is over: mid-turn the log is
   // half-written and every 30s tick would spend another call. Main still returns the cached line.
   const wantAi = l.session.activity !== 'working';
-  try { meta = await window.devdeck.cockpit.sessionMeta(l.session.projectPath, l.openedSessionId, l.session.agentId, wantAi); } catch { return; }
+  try { meta = await deckFor(l.machineId).cockpit.sessionMeta(l.session.projectPath, l.openedSessionId, l.session.agentId, wantAi); } catch { return; }
   if (l.meta?.model === meta.model && l.meta?.activeMs === meta.activeMs && l.meta?.contextTokens === meta.contextTokens
     && l.meta?.summary === meta.summary) return; // unchanged → no re-render
   l.meta = meta;
@@ -556,7 +592,7 @@ async function refreshSessionId(id: string): Promise<void> {
   const claimedIds = [...live.values()].filter((o) => o !== l).map((o) => o.openedSessionId).filter((x): x is string => !!x);
   let next: string | null = null;
   try {
-    next = await window.devdeck.cockpit.liveSessionId(l.session.projectPath, {
+    next = await deckFor(l.machineId).cockpit.liveSessionId(l.session.projectPath, {
       currentId: l.openedSessionId, claimedIds, openedAtMs: l.openedAt, sinceMs: since, lastDataAtMs: l.lastDataAt, agentId: l.session.agentId,
     });
   } catch { return; }
@@ -577,7 +613,7 @@ async function refreshSessionId(id: string): Promise<void> {
 async function refreshProvider(id: string): Promise<void> {
   const l = live.get(id); if (!l || l.session.status === 'exited') return;
   let actual: AgentId | null = null;
-  try { actual = await window.devdeck.cockpit.liveAgent(id); } catch { return; }
+  try { actual = await deckFor(l.machineId).cockpit.liveAgent(id); } catch { return; }
   if (!actual || actual === l.session.agentId || !live.has(id)) return; // tile may have closed mid-await
   l.session.agentId = actual;
   l.openedSessionId = null;
@@ -602,7 +638,7 @@ export async function refreshLiveSessionIds(): Promise<void> {
 async function refreshGit(id: string): Promise<void> {
   const l = live.get(id); if (!l) return;
   let info: { branch: string | null; dirty: number } | null;
-  try { info = await window.devdeck.cockpit.gitInfo(l.session.projectPath); } catch { return; }
+  try { info = await deckFor(l.machineId).cockpit.gitInfo(l.session.projectPath); } catch { return; }
   if (!info) return; // main refused the path (allowlist guard)
   if (l.session.branch === info.branch && l.session.dirty === info.dirty) return; // unchanged → no re-render
   l.session.branch = info.branch;
@@ -1117,10 +1153,20 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     // Conversations the other not-yet-restored entries are waiting for — an id-less entry must not
     // take one of those out from under them.
     const reserved = new Set(restorable.map((r) => r.sessionId).filter((x): x is string => !!x));
+    // A saved entry names a project by PATH, and the same path exists on both machines — so the
+    // conversation list has to come from the machine the tile actually ran on. Reading it locally
+    // would resolve the tile against unrelated work that happens to live at the same path.
+    const machineId = entry.machineId ?? LOCAL_MACHINE_ID;
+    if (machineId !== LOCAL_MACHINE_ID && machineState(machineId) !== 'connected') {
+      // Its machine is not reachable. Leave the entry saved and say so, rather than opening a local
+      // terminal in a path that means something different here.
+      toast(tr('cockpit.restore_machine_offline', { name: entry.label || entry.name, machine: machineName(machineId) }));
+      throw new Error('machine offline');
+    }
     let ids: string[] = [];
-    try { ids = await window.devdeck.cockpit.sessionIds(entry.projectPath, owner); } catch { ids = []; }
+    try { ids = await deckFor(machineId).cockpit.sessionIds(entry.projectPath, owner); } catch { ids = []; }
     const target = resolveRestoreTarget(entry, ids, liveIds, reserved);
-    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, tileId: entry.tileId, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner });
+    const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, tileId: entry.tileId, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner, machineId });
     if (ok) {
       // Say why the tile is empty — whether its conversation was deleted or was never recorded.
       // Silence here would read as "my session lost its history".

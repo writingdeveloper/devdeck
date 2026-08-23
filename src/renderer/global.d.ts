@@ -18,6 +18,49 @@ declare global {
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
       getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean; sessionSummary: boolean; aiSessionSummary: boolean }>;
+      link: {
+        hostStatus(): Promise<import('../main/link/linkService').HostStatus>;
+        setHostMode(on: boolean): Promise<import('../main/link/linkService').HostStatus>;
+        setPort(port: number): Promise<import('../main/link/linkService').HostStatus>;
+        createInvite(permissions?: import('../shared/link/permissions').LinkPermission[]): Promise<import('../main/link/linkService').HostStatus>;
+        revokeInvite(): Promise<import('../main/link/linkService').HostStatus>;
+        machines(): Promise<import('../main/link/linkService').MachineStatus[]>;
+        addMachine(code: string): Promise<
+          | { ok: true; machine: import('../main/link/linkService').MachineStatus }
+          | { ok: false; problem: import('../main/link/inviteCode').InviteProblem | 'dial'; failure?: import('../main/link/clientLink').DialFailure }>;
+        removeMachine(machineId: string): Promise<void>;
+        setDevicePermissions(fingerprint: string, permissions: import('../shared/link/permissions').LinkPermission[]): Promise<void>;
+        revokeDevice(fingerprint: string): Promise<void>;
+        disconnectDevice(fingerprint: string): Promise<void>;
+        clipboardInvite(): Promise<{ code: string; machineName: string } | null>;
+        log(limit?: number): Promise<import('../main/link/hostServer').HostLogEntry[]>;
+        clearLog(): Promise<void>;
+        onChanged(cb: () => void): void;
+      };
+      /** The same deck calls, aimed at a paired machine. Local work keeps using the top-level calls. */
+      machine(machineId: string): {
+        listProjects(): Promise<ProjectViewModel[]>;
+        projectMemory(path: string, fresh?: boolean): Promise<import('../shared/types').ProjectMemory>;
+        setNote(path: string, note: string): Promise<void>;
+        setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
+        setPinned(path: string, pinned: boolean): Promise<void>;
+        setHidden(path: string, hidden: boolean): Promise<void>;
+        usageReport(sinceMs: number): Promise<import('../shared/types').UsageReport>;
+        usageSnapshot(): Promise<unknown>;
+        getSettings(): Promise<unknown>;
+        getFolders(): Promise<import('../shared/types').Folder[]>;
+        availableAgents(): Promise<import('../shared/types').AgentId[]>;
+        appInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean; machineId: string; machineName: string }>;
+        cockpit: {
+          open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
+          sessionMeta(projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean): Promise<unknown>;
+          sessionIds(projectPath: string, agentId?: string): Promise<string[]>;
+          sessionsExist(items: { projectPath: string; sessionId: string | null; agentId?: string }[]): Promise<boolean[]>;
+          liveSessionId(projectPath: string, opts: unknown): Promise<string | null>;
+          liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;
+          gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
+        };
+      };
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
       setContextWindow(w: number): Promise<void>;
       setTrayCounts(counts: { attention?: number; turn?: number; overdue?: number }): void;
@@ -46,7 +89,7 @@ declare global {
       installUpdate(): Promise<void>;
       setPendingAutoRestore(sessions: import('../shared/cockpitPersist').PersistedSession[]): Promise<void>;
       consumeAutoRestore(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
-      getAppInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean }>;
+      getAppInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean; machineId: string; machineName: string }>;
       openExternal(url: string): Promise<void>;
       checkForUpdates(): Promise<void>;
       windowControls: {

@@ -10,9 +10,17 @@ let cockpitEnabled = false;
 /** Set by boot() once the platform is known — the cockpit is Windows-only (see isCockpitPlatform). */
 export function setCockpitEnabled(enabled: boolean): void { cockpitEnabled = enabled; }
 
-/** Route "open" to the embedded cockpit (Windows) or the external terminal (other OSes). */
+/**
+ * Route "open" to the embedded cockpit (Windows) or the external terminal (other OSes).
+ *
+ * A session on ANOTHER machine always goes to the cockpit, whatever this one runs. The pty lives on
+ * the host, so the local platform's lack of node-pty is irrelevant — and the external-terminal
+ * fallback would be actively wrong, launching a shell here in a path that belongs over there.
+ * (This is also what lets a macOS or Linux viewer drive a Windows host's terminals.)
+ */
 export function openInTerminal(reqs: OpenReq[]): void {
-  if (cockpitEnabled) { void openProjectsInCockpit(reqs); return; }
+  const anyRemote = reqs.some((r) => !!r.machineId && r.machineId !== 'local');
+  if (cockpitEnabled || anyRemote) { void openProjectsInCockpit(reqs); return; }
   // agentId travels to the external terminal too — a resumed conversation must be handed to the
   // provider that owns it, not to whatever agent is globally selected.
   void window.devdeck.open(reqs.map((r) => ({ path: r.path, sessionId: r.sessionId ?? null, agentId: r.agentId, mode: r.mode })));

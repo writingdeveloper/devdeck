@@ -32,7 +32,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "qa": "npm run build && node qa/screenshot.mjs",
-    "qa:audit": "npm run build && node qa/audit.mjs"
+    "qa:audit": "npm run build && node qa/audit.mjs",
+    "qa:link": "npm run build && node qa/link.mjs"
   },
   "build": {
     "appId": "com.soursea.devdeck",

@@ -4,6 +4,7 @@ import type { Folder } from '../shared/types';
 import { IDLE_HOLD_CHOICES } from '../shared/shutdownIdle';
 import { basename, parentLabel } from '../shared/paths';
 import { createIcon } from './icons';
+import { renderLinkSettings } from './settingsLink';
 
 let host: HTMLElement;
 let onChangedCb: () => void = () => {};
@@ -176,6 +177,11 @@ async function render(): Promise<void> {
   }
 
   const info = await window.devdeck.getAppInfo();
+  // DevDeck Link. Rendered before About because it is a thing you configure, not a thing you read;
+  // absent entirely when the link could not start, rather than present and inert.
+  const linkSection = await renderLinkSettings(() => { void render(); });
+  if (linkSection) host.appendChild(field('link.section', linkSection));
+
   const about = document.createElement('div'); about.className = 'about';
   const aTitle = document.createElement('h3'); aTitle.className = 'about-title'; aTitle.textContent = tr('about.title');
   const ver = document.createElement('div'); ver.className = 'about-ver'; ver.textContent = `DevDeck v${info.version}`;

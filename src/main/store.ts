@@ -1,13 +1,18 @@
 import { readFileSync, writeFileSync, existsSync, renameSync, copyFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import type { StoreEntry, Folder } from '../shared/types';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import { sanitizeTodos, type Todo } from '../shared/tasks';
 import { sanitizeWindowBounds, type WindowBounds } from '../shared/windowBounds';
+import { LOCAL_MACHINE_ID, isValidMachineId, sanitizeMachineName } from '../shared/link/machine';
+import { sanitizeKnownHosts, sanitizePairedDevices, type KnownHost, type PairedDevice } from './link/devices';
+import { LINK_DEFAULT_PORT } from './link/protocol';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; windowBounds?: WindowBounds };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
 }
 
 const EMPTY: StoreEntry = {
@@ -163,6 +168,63 @@ export class Store {
     const clean = sanitizeWindowBounds(bounds);
     if (!clean) return;
     this.state.settings = { ...(this.state.settings ?? {}), windowBounds: clean };
+    this.save();
+  }
+
+  /**
+   * This install's stable identity, generated once and kept forever. It is what a paired machine
+   * addresses, and what machine-scoped keys are built from, so it must survive every restart — a
+   * regenerated id would orphan the other machine's pairing and every remote tile pointing here.
+   */
+  getMachineId(): string {
+    const existing = this.state.settings?.machineId;
+    if (isValidMachineId(existing) && existing !== LOCAL_MACHINE_ID) return existing;
+    const machineId = randomUUID();
+    this.state.settings = { ...(this.state.settings ?? {}), machineId };
+    this.save();
+    return machineId;
+  }
+
+  /** Display name for this machine; the hostname is what the person already calls it. */
+  getMachineName(): string { return sanitizeMachineName(this.state.settings?.machineName, hostname()); }
+  setMachineName(name: string): void {
+    this.state.settings = { ...(this.state.settings ?? {}), machineName: sanitizeMachineName(name, hostname()) };
+    this.save();
+  }
+
+  // ---- DevDeck Link ----
+  // Accepting connections is OFF until someone turns it on. A remote shell is not something an
+  // update should quietly switch on for an existing install.
+  getLinkHostMode(): boolean { return this.state.settings?.linkHostMode === true; }
+  setLinkHostMode(on: boolean): void {
+    this.state.settings = { ...(this.state.settings ?? {}), linkHostMode: on === true };
+    this.save();
+  }
+
+  getLinkPort(): number {
+    const port = this.state.settings?.linkPort;
+    return Number.isInteger(port) && (port as number) >= 1 && (port as number) <= 65535 ? (port as number) : LINK_DEFAULT_PORT;
+  }
+  setLinkPort(port: number): void {
+    this.state.settings = { ...(this.state.settings ?? {}), linkPort: this.coercePort(port) };
+    this.save();
+  }
+  private coercePort(port: number): number {
+    return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : LINK_DEFAULT_PORT;
+  }
+
+  /** Devices allowed to connect TO this machine. Sanitized on both read and write: a corrupted entry
+   *  must degrade to "cannot connect", never to "connects with more access than was granted". */
+  getPairedDevices(): PairedDevice[] { return sanitizePairedDevices(this.state.settings?.linkDevices); }
+  setPairedDevices(devices: PairedDevice[]): void {
+    this.state.settings = { ...(this.state.settings ?? {}), linkDevices: sanitizePairedDevices(devices) };
+    this.save();
+  }
+
+  /** Machines this one connects to, with the address that last answered. */
+  getKnownHosts(): KnownHost[] { return sanitizeKnownHosts(this.state.settings?.linkHosts, this.getLinkPort()); }
+  setKnownHosts(hosts: KnownHost[]): void {
+    this.state.settings = { ...(this.state.settings ?? {}), linkHosts: sanitizeKnownHosts(hosts, this.getLinkPort()) };
     this.save();
   }
 

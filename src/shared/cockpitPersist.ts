@@ -1,4 +1,5 @@
 import { basename } from './paths';
+import { LOCAL_MACHINE_ID, isValidMachineId } from './link/machine';
 
 /** A cockpit session remembered across restarts, enough to re-open it via the agent's resume command. */
 export interface PersistedSession {
@@ -12,6 +13,14 @@ export interface PersistedSession {
   /** Epoch ms of the tile's last activity. The sidebar orders by it, so it has to outlive the restart
    *  that turned the tile back into a saved entry — absent (pre-v1.32 state.json) sorts last by name. */
   lastActiveMs?: number;
+  /**
+   * Which machine the terminal actually ran on; absent means this one.
+   *
+   * Load-bearing, not decorative: a saved entry names a project by PATH, and the same path exists on
+   * both machines. Restoring a remote tile without this opens a local session at a path that may not
+   * exist here — or, worse, one that does and belongs to entirely different work.
+   */
+  machineId?: string;
 }
 
 /** Identity available at the Cockpit navigation boundary. Runtime IDs distinguish id-less live tiles. */
@@ -263,6 +272,10 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
       label,
       pinned: o.pinned === true ? true : undefined, // omit when not pinned (keeps state.json minimal)
       lastActiveMs,
+      // Narrowed here rather than trusted: an unreadable id must mean "this machine", never "some
+      // machine" — resolving it to a remote would send a project path to a host that has different
+      // work at that path.
+      machineId: isValidMachineId(o.machineId) && o.machineId !== LOCAL_MACHINE_ID ? o.machineId : undefined,
     });
     if (out.length >= MAX_PERSISTED) break;
   }
