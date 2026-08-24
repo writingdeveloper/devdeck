@@ -11,7 +11,7 @@ See every repository, live agent session, next task, local usage estimate, and r
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-43-47848F)
-![Tests](https://img.shields.io/badge/tests-1079%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-1085%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 </div>
@@ -143,8 +143,7 @@ reservation is the answer — not mDNS.
 - Every connection, refusal and denied call is recorded in **Settings → Machines → Connection history**.
 - While a viewer is attached, the host will not idle-shut-down or sleep.
 
-Not yet supported across machines: pasting an image into a remote session, and opening a remote
-file or folder in a local application.
+Not yet supported across machines: opening a remote file or folder in a local application.
 
 ## Build from source
 
