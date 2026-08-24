@@ -49,6 +49,20 @@ describe('sanitizeMachineName', () => {
   it('caps the length so one machine cannot push the others off the row', () => {
     expect(sanitizeMachineName('x'.repeat(200), 'y')).toHaveLength(40);
   });
+
+  it('trims a long generated hostname from the middle, keeping what distinguishes it', () => {
+    // A real macOS CI runner. Machines like these share a prefix and differ only in the trailing id,
+    // so cutting the tail would make two of them display identically — and this label is what tells
+    // you which terminal you are about to type into.
+    const a = 'sat12-bq154-ac99a524-1123-4271-b1f4-a8122e02bd5b-5691A934C60D.local';
+    const b = 'sat12-bq154-ac99a524-1123-4271-b1f4-a8122e02bd5b-0000DEADBEEF.local';
+    expect(sanitizeMachineName(a, 'x')).toHaveLength(40);
+    expect(sanitizeMachineName(a, 'x')).not.toBe(sanitizeMachineName(b, 'x'));
+    expect(sanitizeMachineName(a, 'x')).toContain('…');
+    // The end of the name survives — that is the half that differs between two managed machines.
+    expect(sanitizeMachineName(a, 'x').endsWith(a.slice(-12))).toBe(true);
+    expect(sanitizeMachineName(b, 'x').endsWith(b.slice(-12))).toBe(true);
+  });
 });
 
 describe('machineScopedKey', () => {

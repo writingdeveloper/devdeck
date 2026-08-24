@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'no
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from './store';
+import { sanitizeMachineName } from '../shared/link/machine';
 
 let dir: string;
 let file: string;
@@ -318,12 +319,18 @@ describe('session summary settings', () => {
 
   it('defaults the machine name to the hostname and sanitizes what is set', () => {
     const store = new Store(file);
-    expect(store.getMachineName()).toBe(hostname());
+    // Derived from the hostname, not literally equal to it: a long generated hostname (macOS CI
+    // runners have 67-character ones) is trimmed for display, and asserting raw equality here passed
+    // on a developer's short hostname and failed on the build machine.
+    expect(store.getMachineName()).toBe(sanitizeMachineName(hostname(), 'DevDeck'));
     store.setMachineName('  Studio  Desktop ');
     expect(new Store(file).getMachineName()).toBe('Studio Desktop');
     store.setMachineName('lap\ntop'); // control chars are drawn in the sidebar — strip, do not escape
     expect(store.getMachineName()).toBe('lap top');
     store.setMachineName('   ');
-    expect(store.getMachineName()).toBe(hostname()); // empty falls back rather than showing a blank chip
+    // Derived from the hostname, not literally equal to it: a long generated hostname (macOS CI
+    // runners have 67-character ones) is trimmed for display, and asserting raw equality here passed
+    // on a developer's short hostname and failed on the build machine.
+    expect(store.getMachineName()).toBe(sanitizeMachineName(hostname(), 'DevDeck')); // empty falls back rather than showing a blank chip
   });
 });

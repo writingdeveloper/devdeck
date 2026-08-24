@@ -39,13 +39,28 @@ const MAX_MACHINE_NAME = 40;
  * disturb that layout.
  */
 export function sanitizeMachineName(raw: unknown, fallback: string): string {
-  const text = typeof raw === 'string' ? raw : '';
+  const cleaned = cleanName(typeof raw === 'string' ? raw : '');
+  if (cleaned) return trimForDisplay(cleaned);
+  return trimForDisplay(cleanName(fallback)) || 'DevDeck';
+}
+
+function cleanName(value: unknown): string {
   // eslint-disable-next-line no-control-regex
-  const cleaned = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_MACHINE_NAME);
-  if (cleaned) return cleaned;
-  // eslint-disable-next-line no-control-regex
-  const safeFallback = String(fallback).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, MAX_MACHINE_NAME);
-  return safeFallback || 'DevDeck';
+  return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Trim an over-long name from the MIDDLE, not the end.
+ *
+ * Machine-managed hostnames are long, share a prefix, and differ only in a trailing id — a macOS CI
+ * runner is called `sat12-bq154-ac99a524-1123-4271-b1f4-a8122e02bd5b-5691A934C60D.local`. Cutting the
+ * tail off names like those makes two machines display identically, which is the one thing this label
+ * exists to prevent: it is what tells you which machine's terminal you are about to type into.
+ */
+function trimForDisplay(text: string): string {
+  if (text.length <= MAX_MACHINE_NAME) return text;
+  const tail = 12;
+  return `${text.slice(0, MAX_MACHINE_NAME - tail - 1)}…${text.slice(-tail)}`;
 }
 
 /**
