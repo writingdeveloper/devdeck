@@ -437,6 +437,24 @@ export async function openProjectsInCockpit(projects: OpenReq[]): Promise<void> 
 }
 
 /** Open a session for the request; false = refused or failed (already cleaned up + reported via toast). */
+/**
+ * Send a clipboard image to the machine running this session, then inject the path it landed at.
+ *
+ * Every failure is reported. A silently-not-pasted screenshot is the worst outcome here: the person
+ * carries on describing an image the agent was never given, and only finds out several turns later.
+ */
+async function pasteImageToRemote(machineId: string, term: Terminal): Promise<void> {
+  let payload: { tooLarge: boolean; bytes: string | null } | null = null;
+  try { payload = await window.devdeck.clipboard.readImageBytes(); } catch { payload = null; }
+  if (!payload) { toast(tr('cockpit.remote_image_failed')); return; }
+  if (payload.tooLarge || !payload.bytes) { toast(tr('cockpit.remote_image_too_large')); return; }
+  let remotePath: string | null = null;
+  try { remotePath = await window.devdeck.machine(machineId).cockpit.receiveImage(payload.bytes); } catch { remotePath = null; }
+  if (!remotePath) { toast(tr('cockpit.remote_image_failed')); return; }
+  term.paste(remotePath + ' ');
+  toast(tr('cockpit.image_pasted'));
+}
+
 async function createSession(p: OpenReq): Promise<boolean> {
   const el = document.createElement('div'); el.className = 'ck-term'; termsEl.appendChild(el);
   // Make this terminal visible BEFORE fitting: FitAddon measures 0 on a display:none element,
@@ -500,10 +518,10 @@ async function createSession(p: OpenReq): Promise<boolean> {
       // we inject as text — Claude Code reads an image off a path even where native clipboard-image paste
       // can't (e.g. Windows). No image on the clipboard → fall back to the normal text paste.
       window.devdeck.clipboard.readImage().then((imgPath) => {
-        // The image trick writes a temp file HERE and injects its path, which an agent on another
-        // machine cannot read. Pasting the path anyway would hand it a filename that silently
-        // resolves to nothing — so say what happened and paste nothing.
-        if (imgPath && machineId !== LOCAL_MACHINE_ID) { toast(tr('cockpit.remote_image_unsupported')); return; }
+        // A local paste writes the temp file here and injects its path. For a session on another
+        // machine that path resolves to nothing, so the BYTES travel and the file is written where
+        // the agent can actually read it — then that machine's path is what gets injected.
+        if (imgPath && machineId !== LOCAL_MACHINE_ID) { void pasteImageToRemote(machineId, term); return; }
         if (imgPath) { term.paste(imgPath + ' '); toast(tr('cockpit.image_pasted')); return; }
         window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
       });

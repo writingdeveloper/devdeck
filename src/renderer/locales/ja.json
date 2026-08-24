@@ -410,5 +410,7 @@
   "cockpit.remote_file_unavailable": "そのファイルはこの PC ではなく {machine} にあります。",
   "cockpit.remote_image_unsupported": "ほかのデバイスのセッションへの画像貼り付けはまだ対応していません。",
   "proj.remote_local_only": "そのフォルダーは {machine} にあります。この操作はこの PC のプロジェクトでのみ使えます。",
-  "usage.machine_title": "{machine} のローカル使用量"
+  "usage.machine_title": "{machine} のローカル使用量",
+  "cockpit.remote_image_too_large": "この画像は大きすぎてほかのデバイスに送れません (5MB 制限)。",
+  "cockpit.remote_image_failed": "画像をほかのデバイスに送れませんでした — 何も貼り付けていません。"
 }

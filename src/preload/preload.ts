@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     writeText: (text: string) => ipcRenderer.send('clipboard:writeText', text),
     readText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
     readImage: (): Promise<string | null> => ipcRenderer.invoke('clipboard:readImage'),
+    readImageBytes: (): Promise<{ tooLarge: boolean; bytes: string | null } | null> => ipcRenderer.invoke('clipboard:readImageBytes'),
   },
   cockpit: {
     open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }) =>
@@ -145,6 +146,7 @@ contextBridge.exposeInMainWorld('devdeck', {
       liveSessionId: (projectPath: string, opts: unknown) => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveSessionId', [projectPath, opts]),
       liveAgent: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveAgent', [id]),
       gitInfo: (projectPath: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:gitInfo', [projectPath]),
+      receiveImage: (base64: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:receiveImage', [base64]),
     },
   }),
   setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),

@@ -64,6 +64,9 @@ const CLAUDE_TASKS = join(homedir(), '.claude', 'tasks');
 const CODEX_SESSIONS = join(homedir(), '.codex', 'sessions');
 const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
 const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
+/** Paste-image ceiling. A screenshot is around a megabyte; this is generous and still far below the
+ *  link's frame limit once base64 expansion is counted. */
+const MAX_PASTE_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export interface DeckApiConfig {
   win: BrowserWindow;
@@ -714,6 +717,39 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     if (img.isEmpty()) return null;
     const file = join(tmpdir(), `${PASTE_IMAGE_PREFIX}${randomUUID()}.png`);
     try { writeFileSync(file, img.toPNG()); } catch { return null; }
+    return file;
+  });
+  /** The same clipboard image, as bytes, so it can be sent to the machine running the session. */
+  invoke('clipboard:readImageBytes', localOnly, () => {
+    const img = clipboard.readImage();
+    if (img.isEmpty()) return null;
+    const png = img.toPNG();
+    // Bounded well under the protocol's frame ceiling, base64 expansion included. A screenshot is
+    // ~1MB; anything past this is not a paste, and refusing beats a dropped connection.
+    if (png.length > MAX_PASTE_IMAGE_BYTES) return { tooLarge: true, bytes: null };
+    return { tooLarge: false, bytes: png.toString('base64') };
+  });
+  /**
+   * Land a pasted image on THIS machine and hand back its path.
+   *
+   * The local paste trick writes a temp file and injects its path, because an agent reads an image
+   * off a path even where it cannot reach the OS clipboard. Across machines that path means nothing,
+   * so the bytes travel and the file is written where the agent can actually read it.
+   *
+   * Deliberately narrow: it accepts a PNG and nothing else, writes only into the OS temp directory
+   * under the name the existing sweeper already cleans up, and never takes a caller-supplied path.
+   */
+  invoke('cockpit:receiveImage', allow('control'), (base64: unknown) => {
+    if (typeof base64 !== 'string' || base64.length > MAX_PASTE_IMAGE_BYTES * 2) return null;
+    let png: Buffer;
+    try { png = Buffer.from(base64, 'base64'); } catch { return null; }
+    // PNG magic. Without this the method would write arbitrary attacker-chosen bytes to a
+    // predictable location on a machine that merely granted "type in sessions".
+    const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    if (png.length < PNG_MAGIC.length || !png.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) return null;
+    if (png.length > MAX_PASTE_IMAGE_BYTES) return null;
+    const file = join(tmpdir(), `${PASTE_IMAGE_PREFIX}${randomUUID()}.png`);
+    try { writeFileSync(file, png); } catch { return null; }
     return file;
   });
 

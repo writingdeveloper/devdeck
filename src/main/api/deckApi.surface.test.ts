@@ -162,3 +162,44 @@ describe('routing a call to another machine', () => {
     expect(value.method).toBe('projects:list');
   });
 });
+
+describe('receiving a pasted image from another machine', () => {
+  const png = (body = Buffer.alloc(16)) =>
+    Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), body]).toString('base64');
+
+  it('needs the permission that covers typing into a session, not mere observation', () => {
+    // It writes a file on the host. An observer must not be able to.
+    expect(mayCallRemotely(api['cockpit:receiveImage'], ['observe'])).toBe(false);
+    expect(mayCallRemotely(api['cockpit:receiveImage'], ['control'])).toBe(true);
+  });
+
+  it('refuses anything that is not a PNG', () => {
+    // Without the magic check this method writes attacker-chosen bytes to a predictable location on a
+    // machine that granted nothing more than "type in sessions".
+    for (const payload of [
+      Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03]).toString('base64'), // a PE header
+      Buffer.from('#!/bin/sh rm -rf /').toString('base64'),
+      Buffer.from('<svg onload=alert(1)>').toString('base64'),
+      '', 'not base64 at all!!', Buffer.alloc(4).toString('base64'),
+    ]) {
+      expect(api['cockpit:receiveImage'].handler(payload), payload.slice(0, 12)).toBeNull();
+    }
+  });
+
+  it('refuses a non-string payload rather than coercing it', () => {
+    for (const payload of [null, undefined, 42, {}, ['a']]) {
+      expect(api['cockpit:receiveImage'].handler(payload), String(payload)).toBeNull();
+    }
+  });
+
+  it('refuses an oversized payload before decoding it', () => {
+    // The ceiling exists twice over: a huge frame would break the link, and decoding first would let
+    // a caller spend the host's memory to find that out.
+    expect(api['cockpit:receiveImage'].handler('A'.repeat(30 * 1024 * 1024))).toBeNull();
+  });
+
+  it('accepts a real PNG and answers with a path the caller never chose', () => {
+    const written = api['cockpit:receiveImage'].handler(png()) as string | null;
+    expect(written).toMatch(/devdeck-paste-[0-9a-f-]{36}\.png$/);
+  });
+});

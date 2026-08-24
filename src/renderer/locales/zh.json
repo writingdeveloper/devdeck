@@ -410,5 +410,7 @@
   "cockpit.remote_file_unavailable": "该文件位于 {machine}，而不是这台电脑上。",
   "cockpit.remote_image_unsupported": "暂不支持向其他设备上的会话粘贴图片。",
   "proj.remote_local_only": "该文件夹位于 {machine}。此操作仅适用于本机上的项目。",
-  "usage.machine_title": "{machine} 的本地用量"
+  "usage.machine_title": "{machine} 的本地用量",
+  "cockpit.remote_image_too_large": "该图片过大，无法发送到其他设备（限制 5MB）。",
+  "cockpit.remote_image_failed": "无法将图片发送到另一台设备 — 未粘贴任何内容。"
 }

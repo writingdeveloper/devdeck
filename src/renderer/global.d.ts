@@ -60,6 +60,7 @@ declare global {
           liveSessionId(projectPath: string, opts: unknown): Promise<string | null>;
           liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;
           gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
+          receiveImage(base64: string): Promise<string | null>;
         };
       };
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
@@ -105,6 +106,7 @@ declare global {
         writeText(text: string): void;
         readText(): Promise<string>;
         readImage(): Promise<string | null>;
+        readImageBytes(): Promise<{ tooLarge: boolean; bytes: string | null } | null>;
       };
       cockpit: {
         open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: import('../shared/types').AgentId }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
