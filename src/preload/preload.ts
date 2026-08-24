@@ -69,6 +69,11 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.on('cockpit:data', (_e, p) => cb(p)),
     onExit: (cb: (p: { id: string; exitCode: number }) => void) =>
       ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
+    liveSessions: () => ipcRenderer.invoke('cockpit:liveSessions'),
+    sessionBuffer: (id: string) => ipcRenderer.invoke('cockpit:sessionBuffer', id),
+    /** What is running on a machine, announced whenever it changes rather than polled. */
+    onSessions: (cb: (p: { id: string; projectPath: string; sessionId: string | null; agentId: string; startedAtMs: number }[]) => void) =>
+      ipcRenderer.on('cockpit:sessions', (_e, p) => cb(p)),
     loadSessions: () => ipcRenderer.invoke('cockpit:loadSessions'),
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
     sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId, agentId, wantAi),
@@ -119,6 +124,10 @@ contextBridge.exposeInMainWorld('devdeck', {
     log: (limit?: number) => ipcRenderer.invoke('link:log', limit),
     clearLog: () => ipcRenderer.invoke('link:clearLog'),
     onChanged: (cb: () => void) => ipcRenderer.on('link:changed', () => cb()),
+    /** What a paired machine is running, announced when it changes. Carries the machine explicitly:
+     *  an empty list has no ids to read it from, and that is exactly the case that matters. */
+    onSessions: (cb: (p: { machineId: string; sessions: unknown[] }) => void) =>
+      ipcRenderer.on('link:sessions', (_e, p) => cb(p)),
   },
   /** Read the repository URL on the machine that holds it, open it in the browser here. */
   openRemoteRepo: (machineId: string, projectPath: string) => ipcRenderer.invoke('link:openRepo', machineId, projectPath),
@@ -147,6 +156,8 @@ contextBridge.exposeInMainWorld('devdeck', {
       liveAgent: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveAgent', [id]),
       gitInfo: (projectPath: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:gitInfo', [projectPath]),
       receiveImage: (base64: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:receiveImage', [base64]),
+      liveSessions: () => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveSessions', []),
+      sessionBuffer: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionBuffer', [id]),
     },
   }),
   setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),

@@ -487,8 +487,14 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
         id, shellPath, ['-NoExit', '-Command', resolved.command], req.projectPath,
         Math.max(20, req.cols | 0), Math.max(5, req.rows | 0),
         (chunk) => { cfg.shutdown?.noteBusy(); ptyBatch.push(id, chunk); },
-        (e) => { ptyBatch.flush(); emit('cockpit:exit', { id, exitCode: e.exitCode }); }, // flush buffered output before the exit notice
+        (e) => {
+          ptyBatch.flush(); // flush buffered output before the exit notice
+          emit('cockpit:exit', { id, exitCode: e.exitCode });
+          publishSessions();
+        },
+        { projectPath: req.projectPath, sessionId: resolved.sessionId, agentId: a.id },
       );
+      publishSessions();
       cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
       return { id, agentId: a.id, sessionId: resolved.sessionId };
     } catch (err) {
@@ -527,6 +533,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     }
     ptyBatch.drop(target);
     cfg.ptyHost.kill(target);
+    publishSessions();
   });
 
   // Cockpit session persistence: remember the open sessions so a quit/crash doesn't lose them.
@@ -581,6 +588,26 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       summary: summary?.text ?? null, summarySource: summary?.source ?? null,
     };
   });
+  /**
+   * What is running on THIS machine right now.
+   *
+   * Announced rather than polled, and to local and remote consumers through the same channel, because
+   * they have the same problem: a terminal can be started by the person sitting here OR by a paired
+   * machine, and whoever is not looking at the one that started it would otherwise never learn it
+   * exists. The pty table is the single source of truth for "what is running here"; both sides
+   * reconcile against it.
+   */
+  function publishSessions(): void { emit('cockpit:sessions', cfg.ptyHost.list()); }
+  invoke('cockpit:liveSessions', allow('observe'), () => cfg.ptyHost.list());
+  /**
+   * Recent output of a running session, for repainting a terminal being attached to mid-flight.
+   *
+   * Without it, attaching to work already in progress shows a blank rectangle until the agent next
+   * says something — which, while it thinks, can be minutes. Needs the permission that covers driving
+   * a session, not mere observation: this is the session's actual content.
+   */
+  invoke('cockpit:sessionBuffer', allow('control'), (id: string) => cfg.ptyHost.buffer(String(id)));
+
   // ALL of the project's on-disk session ids (mtime-desc) — the restore resolver needs the full set so
   // an older-but-valid saved id is still recognized as existing (listSessions caps at 5, which would
   // hide it and wrongly fall the tile back to the newest conversation).
@@ -624,7 +651,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // sends the tile's timing evidence; this stats the project's session files and adopts a new id only
   // when unambiguous (pickDriftedSessionId). Claude and Codex have per-file session stores;
   // Antigravity does not.
-  invoke('cockpit:liveSessionId', allow('observe'), (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: AgentId }) => {
+  invoke('cockpit:liveSessionId', allow('observe'), (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: AgentId; ptyId?: string }) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return null;
     if (!opts || typeof opts !== 'object') return null;
     const a = agentFor(opts.agentId).id;
@@ -639,13 +666,20 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     // No id at all (the tile's provider was just re-detected, so its old id went with the old
     // provider): nothing to drift FROM, and a `-c` resume writes a file born before the tile opened.
     if (!currentId) return pickAdoptedSessionId(stats, { claimedIds, sinceMs, lastDataAtMs });
-    return pickDriftedSessionId(stats, {
+    const drifted = pickDriftedSessionId(stats, {
       currentId,
       claimedIds,
       openedAtMs: Number(opts.openedAtMs) || 0,
       sinceMs,
       lastDataAtMs,
     });
+    // Recorded on the pty as well, so a machine listing what is running here reports the conversation
+    // a tile actually MOVED to (after /clear) rather than the one it happened to open on.
+    if (drifted && typeof opts.ptyId === 'string' && opts.ptyId) {
+      cfg.ptyHost.note(opts.ptyId, { sessionId: drifted });
+      publishSessions();
+    }
+    return drifted;
   });
 
   // WHICH agent is actually running in a tile right now, read from the pty's process tree. The tile's

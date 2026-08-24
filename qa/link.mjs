@@ -43,6 +43,18 @@ const viewer = await launch('viewer', false);
 const result = {};
 
 try {
+  // --- the host is already working when we connect to it ---
+  const hostProject = await host.win.evaluate(async () => {
+    const projects = await window.devdeck.listProjects();
+    if (!projects.length) return null;
+    const res = await window.devdeck.cockpit.open({
+      projectPath: projects[0].path, sessionId: null, cols: 80, rows: 24, mode: 'new', agentId: 'claude',
+    });
+    return res.id || null;
+  });
+  result.hostStartedSessionFirst = !!hostProject;
+  await new Promise((r) => setTimeout(r, 2500)); // let it print something worth repainting
+
   // --- pair, through the UI ---
   await host.win.click('.rail-item[data-view="settings"]');
   await host.win.waitForSelector('#settings-form .link-block .chip.chip-primary', { timeout: 15000 });
@@ -55,6 +67,21 @@ try {
   await viewer.win.click('#settings-form .link-add-row .chip');
   await viewer.win.waitForFunction(() => document.querySelector('#settings-form .link-state.is-connected') !== null, undefined, { timeout: 20000 });
   result.paired = true;
+
+  // --- a session ALREADY running on the host must arrive here, with its screen ---
+  // The scenario the feature is for: that machine is mid-work when you connect to it. Started BEFORE
+  // pairing so this really tests the pull-on-connect path, not just live announcements.
+  result.adoptedRunningSession = await viewer.win.evaluate(async () => {
+    const deadline = Date.now() + 25000;
+    while (Date.now() < deadline) {
+      const sessions = await window.devdeck.cockpit.loadSessions();
+      if (sessions.some((s) => typeof s.machineId === 'string' && s.machineId.length > 10)) return true;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    return false;
+  });
+  result.adoptedScreenRepainted = await viewer.win.evaluate(() =>
+    [...document.querySelectorAll('.ck-term')].some((n) => (n.textContent || '').trim().length > 0));
 
   // --- the switcher appears only now that a machine is paired ---
   await viewer.win.click('.rail-item[data-view="projects"]');
@@ -107,6 +134,19 @@ try {
   result.streamWorks = streamed.total > 0;
   result.remoteTileId = typeof streamed.seenId === 'string' ? streamed.seenId.slice(0, 5) : null;
   result.idIsQualified = typeof streamed.seenId === 'string' && streamed.seenId.startsWith('link:');
+
+  // --- and the reverse: a session the VIEWER started must appear on the host's own deck ---
+  // Otherwise the person sitting at that machine sees an agent working with no tile to look at, and
+  // loses it entirely on the next restart, since only tiles are persisted.
+  result.hostAdoptedViewerSession = await host.win.evaluate(async () => {
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      const sessions = await window.devdeck.cockpit.loadSessions();
+      if (sessions.length >= 2) return true; // its own, plus the one opened from the other machine
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    return false;
+  });
 
   // --- a note written on a remote project must land THERE, not here ---
   // This is the decisive check for a whole family of silent bugs: everything keyed by a project PATH

@@ -190,7 +190,19 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
       machineId: options.machineId,
       machineName: options.machineName(),
       appVersion: options.appVersion,
-      onEvent: (channel, payload) => options.onRemoteEvent?.(channel, qualifyPayload(entry.host.machineId, channel, payload)),
+      onEvent: (channel, payload) => {
+        // "What is running there" is re-addressed to a channel that NAMES the machine. Deriving it
+        // from the ids would work right up until the interesting case — an empty list, which is how a
+        // machine says its last session ended and has no id to read the machine from.
+        if (channel === 'cockpit:sessions') {
+          options.onRemoteEvent?.('link:sessions', {
+            machineId: entry.host.machineId,
+            sessions: qualifyPayload(entry.host.machineId, channel, payload),
+          });
+          return;
+        }
+        options.onRemoteEvent?.(channel, qualifyPayload(entry.host.machineId, channel, payload));
+      },
       onPty: (sessionId, bytes) => options.onRemotePty?.(qualifyRemoteId(entry.host.machineId, sessionId), bytes),
       onClose: () => {
         entry.link = null;
@@ -240,6 +252,15 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
 
   /** Rewrite session ids inside a pushed event so the viewer sees one flat id space. */
   function qualifyPayload(machineId: string, channel: string, payload: unknown): unknown {
+    // The list of what is running on that machine carries ids minted THERE; every one of them has to
+    // be qualified or the viewer would key them against its own sessions.
+    if (channel === 'cockpit:sessions') {
+      return Array.isArray(payload)
+        ? payload.map((row) => (row && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string'
+          ? { ...(row as object), id: qualifyRemoteId(machineId, (row as { id: string }).id) }
+          : row))
+        : payload;
+    }
     if (!payload || typeof payload !== 'object') return payload;
     if (channel !== 'cockpit:data' && channel !== 'cockpit:exit') return payload;
     const row = payload as { id?: unknown };

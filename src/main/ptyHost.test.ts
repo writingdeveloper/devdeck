@@ -50,3 +50,75 @@ describe('PtyHost', () => {
     expect(proc.write).not.toHaveBeenCalled();
   });
 });
+
+describe('what a machine can say about its own sessions', () => {
+  const fake = () => {
+    const listeners: ((d: string) => void)[] = [];
+    const proc = {
+      pid: 1, onData: (cb: (d: string) => void) => { listeners.push(cb); },
+      onExit: () => {}, write: () => {}, resize: () => {}, kill: () => {},
+    };
+    return { proc, emit: (d: string) => listeners.forEach((cb) => cb(d)) };
+  };
+
+  it('reports what each session IS, not just that one exists', () => {
+    // A machine that knows it runs six terminals but nothing about them cannot answer the one
+    // question another machine asks: what is already going on over there.
+    const f = fake();
+    const host = new PtyHost(() => f.proc);
+    host.create('C:\repo#1', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {},
+      { projectPath: 'C:\repo', sessionId: 'conv-1', agentId: 'claude' });
+    expect(host.list()).toEqual([expect.objectContaining({
+      id: 'C:\repo#1', projectPath: 'C:\repo', sessionId: 'conv-1', agentId: 'claude',
+    })]);
+  });
+
+  it('keeps recent output so an attaching viewer sees the screen, not a blank rectangle', () => {
+    const f = fake();
+    const host = new PtyHost(() => f.proc);
+    host.create('s', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {});
+    f.emit('first line\nbuilding…\n');
+    f.emit('done\n');
+    expect(host.buffer('s')).toContain('done');
+  });
+
+  it('drops the OLDEST output when the buffer fills — the recent part is what matters', () => {
+    // A session streaming for hours must not hold every byte it ever produced, and the bytes worth
+    // keeping are the ones about to be repainted.
+    const f = fake();
+    const host = new PtyHost(() => f.proc);
+    host.create('s', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {});
+    for (let i = 0; i < 40; i++) f.emit('x'.repeat(10_000) + '\n');
+    f.emit('THE-LATEST-LINE\n');
+    const buffer = host.buffer('s');
+    expect(buffer).toContain('THE-LATEST-LINE');
+    expect(buffer.length).toBeLessThanOrEqual(256 * 1024);
+  });
+
+  it('answers emptily for a session it does not have', () => {
+    const host = new PtyHost(() => fake().proc);
+    expect(host.buffer('nope')).toBe('');
+    expect(host.list()).toEqual([]);
+  });
+
+  it('forgets a session once it exits, so the list never advertises a dead terminal', () => {
+    let exit: (e: { exitCode: number }) => void = () => {};
+    const proc = {
+      pid: 1, onData: () => {}, onExit: (cb: (e: { exitCode: number }) => void) => { exit = cb; },
+      write: () => {}, resize: () => {}, kill: () => {},
+    };
+    const host = new PtyHost(() => proc);
+    host.create('s', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {});
+    expect(host.list()).toHaveLength(1);
+    exit({ exitCode: 0 });
+    expect(host.list()).toEqual([]);
+  });
+
+  it('records a conversation the tile drifted to after /clear', () => {
+    const host = new PtyHost(() => fake().proc);
+    host.create('s', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {}, { projectPath: 'C:\repo', sessionId: 'old', agentId: 'claude' });
+    host.note('s', { sessionId: 'new' });
+    expect(host.list()[0].sessionId).toBe('new');
+    host.note('missing', { sessionId: 'x' }); // must not throw for a session that is gone
+  });
+});

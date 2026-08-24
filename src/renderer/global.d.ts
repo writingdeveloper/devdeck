@@ -36,6 +36,7 @@ declare global {
         log(limit?: number): Promise<import('../main/link/hostServer').HostLogEntry[]>;
         clearLog(): Promise<void>;
         onChanged(cb: () => void): void;
+        onSessions(cb: (p: { machineId: string; sessions: import('../main/ptyHost').PtySessionInfo[] }) => void): void;
       };
       openRemoteRepo(machineId: string, projectPath: string): Promise<void>;
       /** The same deck calls, aimed at a paired machine. Local work keeps using the top-level calls. */
@@ -61,6 +62,8 @@ declare global {
           liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;
           gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
           receiveImage(base64: string): Promise<string | null>;
+          liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
+          sessionBuffer(id: string): Promise<string>;
         };
       };
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
@@ -115,6 +118,9 @@ declare global {
         close(id: string): void;
         onData(cb: (p: { id: string; chunk: string }) => void): void;
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
+        liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
+        sessionBuffer(id: string): Promise<string>;
+        onSessions(cb: (p: import('../main/ptyHost').PtySessionInfo[]) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
         sessionMeta(projectPath: string, sessionId: string, agentId?: import('../shared/types').AgentId, wantAi?: boolean): Promise<{ model: string | null; activeMs: number; contextTokens: number; contextWindow: number; summary: string | null; summarySource: import('../shared/sessionSummary').SummarySource | null }>;

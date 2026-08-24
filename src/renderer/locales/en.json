@@ -412,5 +412,6 @@
   "proj.remote_local_only": "That folder is on {machine}. This action only works on projects on this computer.",
   "usage.machine_title": "Local usage on {machine}",
   "cockpit.remote_image_too_large": "That image is too large to send to another machine (5 MB limit).",
-  "cockpit.remote_image_failed": "Could not send the image to the other machine — nothing was pasted."
+  "cockpit.remote_image_failed": "Could not send the image to the other machine — nothing was pasted.",
+  "cockpit.adopted_remote": "Picked up {n} session(s) already running on {machine}."
 }

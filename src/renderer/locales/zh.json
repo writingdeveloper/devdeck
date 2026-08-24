@@ -412,5 +412,6 @@
   "proj.remote_local_only": "该文件夹位于 {machine}。此操作仅适用于本机上的项目。",
   "usage.machine_title": "{machine} 的本地用量",
   "cockpit.remote_image_too_large": "该图片过大，无法发送到其他设备（限制 5MB）。",
-  "cockpit.remote_image_failed": "无法将图片发送到另一台设备 — 未粘贴任何内容。"
+  "cockpit.remote_image_failed": "无法将图片发送到另一台设备 — 未粘贴任何内容。",
+  "cockpit.adopted_remote": "已接入 {machine} 上正在运行的 {n} 个会话。"
 }

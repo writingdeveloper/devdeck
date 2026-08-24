@@ -17,13 +17,16 @@ import { toast } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 import { createIcon, type IconName } from './icons';
-import { deckFor, machineName, machineState, LOCAL_MACHINE_ID } from './machineDeck';
+import { deckFor, machineName, machineState, onMachineConnected, LOCAL_MACHINE_ID } from './machineDeck';
+import { parseRemoteId } from '../shared/link/machine';
+import { basename } from '../shared/paths';
+import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
 interface Live { /** The machine this tile's terminal actually runs on. */ machineId: string; tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number; }
 /** The renderer's display metadata plus the explicit provider launch intent. */
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; }
 
 const live = new Map<string, Live>();
 const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
@@ -122,6 +125,25 @@ export function mountCockpit(): void {
     l.session.status = 'exited'; l.session.activity = 'exited';
     renderList(); renderHeader(); updateRailBadge();
   });
+  // What is running on THIS machine, announced whenever it changes. A paired machine can start a
+  // terminal here, and without adopting it the person sitting at this one would see an agent working
+  // with no tile to look at — and would lose it entirely on the next restart, since only tiles are
+  // persisted.
+  window.devdeck.cockpit.onSessions((sessions) => { void adoptAnnounced(LOCAL_MACHINE_ID, sessions); });
+  void window.devdeck.cockpit.liveSessions()
+    .then((sessions) => adoptAnnounced(LOCAL_MACHINE_ID, sessions))
+    .catch(() => { /* nothing running, or the pty host is unavailable on this platform */ });
+  // The same announcement from a paired machine. Its terminals appear here as they are started over
+  // there, which is the whole point of connecting to a machine that is already working.
+  try {
+    window.devdeck.link.onSessions(({ machineId, sessions }) => {
+      if (machineId) void adoptAnnounced(machineId, sessions);
+    });
+  } catch { /* no link on this machine */ }
+  // And ask outright the moment a machine becomes reachable — the announcement only covers CHANGES
+  // after we are listening, so without this a machine that was already busy stays invisible until it
+  // happens to start or end something.
+  onMachineConnected((machineId) => { void pullMachineSessions(machineId); });
   // Re-fit the active terminal whenever its pane changes size — NOT just on window resize. The
   // always-on usage bar appears/disappears after its async load, resizing #shell (and thus .ck-terms)
   // by ~27px while the user sits on the cockpit; without a re-fit the terminal keeps its old row count
@@ -556,12 +578,18 @@ async function createSession(p: OpenReq): Promise<boolean> {
   // Main answers a failed open with id:'' (allowlist refusal / pty spawn error) — but guard the invoke
   // itself too, so a reject can't leak the terminal we already mounted or abort a restore-all loop.
   let res: { id: string; agentId: AgentId; sessionId: string | null };
-  try {
-    // The machine that owns the project opens it. A remote answer carries an id already qualified
-    // with that machine, which is what lets input/resize/close below stay machine-agnostic.
-    res = await deckFor(machineId).cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, mode: p.mode, agentId: p.agentId });
-  } catch {
-    res = { id: '', agentId: 'claude', sessionId: null };
+  if (p.adoptId) {
+    // Binding to a terminal that is already running — started by the person at that machine, or by
+    // this one before a restart. Nothing is spawned; the tile simply takes ownership of the stream.
+    res = { id: p.adoptId, agentId: p.agentId, sessionId: p.sessionId ?? null };
+  } else {
+    try {
+      // The machine that owns the project opens it. A remote answer carries an id already qualified
+      // with that machine, which is what lets input/resize/close below stay machine-agnostic.
+      res = await deckFor(machineId).cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, mode: p.mode, agentId: p.agentId });
+    } catch {
+      res = { id: '', agentId: 'claude', sessionId: null };
+    }
   }
   if (!res.id) { el.remove(); term.dispose(); if (selectedId) select(selectedId); return false; } // refused/failed — restore prior selection
   const session: CockpitSession = { id: res.id, projectPath: p.path, name: p.name, agentId: res.agentId, status: 'running', staleLevel: p.staleLevel, branch: p.branch, dirty: p.dirty, activity: 'working' };
@@ -578,9 +606,115 @@ async function createSession(p: OpenReq): Promise<boolean> {
   select(res.id);
   updateRailBadge();
   persist();
+  if (p.adoptId) {
+    // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
+    // blank rectangle until the agent next speaks — which, while it is thinking, can be minutes, and
+    // reads as a dead session rather than a busy one.
+    void replayInto(res.id, machineId, term);
+    // Attaching does not itself tell the host our size; a resize does, and it is also what starts the
+    // stream flowing for a session this viewer did not open.
+    window.devdeck.cockpit.resize(res.id, term.cols, term.rows);
+  }
   void refreshMeta(res.id);
   void refreshGit(res.id);
   return true;
+}
+
+/**
+ * Handle an announcement of what is running on a machine: adopt the unknown, retire the vanished.
+ *
+ * Serialized per machine. Two announcements arriving close together (a session opens while another
+ * exits) would otherwise both see the same "unknown" id and each create a tile for it.
+ */
+const adopting = new Map<string, Promise<void>>();
+function adoptAnnounced(machineId: string, sessions: readonly RunningSession[]): Promise<void> {
+  const previous = adopting.get(machineId) ?? Promise.resolve();
+  const next = previous
+    .catch(() => { /* a failed run must not wedge the queue */ })
+    .then(async () => {
+      const adopted = await syncMachineSessions(machineId, sessions);
+      noteSessionsGone(machineId, sessions.map((info) => info.id));
+      if (adopted > 0 && machineId !== LOCAL_MACHINE_ID) {
+        toast(tr('cockpit.adopted_remote', { n: adopted, machine: machineName(machineId) }));
+      }
+    });
+  adopting.set(machineId, next);
+  return next;
+}
+
+/** Ask a machine what it is running, then reconcile. Used when a link comes up. */
+export async function pullMachineSessions(machineId: string): Promise<void> {
+  let sessions: RunningSession[] = [];
+  try {
+    sessions = machineId === LOCAL_MACHINE_ID
+      ? await window.devdeck.cockpit.liveSessions()
+      : await window.devdeck.machine(machineId).cockpit.liveSessions();
+  } catch { return; }
+  await adoptAnnounced(machineId, sessions);
+}
+
+/**
+ * Bring this deck in line with what is ACTUALLY running on a machine.
+ *
+ * A terminal can be started by the person sitting at a machine or by a paired one, and whoever did not
+ * start it would otherwise never learn it exists — the host would show an agent working with no tile,
+ * and a viewer would connect to a busy machine and see nothing going on. The pty table on each machine
+ * is the source of truth, and both sides reconcile against it through this one function.
+ *
+ * Adoption only ADDS. A session missing from the list is not closed here: the list arrives from one
+ * machine and this deck may hold tiles from several, and an absent entry is far more often "not that
+ * machine's session" than "gone".
+ */
+export async function syncMachineSessions(machineId: string, sessions: readonly RunningSession[]): Promise<number> {
+  const known = new Set(live.keys());
+  let adopted = 0;
+  for (const info of sessions) {
+    const id = machineId === LOCAL_MACHINE_ID ? info.id : info.id; // already qualified by the link
+    if (known.has(id)) continue;
+    // A tile this deck is still holding as "previous" for the same conversation should become live
+    // rather than sit next to it as a stale duplicate.
+    const saved = restorable.find((r) => r.sessionId && r.sessionId === info.sessionId);
+    const ok = await createSession({
+      path: info.projectPath,
+      name: saved?.name ?? basename(info.projectPath),
+      staleLevel: 'neutral', branch: null, dirty: 0,
+      sessionId: info.sessionId,
+      mode: 'auto',
+      agentId: toAgentId(info.agentId) ?? 'claude',
+      machineId,
+      adoptId: id,
+      tileId: saved?.tileId,
+      label: saved?.label ?? null,
+      pinned: saved?.pinned,
+    });
+    if (ok) adopted += 1;
+  }
+  return adopted;
+}
+
+/** Mark a tile whose terminal is gone on the machine that owned it. */
+export function noteSessionsGone(machineId: string, aliveIds: readonly string[]): void {
+  const alive = new Set(aliveIds);
+  for (const [id, l] of live) {
+    if (l.machineId !== machineId || l.session.status === 'exited') continue;
+    if (alive.has(id)) continue;
+    l.session.status = 'exited';
+    l.session.activity = 'exited';
+  }
+  renderAll();
+  updateRailBadge();
+}
+
+/** Write a running session's recent output into a freshly attached terminal. */
+async function replayInto(id: string, machineId: string, term: Terminal): Promise<void> {
+  let buffer = '';
+  try {
+    buffer = machineId === LOCAL_MACHINE_ID
+      ? await window.devdeck.cockpit.sessionBuffer(id)
+      : await window.devdeck.machine(machineId).cockpit.sessionBuffer(parseRemoteId(id).hostId);
+  } catch { return; }
+  if (!buffer || !live.has(id)) return;
+  term.write(buffer);
 }
 
 /** Pull a session's model + active-time + summary from its log (for the header/list). Cheap; called on open/select + a slow tick. */
@@ -612,6 +746,8 @@ async function refreshSessionId(id: string): Promise<void> {
   try {
     next = await deckFor(l.machineId).cockpit.liveSessionId(l.session.projectPath, {
       currentId: l.openedSessionId, claimedIds, openedAtMs: l.openedAt, sinceMs: since, lastDataAtMs: l.lastDataAt, agentId: l.session.agentId,
+      // The bare id the owning machine minted, so it can record the drift against its own pty.
+      ptyId: parseRemoteId(id).hostId,
     });
   } catch { return; }
   if (!next || next === l.openedSessionId || !live.has(id)) return; // tile may have closed mid-await

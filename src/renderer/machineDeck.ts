@@ -130,9 +130,27 @@ export async function refreshMachines(): Promise<void> {
     next = []; // the link is unavailable on this machine; there is simply nothing to switch to
   }
   const before = JSON.stringify(machines);
+  const wasConnected = new Set(machines.filter((m) => m.state === 'connected').map((m) => m.machineId));
   machines = next;
   if (selected !== LOCAL_MACHINE_ID && !next.some((m) => m.machineId === selected)) selected = LOCAL_MACHINE_ID;
+  // The moment a machine comes up, ask what it is already running. Connecting to a machine that is
+  // mid-work and being shown nothing is the thing this exists to prevent — and it has to happen on
+  // every transition INTO connected, not just the first, because a reconnect is how a laptop that
+  // slept comes back.
+  for (const machine of next) {
+    if (machine.state === 'connected' && !wasConnected.has(machine.machineId)) {
+      for (const listener of connectListeners) listener(machine.machineId);
+    }
+  }
   if (before !== JSON.stringify(next)) emit();
+}
+
+const connectListeners = new Set<(machineId: string) => void>();
+
+/** Called with a machine's id each time it becomes reachable. */
+export function onMachineConnected(listener: (machineId: string) => void): () => void {
+  connectListeners.add(listener);
+  return () => connectListeners.delete(listener);
 }
 
 /** Start following link changes. Safe to call on a machine where the link never started. */
