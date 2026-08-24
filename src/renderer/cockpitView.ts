@@ -477,11 +477,27 @@ async function pasteImageToRemote(machineId: string, term: Terminal): Promise<vo
   toast(tr('cockpit.image_pasted'));
 }
 
+/**
+ * Build a tile — spawning its terminal, or binding to one that is already running.
+ *
+ * Serialized per machine against that machine's session announcements (see `onMachineQueue`), because
+ * opening a session and being told what is running are two views of the SAME event and must not
+ * interleave.
+ */
 async function createSession(p: OpenReq): Promise<boolean> {
+  // Adoption already runs on the machine's queue — it IS the announcement handler — so re-entering
+  // the queue here would deadlock waiting for the run that is calling us.
+  if (p.adoptId) return buildTile(p);
+  return onMachineQueue(p.machineId ?? LOCAL_MACHINE_ID, () => buildTile(p));
+}
+
+async function buildTile(p: OpenReq): Promise<boolean> {
   const el = document.createElement('div'); el.className = 'ck-term'; termsEl.appendChild(el);
   // Make this terminal visible BEFORE fitting: FitAddon measures 0 on a display:none element,
   // which would spawn the PTY at the wrong size. select() below re-affirms the show/hide state.
-  for (const l of live.values()) l.el.classList.remove('show');
+  // Hidden by DOM query rather than by walking `live`: a terminal that lost its place in the map is
+  // exactly the one that must not be left showing, and the map can no longer reach it.
+  hideAllTerminals();
   el.classList.add('show');
   const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: true });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
@@ -602,7 +618,15 @@ async function createSession(p: OpenReq): Promise<boolean> {
   // its pin + label when the open request has none (deck/board opens don't know about pins).
   const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { tileId: p.tileId, label: p.label ?? null, pinned: !!p.pinned });
   restorable = adopted.rest;
+  // Whatever else reached this id loses its terminal here rather than being left stacked over this
+  // one. A tile evicted from `live` can never be hidden again (hiding needs the map to find it) and
+  // .ck-term is absolutely positioned, so the evicted one would sit on top, blank, forever.
+  const displaced = live.get(res.id);
+  if (displaced && displaced.el !== el) { displaced.el.remove(); displaced.term.dispose(); }
   live.set(res.id, { machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now() });
+  // Tell the owning machine what this tile is called, so a deck on the OTHER side of a link shows the
+  // session's name rather than re-deriving the repository folder.
+  if (adopted.label) noteLabelOnOwner(res.id, adopted.label);
   select(res.id);
   updateRailBadge();
   persist();
@@ -621,25 +645,41 @@ async function createSession(p: OpenReq): Promise<boolean> {
 }
 
 /**
+ * One queue per machine, shared by OPENING a session there and by handling what that machine says it
+ * is running.
+ *
+ * These two must never interleave, and that is not a subtlety — it is the whole correctness of both.
+ * A machine publishes its new pty to every listener BEFORE the open call it came from has answered,
+ * so the announcement lands while the tile being opened is not yet in `live`. Handled concurrently,
+ * the announcement reads that session as one nobody is showing and builds a SECOND tile for the very
+ * terminal that is opening: two terminals for one pty, only one of which receives its output.
+ *
+ * Queuing makes the ordering the code always assumed — the tile is registered, then the announcement
+ * is reconciled against it and finds nothing to adopt.
+ */
+const machineQueues = new Map<string, Promise<unknown>>();
+function onMachineQueue<T>(machineId: string, task: () => Promise<T>): Promise<T> {
+  const previous = machineQueues.get(machineId) ?? Promise.resolve();
+  const next = previous.catch(() => { /* a failed run must not wedge the queue */ }).then(task);
+  // The queue follows the SETTLED task, so one rejection can't strand every later open behind it.
+  machineQueues.set(machineId, next.catch(() => undefined));
+  return next;
+}
+
+/**
  * Handle an announcement of what is running on a machine: adopt the unknown, retire the vanished.
  *
  * Serialized per machine. Two announcements arriving close together (a session opens while another
  * exits) would otherwise both see the same "unknown" id and each create a tile for it.
  */
-const adopting = new Map<string, Promise<void>>();
 function adoptAnnounced(machineId: string, sessions: readonly RunningSession[]): Promise<void> {
-  const previous = adopting.get(machineId) ?? Promise.resolve();
-  const next = previous
-    .catch(() => { /* a failed run must not wedge the queue */ })
-    .then(async () => {
-      const adopted = await syncMachineSessions(machineId, sessions);
-      noteSessionsGone(machineId, sessions.map((info) => info.id));
-      if (adopted > 0 && machineId !== LOCAL_MACHINE_ID) {
-        toast(tr('cockpit.adopted_remote', { n: adopted, machine: machineName(machineId) }));
-      }
-    });
-  adopting.set(machineId, next);
-  return next;
+  return onMachineQueue(machineId, async () => {
+    const adopted = await syncMachineSessions(machineId, sessions);
+    noteSessionsGone(machineId, sessions.map((info) => info.id));
+    if (adopted > 0 && machineId !== LOCAL_MACHINE_ID) {
+      toast(tr('cockpit.adopted_remote', { n: adopted, machine: machineName(machineId) }));
+    }
+  });
 }
 
 /** Ask a machine what it is running, then reconcile. Used when a link comes up. */
@@ -669,8 +709,8 @@ export async function syncMachineSessions(machineId: string, sessions: readonly 
   const known = new Set(live.keys());
   let adopted = 0;
   for (const info of sessions) {
-    const id = machineId === LOCAL_MACHINE_ID ? info.id : info.id; // already qualified by the link
-    if (known.has(id)) continue;
+    const id = info.id; // already qualified by the link when it came from another machine
+    if (known.has(id)) { syncAdoptedLabel(machineId, id, info.label ?? null); continue; }
     // A tile this deck is still holding as "previous" for the same conversation should become live
     // rather than sit next to it as a stale duplicate.
     const saved = restorable.find((r) => r.sessionId && r.sessionId === info.sessionId);
@@ -684,12 +724,31 @@ export async function syncMachineSessions(machineId: string, sessions: readonly 
       machineId,
       adoptId: id,
       tileId: saved?.tileId,
-      label: saved?.label ?? null,
+      // What the machine running it calls the session. Without this every session on one repository
+      // arrives under that repository's folder name, so sessions the user deliberately named apart
+      // are indistinguishable here — the exact problem adoption was supposed to solve.
+      label: info.label ?? saved?.label ?? null,
       pinned: saved?.pinned,
     });
     if (ok) adopted += 1;
   }
   return adopted;
+}
+
+/**
+ * Follow a rename made on the machine that runs the session.
+ *
+ * Only for tiles belonging to ANOTHER machine: for a local one this deck is the source of truth and
+ * the announcement is merely the echo of its own write, which would otherwise race a rename the user
+ * is still typing. Renaming a remote session from here writes through to its machine
+ * (`noteLabelOnOwner`), so both decks converge on the same name either way.
+ */
+function syncAdoptedLabel(machineId: string, id: string, label: string | null): void {
+  if (machineId === LOCAL_MACHINE_ID || editingId === id) return;
+  const l = live.get(id);
+  if (!l || l.customLabel === label) return;
+  l.customLabel = label;
+  persist(); renderList(); renderHeader();
 }
 
 /** Mark a tile whose terminal is gone on the machine that owned it. */
@@ -806,6 +865,17 @@ async function refreshGit(id: string): Promise<void> {
 // right store on the same tick (one process listing in main is shared by every tile).
 function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshProvider(id).then(() => refreshSessionId(id)); void refreshMeta(id); void refreshGit(id); } }
 
+/**
+ * Hide every terminal in the pane, by DOM rather than by walking `live`.
+ *
+ * The terminals are stacked (`position: absolute; inset: 0`), so anything left showing covers the
+ * selected one. Walking the map cannot hide a terminal the map has lost — and that is precisely the
+ * one that would otherwise be drawn, blank, over the session the user is looking at.
+ */
+function hideAllTerminals(): void {
+  termsEl.querySelectorAll('.ck-term').forEach((el) => el.classList.remove('show'));
+}
+
 function select(id: string): void {
   if (selectedId !== id && findBar && !findBar.classList.contains('hidden')) closeFindBar(); // find decorations belong to the previous session
   selectedId = id;
@@ -816,7 +886,8 @@ function select(id: string): void {
   // The always-on usage footer reports the provider of the session you're working in — hand it over
   // on every selection change (a Claude tile must not be captioned with Codex's percentage).
   setActiveUsageProvider(live.get(id)?.session.agentId ?? null);
-  for (const [lid, l] of live) l.el.classList.toggle('show', lid === id);
+  hideAllTerminals();
+  selected?.el.classList.add('show');
   mainEl.classList.toggle('has-session', live.size > 0);
   renderList(); renderHeader();
   void refreshMeta(id);
@@ -1346,7 +1417,20 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
 function renameSession(id: string, label: string): void {
   const l = live.get(id); if (!l) return;
   l.customLabel = label.trim() || null;
+  noteLabelOnOwner(id, l.customLabel);
   persist(); renderList(); renderHeader();
+}
+
+/**
+ * Carry a session's name to the machine that RUNS it.
+ *
+ * The name is what tells two sessions on one repository apart, so a deck that only knows its own
+ * renames shows a remote machine's sessions as several identical folder-name rows. The owning machine
+ * keeps the name with the session, and hands it to every deck that asks what it is running — including
+ * this one after a restart. Fire-and-forget: a name is worth nothing to block a rename on.
+ */
+function noteLabelOnOwner(id: string, label: string | null): void {
+  try { window.devdeck.cockpit.noteLabel(id, label); } catch { /* older main process, or no pty host */ }
 }
 
 // Editing is RENDER STATE (editingId), not a mutated DOM node: a list rebuild (e.g. row click → select)

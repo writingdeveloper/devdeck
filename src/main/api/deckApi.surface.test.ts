@@ -23,12 +23,23 @@ let events: EventHub;
 
 /** Just enough of the link to see what the API asks it to do. */
 const attachCalls: { id: string; cols: number; rows: number }[] = [];
+const notifyCalls: { machineId: string; method: string; args: unknown[] }[] = [];
 const fakeLink = {
-  call: async (machineId: string, method: string) =>
-    (method === 'cockpit:open' ? { id: 'C:\\repo#3', agentId: 'claude', sessionId: 'abc' } : { machineId, method }),
-  notify: () => undefined,
+  call: async (machineId: string, method: string) => {
+    if (method === 'cockpit:open') return { id: 'C:\\repo#3', agentId: 'claude', sessionId: 'abc' };
+    if (method === 'cockpit:liveSessions') return [{ id: 'C:\\repo#3', projectPath: 'C:\\repo', sessionId: 'abc', agentId: 'claude', startedAtMs: 1, label: 'release prep' }];
+    return { machineId, method };
+  },
+  notify: (machineId: string, method: string, args: unknown[]) => { notifyCalls.push({ machineId, method, args }); },
   attach: (id: string, cols: number, rows: number) => { attachCalls.push({ id, cols, rows }); },
   detach: () => undefined,
+};
+
+/** Enough of a pty table to see what the session-name channel writes and announces. */
+const noteCalls: { id: string; patch: Record<string, unknown> }[] = [];
+const fakePtyHost = {
+  list: () => [],
+  note: (id: string, patch: Record<string, unknown>) => { noteCalls.push({ id, patch }); return patch.label !== 'already-set'; },
 };
 
 beforeAll(() => {
@@ -44,7 +55,7 @@ beforeAll(() => {
     },
     sendError: vi.fn(),
     defaultLanguage: 'en',
-    ptyHost: {},
+    ptyHost: fakePtyHost,
     ptyAvailable: true,
     tray: { applyCounts: vi.fn(), setAlertImage: vi.fn() },
     shutdown: { arm: vi.fn(), disarm: vi.fn(), shutdownNow: vi.fn(), cancel: vi.fn(), status: vi.fn(), noteReport: vi.fn() },
@@ -157,9 +168,65 @@ describe('routing a call to another machine', () => {
     expect(attachCalls[0]).toMatchObject({ cols: 80, rows: 24 });
   });
 
+  it('qualifies the sessions a machine says it is running, not just the ones opened from here', async () => {
+    // A deck picks work up two ways: it is TOLD (the announcement, qualified as it is forwarded) and
+    // it ASKS on connect — which is the reconnect path, and every machine that was already busy.
+    // A bare id there produces a tile that names no machine: its keystrokes land in this machine's
+    // pty table, where nothing has that id, and its output never arrives.
+    const machineId = '3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b';
+    const running = await api['link:call'].handler(machineId, 'cockpit:liveSessions', []) as { id: string; label: string }[];
+    expect(running.map((s) => s.id)).toEqual([`link:${machineId}:C:\\repo#3`]);
+    expect(running[0].label).toBe('release prep'); // and what it is called comes along with it
+  });
+
   it('leaves the answer of a non-open call alone', async () => {
     const value = await api['link:call'].handler('3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b', 'projects:list', []) as { method: string };
     expect(value.method).toBe('projects:list');
+  });
+});
+
+describe('naming a session on the machine that runs it', () => {
+  const MACHINE = '3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b';
+
+  it('sends a rename of a remote tile to that machine, under the id it minted', () => {
+    // Renaming a session the deck is only VIEWING has to reach the machine holding it; recording it
+    // here would leave every other deck — including the one sitting in front of it — on the folder name.
+    notifyCalls.length = 0;
+    api['cockpit:noteLabel'].handler(`link:${MACHINE}:C:\\repo#3`, 'release prep');
+    expect(notifyCalls).toEqual([{ machineId: MACHINE, method: 'cockpit:noteLabel', args: ['C:\\repo#3', 'release prep'] }]);
+  });
+
+  it('records a local rename and announces it, so connected machines see the new name', () => {
+    noteCalls.length = 0;
+    const seen: { channel: string }[] = [];
+    const stop = events.subscribe((channel) => { seen.push({ channel }); });
+    api['cockpit:noteLabel'].handler('C:\\repo#1', '  release prep  ');
+    stop();
+    expect(noteCalls).toEqual([{ id: 'C:\\repo#1', patch: { label: 'release prep' } }]); // trimmed
+    expect(seen.map((e) => e.channel)).toContain('cockpit:sessions');
+  });
+
+  it('does not announce a rename that changed nothing', () => {
+    const seen: string[] = [];
+    const stop = events.subscribe((channel) => { seen.push(channel); });
+    api['cockpit:noteLabel'].handler('C:\\repo#1', 'already-set'); // fake host reports "unchanged"
+    stop();
+    expect(seen).not.toContain('cockpit:sessions');
+  });
+
+  it('normalizes a cleared name to null and bounds what a machine can be made to display', () => {
+    noteCalls.length = 0;
+    api['cockpit:noteLabel'].handler('C:\\repo#1', '   ');
+    api['cockpit:noteLabel'].handler('C:\\repo#1', 'x'.repeat(500));
+    api['cockpit:noteLabel'].handler('C:\\repo#1', { evil: true });
+    expect(noteCalls[0].patch.label).toBeNull();
+    expect((noteCalls[1].patch.label as string).length).toBe(60);
+    expect(noteCalls[2].patch.label).toBeNull(); // a non-string is a cleared name, never "[object Object]"
+  });
+
+  it('needs the permission that drives a session, not mere observation', () => {
+    expect(mayCallRemotely(api['cockpit:noteLabel'], ['observe'])).toBe(false);
+    expect(mayCallRemotely(api['cockpit:noteLabel'], ['control'])).toBe(true);
   });
 });
 

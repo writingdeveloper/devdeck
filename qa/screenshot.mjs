@@ -1191,6 +1191,43 @@ if (beforeGeo.footer && beforeGeo.footer[3] !== 26) {
   process.exit(1);
 }
 
+// Opening a session must give the user ONE terminal, and it must be the one receiving the output.
+//
+// This runs a real PTY because the defect it exists for is invisible without one: the machine
+// announces a new session to every listener before the open call that created it has answered, so the
+// deck could see its own session as one nobody was showing and build a second tile for it. Terminals
+// are stacked (position:absolute), and the tile that lost the race kept its `show` class forever —
+// so every session opened came up as an empty black rectangle over the real one. Every automated
+// check passed throughout, because none of them ever opened a session.
+if (cockpitAvailable) {
+  await showView('projects'); // the harness ends up on the cockpit; the Open button lives on the deck
+  await win.waitForSelector('#cards .provider-open-primary', { timeout: 15000 });
+  await win.click('#cards .provider-open-primary');
+  await win.waitForFunction(() => document.querySelectorAll('.ck-term').length > 0, null, { timeout: 25000 }).catch(() => {});
+  await win.waitForFunction(
+    () => [...document.querySelectorAll('.ck-term')].some((t) => (t.innerText || '').trim().length > 0),
+    null, { timeout: 25000 },
+  ).catch(() => {});
+  const terminals = await win.evaluate(() => {
+    const all = [...document.querySelectorAll('.ck-term')];
+    const shown = all.filter((t) => t.classList.contains('show'));
+    return {
+      total: all.length,
+      shown: shown.length,
+      // The terminal the user is looking at is the top one; if it is blank while another has the
+      // output, the session reads as dead no matter how healthy the pty is.
+      topShownHasOutput: shown.length ? (shown[shown.length - 1].innerText || '').trim().length > 0 : false,
+    };
+  });
+  console.log('opened session terminals:', JSON.stringify(terminals));
+  if (terminals.total !== 1 || terminals.shown !== 1 || !terminals.topShownHasOutput) {
+    console.error(`QA FAILED — opening one session must leave exactly one visible terminal showing its output: ${JSON.stringify(terminals)}`);
+    await closeApp();
+    process.exit(1);
+  }
+  await shot('cockpit-live-session');
+}
+
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));
 console.log(`\nconsole errors: ${consoleErrors.length}, page errors: ${pageErrors.length}`);
 

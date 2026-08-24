@@ -449,6 +449,9 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
         Math.max(20, Number(cols) | 0), Math.max(5, Number(rows) | 0),
         (chunk) => ptyBatch.push(id, chunk),
         (exit) => { ptyBatch.flush(); emit('cockpit:exit', { id, exitCode: exit.exitCode }); },
+        // Not a session on a project: it must never appear in what this machine says it is running,
+        // or a deck reconciling against that list builds a project tile for an OAuth prompt.
+        { internal: true },
       );
       return { id, providerId };
     } catch (err) {
@@ -607,6 +610,23 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
    * a session, not mere observation: this is the session's actual content.
    */
   invoke('cockpit:sessionBuffer', allow('control'), (id: string) => cfg.ptyHost.buffer(String(id)));
+  /**
+   * Record the name the user gave a session, on the machine that RUNS it.
+   *
+   * A rename lives in the deck that made it, which is enough while one deck is the only one looking.
+   * Over a link it is not: the viewer would show every session on a repository under that repository's
+   * folder name, so two sessions the user deliberately named apart become indistinguishable rows.
+   * Routed by tile id like input/resize/close, so renaming a remote session reaches its own machine.
+   */
+  send('cockpit:noteLabel', allow('control'), (id: string, label: unknown) => {
+    const target = String(id);
+    // A label is shown verbatim in another machine's session list; bound it there rather than trusting
+    // the sender, and normalize "cleared" to null so it does not travel as an empty string.
+    const text = typeof label === 'string' ? label.trim().slice(0, 60) : '';
+    const next = text || null;
+    if (isRemoteId(target)) { remote(target, (link, machineId, hostId) => link.notify(machineId, 'cockpit:noteLabel', [hostId, next])); return; }
+    if (cfg.ptyHost.note(target, { label: next })) publishSessions();
+  });
 
   // ALL of the project's on-disk session ids (mtime-desc) — the restore resolver needs the full set so
   // an older-but-valid saved id is still recognized as existing (listSessions caps at 5, which would
@@ -676,8 +696,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     // Recorded on the pty as well, so a machine listing what is running here reports the conversation
     // a tile actually MOVED to (after /clear) rather than the one it happened to open on.
     if (drifted && typeof opts.ptyId === 'string' && opts.ptyId) {
-      cfg.ptyHost.note(opts.ptyId, { sessionId: drifted });
-      publishSessions();
+      if (cfg.ptyHost.note(opts.ptyId, { sessionId: drifted })) publishSessions();
     }
     return drifted;
   });
@@ -917,6 +936,16 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
         cfg.link?.()?.attach(qualified, asked(req?.cols, 80), asked(req?.rows, 24));
         return { ...opened, id: qualified };
       }
+    }
+    // Same reason, for the path that ASKS a machine what it is running rather than being told. The
+    // announcement is qualified as it is forwarded (linkService), so leaving this one bare meant a
+    // session picked up on connect — the reconnect case, and every already-busy machine — got a tile
+    // whose id named no machine: its keystrokes went to this machine's pty table, where nothing has
+    // that id, and its output never arrived. A dead tile that looked perfectly normal.
+    if (method === 'cockpit:liveSessions' && Array.isArray(value)) {
+      return value.map((row) => (row && typeof row === 'object' && typeof (row as { id?: unknown }).id === 'string'
+        ? { ...(row as object), id: qualifyRemoteId(String(machineId), (row as { id: string }).id) }
+        : row));
     }
     return value;
   });

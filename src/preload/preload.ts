@@ -71,8 +71,10 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
     liveSessions: () => ipcRenderer.invoke('cockpit:liveSessions'),
     sessionBuffer: (id: string) => ipcRenderer.invoke('cockpit:sessionBuffer', id),
+    /** Tell the machine running a session what the user named it — routed by tile id like input(). */
+    noteLabel: (id: string, label: string | null) => ipcRenderer.send('cockpit:noteLabel', id, label),
     /** What is running on a machine, announced whenever it changes rather than polled. */
-    onSessions: (cb: (p: { id: string; projectPath: string; sessionId: string | null; agentId: string; startedAtMs: number }[]) => void) =>
+    onSessions: (cb: (p: { id: string; projectPath: string; sessionId: string | null; agentId: string; startedAtMs: number; label: string | null }[]) => void) =>
       ipcRenderer.on('cockpit:sessions', (_e, p) => cb(p)),
     loadSessions: () => ipcRenderer.invoke('cockpit:loadSessions'),
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),

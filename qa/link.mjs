@@ -83,6 +83,20 @@ try {
   result.adoptedScreenRepainted = await viewer.win.evaluate(() =>
     [...document.querySelectorAll('.ck-term')].some((n) => (n.textContent || '').trim().length > 0));
 
+  // --- and it is a WORKING terminal, not merely a repainted screen ---
+  // A tile picked up on connect must carry an id naming the machine that owns it. A bare one routes
+  // its keystrokes into THIS machine's pty table, where nothing has that id: the session takes no
+  // input and receives no output, while looking exactly like a healthy one that has gone quiet.
+  const adoptedStream = await viewer.win.evaluate(() => new Promise((resolve) => {
+    let total = 0;
+    let seenId = null;
+    window.devdeck.cockpit.onData(({ id, chunk }) => { seenId = id; total += chunk.length; });
+    setTimeout(() => { if (seenId) window.devdeck.cockpit.input(seenId, 'echo devdeck-adopt-probe' + String.fromCharCode(13)); }, 1200);
+    setTimeout(() => resolve({ total, seenId }), 7000);
+  }));
+  result.adoptedIdIsQualified = typeof adoptedStream.seenId === 'string' && adoptedStream.seenId.startsWith('link:');
+  result.adoptedBytesFlow = adoptedStream.total > 0;
+
   // --- the switcher appears only now that a machine is paired ---
   await viewer.win.click('.rail-item[data-view="projects"]');
   await viewer.win.waitForFunction(
@@ -170,6 +184,45 @@ try {
     return !projects.some((p) => p.path === path && p.note.includes('devdeck-link-note-'));
   }, remoteProjectPath);
   await viewer.win.evaluate(async ([id, path]) => window.devdeck.machine(id).setNote(path, ''), [remoteId, remoteProjectPath]);
+
+  // --- a session RENAMED on the host must be called that here too ---
+  // The name is the only thing telling two sessions on one repository apart. Without it travelling
+  // with the session, every one of a machine's sessions arrives under that machine's folder name and
+  // the rows the user deliberately named apart become indistinguishable.
+  const renamed = 'link-named-' + Date.now();
+  await host.win.evaluate(async (label) => {
+    const running = await window.devdeck.cockpit.liveSessions();
+    if (running[0]) window.devdeck.cockpit.noteLabel(running[0].id, label);
+  }, renamed);
+  result.viewerSeesHostRename = await viewer.win.evaluate(async (label) => {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const sessions = await window.devdeck.cockpit.loadSessions();
+      if (sessions.some((s) => s.label === label)) return true;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    return false;
+  }, renamed);
+  result.renameShowsInViewerSidebar = await viewer.win.evaluate((label) =>
+    [...document.querySelectorAll('.ck-row, .shell-session')].some((n) => (n.textContent || '').includes(label)), renamed);
+
+  // --- and renaming a session the viewer is only WATCHING must reach the machine running it ---
+  // Same call the rename box makes; recording the name only here would leave the person sitting at
+  // that machine — and every other deck watching it — on the folder name.
+  const fromViewer = 'viewer-named-' + Date.now();
+  await viewer.win.evaluate(async ([machineId, label]) => {
+    const running = await window.devdeck.machine(machineId).cockpit.liveSessions();
+    if (running[0]) window.devdeck.cockpit.noteLabel(running[0].id, label);
+  }, [remoteId, fromViewer]);
+  result.hostSeesViewerRename = await host.win.evaluate(async (label) => {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const running = await window.devdeck.cockpit.liveSessions();
+      if (running.some((s) => s.label === label)) return true;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    return false;
+  }, fromViewer);
 
   // --- the host knows a viewer is watching, which is what vetoes its idle shutdown ---
   const hostStatus = await host.win.evaluate(async () => window.devdeck.link.hostStatus());

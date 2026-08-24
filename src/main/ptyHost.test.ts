@@ -121,4 +121,38 @@ describe('what a machine can say about its own sessions', () => {
     expect(host.list()[0].sessionId).toBe('new');
     host.note('missing', { sessionId: 'x' }); // must not throw for a session that is gone
   });
+
+  it('carries the name the user gave a session, so a viewer is not left with the folder name', () => {
+    // Two sessions on ONE repository are told apart by nothing else: without the name travelling with
+    // the session, a deck watching this machine shows two identical rows.
+    const f = fake();
+    const host = new PtyHost(() => f.proc);
+    host.create('a', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {}, { projectPath: 'C:\repo', sessionId: 'c1', agentId: 'claude' });
+    host.create('b', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {}, { projectPath: 'C:\repo', sessionId: 'c2', agentId: 'claude', label: 'release prep' });
+    expect(host.list().map((s) => s.label)).toEqual([null, 'release prep']);
+    host.note('a', { label: 'bug hunt' });
+    expect(host.list()[0].label).toBe('bug hunt');
+    host.note('a', { label: null }); // cleared back to the automatic name
+    expect(host.list()[0].label).toBeNull();
+  });
+
+  it('never lists a terminal DevDeck opened for itself, like a provider login', () => {
+    // A deck reconciles against this list, so anything in it becomes a project tile — an OAuth prompt
+    // included, against a home-directory path no scanned folder covers.
+    const f = fake();
+    const host = new PtyHost(() => f.proc);
+    host.create('usage-login:claude:1', 'pwsh', [], 'C:\home', 80, 24, () => {}, () => {}, { internal: true });
+    host.create('C:\repo#1', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {}, { projectPath: 'C:\repo', agentId: 'claude' });
+    expect(host.list().map((s) => s.id)).toEqual(['C:\repo#1']);
+    expect(host.pid('usage-login:claude:1')).toBe(1); // still a real session for input/resize/kill
+  });
+
+  it('reports whether note() changed anything, so a no-op is not announced to every machine', () => {
+    const host = new PtyHost(() => fake().proc);
+    host.create('s', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {}, { projectPath: 'C:\repo', sessionId: 'c1', agentId: 'claude' });
+    expect(host.note('s', { label: 'triage' })).toBe(true);
+    expect(host.note('s', { label: 'triage' })).toBe(false);
+    expect(host.note('s', { sessionId: 'c1' })).toBe(false);
+    expect(host.note('gone', { label: 'triage' })).toBe(false);
+  });
 });

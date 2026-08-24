@@ -253,6 +253,9 @@ describe('usage:login embedded terminal', () => {
     expect(ptyCreate).toHaveBeenLastCalledWith(
       codex.id, expect.any(String), ['-NoExit', '-Command', expect.stringMatching(/codex(?:\.cmd|\.exe)?['"]?\s+login/i)],
       homedir(), 92, 28, expect.any(Function), expect.any(Function),
+      // Marked as DevDeck's own terminal: a login must never appear in what this machine reports it
+      // is running, or a deck reconciling against that list builds a project tile for an OAuth prompt.
+      { internal: true },
     );
 
     const claude = await open(null, 'claude', 80, 24) as { id: string; providerId: string };
@@ -260,6 +263,7 @@ describe('usage:login embedded terminal', () => {
     expect(ptyCreate).toHaveBeenLastCalledWith(
       claude.id, expect.any(String), ['-NoExit', '-Command', expect.stringMatching(/claude(?:\.cmd|\.exe)?['"]?\s+auth\s+login/i)],
       homedir(), 80, 24, expect.any(Function), expect.any(Function),
+      { internal: true },
     );
   });
 

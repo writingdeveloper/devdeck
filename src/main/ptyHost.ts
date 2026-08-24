@@ -26,6 +26,16 @@ export interface PtySessionInfo {
   sessionId: string | null;
   agentId: string;
   startedAtMs: number;
+  /**
+   * The name the user gave this session, when they renamed it.
+   *
+   * Kept here rather than only in the deck that renamed it, because a name is the ONLY thing telling
+   * two sessions on the same repository apart — and a machine that cannot say what its sessions are
+   * called leaves every viewer to fall back on the folder name, which is identical for all of them.
+   * The deck holding the tile is the source of truth and writes it here (`note`); this is its copy,
+   * so that the answer travels with the session rather than with the deck.
+   */
+  label: string | null;
 }
 
 /**
@@ -41,6 +51,12 @@ const SCROLLBACK_BYTES = 256 * 1024;
 interface Session {
   proc: PtyProcess;
   info: PtySessionInfo;
+  /**
+   * A terminal DevDeck opened for its OWN purposes — a provider login — rather than a session on a
+   * project. Never listed: another machine has no use for it, and a deck reconciling against the list
+   * would build a project tile for an OAuth prompt, against a path outside any scanned folder.
+   */
+  internal: boolean;
   /** Chunks, oldest first, trimmed from the front once the total passes the cap. */
   chunks: string[];
   bufferedLength: number;
@@ -53,7 +69,7 @@ export class PtyHost {
   create(
     id: string, file: string, args: string[], cwd: string, cols: number, rows: number,
     onData: (data: string) => void, onExit: (e: { exitCode: number }) => void,
-    info?: Omit<PtySessionInfo, 'id' | 'startedAtMs'> & { startedAtMs?: number },
+    info?: Partial<Omit<PtySessionInfo, 'id'>> & { internal?: boolean },
   ): void {
     const proc = this.spawn(file, args, { cwd, cols, rows });
     const session: Session = {
@@ -64,7 +80,9 @@ export class PtyHost {
         sessionId: info?.sessionId ?? null,
         agentId: info?.agentId ?? 'claude',
         startedAtMs: info?.startedAtMs ?? Date.now(),
+        label: info?.label ?? null,
       },
+      internal: info?.internal === true,
       chunks: [],
       bufferedLength: 0,
     };
@@ -90,17 +108,26 @@ export class PtyHost {
   /** OS pid of a session's shell — the root for "which agent is actually running in this tile". */
   pid(id: string): number | null { return this.sessions.get(id)?.proc.pid ?? null; }
 
-  /** Every session running here, for a viewer asking "what is already going on over there". */
+  /** Every project session running here, for a viewer asking "what is already going on over there". */
   list(): PtySessionInfo[] {
-    return [...this.sessions.values()].map((s) => ({ ...s.info }));
+    return [...this.sessions.values()].filter((s) => !s.internal).map((s) => ({ ...s.info }));
   }
 
-  /** Update what is known about a session — the live drift detector re-resolves the conversation id. */
-  note(id: string, patch: Partial<Pick<PtySessionInfo, 'sessionId' | 'agentId'>>): void {
+  /**
+   * Update what is known about a session — the live drift detector re-resolves the conversation id,
+   * and the deck holding the tile writes back the name the user gave it.
+   *
+   * Returns whether anything actually changed, so a caller does not announce a no-op to every
+   * connected machine (renaming is typed one character at a time on commit paths that re-send).
+   */
+  note(id: string, patch: Partial<Pick<PtySessionInfo, 'sessionId' | 'agentId' | 'label'>>): boolean {
     const session = this.sessions.get(id);
-    if (!session) return;
-    if (patch.sessionId !== undefined) session.info.sessionId = patch.sessionId;
-    if (patch.agentId !== undefined) session.info.agentId = patch.agentId;
+    if (!session) return false;
+    let changed = false;
+    if (patch.sessionId !== undefined && patch.sessionId !== session.info.sessionId) { session.info.sessionId = patch.sessionId; changed = true; }
+    if (patch.agentId !== undefined && patch.agentId !== session.info.agentId) { session.info.agentId = patch.agentId; changed = true; }
+    if (patch.label !== undefined && patch.label !== session.info.label) { session.info.label = patch.label; changed = true; }
+    return changed;
   }
 
   /**

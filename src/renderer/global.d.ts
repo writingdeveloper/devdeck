@@ -120,6 +120,7 @@ declare global {
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
         liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
         sessionBuffer(id: string): Promise<string>;
+        noteLabel(id: string, label: string | null): void;
         onSessions(cb: (p: import('../main/ptyHost').PtySessionInfo[]) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
