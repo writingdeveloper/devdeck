@@ -11,6 +11,7 @@ import { createProviderOpenControl } from './providerOpenControl';
 import { createIcon } from './icons';
 import { liveProjectProviders } from './cockpitView';
 import type { AgentId } from '../shared/types';
+import { deckFor, selectedMachineId } from './machineDeck';
 
 let viewEl: HTMLElement;
 interface Proj { path: string; name: string; todos: Todo[]; agentIds: AgentId[]; }
@@ -32,7 +33,9 @@ export function presetBoardProject(path: string): void { filterProject = path; }
 async function load(): Promise<void> {
   let list;
   try {
-    list = await window.devdeck.listProjects();
+    // Same machine the deck is showing, so the board and the task writes below agree about which
+    // machine's projects these are.
+    list = await deckFor(selectedMachineId()).listProjects();
   } catch (e) {
     console.error('DevDeck: task board load failed', e); // otherwise the board would sit blank
     renderLoadError(viewEl, () => void load());
@@ -46,7 +49,9 @@ function mutate(path: string, fn: (todos: Todo[]) => Todo[]): void {
   const p = projects.find((x) => x.path === path);
   if (!p) return;
   p.todos = fn(p.todos);
-  void window.devdeck.setTodos(path, p.todos); // renderer owns the array; sends it whole (like note)
+  // Routed by machine: the board follows whichever deck is on screen, so writing locally would
+  // attach another machine's task list to whatever sits at the same path here.
+  void deckFor(selectedMachineId()).setTodos(path, p.todos); // renderer owns the array; sends it whole (like note)
   render();
 }
 
@@ -202,7 +207,7 @@ function filterControls(bar: HTMLElement): void {
       for (const p of projects) {
         if (!p.todos.some((t) => t.done)) continue;
         p.todos = clearDone(p.todos);
-        void window.devdeck.setTodos(p.path, p.todos);
+        void deckFor(selectedMachineId()).setTodos(p.path, p.todos);
       }
       render();
     });

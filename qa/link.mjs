@@ -108,6 +108,29 @@ try {
   result.remoteTileId = typeof streamed.seenId === 'string' ? streamed.seenId.slice(0, 5) : null;
   result.idIsQualified = typeof streamed.seenId === 'string' && streamed.seenId.startsWith('link:');
 
+  // --- a note written on a remote project must land THERE, not here ---
+  // This is the decisive check for a whole family of silent bugs: everything keyed by a project PATH
+  // (notes, pins, task lists, costs, memory) belongs to the machine holding the project, and the same
+  // path exists on both machines. Writing locally would attach it to unrelated work and look fine.
+  const marker = 'devdeck-link-note-' + Date.now();
+  const remoteProjectPath = await viewer.win.evaluate(async (id) => {
+    const projects = await window.devdeck.machine(id).listProjects();
+    return projects[0]?.path ?? null;
+  }, remoteId);
+  await viewer.win.evaluate(async ([id, path, note]) => {
+    await window.devdeck.machine(id).setNote(path, note);
+  }, [remoteId, remoteProjectPath, marker]);
+  await new Promise((r) => setTimeout(r, 400));
+  result.noteLandedOnHost = await host.win.evaluate(async (path) => {
+    const projects = await window.devdeck.listProjects();
+    return projects.some((p) => p.path === path && p.note.includes('devdeck-link-note-'));
+  }, remoteProjectPath);
+  result.noteDidNotLandLocally = await viewer.win.evaluate(async (path) => {
+    const projects = await window.devdeck.listProjects();
+    return !projects.some((p) => p.path === path && p.note.includes('devdeck-link-note-'));
+  }, remoteProjectPath);
+  await viewer.win.evaluate(async ([id, path]) => window.devdeck.machine(id).setNote(path, ''), [remoteId, remoteProjectPath]);
+
   // --- the host knows a viewer is watching, which is what vetoes its idle shutdown ---
   const hostStatus = await host.win.evaluate(async () => window.devdeck.link.hostStatus());
   result.hostConnections = hostStatus.connections.length;

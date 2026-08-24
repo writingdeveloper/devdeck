@@ -19,6 +19,18 @@ export { LOCAL_MACHINE_ID };
 /** The subset of the deck API the views actually call. Local and remote both satisfy it. */
 export interface DeckFacade {
   listProjects: typeof window.devdeck.listProjects;
+  /**
+   * Anything keyed by a project PATH belongs to the machine that holds the project. A note, a pin, a
+   * task list, a cost figure and a memory snapshot are all facts about work that lives over there —
+   * writing or reading them here would attach them to whatever happens to sit at the same path on
+   * this computer, which is the quietest kind of wrong.
+   */
+  projectMemory: (path: string, fresh?: boolean) => Promise<import('../shared/types').ProjectMemory>;
+  setNote: (path: string, note: string) => Promise<void>;
+  setTodos: (path: string, todos: import('../shared/tasks').Todo[]) => Promise<void>;
+  setPinned: (path: string, pinned: boolean) => Promise<void>;
+  setHidden: (path: string, hidden: boolean) => Promise<void>;
+  usageReport: (sinceMs: number) => Promise<import('../shared/types').UsageReport>;
   cockpit: {
     open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }) => Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
     sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) => Promise<never>;
@@ -45,12 +57,24 @@ export function deckFor(machineId: string): DeckFacade {
   if (machineId === LOCAL_MACHINE_ID) {
     return {
       listProjects: () => window.devdeck.listProjects(),
+      projectMemory: (path, fresh) => window.devdeck.projectMemory(path, fresh),
+      setNote: (path, note) => window.devdeck.setNote(path, note),
+      setTodos: (path, todos) => window.devdeck.setTodos(path, todos),
+      setPinned: (path, pinned) => window.devdeck.setPinned(path, pinned),
+      setHidden: (path, hidden) => window.devdeck.setHidden(path, hidden),
+      usageReport: (sinceMs) => window.devdeck.usageReport(sinceMs),
       cockpit: window.devdeck.cockpit as unknown as DeckFacade['cockpit'],
     };
   }
   const remote = window.devdeck.machine(machineId);
   return {
     listProjects: () => remote.listProjects(),
+    projectMemory: (path, fresh) => remote.projectMemory(path, fresh),
+    setNote: (path, note) => remote.setNote(path, note),
+    setTodos: (path, todos) => remote.setTodos(path, todos),
+    setPinned: (path, pinned) => remote.setPinned(path, pinned),
+    setHidden: (path, hidden) => remote.setHidden(path, hidden),
+    usageReport: (sinceMs) => remote.usageReport(sinceMs),
     cockpit: {
       open: (req) => remote.cockpit.open(req),
       sessionMeta: (projectPath, sessionId, agentId, wantAi) => remote.cockpit.sessionMeta(projectPath, sessionId, agentId, wantAi) as Promise<never>,

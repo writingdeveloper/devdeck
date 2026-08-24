@@ -396,6 +396,25 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // Open the project's GitHub page. The renderer passes only the path (never a URL);
   // main re-reads the repo URL from git and validates it, so a compromised renderer
   // can't open an arbitrary external URL.
+  /**
+   * The repository's browsable URL, WITHOUT opening it.
+   *
+   * `project:openRepo` reads the URL and opens it in one step, which cannot work across machines:
+   * the git remote has to be read where the repository is, and the browser that should open it is the
+   * one in front of the person. Splitting the read out is what lets the viewer do both halves in the
+   * right places. Still validated here, so a compromised caller cannot turn this into "open any URL".
+   */
+  invoke('project:repoUrl', allow('observe'), async (p: string) => {
+    if (!isAllowedPath(effFolders(), String(p))) return null;
+    const url = await getRepoUrl(String(p));
+    return url && isSafeRepoUrl(url) ? url : null;
+  });
+  // Read there, open here.
+  invoke('link:openRepo', localOnly, async (machineId: string, projectPath: string) => {
+    const url = await linkOrThrow().call(String(machineId), 'project:repoUrl', [String(projectPath)]);
+    if (typeof url !== 'string' || !isSafeRepoUrl(url)) { cfg.sendError(`No GitHub remote found for: ${projectPath}`); return; }
+    await shell.openExternal(url);
+  });
   invoke('project:openRepo', localOnly, async (p: string) => {
     if (!isAllowedPath(effFolders(), p)) {
       cfg.sendError(`Path outside allowed folders: ${p}`);

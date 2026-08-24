@@ -5,6 +5,7 @@ import { renderLoadError } from './loadError';
 import { filterProjectRows, aggregateDeleted } from '../shared/usageFilter';
 import { selectProviderUsage, type LocalProjectUsage, type LocalUsageFilter, type LocalUsageProvider, type LocalUsageReport, type ProviderUsageSlice } from '../shared/localUsage';
 import { createProviderLogo, providerName } from './providerLogo';
+import { deckFor, machineName, selectedMachineId, LOCAL_MACHINE_ID } from './machineDeck';
 
 const RANGES: { key: string; label: string; days: number }[] = [
   { key: '7d', label: '7d', days: 7 },
@@ -40,7 +41,10 @@ async function load(): Promise<void> {
   const sk = document.createElement('div'); sk.className = 'skeleton'; sk.style.margin = '16px';
   viewEl.replaceChildren(sk);
   try {
-    render(await window.devdeck.usageReport(sinceMs));
+    // Follows the deck's machine selector: these are token counts for work done on a specific
+    // machine, and showing this one's numbers under another machine's name would be a quietly wrong
+    // answer to "what did that box cost me".
+    render(await deckFor(selectedMachineId()).usageReport(sinceMs));
   } catch (e) {
     console.error('DevDeck: usage load failed', e);
     renderLoadError(viewEl, () => void load());
@@ -79,7 +83,12 @@ function render(report: LocalUsageReport): void {
   const selected = selectProviderUsage(report, activeProvider);
 
   const scope = document.createElement('div'); scope.className = 'usage-scope';
-  const title = document.createElement('h2'); title.className = 'usage-scope-title'; title.textContent = tr('usage.local_title');
+  const title = document.createElement('h2'); title.className = 'usage-scope-title';
+  // Name the machine when it is not this one. Without it the page silently answers a different
+  // question than the reader thinks they asked.
+  title.textContent = selectedMachineId() === LOCAL_MACHINE_ID
+    ? tr('usage.local_title')
+    : tr('usage.machine_title', { machine: machineName(selectedMachineId()) });
   const explainer = document.createElement('p'); explainer.className = 'usage-scope-note'; explainer.textContent = tr('usage.local_explainer');
   scope.append(title, explainer); viewEl.appendChild(scope);
 

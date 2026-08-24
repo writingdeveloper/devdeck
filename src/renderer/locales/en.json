@@ -408,5 +408,7 @@
   "link.this_pc": "This PC",
   "cockpit.restore_machine_offline": "Cannot restore “{name}” — {machine} is not reachable. It stays saved.",
   "cockpit.remote_file_unavailable": "That file is on {machine}, not on this computer.",
-  "cockpit.remote_image_unsupported": "Pasting an image into a session on another machine is not supported yet."
+  "cockpit.remote_image_unsupported": "Pasting an image into a session on another machine is not supported yet.",
+  "proj.remote_local_only": "That folder is on {machine}. This action only works on projects on this computer.",
+  "usage.machine_title": "Local usage on {machine}"
 }

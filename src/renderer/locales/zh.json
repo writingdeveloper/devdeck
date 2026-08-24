@@ -408,5 +408,7 @@
   "link.this_pc": "本机",
   "cockpit.restore_machine_offline": "无法恢复“{name}” — 无法连接到 {machine}。该项目将保留。",
   "cockpit.remote_file_unavailable": "该文件位于 {machine}，而不是这台电脑上。",
-  "cockpit.remote_image_unsupported": "暂不支持向其他设备上的会话粘贴图片。"
+  "cockpit.remote_image_unsupported": "暂不支持向其他设备上的会话粘贴图片。",
+  "proj.remote_local_only": "该文件夹位于 {machine}。此操作仅适用于本机上的项目。",
+  "usage.machine_title": "{machine} 的本地用量"
 }

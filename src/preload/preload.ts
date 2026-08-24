@@ -119,6 +119,8 @@ contextBridge.exposeInMainWorld('devdeck', {
     clearLog: () => ipcRenderer.invoke('link:clearLog'),
     onChanged: (cb: () => void) => ipcRenderer.on('link:changed', () => cb()),
   },
+  /** Read the repository URL on the machine that holds it, open it in the browser here. */
+  openRemoteRepo: (machineId: string, projectPath: string) => ipcRenderer.invoke('link:openRepo', machineId, projectPath),
   machine: (machineId: string) => ({
     listProjects: () => ipcRenderer.invoke('link:call', machineId, 'projects:list', []),
     projectMemory: (path: string, fresh?: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:memory', [path, fresh === true]),

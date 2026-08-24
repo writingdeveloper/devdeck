@@ -408,5 +408,7 @@
   "link.this_pc": "この PC",
   "cockpit.restore_machine_offline": "「{name}」を復元できません — {machine} に接続できません。項目は保持されます。",
   "cockpit.remote_file_unavailable": "そのファイルはこの PC ではなく {machine} にあります。",
-  "cockpit.remote_image_unsupported": "ほかのデバイスのセッションへの画像貼り付けはまだ対応していません。"
+  "cockpit.remote_image_unsupported": "ほかのデバイスのセッションへの画像貼り付けはまだ対応していません。",
+  "proj.remote_local_only": "そのフォルダーは {machine} にあります。この操作はこの PC のプロジェクトでのみ使えます。",
+  "usage.machine_title": "{machine} のローカル使用量"
 }

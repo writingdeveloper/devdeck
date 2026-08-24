@@ -8,7 +8,7 @@ import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
 import { basename } from '../shared/paths';
-import { renderLoadError } from './loadError';
+import { renderLoadError, toast } from './loadError';
 import { createProviderLogo, providerName } from './providerLogo';
 import type { AgentId } from '../shared/types';
 import { selectedAgent } from './agentSelection';
@@ -237,7 +237,7 @@ function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
       }
     });
     ta.addEventListener('blur', () => {
-      if (!cancelling && ta.value !== p.note) { p.note = ta.value; window.devdeck.setNote(p.path, ta.value); }
+      if (!cancelling && ta.value !== p.note) { p.note = ta.value; void deckFor(selectedMachineId()).setNote(p.path, ta.value); }
       showRead();
     });
     wrap.appendChild(ta); ta.focus();
@@ -322,7 +322,13 @@ function githubBtn(p: ProjectViewModel): HTMLButtonElement {
   b.appendChild(octocatIcon());
   b.title = `GitHub: ${p.repoUrl!.replace('https://github.com/', '')}`;
   b.setAttribute('aria-label', tr('proj.open_github'));
-  b.addEventListener('click', (e) => { e.stopPropagation(); window.devdeck.openRepo(p.path); });
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    // Split deliberately: the remote URL has to be read on the machine that holds the repository, but
+    // the browser that should open it is the one in front of you.
+    if (remoteDeck()) { void window.devdeck.openRemoteRepo(selectedMachineId(), p.path); return; }
+    void window.devdeck.openRepo(p.path);
+  });
   return b;
 }
 
@@ -349,12 +355,12 @@ function makeMenuWrap(p: ProjectViewModel): HTMLElement {
   const pinItem = document.createElement('button');
   pinItem.className = 'menu-item'; pinItem.setAttribute('role', 'menuitem');
   pinItem.textContent = p.pinned ? tr('proj.unpin') : tr('proj.pin');
-  pinItem.addEventListener('click', () => { window.devdeck.setPinned(p.path, !p.pinned); reload(); });
+  pinItem.addEventListener('click', () => { void deckFor(selectedMachineId()).setPinned(p.path, !p.pinned).then(reload); });
 
   const hideItem = document.createElement('button');
   hideItem.className = 'menu-item'; hideItem.setAttribute('role', 'menuitem');
   hideItem.textContent = tr('proj.hide');
-  hideItem.addEventListener('click', () => { window.devdeck.setHidden(p.path, true); reload(); });
+  hideItem.addEventListener('click', () => { void deckFor(selectedMachineId()).setHidden(p.path, true).then(reload); });
 
   menu.append(pinItem, hideItem);
 
@@ -425,11 +431,20 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   const editorBtn = document.createElement('button'); editorBtn.className = 'iconbtn';
   editorBtn.appendChild(createIcon('edit')); editorBtn.title = tr('proj.open_editor');
   editorBtn.setAttribute('aria-label', tr('proj.open_editor'));
-  editorBtn.addEventListener('click', () => window.devdeck.openEditor(p.path));
+  editorBtn.addEventListener('click', () => {
+    // These open an application on a screen. For a project on another machine that screen is not the
+    // one you are looking at — and pointing the LOCAL editor at a remote path is worse than useless:
+    // it either fails or opens unrelated work that happens to sit at the same path here.
+    if (remoteDeck()) { toast(tr('proj.remote_local_only', { machine: machineName(selectedMachineId()) })); return; }
+    void window.devdeck.openEditor(p.path);
+  });
   const folderBtn = document.createElement('button'); folderBtn.className = 'iconbtn';
   folderBtn.appendChild(createIcon('folder')); folderBtn.title = tr('proj.open_folder');
   folderBtn.setAttribute('aria-label', tr('proj.open_folder'));
-  folderBtn.addEventListener('click', () => window.devdeck.openFolder(p.path));
+  folderBtn.addEventListener('click', () => {
+    if (remoteDeck()) { toast(tr('proj.remote_local_only', { machine: machineName(selectedMachineId()) })); return; }
+    void window.devdeck.openFolder(p.path);
+  });
   // Compact glance strip near the primary action: session count · last activity · est. cost.
   const footMeta = document.createElement('span'); footMeta.className = 'foot-meta';
   const footBits: string[] = [];
@@ -645,7 +660,7 @@ function render(): void {
     const el = viewMode === 'list' ? makeRow(p, act.get(p.path) ?? '') : makeCard(p, render, act.get(p.path) ?? '');
     if (showHidden) {
       const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = tr('proj.restore');
-      restore.addEventListener('click', () => { window.devdeck.setHidden(p.path, false); reload(); });
+      restore.addEventListener('click', () => { void deckFor(selectedMachineId()).setHidden(p.path, false).then(reload); });
       // List mode's row is a 7-column grid (.prow); appending to the row root adds an 8th
       // child that wraps to an implicit second row. Put it in the actions cell instead so it
       // sits inline with the other action buttons.
@@ -770,12 +785,13 @@ async function reload(): Promise<void> {
   // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch), then
   // the toolbar pulse summary (live status counts + today's cost). Both best-effort: any
   // failure in this chain falls back to a status-only pulse rather than blocking reload().
-  void window.devdeck.usageReport(0).then(async (r) => {
+  const costMachine = selectedMachineId();
+  void deckFor(costMachine).usageReport(0).then(async (r) => {
     for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);
     render();
     const t0 = new Date();
     t0.setUTCHours(0, 0, 0, 0);
-    const today = await window.devdeck.usageReport(t0.getTime());
+    const today = await deckFor(costMachine).usageReport(t0.getTime());
     renderDeckPulse(today.globalCost);
   }).catch(() => { renderDeckPulse(null); /* cost is best-effort; ignore failures */ });
 }
@@ -838,6 +854,9 @@ let machineSwitchEl: HTMLSelectElement | null = null;
  * A plain select, and hidden entirely while nothing is paired: someone who only ever uses one machine
  * should not have to notice that this feature exists. It appears the moment a second machine does.
  */
+/** True while the deck is showing a machine other than this one. */
+function remoteDeck(): boolean { return selectedMachineId() !== LOCAL_MACHINE_ID; }
+
 function mountMachineSwitch(): void {
   machineSwitchEl = document.getElementById('machine-switch') as HTMLSelectElement | null;
   machineSwitchEl?.addEventListener('change', () => {

@@ -9,6 +9,7 @@ import { toast } from './loadError';
 import { snapshotRows, timelineRows, type MemoryAction } from './projectMemoryPresentation';
 import { memorySurfaceMode } from './projectMemorySurface';
 import { createIcon } from './icons';
+import { deckFor, selectedMachineId } from './machineDeck';
 
 let currentOverlay: HTMLElement | null = null;
 let closeCurrent: (() => void) | null = null;
@@ -181,7 +182,9 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
   const load = async (fresh = false): Promise<void> => {
     refresh.disabled = true;
     if (fresh) { modal.classList.add('loading'); body.replaceChildren(loading); }
-    try { render(await window.devdeck.projectMemory(project.path, fresh)); }
+    // The snapshot is assembled from git, transcripts and stored notes that all live on the machine
+    // holding the project — reading it here would describe unrelated local work.
+    try { render(await deckFor(selectedMachineId()).projectMemory(project.path, fresh)); }
     catch {
       modal.classList.remove('loading'); body.replaceChildren();
       const error = document.createElement('div'); error.className = 'pm-error'; error.textContent = tr('memory.load_failed');

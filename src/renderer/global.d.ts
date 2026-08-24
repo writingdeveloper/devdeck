@@ -37,6 +37,7 @@ declare global {
         clearLog(): Promise<void>;
         onChanged(cb: () => void): void;
       };
+      openRemoteRepo(machineId: string, projectPath: string): Promise<void>;
       /** The same deck calls, aimed at a paired machine. Local work keeps using the top-level calls. */
       machine(machineId: string): {
         listProjects(): Promise<ProjectViewModel[]>;

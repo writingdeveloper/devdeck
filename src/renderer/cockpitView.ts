@@ -1061,7 +1061,13 @@ function renderHeader(): void {
   const newSession = actBtn('plus', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
   const pin = actBtn('pin', tr(l.pinned ? 'cockpit.unpin' : 'cockpit.pin'), () => togglePin(s.id));
   const rename = actBtn('edit', tr('cockpit.rename'), () => beginRename(s.id));
-  const folder = actBtn('folder', tr('cockpit.open_folder'), () => window.devdeck.openFolder(s.projectPath));
+  const folder = actBtn('folder', tr('cockpit.open_folder'), () => {
+    // The folder is on the machine running this terminal. Opening the local file manager at that path
+    // would show either nothing or somebody else's work that happens to live there.
+    const owner = live.get(s.id)?.machineId ?? LOCAL_MACHINE_ID;
+    if (owner !== LOCAL_MACHINE_ID) { toast(tr('cockpit.remote_file_unavailable', { machine: machineName(owner) })); return; }
+    void window.devdeck.openFolder(s.projectPath);
+  });
   const restart = actBtn('restart', tr('cockpit.restart'), () => restartSession(s.id));
   const close = actBtn('close', tr('cockpit.close'), () => void requestClose(s.id));
   headerEl.append(...pills, sp, newSession, pin, rename, folder, restart, close);
