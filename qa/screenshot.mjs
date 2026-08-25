@@ -1387,6 +1387,34 @@ if (cockpitAvailable) {
   } else {
     console.log('terminal resize churn: skipped (a second session did not open)');
   }
+
+  // The one dialog gating a destructive action must announce itself like every other one here.
+  // Closing a running session asks first, and that question was the only overlay in the app without
+  // role/aria-modal — a screen reader read it as stray text over the terminal, with nothing saying the
+  // app was waiting on an answer. axe never saw it: it audits views, and this exists for a moment.
+  await win.evaluate(() => {
+    const acts = [...document.querySelectorAll('#ck-header .ck-act')];
+    acts[acts.length - 1]?.click();
+  });
+  await win.waitForTimeout(500);
+  const confirmDialog = await win.evaluate(() => {
+    const panel = document.querySelector('.ck-confirm');
+    if (!panel) return null;
+    return {
+      role: panel.getAttribute('role'),
+      modal: panel.getAttribute('aria-modal'),
+      labelled: (panel.getAttribute('aria-label') || '').length > 0,
+      focusInside: panel.contains(document.activeElement),
+    };
+  });
+  await win.keyboard.press('Escape'); // answer "no" — the session stays open
+  await win.waitForTimeout(400);
+  console.log('close-confirm dialog:', JSON.stringify(confirmDialog));
+  if (!confirmDialog || confirmDialog.role !== 'dialog' || confirmDialog.modal !== 'true' || !confirmDialog.labelled || !confirmDialog.focusInside) {
+    console.error(`QA FAILED — the close confirmation must be an announced, focused dialog: ${JSON.stringify(confirmDialog)}`);
+    await closeApp();
+    process.exit(1);
+  }
 }
 
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));

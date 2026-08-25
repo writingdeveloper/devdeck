@@ -477,10 +477,19 @@ export async function openProjectsInCockpit(projects: OpenReq[]): Promise<void> 
  * Every failure is reported. A silently-not-pasted screenshot is the worst outcome here: the person
  * carries on describing an image the agent was never given, and only finds out several turns later.
  */
+/** The ordinary paste: whatever text is on the clipboard, straight into the terminal. */
+function pasteClipboardText(term: Terminal): void {
+  void window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
+}
+
 async function pasteImageToRemote(machineId: string, term: Terminal): Promise<void> {
   let payload: { tooLarge: boolean; bytes: string | null } | null = null;
   try { payload = await window.devdeck.clipboard.readImageBytes(); } catch { payload = null; }
-  if (!payload) { toast(tr('cockpit.remote_image_failed')); return; }
+  // No image on the clipboard: this was an ordinary text paste that happened to land in a remote
+  // session. `null` is how the main process says "nothing to read", so it is the same answer the
+  // local path uses to fall through — not a failure worth a toast, and certainly not a reason to
+  // swallow the text the user meant to paste.
+  if (!payload) { pasteClipboardText(term); return; }
   if (payload.tooLarge || !payload.bytes) { toast(tr('cockpit.remote_image_too_large')); return; }
   let remotePath: string | null = null;
   try { remotePath = await window.devdeck.machine(machineId).cockpit.receiveImage(payload.bytes); } catch { remotePath = null; }
@@ -591,13 +600,14 @@ async function buildTile(p: OpenReq): Promise<boolean> {
       // Prefer a clipboard IMAGE (screenshot): main writes it to a temp PNG and returns the path, which
       // we inject as text — Claude Code reads an image off a path even where native clipboard-image paste
       // can't (e.g. Windows). No image on the clipboard → fall back to the normal text paste.
+      // A session on another machine is decided FIRST. Reading the image here writes a temp PNG on
+      // this machine, and for a remote session that file is then thrown away unread — the bytes have
+      // to travel and the host writes its own copy. Asking the remote path directly costs one fewer
+      // encode-and-write per pasted screenshot and leaves no orphan behind.
+      if (machineId !== LOCAL_MACHINE_ID) { void pasteImageToRemote(machineId, term); return false; }
       window.devdeck.clipboard.readImage().then((imgPath) => {
-        // A local paste writes the temp file here and injects its path. For a session on another
-        // machine that path resolves to nothing, so the BYTES travel and the file is written where
-        // the agent can actually read it — then that machine's path is what gets injected.
-        if (imgPath && machineId !== LOCAL_MACHINE_ID) { void pasteImageToRemote(machineId, term); return; }
         if (imgPath) { term.paste(imgPath + ' '); toast(tr('cockpit.image_pasted')); return; }
-        window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
+        pasteClipboardText(term);
       });
       return false;
     }
@@ -1489,12 +1499,23 @@ function confirmDialog(message: string): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = document.createElement('div'); overlay.className = 'ck-confirm-overlay';
     const panel = document.createElement('div'); panel.className = 'ck-confirm';
+    // Announced as a dialog, like every other overlay in the app — this was the one that was not, and
+    // it is the one gating a destructive action. Without it a screen reader reads the question as
+    // stray text over the terminal, with no indication that the app is waiting on an answer.
+    panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-label', message);
     const msg = document.createElement('div'); msg.className = 'ck-confirm-msg'; msg.textContent = message;
     const acts = document.createElement('div'); acts.className = 'ck-confirm-acts';
     const cancel = document.createElement('button'); cancel.className = 'ck-confirm-cancel'; cancel.textContent = tr('cockpit.cancel');
     const ok = document.createElement('button'); ok.className = 'ck-confirm-ok'; ok.textContent = tr('cockpit.close');
     const done = (v: boolean) => { document.removeEventListener('keydown', onKey, true); overlay.remove(); resolve(v); };
     const onKey = (e: KeyboardEvent) => {
+      // Tab stays between the two buttons: the terminal behind this is focusable, and tabbing into it
+      // leaves the question open with the caret somewhere that will answer it by accident.
+      if (e.key === 'Tab') {
+        e.preventDefault(); e.stopPropagation();
+        (document.activeElement === ok ? cancel : ok).focus();
+        return;
+      }
       if (e.key !== 'Escape' && e.key !== 'Enter') return;
       e.preventDefault(); e.stopPropagation(); // keep Esc/Enter inside the dialog (don't leak to terminal/rename)
       done(e.key === 'Enter');

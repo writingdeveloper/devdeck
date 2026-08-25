@@ -197,6 +197,21 @@ try {
   result.remotePasteLandedOnHost = !!pastedPath && existsSync(pastedPath) && pastedPath.toLowerCase().startsWith(host.temp.toLowerCase());
   result.remotePasteNotWrittenLocally = !!pastedPath && !pastedPath.toLowerCase().startsWith(viewer.temp.toLowerCase());
 
+  // --- and an ORDINARY text paste into that same remote session still types the text ---
+  // A remote paste asks for image bytes first. "No image on the clipboard" and "the read failed" are
+  // the same answer, so treating it as a failure would swallow every text paste into a remote session
+  // behind an error toast — silently, since the terminal simply would not receive what was pasted.
+  const textMarker = `devdeck-text-paste-${Date.now()}`;
+  await viewer.app.evaluate(({ clipboard }, text) => { globalThis.__typed = ''; clipboard.writeText(text); }, textMarker);
+  await viewer.win.evaluate(() => document.querySelector('.ck-term.show .xterm-helper-textarea')?.focus());
+  await viewer.win.waitForTimeout(250);
+  await viewer.win.keyboard.press('Control+V');
+  result.remoteTextPasteStillWorks = false;
+  for (let i = 0; i < 25 && !result.remoteTextPasteStillWorks; i++) {
+    await new Promise((r) => setTimeout(r, 300));
+    result.remoteTextPasteStillWorks = (await viewer.app.evaluate(() => globalThis.__typed || '')).includes(textMarker);
+  }
+
   // --- and the reverse: a session the VIEWER started must appear on the host's own deck ---
   // Otherwise the person sitting at that machine sees an agent working with no tile to look at, and
   // loses it entirely on the next restart, since only tiles are persisted.
