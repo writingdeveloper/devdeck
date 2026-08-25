@@ -352,12 +352,14 @@ const resize = await win.evaluate(async () => {
     grabbable: handleBox.width >= 5 && handleBox.left >= shellBox.left && handleBox.right <= shellBox.right,
     tracksRail: Math.abs(handleBox.left + handleBox.width / 2 - sidebar.getBoundingClientRect().right) <= 4,
     labelled: (handle.getAttribute('aria-label')?.length ?? 0) > 0 && handle.getAttribute('role') === 'separator',
-    valued: handle.getAttribute('aria-valuenow') === String(width()),
+    // Within a pixel: aria-valuenow carries the width that was ASKED for, while width() rounds a
+    // fractional layout box, and the two disagree by 1px often enough to make this gate cry wolf.
+    valued: Math.abs(Number(handle.getAttribute('aria-valuenow')) - width()) <= 1,
   };
 });
 console.log('sidebar resize:', JSON.stringify(resize));
 if (resize.wider <= resize.start || resize.narrower >= resize.wider || resize.maxed <= resize.narrower
-  || resize.reset !== 300 || resize.stored !== "300"
+  || Math.abs(resize.reset - 300) > 1 || resize.stored !== "300"
   || !resize.grabbable || !resize.tracksRail || !resize.labelled || !resize.valued) {
   console.error('QA FAILED — the sidebar cannot be resized or the handle is unreachable:', JSON.stringify(resize));
   await closeApp(); process.exit(1);
@@ -1325,11 +1327,14 @@ if (cockpitAvailable) {
   await win.waitForFunction(() => document.querySelectorAll('.ck-term').length > 1, null, { timeout: 25000 }).catch(() => {});
   const tileCount = await win.evaluate(() => document.querySelectorAll('.ck-term').length);
   if (tileCount > 1) {
-    const bounds = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+    // Driven with setViewportSize, the same way every other size case in this harness is: setBounds
+    // from the main process does not move a window Playwright is sizing, and a drag that changes
+    // nothing proves nothing — the two assertions below would pass on the very code they exist to
+    // catch.
+    const viewport = win.viewportSize() || { width: 1000, height: 720 };
     await app.evaluate(() => { globalThis.__ptyResizes.length = 0; });
     for (let step = 0; step < 8; step++) {
-      await app.evaluate(({ BrowserWindow }, b) => BrowserWindow.getAllWindows()[0].setBounds(b),
-        { ...bounds, width: bounds.width - step * 14, height: bounds.height - step * 8 });
+      await win.setViewportSize({ width: viewport.width - step * 14, height: viewport.height - step * 8 }).catch(() => {});
       await win.waitForTimeout(40);
     }
     await win.waitForTimeout(1500);
@@ -1347,8 +1352,10 @@ if (cockpitAvailable) {
       [...new Set([...document.querySelectorAll('.ck-term .xterm-rows')].map((r) => r.children.length))]);
     const churnReport = { tiles: tileCount, dragResizes, ...churn, distinctTileRowCounts: tileRows };
     console.log('terminal resize churn:', JSON.stringify(churnReport));
-    await app.evaluate(({ BrowserWindow }, b) => BrowserWindow.getAllWindows()[0].setBounds(b), bounds);
-    if (dragResizes > tileCount || churn.switchResizes > 0 || tileRows.length !== 1) {
+    await win.setViewportSize(viewport).catch(() => {});
+    // A drag that never changed the row count would make the rest of this vacuous, so the shrink
+    // has to have actually landed: at least one resize, and at most one per tile.
+    if (dragResizes < 1 || dragResizes > tileCount || churn.switchResizes > 0 || tileRows.length !== 1) {
       console.error(`QA FAILED — a settling pane must resize each pty at most once and switching sessions none at all: ${JSON.stringify(churnReport)}`);
       await closeApp();
       process.exit(1);

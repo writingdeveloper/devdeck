@@ -550,8 +550,21 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-main { flex: 1; display: flex; flex-direction: column; background: var(--dd-canvas); min-width: 0; }
 /* Flat and neutral: the old gradient faded into a blue-black that did not match the terminal it
    captions or the sidebar beside it. */
+/* NOTHING in the caption row may wrap.
+   Its pills arrive as metadata does (model, context %, active time) and differ from session to
+   session, and a title that wrapped to a second line made the row 16px taller — 67px against 51px,
+   measured. That height comes straight out of the terminal below it, so merely CLICKING another
+   session (or a metadata refresh landing) changed the row count, resized the pty, and made conpty
+   repaint the whole screen under whatever the agent was drawing. A cramped row ellipsizes instead;
+   the buttons never shrink, so nothing that must be clickable is what gives. */
 .ck-header { display: flex; align-items: center; gap: 9px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--dd-sidebar); min-height: 42px; }
-.ck-header .title { font-weight: 700; font-size: 13.5px; }
+.ck-header .title { font-weight: 700; font-size: 13.5px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* inline-flex, because .ui-icon is display:block: inside a plain inline pill the icon took a line of
+   its own and the value sat UNDER it — a 34px pill against the 19px ones beside it, and the other
+   half of the height swing above. (#view-cockpit .ck-pill already set a gap for a flex row that was
+   never one.) */
+.ck-header .ck-pill { display: inline-flex; align-items: center; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ck-header .ck-act { flex: 0 0 auto; }
 .ck-pill { font-family: var(--mono); font-size: 10.5px; padding: 2px 8px; border-radius: 11px; border: 1px solid var(--border-strong); color: var(--text-dim); }
 .ck-header .sp { flex: 1; }
 .ck-act { background: transparent; border: 0; color: var(--text-faint); font-size: 13px; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
