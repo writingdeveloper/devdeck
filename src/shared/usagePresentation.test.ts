@@ -1,6 +1,6 @@
 // src/shared/usagePresentation.test.ts
 import { describe, it, expect } from 'vitest';
-import { criticalUsageLimit, footerLimits, mostUrgentLimit, summarizeProviderUsage, staleAgeMinutes } from './usagePresentation';
+import { criticalUsageLimit, footerLimits, formatStaleAge, mostUrgentLimit, summarizeProviderUsage } from './usagePresentation';
 import type { ProviderUsage, UsageLimit, UsageLimitKind } from './usageWindows';
 import type { AgentId } from './types';
 
@@ -164,10 +164,38 @@ describe('mostUrgentLimit', () => {
   });
 });
 
-describe('staleAgeMinutes', () => {
-  it('reports whole minutes since the data went stale, null when fresh', () => {
-    expect(staleAgeMinutes(provider('claude', { state: 'stale', staleSince: NOW - 185_000 }), NOW)).toBe(3);
-    expect(staleAgeMinutes(provider('claude'), NOW)).toBeNull();
-    expect(staleAgeMinutes(provider('claude', { state: 'stale' }), NOW)).toBeNull();
+
+describe('formatStaleAge', () => {
+  // Minutes were the whole label, which is exactly wrong at the scale that misleads someone: the
+  // reported outage lasted 35 hours and would have rendered as "2107분 전".
+  const t = (k: string) => ({ 'usage.stale_age': 'Xm ago', 'usage.stale_age_h': 'Xh Ym ago', 'usage.stale_age_d': 'Xd Yh ago' })[k] ?? k;
+  it('scales to hours and days so an old number looks old', () => {
+    expect(formatStaleAge(NOW - 185_000, NOW, t)).toBe('3m ago');
+    expect(formatStaleAge(NOW - 3 * 3_600_000 - 240_000, NOW, t)).toBe('3h 4m ago');
+    expect(formatStaleAge(NOW - 35 * 3_600_000, NOW, t)).toBe('1d 11h ago');
+  });
+  it('never reports a negative age from a clock that moved backwards', () => {
+    expect(formatStaleAge(NOW + 60_000, NOW, t)).toBe('0m ago');
+  });
+});
+
+describe('summarizeProviderUsage carries why the numbers stopped', () => {
+  it('passes the age and the cause through to the footer', () => {
+    // Without these the footer can only say "last known" — the two words a percentage frozen behind
+    // an expired token hid behind for a day and a half.
+    const s = summarizeProviderUsage({
+      providers: [provider('claude', { state: 'stale', staleSince: NOW - 7_200_000, staleReason: 'expired', limits: [limit('a', 38)] })],
+      fetchedAt: NOW,
+    });
+    expect(s.stale).toBe(true);
+    expect(s.staleSince).toBe(NOW - 7_200_000);
+    expect(s.staleReason).toBe('expired');
+  });
+
+  it('reports no staleness for current data', () => {
+    const s = summarizeProviderUsage({ providers: [provider('claude', { limits: [limit('a', 38)] })], fetchedAt: NOW });
+    expect(s.stale).toBe(false);
+    expect(s.staleSince).toBeNull();
+    expect(s.staleReason).toBeNull();
   });
 });

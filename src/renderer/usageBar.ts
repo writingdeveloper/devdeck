@@ -1,8 +1,8 @@
 import { tr } from './i18n-runtime';
 import { createProviderLogo, providerName } from './providerLogo';
 import { openUsageModal, renderUsageModal, isUsageModalOpen } from './usageModal';
-import { summarizeProviderUsage } from '../shared/usagePresentation';
-import { usageSeverity, formatReset, type UsageSnapshot } from '../shared/usageWindows';
+import { summarizeProviderUsage, formatStaleAge } from '../shared/usagePresentation';
+import { usageSeverity, usageStateKey, formatReset, type UsageSnapshot } from '../shared/usageWindows';
 import type { AgentId } from '../shared/types';
 
 const POLL_MS = 5 * 60_000;
@@ -32,6 +32,10 @@ export function mountUsageBar(): void {
     .catch(() => { /* first paint just waits for the refresh */ })
     .finally(() => { void refreshUsageBar(); });
   window.addEventListener('focus', () => { void refreshUsageBar(); });
+  // Start the poll HERE, not after the first refresh settles. Hung on that promise, the loop that is
+  // supposed to keep the footer current would never begin — and the footer would render the on-disk
+  // cache for the rest of the session, with nothing on screen admitting it had stopped.
+  startTimer();
   // Opening the all-usage dialog from outside the footer (QA harness today, a keyboard shortcut
   // later): `detail.snapshot` overrides what is rendered, otherwise the live one is used.
   document.addEventListener('devdeck:usage-open', (e) => {
@@ -72,6 +76,31 @@ export function rerenderUsageBar(): void {
 
 function startTimer(): void { if (!timer) timer = setInterval(() => { void refreshUsageBar(); }, POLL_MS); }
 
+/**
+ * The "these numbers are not current" chip.
+ *
+ * It used to be the two words "last known", which is how a percentage nobody had been able to refresh
+ * for a day and a half went on passing for a live one. Two things fix that. Its AGE, so an old number
+ * looks old. And its CAUSE when there is one to act on: an expired sign-in keeps the last good
+ * numbers on screen forever, and until it is named the user has no reason to suspect anything —
+ * the chip then becomes a button onto the dialog that can actually re-authenticate.
+ */
+function staleChip(summary: ReturnType<typeof summarizeProviderUsage>, now: number): HTMLElement {
+  const fixable = summary.staleReason === 'expired' || summary.staleReason === 'login-required';
+  const age = summary.staleSince != null ? formatStaleAge(summary.staleSince, now, tr) : null;
+  const cause = fixable ? tr(usageStateKey(summary.staleReason!)) : tr('usage.state_stale');
+  const text = age ? `${cause} · ${age}` : cause;
+  if (!fixable) {
+    const st = document.createElement('span'); st.className = 'ub-stale'; st.textContent = text;
+    st.title = `${tr('usage.stale_note')}${age ? ` · ${age}` : ''}`;
+    return st;
+  }
+  const st = document.createElement('button'); st.type = 'button'; st.className = 'ub-stale fix'; st.textContent = text;
+  st.title = tr('usage.login_open');
+  st.addEventListener('click', () => openUsageModal(snapshot, st));
+  return st;
+}
+
 function render(): void {
   if (!el) return;
   const providers = snapshot?.providers ?? [];
@@ -81,6 +110,7 @@ function render(): void {
   el.replaceChildren();
 
   const summary = summarizeProviderUsage(snapshot, activeProviderId);
+  const now = Date.now();
 
   const cluster = document.createElement('span'); cluster.className = 'ub-providers';
   for (const p of providers) {
@@ -97,7 +127,6 @@ function render(): void {
   if (summary.kind === 'limit' && summary.limits.length > 0) {
     // One group per reported window — Claude's 5h and weekly are independent limits, so showing only
     // the higher one hides the other from the user until it is already the problem.
-    const now = Date.now();
     if (summary.limits.length > 1) box.classList.add('multi');
     for (const l of summary.limits) {
       const pct = l.percent!;
@@ -117,7 +146,7 @@ function render(): void {
       }
       box.appendChild(grp);
     }
-    if (summary.stale) { const st = document.createElement('span'); st.className = 'ub-stale'; st.textContent = tr('usage.state_stale'); box.appendChild(st); }
+    if (summary.stale) box.appendChild(staleChip(summary, now));
   } else {
     const m = document.createElement('span'); m.className = 'ub-msg'; m.textContent = tr(summary.messageKey!);
     box.appendChild(m);

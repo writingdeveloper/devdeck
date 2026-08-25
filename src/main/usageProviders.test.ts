@@ -89,6 +89,44 @@ describe('UsageCoordinator', () => {
     expect(snap.providers.find((p) => p.providerId === 'codex')!.state).toBe('ready');
   });
 
+  it('remembers WHY a reading went stale, so the UI can name it and offer the fix', async () => {
+    // Reported from real use: an expired OAuth token froze the Claude footer at a 35-hour-old
+    // percentage. 'stale' alone cannot distinguish that (fixable in a minute, by signing in) from a
+    // network blip (only waitable) — and the footer offered neither explanation nor a way out.
+    let t = NOW;
+    let state: 'ready' | 'expired' = 'ready';
+    const { c } = coordinator({
+      providers: {
+        claude: async () => ({ ...usage('claude'), state, fetchedAt: t }),
+        codex: async () => usage('codex'),
+        antigravity: async () => antigravityUsage(t),
+      },
+    }, () => t);
+    await c.refresh(['claude']);
+    state = 'expired'; t = NOW + 10 * 60_000;
+    const snap = await c.refresh(['claude'], true);
+    const claude = snap.providers.find((p) => p.providerId === 'claude')!;
+    expect(claude.state).toBe('stale');
+    expect(claude.staleReason).toBe('expired');
+    expect(claude.limits[0].percent).toBe(10); // still last-good numbers, as before
+  });
+
+  it('records a thrown provider as an outage rather than losing the cause entirely', async () => {
+    let t = NOW;
+    let boom = false;
+    const { c } = coordinator({
+      providers: {
+        claude: async () => { if (boom) throw new Error('socket hang up'); return usage('claude'); },
+        codex: async () => usage('codex'),
+        antigravity: async () => antigravityUsage(t),
+      },
+    }, () => t);
+    await c.refresh(['claude']);
+    boom = true; t = NOW + 10 * 60_000;
+    const snap = await c.refresh(['claude'], true);
+    expect(snap.providers[0].staleReason).toBe('offline');
+  });
+
   it('serves cache within the TTL without touching providers, and force bypasses it', async () => {
     let calls = 0;
     let t = NOW;

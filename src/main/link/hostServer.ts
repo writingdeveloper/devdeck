@@ -68,6 +68,9 @@ export interface HostServerOptions {
   now: () => number;
   log: (entry: HostLogEntry) => void;
   onConnectionsChanged?: (connections: HostConnectionInfo[]) => void;
+  /** Called for every request a paired device makes — this machine is in use, even with no terminal
+   *  attached and nobody at the keyboard. See handleMessage. */
+  onActivity?: () => void;
 }
 
 export interface HostConnectionInfo {
@@ -208,6 +211,13 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
   });
 
   function handleMessage(session: Session, message: LinkMessage, fingerprint: string): void {
+    // Anything a PAIRED device asks of this machine is this machine being used, and the idle watcher
+    // has no other way to know it. It counts local input devices; a person driving this deck from the
+    // next room touches none of them. Only attached terminals used to register — so someone reading
+    // this machine's projects, git state or usage for half an hour was, to the watcher, an idle
+    // machine, and it would run `shutdown /s` out from under them. Recorded here rather than in each
+    // case so a new message type cannot quietly opt out of it.
+    if (session.device) options.onActivity?.();
     switch (message.t) {
       case 'hello': {
         if (!protocolMatches(message.protocol)) {

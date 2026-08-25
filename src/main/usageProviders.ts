@@ -53,6 +53,7 @@ export function sanitizeProviderUsage(v: unknown): ProviderUsage | null {
     guidance,
     fetchedAt: p.fetchedAt,
     ...(typeof p.staleSince === 'number' && Number.isFinite(p.staleSince) ? { staleSince: p.staleSince } : {}),
+    ...(typeof p.staleReason === 'string' && STATES.includes(p.staleReason as UsageProviderState) ? { staleReason: p.staleReason as UsageProviderState } : {}),
   };
 }
 
@@ -65,6 +66,24 @@ export interface UsageCoordinatorDeps {
 
 /** States that carry no numbers of their own — for these, last-good data is worth keeping as `stale`. */
 const DATALESS = new Set<UsageProviderState>(['offline', 'rate-limited', 'expired']);
+
+/**
+ * Ceiling on one provider read, above every provider's own timeouts.
+ *
+ * A refresh is single-flight: while one is in progress every later caller is handed the SAME promise.
+ * A provider that never settles therefore does not delay a refresh, it ends refreshing — the footer
+ * would keep rendering whatever was on disk for the rest of the session, with no error and nothing to
+ * retry. That is too quiet a way to lose the feature to leave to each adapter's own discipline.
+ */
+const PROVIDER_DEADLINE_MS = 30_000;
+
+function withDeadline<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('usage provider timed out')), PROVIDER_DEADLINE_MS);
+    timer.unref?.(); // a pending read must never be the reason the process stays alive
+    work.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
 
 export class UsageCoordinator {
   private cache = new Map<AgentId, ProviderUsage>();
@@ -105,19 +124,20 @@ export class UsageCoordinator {
   }
 
   private async fetchProviders(installed: AgentId[], now: number): Promise<UsageSnapshot> {
-    const settled = await Promise.allSettled(installed.map((id) => this.deps.providers[id]()));
+    const settled = await Promise.allSettled(installed.map((id) => withDeadline(this.deps.providers[id]())));
     settled.forEach((res, i) => {
       const id = installed[i];
       const prev = this.cache.get(id);
       if (res.status === 'fulfilled' && res.value) {
-        // A transient failure state must not erase numbers we already had: keep them, marked stale.
+        // A transient failure state must not erase numbers we already had: keep them, marked stale —
+        // but carry the cause, so "last known" can say WHY and offer the fix rather than sit there.
         this.cache.set(id, DATALESS.has(res.value.state) && prev && prev.limits.length > 0
-          ? { ...prev, state: 'stale', staleSince: prev.staleSince ?? prev.fetchedAt, fetchedAt: now }
+          ? { ...prev, state: 'stale', staleSince: prev.staleSince ?? prev.fetchedAt, staleReason: res.value.state, fetchedAt: now }
           : res.value);
         return;
       }
       this.cache.set(id, prev
-        ? { ...prev, state: 'stale', staleSince: prev.staleSince ?? prev.fetchedAt, fetchedAt: now }
+        ? { ...prev, state: 'stale', staleSince: prev.staleSince ?? prev.fetchedAt, staleReason: 'offline', fetchedAt: now }
         : { providerId: id, state: 'offline', planLabel: null, limits: [], credits: null, guidance: null, fetchedAt: now });
     });
     this.deps.save([...this.cache.values()]);

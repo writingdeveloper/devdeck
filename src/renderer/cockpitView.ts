@@ -24,7 +24,23 @@ import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
-interface Live { /** The machine this tile's terminal actually runs on. */ machineId: string; tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement; lastDataAt: number; lastInputAt: number; recentOutput: string; openedSessionId: string | null; openedAt: number; idCheckAt: number; customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number; }
+interface Live {
+  /** The machine this tile's terminal actually runs on. */ machineId: string;
+  tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement;
+  lastDataAt: number; lastInputAt: number; recentOutput: string;
+  openedSessionId: string | null; openedAt: number; idCheckAt: number;
+  customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number;
+  /**
+   * Output held back while this tile is being repainted from the machine's scrollback, or null when
+   * it is writing straight through.
+   *
+   * A tile that binds to an ALREADY-RUNNING terminal starts receiving live bytes the moment it is in
+   * `live` — which is before the round trip that fetches the screen to paint under them has come
+   * back. Written in arrival order that produces the exact artifact reported: the newest output, and
+   * then the whole scrollback dumped ON TOP of it, the overlap appearing twice.
+   */
+  replayPending: string[] | null;
+}
 /** The renderer's display metadata plus the explicit provider launch intent. */
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; }
 
@@ -116,7 +132,9 @@ export function mountCockpit(): void {
 
   window.devdeck.cockpit.onData(({ id, chunk }) => {
     const l = live.get(id); if (!l) return;
-    l.term.write(chunk);
+    // Held back only while a repaint is in flight (see Live.replayPending) so the screen underneath
+    // cannot land on top of newer output. Activity tracking is not gated: the session IS producing.
+    if (l.replayPending) holdForReplay(l, chunk); else l.term.write(chunk);
     l.lastDataAt = Date.now();
     l.recentOutput = (l.recentOutput + stripAnsi(chunk)).slice(-4096);
   });
@@ -143,23 +161,17 @@ export function mountCockpit(): void {
   // And ask outright the moment a machine becomes reachable — the announcement only covers CHANGES
   // after we are listening, so without this a machine that was already busy stays invisible until it
   // happens to start or end something.
-  onMachineConnected((machineId) => { void pullMachineSessions(machineId); });
-  // Re-fit the active terminal whenever its pane changes size — NOT just on window resize. The
+  // Two things are owed to a machine that just came up: the sessions this deck has never seen, and a
+  // repaint of the ones it already holds — everything they printed while the link was down reached
+  // nobody, and re-attaching does not replay it. Resync goes first so it snapshots the tiles that
+  // existed BEFORE this connect, leaving the ones adoption is about to create to paint themselves.
+  onMachineConnected((machineId) => { void resyncMachineTiles(machineId); void pullMachineSessions(machineId); });
+  // Re-lay-out the terminals whenever their pane changes size — NOT just on window resize. The
   // always-on usage bar appears/disappears after its async load, resizing #shell (and thus .ck-terms)
   // by ~27px while the user sits on the cockpit; without a re-fit the terminal keeps its old row count
   // and its bottom rows get clipped by #view-cockpit's overflow:hidden. Observing the pane directly
-  // covers that, window resizes, and header reflow alike. Coalesced to one rAF (also lets layout settle
-  // before measuring); skipped while the pane is hidden (0-height) since showCockpit() re-fits on show.
-  let refitQueued = false;
-  // TRAILING-DEBOUNCED (not per-frame): every PTY resize makes conpty re-emit the whole screen, and a
-  // window drag-resize used to fire dozens of those per second — interleaved repaints at different
-  // widths shredded the scrollback (garbled tables / stray characters at the right edge, worst with CJK
-  // + box-drawing). Waiting for the size to settle yields ONE clean fit + ONE conpty repaint.
-  let refitTimer: ReturnType<typeof setTimeout> | undefined;
-  new ResizeObserver(() => {
-    clearTimeout(refitTimer);
-    refitTimer = setTimeout(() => { if (selectedId && termsEl.clientHeight > 0) fitSelected(); }, 200);
-  }).observe(termsEl);
+  // covers that, window resizes, and header reflow alike.
+  new ResizeObserver(() => scheduleLayout()).observe(termsEl);
   setInterval(tickActivity, 1000);
   setInterval(refreshAllMeta, 30_000); // model/active-time change slowly — refresh on a slow tick (+ on open/select)
   sendTrayAlertImage(); // hand the main process a red-dotted tray icon for the attention alert
@@ -409,7 +421,7 @@ export function liveProjectProviders(projectPath: string): AgentId[] {
 
 /** Re-fit the active terminal when the cockpit becomes visible (xterm can't size while hidden). */
 export function showCockpit(): void {
-  if (selectedId) requestAnimationFrame(() => { fitSelected(); live.get(selectedId!)?.term.focus(); });
+  if (selectedId) { scheduleLayout(); requestAnimationFrame(() => live.get(selectedId!)?.term.focus()); }
   // Transcripts disappear WHILE the app runs (Claude Code prunes them on its own startup), so re-check
   // when the user comes back to this view — throttled, since each check re-indexes the Codex store.
   if (restorableLoaded && Date.now() - missingCheckedAt > MISSING_RECHECK_MS) void refreshMissingConversations();
@@ -576,10 +588,10 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   // Windows quick-edit). This matters most while a TUI has mouse tracking ON — a plain drag goes to the
   // TUI, so the user selects with Shift+drag, and requiring another Ctrl+C afterwards was exactly the
   // step that intermittently turned into a SIGINT. Debounced so mid-drag updates don't spam the
-  // clipboard; skipped for the programmatic re-select in fitSelected (guard below) so a background fit
+  // clipboard; skipped for the programmatic re-select in layoutTerminals (guard below) so a background fit
   // can't clobber whatever the user copied elsewhere in the meantime.
   // Triggered by the mouse GESTURE itself (mouseup after a drag / double-click word select), never by
-  // xterm's selection events: those also fire for programmatic select() (fitSelected's restore) and
+  // xterm's selection events: those also fire for programmatic select() (layoutTerminals' restore) and
   // around buffer reflow/repaint, and copying such a selection would silently overwrite whatever the
   // user last copied in another app. mouseup is deterministic: exactly what the user just highlighted.
   el.addEventListener('mouseup', () => {
@@ -623,22 +635,33 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   // .ck-term is absolutely positioned, so the evicted one would sit on top, blank, forever.
   const displaced = live.get(res.id);
   if (displaced && displaced.el !== el) { displaced.el.remove(); displaced.term.dispose(); }
-  live.set(res.id, { machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(), customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now() });
+  live.set(res.id, {
+    machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el,
+    lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '',
+    openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(),
+    customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now(),
+    // A terminal we are BINDING to is already producing, and its screen has yet to be fetched. Hold
+    // its output until the screen is under it (replayInto releases). A terminal we started has no
+    // history to paint, so it writes through from the first byte.
+    replayPending: p.adoptId ? [] : null,
+  });
+  // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
+  // blank rectangle until the agent next speaks — which, while it is thinking, can be minutes, and
+  // reads as a dead session rather than a busy one.
+  //
+  // Started on the very next statement after the tile is registered, and paired with the hold armed
+  // there: nothing between the two can throw and leave a terminal holding its output forever. It is a
+  // round trip, so the sooner it is asked for, the less has to be held.
+  if (p.adoptId) void replayInto(res.id, machineId, term);
   // Tell the owning machine what this tile is called, so a deck on the OTHER side of a link shows the
   // session's name rather than re-deriving the repository folder.
   if (adopted.label) noteLabelOnOwner(res.id, adopted.label);
   select(res.id);
   updateRailBadge();
   persist();
-  if (p.adoptId) {
-    // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
-    // blank rectangle until the agent next speaks — which, while it is thinking, can be minutes, and
-    // reads as a dead session rather than a busy one.
-    void replayInto(res.id, machineId, term);
-    // Attaching does not itself tell the host our size; a resize does, and it is also what starts the
-    // stream flowing for a session this viewer did not open.
-    window.devdeck.cockpit.resize(res.id, term.cols, term.rows);
-  }
+  // Attaching does not itself tell the host our size; a resize does, and it is also what starts the
+  // stream flowing for a session this viewer did not open.
+  if (p.adoptId) window.devdeck.cockpit.resize(res.id, term.cols, term.rows);
   void refreshMeta(res.id);
   void refreshGit(res.id);
   return true;
@@ -764,16 +787,90 @@ export function noteSessionsGone(machineId: string, aliveIds: readonly string[])
   updateRailBadge();
 }
 
+/**
+ * Bytes a tile produced while its repaint was in flight.
+ *
+ * Capped at the same size as the machine-side scrollback: a session streaming hard through a slow
+ * round trip must not grow this without bound, and once it has produced more than a whole screen's
+ * worth the older held bytes no longer matter.
+ */
+const REPLAY_HOLD_BYTES = 256 * 1024;
+
+function holdForReplay(l: Live, chunk: string): void {
+  const held = l.replayPending!;
+  held.push(chunk);
+  let total = held.reduce((n, part) => n + part.length, 0);
+  while (total > REPLAY_HOLD_BYTES && held.length > 1) total -= held.shift()!.length;
+}
+
+/** Release held output, in order, and go back to writing straight through. */
+function flushReplayHold(l: Live): void {
+  const held = l.replayPending;
+  l.replayPending = null;
+  if (held?.length) l.term.write(held.join(''));
+}
+
 /** Write a running session's recent output into a freshly attached terminal. */
 async function replayInto(id: string, machineId: string, term: Terminal): Promise<void> {
   let buffer = '';
   try {
-    buffer = machineId === LOCAL_MACHINE_ID
+    buffer = await sessionScrollback(id, machineId);
+  } finally {
+    // The hold is released on EVERY path. A tile whose repaint failed must go back to writing what
+    // its session says — a terminal that silently stopped printing is worse than one missing history.
+    const l = live.get(id);
+    if (l && l.term === term) {
+      if (buffer) term.write(buffer);
+      flushReplayHold(l);
+    }
+  }
+}
+
+/** The recent output a machine is holding for one of its sessions — its screen, near enough. */
+async function sessionScrollback(id: string, machineId: string): Promise<string> {
+  try {
+    return machineId === LOCAL_MACHINE_ID
       ? await window.devdeck.cockpit.sessionBuffer(id)
       : await window.devdeck.machine(machineId).cockpit.sessionBuffer(parseRemoteId(id).hostId);
-  } catch { return; }
-  if (!buffer || !live.has(id)) return;
-  term.write(buffer);
+  } catch { return ''; }
+}
+
+/**
+ * Repaint the tiles of a machine that has just (re)connected.
+ *
+ * A dropped link does not stop its sessions: they keep running and keep producing output that nobody
+ * is there to forward, and re-attaching replays none of it. So a tile that was mid-turn came back
+ * frozen at the instant of the drop, with the rest of that turn lost — looking exactly like a session
+ * that had gone quiet. The host also hangs up on a viewer outright when its output backlog overflows,
+ * telling it to "reattach to resync"; nothing ever did. The host's own scrollback IS that screen, so
+ * reset and repaint from it.
+ *
+ * The snapshot of `live` is taken synchronously, before any await, so tiles that the connect handler
+ * is concurrently ADOPTING (which paint themselves) are never repainted twice.
+ */
+async function resyncMachineTiles(machineId: string): Promise<void> {
+  // A tile already mid-repaint (one being adopted as this connect is handled) is skipped: it is
+  // fetching the very same screen, and painting it twice is the duplication this all exists to stop.
+  const tiles = [...live.values()].filter((l) => l.machineId === machineId && l.session.status !== 'exited' && !l.replayPending);
+  for (const tile of tiles) {
+    const id = tile.session.id;
+    // Re-assert our size first: attaching does not carry it, and the host re-attaches at whatever was
+    // recorded when the link dropped.
+    window.devdeck.cockpit.resize(id, tile.term.cols, tile.term.rows);
+    tile.replayPending = []; // hold the resumed stream until the screen is back under it
+    let buffer = '';
+    try {
+      buffer = await sessionScrollback(id, machineId);
+    } finally {
+      const still = live.get(id);
+      if (still && still.term === tile.term) {
+        if (buffer) { still.term.reset(); still.term.write(buffer); }
+        flushReplayHold(still);
+      } else {
+        tile.replayPending = null; // the tile was closed or rebuilt while we asked
+      }
+    }
+  }
 }
 
 /** Pull a session's model + active-time + summary from its log (for the header/list). Cheap; called on open/select + a slow tick. */
@@ -895,26 +992,73 @@ function select(id: string): void {
   // Selecting a tile is when its provider is most visible (header mark + usage footer) — re-check it
   // here too instead of waiting up to 30s for the tick. Main's listing is cached, so this is cheap.
   void refreshProvider(id);
-  requestAnimationFrame(() => { fitSelected(); live.get(id)?.term.focus(); });
+  // Every tile is already the pane's size (layoutTerminals keeps them all there), so selecting one
+  // normally resizes nothing — the schedule is here for the case where the pane changed while the
+  // cockpit was off screen and nothing has measured it yet.
+  scheduleLayout();
+  requestAnimationFrame(() => live.get(id)?.term.focus());
 }
 
-function fitSelected(): void {
-  const l = selectedId ? live.get(selectedId) : null; if (!l) return;
-  const term = l.term;
-  // xterm drops the text selection on resize, and a fit can fire in the background (usage-bar toggle,
-  // header-pill reflow via the ResizeObserver, window resize) — silently clearing a selection the user
-  // is about to Ctrl+C-copy, so the copy falls through to SIGINT. Preserve it across a HEIGHT-ONLY fit
-  // (cols unchanged → buffer coords stay valid; a width change reflows the buffer, so we let it go).
+/**
+ * How long the pane must hold still before the terminals are re-sized.
+ *
+ * Every PTY resize makes conpty re-emit the whole screen. Two resizes close together therefore put
+ * two repaints — at DIFFERENT sizes — into one buffer, and what the user is left looking at is two
+ * frames drawn over each other: half-erased status lines, a separator struck through the middle of a
+ * sentence, the same block twice. A window drag-resize used to fire dozens of these per second. Every
+ * trigger goes through one trailing debounce so a settling layout yields ONE fit and ONE repaint.
+ */
+const LAYOUT_SETTLE_MS = 200;
+let layoutTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Coalesce every re-fit trigger — pane resize, view switch, session select — into one settled pass. */
+function scheduleLayout(): void {
+  clearTimeout(layoutTimer);
+  layoutTimer = setTimeout(layoutTerminals, LAYOUT_SETTLE_MS);
+}
+
+/**
+ * Size EVERY open terminal to the pane, from one measurement.
+ *
+ * Fitting only the selected tile left every other one at whatever size the pane had when it was last
+ * on screen — so clicking a session resized its pty right at that moment, and conpty answered with a
+ * full repaint over whatever the agent happened to be drawing. With a dozen sessions open, one window
+ * resize meant a dozen such repaints, each detonating under the user's cursor. Tiles share one pane
+ * and one font, so one measurement is the correct size for all of them; applying it to all at once
+ * means switching sessions resizes nothing at all.
+ */
+function layoutTerminals(): void {
+  if (!termsEl || termsEl.clientHeight <= 0) return; // pane hidden — xterm measures 0; showCockpit() re-runs this
+  // The measurement has to come from a VISIBLE tile: FitAddon reads getComputedStyle, which is 0 on a
+  // display:none element. The selected tile is normally that one, but there is a window during an open
+  // where the previous selection is already hidden and the new tile is not in `live` yet — measuring
+  // the hidden one there would hand every terminal a size taken from nothing.
+  const selected = selectedId ? live.get(selectedId) : null;
+  const shown = selected?.el.classList.contains('show') ? selected : [...live.values()].find((l) => l.el.classList.contains('show'));
+  if (!shown) return;
+  const dims = shown.fit.proposeDimensions();
+  if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return; // nothing measurable yet
+  const term = shown.term;
+  // xterm drops the text selection on resize, and a layout pass can fire in the background (usage-bar
+  // toggle, header-pill reflow via the ResizeObserver, window resize) — silently clearing a selection
+  // the user is about to Ctrl+C-copy, so the copy falls through to SIGINT. Preserve it across a
+  // HEIGHT-ONLY fit (cols unchanged → buffer coords stay valid; a width change reflows the buffer).
   const colsBefore = term.cols;
   const rowsBefore = term.rows;
   const sel = term.hasSelection() ? term.getSelectionPosition() : undefined;
-  l.fit.fit();
-  if (term.cols === colsBefore && term.rows === rowsBefore) return; // no-op fit (e.g. a 1px container jiggle) — don't make conpty repaint
-  if (sel && term.cols === colsBefore) {
-    const len = selectionCellLength(sel.start, sel.end, term.cols);
-    if (len > 0) term.select(sel.start.x, sel.start.y, len); // copy-on-select ignores this (no mouse gesture)
+  shown.fit.fit();
+  if (term.cols !== colsBefore || term.rows !== rowsBefore) {
+    if (sel && term.cols === colsBefore) {
+      const len = selectionCellLength(sel.start, sel.end, term.cols);
+      if (len > 0) term.select(sel.start.x, sel.start.y, len); // copy-on-select ignores this (no mouse gesture)
+    }
+    window.devdeck.cockpit.resize(shown.session.id, term.cols, term.rows);
   }
-  window.devdeck.cockpit.resize(l.session.id, term.cols, term.rows);
+  for (const l of live.values()) {
+    if (l === shown || (l.term.cols === term.cols && l.term.rows === term.rows)) continue; // already right — never make conpty repaint for nothing
+    l.term.resize(term.cols, term.rows);
+    window.devdeck.cockpit.resize(l.session.id, term.cols, term.rows);
+  }
 }
 
 // How many drawn rows the spinner scan reads, counted up from the LAST NON-EMPTY live row — not from

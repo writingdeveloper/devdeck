@@ -1,6 +1,6 @@
 import { tr } from './i18n-runtime';
 import { createProviderLogo, providerName } from './providerLogo';
-import { staleAgeMinutes } from '../shared/usagePresentation';
+import { formatStaleAge } from '../shared/usagePresentation';
 import { formatReset, usageActionFor, usageSeverity, usageStateKey, type ProviderUsage, type UsageSnapshot } from '../shared/usageWindows';
 import { createIcon } from './icons';
 import { openUsageLoginTerminal } from './usageLoginTerminal';
@@ -98,8 +98,15 @@ function providerSection(p: ProviderUsage): HTMLElement {
   head.appendChild(name);
   if (p.planLabel) { const plan = document.createElement('span'); plan.className = 'um-plan'; plan.textContent = p.planLabel; head.appendChild(plan); }
   const state = document.createElement('span'); state.className = `um-state st-${p.state}`;
-  const age = staleAgeMinutes(p, Date.now());
-  state.textContent = age != null ? `${tr(usageStateKey(p.state))} · ${tr('usage.stale_age').replace('X', String(age))}` : tr(usageStateKey(p.state));
+  // Last-good numbers say three things, and only the first was ever shown: that they are last-good,
+  // how old they are, and what stopped them refreshing. The third is what turns "that number looks
+  // wrong" into something the user can act on — and it is what puts the sign-in button below.
+  const stateParts = [tr(usageStateKey(p.state))];
+  if (p.state === 'stale') {
+    if (p.staleSince != null) stateParts.push(formatStaleAge(p.staleSince, Date.now(), tr));
+    if (p.staleReason) stateParts.push(tr(usageStateKey(p.staleReason)));
+  }
+  state.textContent = stateParts.join(' · ');
   head.appendChild(state);
   sec.appendChild(head);
 
@@ -135,7 +142,7 @@ function providerSection(p: ProviderUsage): HTMLElement {
     sec.appendChild(c);
   }
 
-  const action = usageActionFor(p.providerId, p.state);
+  const action = usageActionFor(p.providerId, p.state, p.staleReason);
   if (action === 'login') {
     const row = document.createElement('div'); row.className = 'um-guidance';
     const button = document.createElement('button'); button.type = 'button'; button.className = 'um-action';

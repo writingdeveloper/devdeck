@@ -1086,7 +1086,10 @@ const SNAPSHOT = {
       { id: 'claude:weekly', kind: 'weekly', label: 'usage.limit_weekly', percent: 76, resetAt: Date.now() + 3 * 86400_000, modelLabel: null },
       { id: 'claude:seven_day:fable-5', kind: 'model-weekly', label: 'usage.limit_model_weekly', percent: 91, resetAt: Date.now() + 3 * 86400_000, modelLabel: 'Fable 5' },
     ] },
-    { providerId: 'codex', state: 'stale', planLabel: 'plus', credits: null, guidance: null, fetchedAt: Date.now(), staleSince: Date.now() - 8 * 60_000, limits: [
+    // Stale BECAUSE the sign-in expired — the reported failure. The numbers stay (they are the last
+    // true ones), but the footer has to date them and name the cause, or a percentage nobody has been
+    // able to refresh goes on reading as live. In the report it did, for 35 hours.
+    { providerId: 'codex', state: 'stale', planLabel: 'plus', credits: null, guidance: null, fetchedAt: Date.now(), staleSince: Date.now() - 26 * 3600_000, staleReason: 'expired', limits: [
       { id: 'codex:primary', kind: 'primary', label: 'usage.limit_primary', percent: 18, resetAt: Date.now() + 5 * 3600_000, modelLabel: null },
       { id: 'codex:secondary', kind: 'secondary', label: 'usage.limit_secondary', percent: 4, resetAt: null, modelLabel: null },
     ] },
@@ -1109,6 +1112,10 @@ const footer = await win.evaluate(async (snapshot) => {
       // Clipping is the designed degradation for a narrow window (the dialog has the full list), so
       // this is reported, not enforced; the 26px height is what must never move.
       clipped: (() => { const s = bar.querySelector('.ub-summary'); return !!s && s.scrollWidth > s.clientWidth + 1; })(),
+      stale: (() => {
+        const chip = bar.querySelector('.ub-stale');
+        return chip ? { text: chip.textContent, actionable: chip.tagName === 'BUTTON' } : null;
+      })(),
       height: Math.round(bar.getBoundingClientRect().height),
     };
   };
@@ -1124,6 +1131,52 @@ if (footer.claude.values.join() !== '42%,76%,91%' || footer.codex.values.join() 
   console.error(`QA FAILED — usage footer does not show every window of the reported provider: ${JSON.stringify(footer)}`);
   await closeApp();
   process.exit(1);
+}
+
+// A reading that is NOT current has to look it. Numbers frozen behind an expired sign-in carried the
+// two words "last known" and nothing else — no age, no cause, no way out — and were read as live for
+// a day and a half. The chip now dates them, names what stopped them, and (only where that is
+// something the user can clear) IS the control that opens the sign-in.
+console.log('usage footer staleness:', JSON.stringify({ codex: footer.codex.stale, claude: footer.claude.stale }));
+if (!footer.codex.stale || !footer.codex.stale.actionable || !/\d/.test(footer.codex.stale.text) || footer.claude.stale !== null) {
+  console.error(`QA FAILED — stale usage must be dated and, when fixable, actionable: ${JSON.stringify({ codex: footer.codex.stale, claude: footer.claude.stale })}`);
+  await closeApp();
+  process.exit(1);
+}
+
+// Whatever xterm is opened into must report to FitAddon exactly what is drawable.
+//
+// FitAddon derives rows/cols from getComputedStyle(host).height, and under border-box that value
+// INCLUDES the host's own padding — which FitAddon does not subtract. Any padding (or border) there
+// is therefore space the terminal believes it can draw in and cannot, and the surplus row is sliced
+// in half by the nearest overflow:hidden. It cost two user reports on the cockpit and was sitting
+// unnoticed on the login terminal, where the OAuth URL and code are printed. Measured on a replica
+// so the check costs nothing and, crucially, never spawns a real `claude login`.
+const hostBoxes = await win.evaluate(() => {
+  const overlay = document.createElement('div'); overlay.className = 'usage-login-overlay';
+  const dialog = document.createElement('div'); dialog.className = 'usage-login-dialog';
+  const head = document.createElement('div'); head.className = 'usage-login-head'; head.innerHTML = '<h2>t</h2>';
+  const note = document.createElement('p'); note.className = 'usage-login-note'; note.textContent = 'n';
+  const loginHost = document.createElement('div'); loginHost.className = 'usage-login-terminal';
+  dialog.append(head, note, loginHost); overlay.appendChild(dialog); document.body.appendChild(overlay);
+  const surplus = (el) => {
+    if (!el) return null;
+    const s = getComputedStyle(el);
+    const pad = (side) => parseFloat(s.getPropertyValue(side)) || 0;
+    // What FitAddon is told, minus what can actually be drawn in.
+    return parseFloat(s.height) - (el.clientHeight - pad('padding-top') - pad('padding-bottom'));
+  };
+  const out = { login: surplus(loginHost), cockpit: surplus(document.querySelector('.ck-term')) };
+  overlay.remove();
+  return out;
+});
+console.log('terminal host surplus (px the terminal is told it has and does not):', JSON.stringify(hostBoxes));
+for (const [where, surplus] of Object.entries(hostBoxes)) {
+  if (surplus !== null && surplus > 0) {
+    console.error(`QA FAILED — the ${where} terminal host reports ${surplus}px more than it can draw in; the last row will be clipped`);
+    await closeApp();
+    process.exit(1);
+  }
 }
 
 const geometry = () => win.evaluate(() => {
@@ -1225,7 +1278,84 @@ if (cockpitAvailable) {
     await closeApp();
     process.exit(1);
   }
+  // ...and the terminal has to FIT the box it is drawn in.
+  //
+  // xterm's FitAddon derives the row count from getComputedStyle(parent).height, which under
+  // border-box INCLUDES that parent's padding — so padding on .ck-term bought rows the terminal could
+  // not draw, and #view-cockpit's overflow:hidden sliced the last one in half (measured: a 784px
+  // xterm inside a 775px content box). It is invisible to every check that does not measure, and it
+  // was reported from real use twice.
+  const boxFit = await win.evaluate(() => {
+    const tile = document.querySelector('.ck-term.show');
+    const xterm = tile && tile.querySelector('.xterm');
+    if (!tile || !xterm) return null;
+    const box = tile.getBoundingClientRect();
+    const inner = xterm.getBoundingClientRect();
+    const cs = getComputedStyle(tile);
+    const pad = (v) => parseFloat(cs.getPropertyValue(v)) || 0;
+    const rowEl = tile.querySelector('.xterm-rows > div');
+    return {
+      rowHeight: rowEl ? rowEl.getBoundingClientRect().height : null,
+      // How far the drawn terminal spills past the usable area of its tile, per axis.
+      overflowBottom: inner.bottom - (box.bottom - pad('padding-bottom')),
+      overflowRight: inner.right - (box.right - pad('padding-right')),
+    };
+  });
+  console.log('terminal fits its box:', JSON.stringify(boxFit));
+  if (!boxFit || boxFit.overflowBottom > 0 || boxFit.overflowRight > 0) {
+    console.error(`QA FAILED — the terminal must fit inside its tile; anything past it is clipped mid-row: ${JSON.stringify(boxFit)}`);
+    await closeApp();
+    process.exit(1);
+  }
   await shot('cockpit-live-session');
+
+  // A PTY must be resized when the pane settles — and at no other time.
+  //
+  // On Windows every conpty resize re-emits the whole screen, so a resize landing while an agent is
+  // drawing leaves two frames interleaved in one buffer: the duplicated, struck-through screen users
+  // report. Two shapes of that were real. A drag fired one per mouse-move, and only the SELECTED tile
+  // was ever re-fitted — so every other session kept the pane's old size and was resized at the
+  // instant it was clicked, detonating a repaint under the cursor. Measured before the fix: a hidden
+  // tile 4 rows taller than the visible one, and a pty resize on every session switch.
+  await app.evaluate(({ ipcMain }) => {
+    globalThis.__ptyResizes = [];
+    ipcMain.on('cockpit:resize', (_e, id, cols, rows) => globalThis.__ptyResizes.push({ id, cols, rows }));
+  });
+  await win.evaluate(() => document.getElementById('ck-new-session').click());
+  await win.waitForFunction(() => document.querySelectorAll('.ck-term').length > 1, null, { timeout: 25000 }).catch(() => {});
+  const tileCount = await win.evaluate(() => document.querySelectorAll('.ck-term').length);
+  if (tileCount > 1) {
+    const bounds = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getBounds());
+    await app.evaluate(() => { globalThis.__ptyResizes.length = 0; });
+    for (let step = 0; step < 8; step++) {
+      await app.evaluate(({ BrowserWindow }, b) => BrowserWindow.getAllWindows()[0].setBounds(b),
+        { ...bounds, width: bounds.width - step * 14, height: bounds.height - step * 8 });
+      await win.waitForTimeout(40);
+    }
+    await win.waitForTimeout(1500);
+    const dragResizes = await app.evaluate(() => globalThis.__ptyResizes.length);
+    // Then switch sessions: with every tile already at the pane's size this must cost nothing.
+    await app.evaluate(() => { globalThis.__ptyResizes.length = 0; });
+    const sessionRows = await win.$$('#shell-session-groups .shell-session');
+    for (let i = 0; i < 4 && sessionRows.length >= 2; i++) { await sessionRows[i % 2].click(); await win.waitForTimeout(400); }
+    await win.waitForTimeout(900);
+    const churn = await app.evaluate(() => ({
+      switchResizes: globalThis.__ptyResizes.length,
+      sizes: [...new Set(globalThis.__ptyResizes.map((r) => `${r.cols}x${r.rows}`))],
+    }));
+    const tileRows = await win.evaluate(() =>
+      [...new Set([...document.querySelectorAll('.ck-term .xterm-rows')].map((r) => r.children.length))]);
+    const churnReport = { tiles: tileCount, dragResizes, ...churn, distinctTileRowCounts: tileRows };
+    console.log('terminal resize churn:', JSON.stringify(churnReport));
+    await app.evaluate(({ BrowserWindow }, b) => BrowserWindow.getAllWindows()[0].setBounds(b), bounds);
+    if (dragResizes > tileCount || churn.switchResizes > 0 || tileRows.length !== 1) {
+      console.error(`QA FAILED — a settling pane must resize each pty at most once and switching sessions none at all: ${JSON.stringify(churnReport)}`);
+      await closeApp();
+      process.exit(1);
+    }
+  } else {
+    console.log('terminal resize churn: skipped (a second session did not open)');
+  }
 }
 
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));

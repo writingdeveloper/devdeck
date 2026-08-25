@@ -400,4 +400,21 @@ describe('host control', () => {
     expect(host.connections).toHaveLength(0);
     expect(dialed.link.closed).toBe(true);
   });
+
+  it('counts a remote request as this machine being in use, terminal or no terminal', async () => {
+    // The idle watcher powers this machine off after ten quiet minutes, and it measures quiet by local
+    // input devices — which someone driving this deck from another room never touches. Only ATTACHED
+    // terminals vetoed it, so a viewer reading this machine's projects, git state or usage was, to the
+    // watcher, nobody: it would run `shutdown /s` out from under them.
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions: ['observe'], pairedAtMs: now, lastSeenMs: null }];
+    let activity = 0;
+    const host = await startHost({ onActivity: () => { activity += 1; } });
+    const dialed = await connect(host.port);
+    expect(dialed.ok).toBe(true);
+    if (!dialed.ok) return;
+
+    const before = activity;
+    await dialed.link.request('projects:list', []);
+    expect(activity).toBeGreaterThan(before); // browsing counts, with nothing attached
+  });
 });

@@ -293,6 +293,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
         consumeInvite: () => { invite = null; changed(); },
         addresses,
         now,
+        onActivity: () => options.onRemoteActivity?.(),
         log: (entry) => {
           log.append(entry);
           // A viewer doing anything here counts as this machine being in use, so the idle-shutdown

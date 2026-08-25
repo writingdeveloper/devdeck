@@ -563,7 +563,14 @@ button.primary:hover { background: var(--accent-hover); }
 .ck-find-input { width: 200px; background: var(--bg); color: var(--text); border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 8px; font-size: 12px; }
 .ck-find-btn { background: transparent; border: 0; color: var(--text-dim); font-size: 13px; cursor: pointer; padding: 2px 5px; border-radius: 4px; }
 .ck-find-btn:hover { background: var(--surface-hover); color: var(--text); }
-.ck-term { position: absolute; inset: 0; padding: 8px 10px; display: none; }
+/* The gutter around the terminal is INSET, never padding.
+   xterm's FitAddon derives the row/column count from getComputedStyle(parent).height — and under the
+   app-wide border-box that value INCLUDES this element's own padding. Padding here therefore handed
+   the terminal 16px of vertical space it could not draw in: it took one row too many, and that row's
+   bottom half was clipped by #view-cockpit's overflow:hidden (measured: an 784px xterm inside a 775px
+   content box). The right edge lost about a column the same way. Insetting the box makes the box the
+   usable area, so the fit is exact. */
+.ck-term { position: absolute; inset: 8px 10px; display: none; }
 .ck-term.show { display: block; }
 .ck-empty { padding: 24px; color: var(--text-faint); }
 .ck-main.has-session .ck-empty { display: none; }
@@ -651,6 +658,12 @@ button.primary:hover { background: var(--accent-hover); }
 .ub-summary.multi .ub-track { width: 48px; }
 .ub-sp { flex: 1; }
 .ub-stale { color: #828282; }
+/* A stale reading with a cause the user can clear (an expired sign-in) is a control, not a caption —
+   it opens the dialog that holds the sign-in button, and carries the warn hue so it reads as one. */
+button.ub-stale { background: transparent; border: 0; font: inherit; padding: 0; }
+button.ub-stale.fix { color: var(--warn); cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+button.ub-stale.fix:hover { color: var(--text); }
+button.ub-stale:focus-visible { outline: 2px solid var(--dd-focus); outline-offset: 2px; border-radius: 4px; }
 .ub-all { background: transparent; border: 1px solid var(--border-strong); color: var(--text-dim); font: inherit; font-size: 10.5px; border-radius: 6px; padding: 1px 8px; cursor: pointer; }
 .ub-all:hover { background: var(--surface-hover); color: var(--text); border-color: var(--accent); }
 .ub-plan { font-weight: 600; color: var(--text); opacity: .85; }
@@ -760,7 +773,11 @@ button.primary:hover { background: var(--accent-hover); }
 .usage-login-head h2 { flex: 1; margin: 0; color: var(--text); font-size: 14px; }
 .usage-login-close { display: grid; place-items: center; padding: 4px 7px; background: transparent; border-color: var(--border-strong); color: var(--text-dim); }
 .usage-login-note { margin: 0; padding: 8px 14px; color: var(--text-dim); font-size: 11.5px; border-bottom: 1px solid var(--border); }
-.usage-login-terminal { flex: 1; min-height: 0; padding: 8px; background: #0a0b0e; }
+/* Margin, not padding — the same trap as .ck-term above, on the one screen where losing the bottom
+   row costs the most: this terminal is where the OAuth URL and code are printed. FitAddon reads the
+   host's border-box height, so its 8px of padding was 16px the terminal thought it could fill (483px
+   reported against 467px drawable, one row too many) and .usage-login-dialog's overflow:hidden cut it. */
+.usage-login-terminal { flex: 1; min-height: 0; margin: 8px; background: #0a0b0e; }
 .usage-login-terminal .xterm { height: 100%; }
 
 /* 🌙 idle shutdown */

@@ -35,6 +35,15 @@ export interface ProviderUsage {
   guidance: { commands: string[] } | null;
   fetchedAt: number;
   staleSince?: number;
+  /**
+   * What went wrong the last time these numbers failed to refresh.
+   *
+   * `stale` says the numbers are last-good; it does not say why, and the difference is the whole
+   * point. A token that expired an hour ago will keep showing yesterday's percentage until the user
+   * signs in again — which they will never think to do while the footer only whispers "last known".
+   * Kept alongside the numbers so the UI can name the cause and offer its fix.
+   */
+  staleReason?: UsageProviderState;
 }
 
 export interface UsageSnapshot { providers: ProviderUsage[]; fetchedAt: number; }
@@ -50,11 +59,18 @@ export function usageStateKey(state: UsageProviderState): string {
   return `usage.state_${state.replace(/-/g, '_')}`;
 }
 
-/** Actionable recovery shown beside a provider state; Antigravity has its own CLI guidance. */
-export function usageActionFor(providerId: AgentId, state: UsageProviderState): 'login' | 'install' | null {
+/**
+ * Actionable recovery shown beside a provider state; Antigravity has its own CLI guidance.
+ *
+ * `stale` is answered by whatever CAUSED it: last-good numbers behind an expired token need the same
+ * sign-in as a provider showing no numbers at all, and offering it only in the second case is how a
+ * stale reading survives for a day and a half.
+ */
+export function usageActionFor(providerId: AgentId, state: UsageProviderState, staleReason?: UsageProviderState): 'login' | 'install' | null {
   if (providerId !== 'claude' && providerId !== 'codex') return null;
-  if (state === 'login-required' || state === 'expired') return 'login';
-  return state === 'cli-missing' ? 'install' : null;
+  const cause = state === 'stale' && staleReason ? staleReason : state;
+  if (cause === 'login-required' || cause === 'expired') return 'login';
+  return cause === 'cli-missing' ? 'install' : null;
 }
 
 export function clampPercent(value: unknown): number | null {

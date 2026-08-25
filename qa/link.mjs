@@ -87,14 +87,24 @@ try {
   // A tile picked up on connect must carry an id naming the machine that owns it. A bare one routes
   // its keystrokes into THIS machine's pty table, where nothing has that id: the session takes no
   // input and receives no output, while looking exactly like a healthy one that has gone quiet.
-  const adoptedStream = await viewer.win.evaluate(() => new Promise((resolve) => {
+  //
+  // The id is taken from the machine's own list rather than from whatever chunk happens to arrive: an
+  // adopted session that is simply IDLE emits nothing, and waiting for it to speak made this report
+  // "inert" on a perfectly healthy link about half the time — a check that cries wolf is not a check.
+  // Asking, then typing, tests the same thing on demand.
+  const adoptedStream = await viewer.win.evaluate(async () => {
+    const machines = await window.devdeck.link.machines();
+    const connected = machines.find((m) => m.state === 'connected');
+    const running = connected ? await window.devdeck.machine(connected.machineId).cockpit.liveSessions() : [];
+    const id = running[0]?.id ?? null;
+    if (!id) return { id: null, total: 0 };
     let total = 0;
-    let seenId = null;
-    window.devdeck.cockpit.onData(({ id, chunk }) => { seenId = id; total += chunk.length; });
-    setTimeout(() => { if (seenId) window.devdeck.cockpit.input(seenId, 'echo devdeck-adopt-probe' + String.fromCharCode(13)); }, 1200);
-    setTimeout(() => resolve({ total, seenId }), 7000);
-  }));
-  result.adoptedIdIsQualified = typeof adoptedStream.seenId === 'string' && adoptedStream.seenId.startsWith('link:');
+    window.devdeck.cockpit.onData((p) => { if (p.id === id) total += p.chunk.length; });
+    window.devdeck.cockpit.input(id, 'echo devdeck-adopt-probe' + String.fromCharCode(13));
+    await new Promise((r) => setTimeout(r, 6000));
+    return { id, total };
+  });
+  result.adoptedIdIsQualified = typeof adoptedStream.id === 'string' && adoptedStream.id.startsWith('link:');
   result.adoptedBytesFlow = adoptedStream.total > 0;
 
   // --- the switcher appears only now that a machine is paired ---
@@ -262,6 +272,16 @@ try {
   result.error = String(err).split('\n').slice(0, 2).join(' | ');
 } finally {
   console.log(JSON.stringify(result, null, 2));
+  // Every boolean here is written so that TRUE is the working link; printing a false one and exiting 0
+  // is how a broken one ships green — the exact way the black-rectangle release got through. Any check
+  // reporting false, or a thrown error, fails the run. `exitCode` rather than `exit` so the two apps
+  // below are still shut down instead of left as zombie harness instances.
+  const failed = Object.entries(result).filter(([, value]) => value === false).map(([key]) => key);
+  if (result.error) failed.unshift(`threw: ${result.error}`);
+  if (failed.length) {
+    console.error(`QA:LINK FAILED — ${failed.join(', ')}`);
+    process.exitCode = 1;
+  }
   await closeApp(host.app).catch(() => {});
   await closeApp(viewer.app).catch(() => {});
 }

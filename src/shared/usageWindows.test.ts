@@ -79,6 +79,15 @@ describe('usageActionFor', () => {
     expect(usageActionFor('claude', 'ready')).toBeNull();
     expect(usageActionFor('antigravity', 'unsupported')).toBeNull();
   });
+
+  it('answers stale numbers with the recovery for whatever caused them', () => {
+    // The reported failure: an expired token kept last-good numbers on screen as `stale`, and `stale`
+    // matched no action — so the one dialog that could re-authenticate offered no way to.
+    expect(usageActionFor('claude', 'stale', 'expired')).toBe('login');
+    expect(usageActionFor('claude', 'stale', 'login-required')).toBe('login');
+    expect(usageActionFor('claude', 'stale', 'offline')).toBeNull(); // an outage is only waitable
+    expect(usageActionFor('claude', 'stale')).toBeNull();            // cause unknown → nothing to promise
+  });
 });
 
 describe('parseClaudeUsageResponse', () => {

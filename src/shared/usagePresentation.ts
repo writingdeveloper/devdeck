@@ -1,7 +1,7 @@
 // src/shared/usagePresentation.ts
 // Pure helpers behind the one-line usage footer. Kept out of the renderer so the "which number does
 // the user most need to see" rule is unit-tested rather than tangled with DOM code.
-import { usageSeverity, usageStateKey, type ProviderUsage, type Severity, type UsageLimit, type UsageLimitKind, type UsageSnapshot } from './usageWindows';
+import { usageSeverity, usageStateKey, type ProviderUsage, type Severity, type UsageLimit, type UsageLimitKind, type UsageProviderState, type UsageSnapshot } from './usageWindows';
 import type { AgentId } from './types';
 
 export interface UsageSummary {
@@ -16,6 +16,11 @@ export interface UsageSummary {
   severity: Severity | null;
   /** True when the winning provider's data is last-good rather than current. */
   stale: boolean;
+  /** When those numbers were last actually true, so the footer can say how old they are. A bare
+   *  "last known" reads as a blip; the same chip next to "1d 11h" reads as the outage it is. */
+  staleSince: number | null;
+  /** What stopped the refresh — an expired sign-in is fixable, an outage is only waitable. */
+  staleReason: UsageProviderState | null;
   /** i18n key for the 'guidance' / 'none' cases. */
   messageKey: string | null;
 }
@@ -87,32 +92,43 @@ export function summarizeProviderUsage(snapshot: UsageSnapshot | null, activePro
     if (limit) {
       return {
         kind: 'limit', providerId: active.providerId, limit, limits: footerLimits(active),
-        severity: usageSeverity(limit.percent!), stale: active.state === 'stale', messageKey: null,
+        severity: usageSeverity(limit.percent!), stale: active.state === 'stale',
+        staleSince: active.staleSince ?? null, staleReason: active.staleReason ?? null, messageKey: null,
       };
     }
     // No number for the active provider: say WHY in its own terms (login required, CLI-only, …)
     // instead of silently showing another provider's percentage under this session's mark.
     return active.state === 'unsupported'
-      ? { kind: 'guidance', providerId: active.providerId, limit: null, limits: [], severity: null, stale: false, messageKey: 'usage.summary_guidance' }
-      : { kind: 'none', providerId: active.providerId, limit: null, limits: [], severity: null, stale: active.state === 'stale', messageKey: usageStateKey(active.state) };
+      ? { kind: 'guidance', providerId: active.providerId, limit: null, limits: [], severity: null, stale: false, staleSince: null, staleReason: null, messageKey: 'usage.summary_guidance' }
+      : { kind: 'none', providerId: active.providerId, limit: null, limits: [], severity: null, stale: active.state === 'stale', staleSince: active.staleSince ?? null, staleReason: active.staleReason ?? null, messageKey: usageStateKey(active.state) };
   }
   const best = criticalUsageLimit(providers);
   if (best) {
     return {
       kind: 'limit', providerId: best.provider.providerId, limit: best.limit, limits: footerLimits(best.provider),
-      severity: usageSeverity(best.limit.percent!), stale: best.provider.state === 'stale', messageKey: null,
+      severity: usageSeverity(best.limit.percent!), stale: best.provider.state === 'stale',
+      staleSince: best.provider.staleSince ?? null, staleReason: best.provider.staleReason ?? null, messageKey: null,
     };
   }
   // No numbers anywhere: if some provider can only be checked from its own CLI, say so instead of
   // implying an outage; otherwise stay neutral (signed out, not applicable, or nothing installed).
   if (providers.some((p) => p.state === 'unsupported')) {
-    return { kind: 'guidance', providerId: null, limit: null, limits: [], severity: null, stale: false, messageKey: 'usage.summary_guidance' };
+    return { kind: 'guidance', providerId: null, limit: null, limits: [], severity: null, stale: false, staleSince: null, staleReason: null, messageKey: 'usage.summary_guidance' };
   }
-  return { kind: 'none', providerId: null, limit: null, limits: [], severity: null, stale: false, messageKey: 'usage.summary_none' };
+  return { kind: 'none', providerId: null, limit: null, limits: [], severity: null, stale: false, staleSince: null, staleReason: null, messageKey: 'usage.summary_none' };
 }
 
-/** How old last-good data is, in whole minutes (for the "stale · Nm" label). */
-export function staleAgeMinutes(provider: ProviderUsage, nowMs: number): number | null {
-  if (provider.state !== 'stale' || provider.staleSince == null) return null;
-  return Math.max(0, Math.floor((nowMs - provider.staleSince) / 60_000));
+/**
+ * How old last-good numbers are, in words.
+ *
+ * Minutes alone was the whole label, and it is exactly wrong at the scale that matters: an outage
+ * long enough to mislead someone reads as "2107분 전". Days and hours make an old number look old.
+ */
+export function formatStaleAge(sinceMs: number, nowMs: number, t: (k: string) => string): string {
+  const totalMin = Math.max(0, Math.floor((nowMs - sinceMs) / 60_000));
+  const d = Math.floor(totalMin / 1440);
+  const h = Math.floor((totalMin % 1440) / 60);
+  if (d > 0) return t('usage.stale_age_d').replace('X', String(d)).replace('Y', String(h));
+  if (h > 0) return t('usage.stale_age_h').replace('X', String(h)).replace('Y', String(totalMin % 60));
+  return t('usage.stale_age').replace('X', String(totalMin));
 }
