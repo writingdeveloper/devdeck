@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('devdeck', {
   usageSnapshot: () => ipcRenderer.invoke('usage:snapshot'),
   refreshUsageProviders: (opts?: { force?: boolean }) => ipcRenderer.invoke('usage:refresh', { force: opts?.force === true }),
   openUsageLogin: (providerId: 'claude' | 'codex', cols: number, rows: number) => ipcRenderer.invoke('usage:login', providerId, cols, rows),
+  /** The machine woke from sleep: every clock-based reading over there was taken before a jump. */
+  onResume: (cb: () => void) => ipcRenderer.on('devdeck:resume', () => cb()),
   onUpdate: (cb: (p: import('../shared/update').UpdatePayload) => void) =>
     ipcRenderer.on('devdeck:update', (_e, p) => cb(p as import('../shared/update').UpdatePayload)),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),

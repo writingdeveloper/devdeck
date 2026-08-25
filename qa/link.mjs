@@ -9,7 +9,7 @@
 // `npm run qa` — the deck-refresh reconciliation check in that harness reports false failures when
 // another instance is competing for the machine.
 import { _electron as electron } from 'playwright';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,9 +18,15 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 
 async function launch(tag, registerFolder) {
   const userData = mkdtempSync(join(tmpdir(), `devdeck-rc-${tag}-`));
+  // Its own temp directory. Both instances run against one filesystem here, so a pasted image landing
+  // in the HOST's temp dir is the only thing that distinguishes "the bytes crossed the link and the
+  // machine running the agent wrote the file" from "the local paste ran and typed a path that machine
+  // cannot read" — which is the whole failure this feature exists to avoid, and it is silent.
+  const temp = mkdtempSync(join(tmpdir(), `devdeck-tmp-${tag}-`));
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${userData}`, '--no-sandbox', '--disable-gpu'],
     cwd: repo,
+    env: { ...process.env, TEMP: temp, TMP: temp, TMPDIR: temp },
   });
   const win = await app.firstWindow();
   await win.waitForSelector('#cards .card, #cards .empty', { timeout: 30000 }).catch(() => {});
@@ -30,7 +36,7 @@ async function launch(tag, registerFolder) {
     await win.evaluate(async () => window.devdeck.pickFolder());
     await win.evaluate(async (p) => window.devdeck.addFolder(p, 'repo'), repo);
   }
-  return { app, win };
+  return { app, win, temp };
 }
 
 async function closeApp(app) {
@@ -158,6 +164,38 @@ try {
   result.streamWorks = streamed.total > 0;
   result.remoteTileId = typeof streamed.seenId === 'string' ? streamed.seenId.slice(0, 5) : null;
   result.idIsQualified = typeof streamed.seenId === 'string' && streamed.seenId.startsWith('link:');
+
+  // --- pasting a screenshot into a session that is running on the OTHER machine ---
+  // The local paste writes a temp PNG here and types its path, which on a remote session names a file
+  // that machine does not have — so the BYTES have to travel and the path that gets typed has to be
+  // the HOST's. Nothing checked that end to end, and every part of it fails silently: the agent simply
+  // reports a file it cannot read. Driven through a real Ctrl+V so the local-vs-remote branch in the
+  // key handler is what decides, not the harness.
+  // Watched at the PTY INPUT rather than on screen: what the paste types is sent to the agent, and
+  // whether the agent happens to echo it back is its business, not this feature's.
+  await viewer.app.evaluate(({ ipcMain, clipboard, nativeImage }, png) => {
+    globalThis.__typed = '';
+    ipcMain.on('cockpit:input', (_e, _id, data) => { globalThis.__typed += String(data); });
+    clipboard.writeImage(nativeImage.createFromBuffer(Buffer.from(png, 'base64')));
+  }, await viewer.win.screenshot({ type: 'png' }).then((buf) => buf.toString('base64')));
+  await viewer.win.evaluate(() => {
+    const box = document.querySelector('.ck-term.show .xterm-helper-textarea');
+    if (box) box.focus();
+  });
+  await viewer.win.waitForTimeout(300);
+  await viewer.win.keyboard.press('Control+V');
+  let pastedPath = null;
+  for (let i = 0; i < 40 && !pastedPath; i++) {
+    await new Promise((r) => setTimeout(r, 400));
+    const typed = await viewer.app.evaluate(() => globalThis.__typed || '');
+    pastedPath = (typed.match(/[A-Za-z]:[^\s]*devdeck-paste-[0-9a-f-]+\.png/i) ?? [null])[0];
+  }
+  result.remotePasteTypedAPath = typeof pastedPath === 'string';
+  // The decisive part: that file has to exist on the machine running the agent, not on this one.
+  // Both instances share this filesystem, so WHERE the file is written is the proof: the host's own
+  // temp directory means the bytes travelled and the machine running the agent wrote them.
+  result.remotePasteLandedOnHost = !!pastedPath && existsSync(pastedPath) && pastedPath.toLowerCase().startsWith(host.temp.toLowerCase());
+  result.remotePasteNotWrittenLocally = !!pastedPath && !pastedPath.toLowerCase().startsWith(viewer.temp.toLowerCase());
 
   // --- and the reverse: a session the VIEWER started must appear on the host's own deck ---
   // Otherwise the person sitting at that machine sees an agent working with no tile to look at, and

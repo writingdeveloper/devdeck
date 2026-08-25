@@ -148,7 +148,16 @@ function providerSection(p: ProviderUsage): HTMLElement {
     const button = document.createElement('button'); button.type = 'button'; button.className = 'um-action';
     button.textContent = tr('usage.login_open');
     button.addEventListener('click', () => { void openUsageLoginTerminal(p.providerId as 'claude' | 'codex'); });
-    row.appendChild(button); sec.appendChild(row);
+    row.appendChild(button);
+    // Signing in again is the heavy way. Claude Code refreshes this token itself whenever it runs —
+    // which is exactly why the reported outage lasted 35 hours: the user had not run it. Say so, so
+    // "my usage is stuck" has an answer that costs nothing.
+    if (p.providerId === 'claude') {
+      const hint = document.createElement('span'); hint.className = 'um-hint';
+      hint.textContent = tr('usage.token_refresh_hint');
+      row.appendChild(hint);
+    }
+    sec.appendChild(row);
   } else if (action === 'install') {
     const command = p.providerId === 'codex' ? 'npm install -g @openai/codex' : 'npm install -g @anthropic-ai/claude-code';
     const row = document.createElement('div'); row.className = 'um-guidance';

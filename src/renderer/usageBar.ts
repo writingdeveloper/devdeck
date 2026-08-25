@@ -32,6 +32,10 @@ export function mountUsageBar(): void {
     .catch(() => { /* first paint just waits for the refresh */ })
     .finally(() => { void refreshUsageBar(); });
   window.addEventListener('focus', () => { void refreshUsageBar(); });
+  // Waking from sleep: the reading on screen was taken before the clock jumped, and it was taken
+  // while the network was down. Ask again now rather than leaving a number that could be a whole
+  // night old sitting there until the poll comes round.
+  try { window.devdeck.onResume(() => { void refreshUsageBar(true); }); } catch { /* older preload */ }
   // Start the poll HERE, not after the first refresh settles. Hung on that promise, the loop that is
   // supposed to keep the footer current would never begin — and the footer would render the on-disk
   // cache for the rest of the session, with nothing on screen admitting it had stopped.

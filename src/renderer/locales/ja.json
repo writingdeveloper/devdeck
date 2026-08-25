@@ -268,6 +268,7 @@
   "usage.guidance_cli": "このプロバイダーはCLIで確認してください:",
   "usage.copy_command": "コマンドをコピー",
   "usage.login_open": "ログイン端末を開く",
+  "usage.token_refresh_hint": "または Claude Code を一度実行すれば自動で更新されます。",
   "usage.install_hint": "CLIをインストールして更新:",
   "usage.login_title": "{provider} CLI ログイン",
   "usage.login_hint": "ブラウザーでログインを完了してから、この端末を閉じてください。使用状況は自動的に更新されます。",

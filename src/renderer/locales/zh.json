@@ -268,6 +268,7 @@
   "usage.guidance_cli": "该提供方请在其 CLI 中查看：",
   "usage.copy_command": "复制命令",
   "usage.login_open": "打开登录终端",
+  "usage.token_refresh_hint": "或者运行一次 Claude Code，它会自动刷新。",
   "usage.install_hint": "安装 CLI 后刷新：",
   "usage.login_title": "{provider} CLI 登录",
   "usage.login_hint": "在浏览器中完成登录，然后关闭此终端。用量状态将自动刷新。",

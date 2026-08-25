@@ -268,6 +268,7 @@
   "usage.guidance_cli": "이 프로바이더는 CLI에서 직접 확인하세요:",
   "usage.copy_command": "명령 복사",
   "usage.login_open": "로그인 터미널 열기",
+  "usage.token_refresh_hint": "또는 Claude Code를 한 번 실행하면 자동으로 갱신됩니다.",
   "usage.install_hint": "CLI 설치 후 새로고침:",
   "usage.login_title": "{provider} CLI 로그인",
   "usage.login_hint": "브라우저 로그인을 완료한 뒤 이 터미널을 닫으세요. 사용량 상태가 자동으로 새로고침됩니다.",

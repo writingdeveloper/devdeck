@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, crashReporter, powerSaveBlocker, safeStorage, screen } from 'electron';
+import { app, BrowserWindow, globalShortcut, crashReporter, powerMonitor, powerSaveBlocker, safeStorage, screen } from 'electron';
 import * as path from 'node:path';
 import { appendFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -257,6 +257,22 @@ if (!gotLock) {
         sleepBlocker = null;
       }
     }, 30_000);
+
+    // A machine that was ASLEEP was not idle.
+    //
+    // The idle watcher measures idleness as wall-clock time since the last busy signal, and nothing
+    // signals while the process is suspended — so a laptop left armed at midnight and opened at eight
+    // wakes to `now - lastBusyAt` of eight hours and issues `shutdown /s /f /t 60` on its very first
+    // tick, before the user has touched anything. Reproduced against the real scheduler: one suspend,
+    // one tick, straight to countdown. Resuming is itself the proof that those hours were sleep.
+    //
+    // The renderer is told too: everything time-based over there was measured against a clock that
+    // jumped, and the usage read in particular is both stale and was taken while the network was down.
+    powerMonitor.on('resume', () => {
+      shutdown?.noteBusy();
+      toRenderer('devdeck:resume', null);
+    });
+
     registerUpdater(w);
     globalShortcut.register('Control+Alt+D', showWindow);
     app.on('activate', () => { if (!win) win = createWindow(store); });

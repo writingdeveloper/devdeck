@@ -519,12 +519,36 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   // provider (shared findUrlLinks) joins soft-wrapped rows by ground truth and hard-wrapped rows via
   // the same conservative fragment heuristic as unwrapCopiedUrl.
   const LINK_CONTEXT_ROWS = 6;
+  /** Ceiling on how far the soft-wrap walk above may run, so a pathological line cannot make a hover
+   *  scan the whole scrollback. 2000 characters at 40 columns still fits inside it. */
+  const LINK_SCAN_LIMIT_ROWS = 64;
   const linkProvider = {
     provideLinks(bufferLineNumber: number, callback: (links: { range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void }[] | undefined) => void) {
       const buf = term.buffer.active;
       const hoveredIdx = bufferLineNumber - 1; // 0-based buffer row
-      const first = Math.max(0, hoveredIdx - LINK_CONTEXT_ROWS);
-      const last = Math.min(buf.length - 1, hoveredIdx + LINK_CONTEXT_ROWS);
+      // The window has to REACH the row the URL starts on. A URL can be thousands of characters and
+      // occupy dozens of rows, and a fixed ±6 meant that hovering anywhere past the sixth row handed
+      // the finder a window that begins mid-URL — so it either found nothing or built a link out of
+      // the tail. `isWrapped` says a row continues the one above it, which is ground truth, so the
+      // window follows the logical line to both of its ends and only then adds the fixed context that
+      // covers a TUI's own hard wraps. Bounded, because this runs on every hover.
+      // A row continues a URL either because xterm wrapped it (isWrapped — ground truth) or because
+      // the TUI printed its own newline mid-URL, which leaves a bare run of URL characters. Both are
+      // walked; findUrlLinks re-validates every join, so a row that merely looks like one costs
+      // nothing but a slightly wider scan.
+      const continuesUrl = (i: number): boolean => {
+        const line = buf.getLine(i);
+        if (!line) return false;
+        if (line.isWrapped) return true;
+        const t = line.translateToString(true).trim();
+        return t.length > 0 && !/\s/.test(t) && !/^https?:\/\//i.test(t);
+      };
+      let first = hoveredIdx;
+      for (let i = 0; i < LINK_SCAN_LIMIT_ROWS && first > 0 && continuesUrl(first); i++) first--;
+      first = Math.max(0, first - LINK_CONTEXT_ROWS);
+      let last = hoveredIdx;
+      for (let i = 0; i < LINK_SCAN_LIMIT_ROWS && last + 1 < buf.length && continuesUrl(last + 1); i++) last++;
+      last = Math.min(buf.length - 1, last + LINK_CONTEXT_ROWS);
       const rows: BufferRow[] = [];
       for (let i = first; i <= last; i++) {
         const line = buf.getLine(i);

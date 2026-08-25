@@ -775,6 +775,7 @@ button.ub-stale:focus-visible { outline: 2px solid var(--dd-focus); outline-offs
 .um-reset { flex: 0 0 auto; color: #828282; }
 .um-credits { margin-top: 6px; font-size: 11px; color: var(--text-dim); }
 .um-guidance { margin-top: 4px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--text-dim); }
+.um-hint { color: var(--text-faint); }
 .um-cmd { font-family: var(--mono); font-size: 10.5px; background: var(--bg); border: 1px solid var(--border-strong); color: var(--text); border-radius: 6px; padding: 1px 7px; cursor: pointer; }
 .um-cmd:hover { border-color: var(--accent); }
 .um-cmd.copied { border-color: #3fb950; color: #3fb950; }

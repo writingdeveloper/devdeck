@@ -69,6 +69,34 @@ describe('findUrlLinks', () => {
     const hits = findUrlLinks([row('a https://x.example.com b https://y.example.com c')]);
     expect(hits).toHaveLength(2);
   });
+
+  it('joins a soft-wrapped URL of ANY length — a cap there only truncates it', () => {
+    // Reported from real use: a long OAuth link opened as a broken prefix. The join was capped at six
+    // rows for both wrap kinds, but a soft wrap is xterm telling us the row IS the same logical line —
+    // capping that cannot prevent a wrong join, it can only throw the tail away. Measured before the
+    // fix: an 818-character URL opened as its first 318 characters.
+    const COLS = 80;
+    const url = 'https://console.anthropic.com/oauth/authorize?state=' + 'A1b2C3d4'.repeat(200);
+    const rows = [];
+    for (let i = 0; i < url.length; i += COLS) rows.push(row(url.slice(i, i + COLS), i > 0));
+    const hits = findUrlLinks(rows);
+    expect(rows.length).toBeGreaterThan(20);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].url).toBe(url);
+  });
+
+  it('keeps HARD-wrapped joining bounded, because each of those is a guess', () => {
+    // No isWrapped flag here: every continuation is inferred. It must reach a real link (this one is
+    // 25 rows) and still stop somewhere rather than swallowing a whole screen of bare tokens.
+    const url = 'https://console.anthropic.com/oauth/authorize?state=' + 'A1b2C3d4'.repeat(200);
+    const rows = (url.match(/.{1,70}/g) ?? []).map((part) => row(part));
+    const hits = findUrlLinks(rows);
+    expect(hits[0].url).toBe(url);
+
+    const runaway = [row('https://example.com/a')];
+    for (let i = 0; i < 200; i++) runaway.push(row('/segment-that-looks-urlish'));
+    expect(findUrlLinks(runaway)[0].url.length).toBeLessThan(runaway.length * 26);
+  });
 });
 
 describe('findFilePathLinks', () => {

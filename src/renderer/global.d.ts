@@ -89,6 +89,7 @@ declare global {
       usageSnapshot(): Promise<import('../shared/usageWindows').UsageSnapshot | null>;
       refreshUsageProviders(opts?: { force?: boolean }): Promise<import('../shared/usageWindows').UsageSnapshot>;
       openUsageLogin(providerId: 'claude' | 'codex', cols: number, rows: number): Promise<{ id: string; providerId: 'claude' | 'codex' } | null>;
+      onResume: (cb: () => void) => void;
       onUpdate(cb: (p: import('../shared/update').UpdatePayload) => void): void;
       downloadUpdate(): Promise<void>;
       installUpdate(): Promise<void>;

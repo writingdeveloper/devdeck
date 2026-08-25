@@ -24,7 +24,18 @@ const TRAILING_PUNCT = /[.,;:!?'"\)\]]+$/;
 // A bare continuation fragment must look like URL innards: path/query/encoding chars, or be long.
 const FRAGMENT_URLISH = /[/?&=%#._~-]/;
 const MIN_BARE_FRAGMENT = 16;
-const MAX_JOIN_ROWS = 6;
+/**
+ * How many HEURISTIC joins one URL may make. Soft-wrapped rows are not counted against it.
+ *
+ * A soft wrap is ground truth — xterm is telling us the row is a continuation of the one above — so
+ * following it can never join something that was not already one logical line, and capping it only
+ * throws away the tail. The cap existed for hard wraps, where joining is a guess, and applying it to
+ * both silently truncated long links: an 818-character OAuth URL opened as its first 318 characters,
+ * which is a broken link the browser accepts and the server rejects.
+ */
+const MAX_HARD_JOIN_ROWS = 32;
+/** A backstop against a pathological buffer, far above any real URL (2000 chars at 40 columns). */
+const MAX_JOIN_ROWS = 64;
 
 function stripTrailing(url: string): string {
   return url.replace(TRAILING_PUNCT, '');
@@ -85,9 +96,11 @@ export function findUrlLinks(rows: BufferRow[]): UrlHit[] {
 
       // Extend across following rows while the URL runs to the end of its row.
       let lastRowText = text;
+      let hardJoins = 0;
       while (endRow - r < MAX_JOIN_ROWS - 1 && endCol === lastRowText.trimEnd().length && endRow + 1 < rows.length) {
         const next = rows[endRow + 1];
         const nextTrimmed = next.text.trimEnd();
+        if (!next.wrapped && hardJoins >= MAX_HARD_JOIN_ROWS) break; // guesses stay bounded; ground truth does not
         if (next.wrapped) {
           // Soft wrap: the row IS the same logical line — take its leading non-space run.
           const fragMatch = nextTrimmed.match(/^[^\s<>"'`]+/);
@@ -100,6 +113,7 @@ export function findUrlLinks(rows: BufferRow[]): UrlHit[] {
           // Hard wrap: only join a bare, URL-ish fragment (may carry the message's indentation).
           const frag = nextTrimmed.trim();
           if (!isContinuationFragment(frag)) break;
+          hardJoins += 1;
           url += frag;
           endRow += 1;
           endCol = nextTrimmed.length; // fragment ends where the trimmed row ends (indent included before it)

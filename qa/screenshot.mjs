@@ -1181,6 +1181,30 @@ for (const [where, surplus] of Object.entries(hostBoxes)) {
   }
 }
 
+// Waking from sleep must count as activity, or the idle watcher powers the machine off on the spot.
+//
+// It measures idleness as wall-clock time since the last busy signal, and nothing signals while the
+// process is suspended — so a laptop armed at midnight and opened at eight sees eight hours of "idle"
+// on its first tick and issues `shutdown /s /f /t 60` before the user has touched anything.
+// Reproduced against the real scheduler; this asserts the wiring that prevents it, by firing the same
+// event Electron fires on resume.
+{
+  await win.evaluate(async () => window.devdeck.shutdown.arm());
+  await win.waitForTimeout(200);
+  const before = await win.evaluate(async () => (await window.devdeck.shutdown.status()).lastBusyAt);
+  await win.waitForTimeout(1100); // the clock has to move, or "advanced" proves nothing
+  await app.evaluate(({ powerMonitor }) => powerMonitor.emit('resume'));
+  await win.waitForTimeout(400);
+  const after = await win.evaluate(async () => (await window.devdeck.shutdown.status()).lastBusyAt);
+  await win.evaluate(async () => window.devdeck.shutdown.disarm());
+  console.log('resume counts as activity:', JSON.stringify({ before, after, advancedMs: after - before }));
+  if (!(after > before)) {
+    console.error(`QA FAILED — resuming from sleep must reset the idle clock, or the machine shuts down on wake: ${JSON.stringify({ before, after })}`);
+    await closeApp();
+    process.exit(1);
+  }
+}
+
 const geometry = () => win.evaluate(() => {
   const r = (sel) => { const el = document.querySelector(sel); if (!el) return null; const b = el.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]; };
   return { shell: r('#shell'), content: r('#content'), terms: r('.ck-terms'), xterm: r('.xterm'), footer: r('#usage-bar') };
