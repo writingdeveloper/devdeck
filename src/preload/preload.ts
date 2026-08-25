@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.on('cockpit:data', (_e, p) => cb(p)),
     onExit: (cb: (p: { id: string; exitCode: number }) => void) =>
       ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
+    onResized: (cb: (p: { id: string; cols: number; rows: number }) => void) =>
+      ipcRenderer.on('cockpit:resized', (_e, p) => cb(p)),
     liveSessions: () => ipcRenderer.invoke('cockpit:liveSessions'),
     sessionBuffer: (id: string) => ipcRenderer.invoke('cockpit:sessionBuffer', id),
     /** Tell the machine running a session what the user named it — routed by tile id like input(). */

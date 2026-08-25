@@ -17,7 +17,7 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean; sessionSummary: boolean; aiSessionSummary: boolean }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; osRelease: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean; sessionSummary: boolean; aiSessionSummary: boolean }>;
       link: {
         hostStatus(): Promise<import('../main/link/linkService').HostStatus>;
         setHostMode(on: boolean): Promise<import('../main/link/linkService').HostStatus>;
@@ -119,6 +119,7 @@ declare global {
         close(id: string): void;
         onData(cb: (p: { id: string; chunk: string }) => void): void;
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
+        onResized(cb: (p: { id: string; cols: number; rows: number }) => void): void;
         liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
         sessionBuffer(id: string): Promise<string>;
         noteLabel(id: string, label: string | null): void;

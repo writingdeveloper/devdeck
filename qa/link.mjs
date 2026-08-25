@@ -39,6 +39,16 @@ async function launch(tag, registerFolder) {
   return { app, win, temp };
 }
 
+/** A port the OS says is free right now — asked of the OS rather than guessed. */
+async function freePort() {
+  const { createServer } = await import('node:net');
+  return new Promise((resolve, reject) => {
+    const s = createServer();
+    s.on('error', reject);
+    s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolve(port)); });
+  });
+}
+
 async function closeApp(app) {
   await app.evaluate(({ app: a }) => { a.isQuitting = true; setImmediate(() => a.quit()); }).catch(() => {});
   await app.close().catch(() => {});
@@ -62,6 +72,13 @@ try {
   await new Promise((r) => setTimeout(r, 2500)); // let it print something worth repainting
 
   // --- pair, through the UI ---
+  // Bind somewhere nobody else is. A real DevDeck runs on the machine this harness runs on, and it
+  // holds the default port — leaving the harness's host enabled but not listening, so pairing timed
+  // out for a reason that had nothing to do with the code under test.
+  const hostPort = await freePort();
+  await host.win.evaluate(async (port) => window.devdeck.link.setPort(port), hostPort);
+  result.hostPort = hostPort;
+
   await host.win.click('.rail-item[data-view="settings"]');
   await host.win.waitForSelector('#settings-form .link-block .chip.chip-primary', { timeout: 15000 });
   await host.win.click('#settings-form .link-block .chip.chip-primary');
@@ -164,6 +181,66 @@ try {
   result.streamWorks = streamed.total > 0;
   result.remoteTileId = typeof streamed.seenId === 'string' ? streamed.seenId.slice(0, 5) : null;
   result.idIsQualified = typeof streamed.seenId === 'string' && streamed.seenId.startsWith('link:');
+
+  // --- one pty, two windows: whose size wins? ---
+  // A pty has ONE size. Both machines are now attached to this session and each fits it to its own
+  // window, so before this was negotiated the last one to lay out left the pty at ITS size and the
+  // other went on drawing at a width the pty no longer had — ConPTY then repainted over the older,
+  // wider paint, which is the split screen this was reported as. The rule is the multiplexers': the
+  // pty ends up at the SMALLEST attached view, and the bigger window simply leaves space empty.
+  const termSize = (win) => win.evaluate(() => {
+    const tile = document.querySelector('.ck-term.show');
+    const pane = document.getElementById('ck-terms');
+    if (!tile) return null;
+    const first = tile.querySelector('.xterm-rows')?.children[0];
+    const rowH = first ? first.getBoundingClientRect().height : 0;
+    return {
+      // Stamped by the tile itself on every resize: a row of text is as long as its content, so the
+      // drawn width cannot be read back off the screen.
+      size: tile.dataset.termSize || null,
+      // The most this window could show. Zero when the cockpit is not the visible view — a hidden
+      // pane measures nothing, and a terminal there simply follows the pty.
+      capacityRows: rowH && pane ? Math.floor(pane.clientHeight / rowH) : 0,
+    };
+  });
+  const negotiate = async (hostBox, viewerBox) => {
+    await host.win.setViewportSize(hostBox);
+    await viewer.win.setViewportSize(viewerBox);
+    await new Promise((r) => setTimeout(r, 7000));
+    const h = await termSize(host.win);
+    const v = await termSize(viewer.win);
+    const rows = h?.size ? Number(h.size.split('x')[1]) : 0;
+    const caps = [h?.capacityRows, v?.capacityRows].filter((n) => n > 0);
+    return {
+      host: h, viewer: v,
+      agreed: !!h?.size && h.size === v?.size,
+      // Nobody draws more rows than the windows that CAN measure are able to show.
+      withinEveryVisiblePane: caps.length === 0 || rows <= Math.min(...caps),
+    };
+  };
+  // Put the host back on its terminal first: a hidden pane measures nothing, and this case is only
+  // interesting when BOTH windows can say how much they are able to show.
+  await host.win.click('#shell-session-groups .shell-session').catch(() => {});
+  await new Promise((r) => setTimeout(r, 1500));
+  const bigHost = await negotiate({ width: 1500, height: 950 }, { width: 900, height: 620 });
+  // Then swap which machine is the small one — AND make it a different small, so the agreed size
+  // has to be recomputed rather than latched at whatever was settled first.
+  const bigViewer = await negotiate({ width: 1100, height: 780 }, { width: 1500, height: 950 });
+  // And with nothing constraining it, the terminal must be BIGGER than either constrained case —
+  // otherwise "they agree" would pass just as well on a size that ignores the windows entirely.
+  const bothBig = await negotiate({ width: 1500, height: 950 }, { width: 1500, height: 950 });
+  const rowsOf = (n) => (n?.host?.size ? Number(n.host.size.split('x')[1]) : 0);
+  result.sizeNegotiation = { bigHost, bigViewer, bothBig };
+  // Two different smallest windows must produce two different agreed sizes: equal ones would pass
+  // even if the size were simply never renegotiated.
+  result.sizeFollowsWhicheverIsSmaller = !!bigHost.host?.size && !!bigViewer.host?.size && bigHost.host.size !== bigViewer.host.size;
+  result.smallWindowActuallyConstrains = rowsOf(bothBig) > rowsOf(bigHost) && rowsOf(bothBig) > rowsOf(bigViewer);
+  result.bothTerminalsAgreeOnSize = bigHost.agreed && bigViewer.agreed && bothBig.agreed;
+  result.neitherDrawsMoreThanItCanShow = bigHost.withinEveryVisiblePane && bigViewer.withinEveryVisiblePane && bothBig.withinEveryVisiblePane;
+  await host.win.setViewportSize({ width: 1280, height: 860 });
+  await viewer.win.setViewportSize({ width: 1280, height: 860 });
+  await new Promise((r) => setTimeout(r, 3000));
+
 
   // --- pasting a screenshot into a session that is running on the OTHER machine ---
   // The local paste writes a temp PNG here and types its path, which on a remote session names a file

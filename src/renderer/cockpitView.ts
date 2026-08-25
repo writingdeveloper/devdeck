@@ -17,8 +17,10 @@ import { toast } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 import { createIcon, type IconName } from './icons';
-import { deckFor, machineName, machineState, onMachineConnected, LOCAL_MACHINE_ID } from './machineDeck';
+import { deckFor, machineName, machineState, onMachineConnected, onMachinesChanged, LOCAL_MACHINE_ID } from './machineDeck';
 import { parseRemoteId } from '../shared/link/machine';
+import { ptyCompatFor } from './ptyCompat';
+import { followPtySize, type TerminalDims } from '../shared/terminalSize';
 import { basename } from '../shared/paths';
 import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
 
@@ -40,6 +42,12 @@ interface Live {
    * then the whole scrollback dumped ON TOP of it, the overlap appearing twice.
    */
   replayPending: string[] | null;
+  /**
+   * The size a SMALLER view has this session's pty pinned to, or null when this view is free to fill
+   * its pane. Set when a size smaller than the pane is adopted; cleared when a machine comes or goes,
+   * and by Refresh — those are the moments the other view may no longer be there.
+   */
+  ptyCap: TerminalDims | null;
 }
 /** The renderer's display metadata plus the explicit provider launch intent. */
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; }
@@ -114,6 +122,11 @@ export function mountCockpit(): void {
   termsEl = document.getElementById('ck-terms')!;
   emptyEl = document.getElementById('ck-empty')!;
   mainEl = document.querySelector('#view-cockpit .ck-main')!;
+  // The toolbar's Refresh is the button users already press when a terminal looks wrong; make it
+  // mean that. The deck reload is wired separately, in projectsView — both listeners fire.
+  document.getElementById('refresh')?.addEventListener('click', () => {
+    void redrawCockpitTerminals().then((n) => { if (n > 0) toast(tr('cockpit.redrawn', { count: String(n) })); });
+  });
   searchEl.addEventListener('input', renderList);
   buildFindBar();
   const newBtn = document.getElementById('ck-new-session') as HTMLButtonElement;
@@ -143,6 +156,25 @@ export function mountCockpit(): void {
     l.session.status = 'exited'; l.session.activity = 'exited';
     renderList(); renderHeader(); updateRailBadge();
   });
+  // The pty's size, as it actually is — which is not always what this view asked for. Any number of
+  // terminals can be attached to one pty (a tile here, and a tile on every machine watching the same
+  // session), and each fits to its own window, so the last one to lay out leaves the pty at ITS size
+  // and the others go on drawing at a width the pty no longer has. followPtySize settles that: take
+  // a size you can show, put back one you can, and the pty ends up at the smallest view.
+  window.devdeck.cockpit.onResized(({ id, cols, rows }) => {
+    const l = live.get(id);
+    if (!l || l.session.status === 'exited') return;
+    const next = followPtySize({ cols: l.term.cols, rows: l.term.rows }, { cols, rows }, paneDims);
+    if (next.action === 'ignore') return;
+    // Remember a size smaller than this pane: it is another view holding the pty down, and the next
+    // layout pass here must not undo it. A claim means this view IS the smallest — nothing to hold.
+    l.ptyCap = next.action === 'adopt' && paneDims && (next.size.cols < paneDims.cols || next.size.rows < paneDims.rows)
+      ? next.size : null;
+    l.term.resize(next.size.cols, next.size.rows);
+    // The screen underneath was drawn at the size we just left, so it is repainted rather than left
+    // to be half-overwritten. `assertSize` only on a claim: an adopt must not answer the pty back.
+    void repaintTile(l, next.action === 'claim');
+  });
   // What is running on THIS machine, announced whenever it changes. A paired machine can start a
   // terminal here, and without adopting it the person sitting at this one would see an agent working
   // with no tile to look at — and would lose it entirely on the next restart, since only tiles are
@@ -166,6 +198,9 @@ export function mountCockpit(): void {
   // nobody, and re-attaching does not replay it. Resync goes first so it snapshots the tiles that
   // existed BEFORE this connect, leaving the ones adoption is about to create to paint themselves.
   onMachineConnected((machineId) => { void resyncMachineTiles(machineId); void pullMachineSessions(machineId); });
+  // A machine coming or going is exactly when a size another view was holding this pty down to stops
+  // being true — drop the caps and let the pane have its terminals back.
+  onMachinesChanged(() => { for (const l of live.values()) l.ptyCap = null; scheduleLayout(); });
   // Re-lay-out the terminals whenever their pane changes size — NOT just on window resize. The
   // always-on usage bar appears/disappears after its async load, resizing #shell (and thus .ck-terms)
   // by ~27px while the user sits on the cockpit; without a re-fit the terminal keeps its old row count
@@ -513,15 +548,25 @@ async function createSession(p: OpenReq): Promise<boolean> {
 }
 
 async function buildTile(p: OpenReq): Promise<boolean> {
+  // Before any DOM: xterm has to be told, at construction, whether its pty is a Windows one, and
+  // that is a fact about the machine the session runs on (see ptyCompatFor).
+  const windowsPty = await ptyCompatFor(p.machineId ?? LOCAL_MACHINE_ID);
   const el = document.createElement('div'); el.className = 'ck-term'; termsEl.appendChild(el);
+  el.dataset.ptyBackend = windowsPty?.backend ?? 'none'; // what this tile believes its pty is — the one thing that decides the resize rule
   // Make this terminal visible BEFORE fitting: FitAddon measures 0 on a display:none element,
   // which would spawn the PTY at the wrong size. select() below re-affirms the show/hide state.
   // Hidden by DOM query rather than by walking `live`: a terminal that lost its place in the map is
   // exactly the one that must not be left showing, and the map can no longer reach it.
   hideAllTerminals();
   el.classList.add('show');
-  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: true });
+  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: true, windowsPty });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
+  // The size this terminal is actually drawing at. Written on every resize because a pty is shared:
+  // when two machines watch one session, "do both terminals agree with the pty" is the whole
+  // question, and it cannot be read back off the screen — a row of text is as long as its content.
+  const stampSize = (): void => { el.dataset.termSize = `${term.cols}x${term.rows}`; };
+  stampSize();
+  term.onResize(stampSize);
   // Make http(s) links clickable → open via a scheme-guarded IPC. Custom provider instead of the
   // WebLinksAddon: Claude's renderer HARD-wraps long URLs at its own inner width (real newlines +
   // indentation), which the addon can't join — clicking then opened only the first fragment. Our
@@ -678,6 +723,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     // its output until the screen is under it (replayInto releases). A terminal we started has no
     // history to paint, so it writes through from the first byte.
     replayPending: p.adoptId ? [] : null,
+    ptyCap: null,
   });
   // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
   // blank rectangle until the agent next speaks — which, while it is thinking, can be minutes, and
@@ -886,25 +932,55 @@ async function resyncMachineTiles(machineId: string): Promise<void> {
   // A tile already mid-repaint (one being adopted as this connect is handled) is skipped: it is
   // fetching the very same screen, and painting it twice is the duplication this all exists to stop.
   const tiles = [...live.values()].filter((l) => l.machineId === machineId && l.session.status !== 'exited' && !l.replayPending);
-  for (const tile of tiles) {
-    const id = tile.session.id;
-    // Re-assert our size first: attaching does not carry it, and the host re-attaches at whatever was
-    // recorded when the link dropped.
-    window.devdeck.cockpit.resize(id, tile.term.cols, tile.term.rows);
-    tile.replayPending = []; // hold the resumed stream until the screen is back under it
-    let buffer = '';
-    try {
-      buffer = await sessionScrollback(id, machineId);
-    } finally {
-      const still = live.get(id);
-      if (still && still.term === tile.term) {
-        if (buffer) { still.term.reset(); still.term.write(buffer); }
-        flushReplayHold(still);
-      } else {
-        tile.replayPending = null; // the tile was closed or rebuilt while we asked
-      }
+  for (const tile of tiles) await repaintTile(tile);
+}
+
+/**
+ * Put one tile's screen back under it: re-assert this view's size on the pty, then reset and repaint
+ * from the session's own recent output.
+ *
+ * Both halves matter, and the first is the one that repairs a corrupted screen. A pty has ONE size
+ * while any number of views can be attached to it — this deck, and every machine watching the same
+ * session over the link — so whichever view laid out last leaves the pty at ITS size, and the others
+ * keep drawing at a width the pty no longer has. Measured: forcing a live 165-column tile's pty to 70
+ * leaves the rows past column 70 holding the previous, wider paint while the new one is drawn over
+ * the left of them — the split screen this is reported as. Re-asserting the size makes ConPTY repaint
+ * at the width this terminal actually is, and the repaint is held until the reset lands so the two do
+ * not interleave.
+ */
+async function repaintTile(tile: Live, assertSize = true): Promise<void> {
+  const id = tile.session.id;
+  if (assertSize) window.devdeck.cockpit.resize(id, tile.term.cols, tile.term.rows);
+  tile.replayPending = []; // hold the resumed stream until the screen is back under it
+  let buffer = '';
+  try {
+    buffer = await sessionScrollback(id, tile.machineId);
+  } finally {
+    const still = live.get(id);
+    if (still && still.term === tile.term) {
+      if (buffer) { still.term.reset(); still.term.write(buffer); }
+      flushReplayHold(still);
+    } else {
+      tile.replayPending = null; // the tile was closed or rebuilt while we asked
     }
   }
+}
+
+/**
+ * Redraw every open terminal — what the toolbar's Refresh does for the cockpit.
+ *
+ * Refresh reloaded the project deck and nothing else, so a terminal left showing two paints on top of
+ * each other had no way back short of closing the session. It is the obvious button to reach for, and
+ * users did reach for it. Tiles mid-repaint are skipped: they are already doing this.
+ */
+async function redrawCockpitTerminals(): Promise<number> {
+  const tiles = [...live.values()].filter((l) => l.session.status !== 'exited' && !l.replayPending);
+  // Sizes first, from one measurement, so a pane that changed while the cockpit was off screen is not
+  // baked into the repaint.
+  for (const l of live.values()) l.ptyCap = null; // a view that was holding these down may be long gone
+  layoutTerminals();
+  for (const tile of tiles) await repaintTile(tile);
+  return tiles.length;
 }
 
 /** Pull a session's model + active-time + summary from its log (for the header/list). Cheap; called on open/select + a slow tick. */
@@ -1061,6 +1137,9 @@ function scheduleLayout(): void {
  * and one font, so one measurement is the correct size for all of them; applying it to all at once
  * means switching sessions resizes nothing at all.
  */
+/** The last measured size of the shared pane — what any tile could show, measured or not. */
+let paneDims: TerminalDims | null = null;
+
 function layoutTerminals(): void {
   if (!termsEl || termsEl.clientHeight <= 0) return; // pane hidden — xterm measures 0; showCockpit() re-runs this
   // The measurement has to come from a VISIBLE tile: FitAddon reads getComputedStyle, which is 0 on a
@@ -1072,26 +1151,29 @@ function layoutTerminals(): void {
   if (!shown) return;
   const dims = shown.fit.proposeDimensions();
   if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return; // nothing measurable yet
-  const term = shown.term;
-  // xterm drops the text selection on resize, and a layout pass can fire in the background (usage-bar
-  // toggle, header-pill reflow via the ResizeObserver, window resize) — silently clearing a selection
-  // the user is about to Ctrl+C-copy, so the copy falls through to SIGINT. Preserve it across a
-  // HEIGHT-ONLY fit (cols unchanged → buffer coords stay valid; a width change reflows the buffer).
-  const colsBefore = term.cols;
-  const rowsBefore = term.rows;
-  const sel = term.hasSelection() ? term.getSelectionPosition() : undefined;
-  shown.fit.fit();
-  if (term.cols !== colsBefore || term.rows !== rowsBefore) {
-    if (sel && term.cols === colsBefore) {
-      const len = selectionCellLength(sel.start, sel.end, term.cols);
-      if (len > 0) term.select(sel.start.x, sel.start.y, len); // copy-on-select ignores this (no mouse gesture)
-    }
-    window.devdeck.cockpit.resize(shown.session.id, term.cols, term.rows);
-  }
+  const pane = { cols: dims.cols, rows: dims.rows };
+  paneDims = pane;
   for (const l of live.values()) {
-    if (l === shown || (l.term.cols === term.cols && l.term.rows === term.rows)) continue; // already right — never make conpty repaint for nothing
-    l.term.resize(term.cols, term.rows);
-    window.devdeck.cockpit.resize(l.session.id, term.cols, term.rows);
+    // A session that ANOTHER view is watching in a smaller window stays at that view's size. Raising
+    // it back to this pane would only be answered by that view lowering it again (see followPtySize),
+    // so every session switch here would cost the whole exchange — and two repaints on both machines.
+    // The cap is dropped when a machine comes or goes, and by Refresh.
+    const target = l.ptyCap
+      ? { cols: Math.min(pane.cols, l.ptyCap.cols), rows: Math.min(pane.rows, l.ptyCap.rows) }
+      : pane;
+    if (l.term.cols === target.cols && l.term.rows === target.rows) continue; // already right — never make conpty repaint for nothing
+    // xterm drops the text selection on resize, and a layout pass can fire in the background (usage-bar
+    // toggle, header-pill reflow via the ResizeObserver, window resize) — silently clearing a selection
+    // the user is about to Ctrl+C-copy, so the copy falls through to SIGINT. Preserve it across a
+    // HEIGHT-ONLY fit (cols unchanged → buffer coords stay valid; a width change reflows the buffer).
+    const sel = l === shown && l.term.hasSelection() ? l.term.getSelectionPosition() : undefined;
+    const keepsColumns = l.term.cols === target.cols;
+    l.term.resize(target.cols, target.rows);
+    if (sel && keepsColumns) {
+      const len = selectionCellLength(sel.start, sel.end, l.term.cols);
+      if (len > 0) l.term.select(sel.start.x, sel.start.y, len); // copy-on-select ignores this (no mouse gesture)
+    }
+    window.devdeck.cockpit.resize(l.session.id, target.cols, target.rows);
   }
 }
 
@@ -1487,15 +1569,33 @@ function actBtn(icon: IconName, title: string, onClick: () => void): HTMLButtonE
   const b = document.createElement('button'); b.className = 'ck-act'; b.appendChild(createIcon(icon)); b.title = title; b.setAttribute('aria-label', title); b.addEventListener('click', onClick); return b;
 }
 
+/**
+ * Restart ONE session: kill its process and bring the same conversation straight back.
+ *
+ * The conversation is named explicitly. Without a session id the open falls through to "continue",
+ * which is the project's LATEST conversation — so restarting one of two sessions in the same project
+ * could hand it the other one's history. Naming it makes this exactly the exit-then-resume people
+ * were doing by hand, in one click.
+ *
+ * It asks first, because it kills a running agent. The ✕ beside it always has; this had not, and it
+ * sits one button away.
+ */
 async function restartSession(id: string): Promise<void> {
   const l = live.get(id); if (!l) return;
+  const name = liveLabels.get(id) ?? l.session.name;
+  if (!(await confirmDialog(tr('cockpit.restart_confirm', { name }), tr('cockpit.restart')))) return;
+  const still = live.get(id); if (!still) return; // closed while the question was up
   // Carry the user-given label + pin into the re-created session — ⟳ must not silently reset them.
-  const p: OpenReq = { path: l.session.projectPath, name: l.session.name, staleLevel: l.session.staleLevel, branch: l.session.branch, dirty: l.session.dirty, mode: 'auto', label: l.customLabel, pinned: l.pinned, agentId: l.session.agentId };
+  const p: OpenReq = {
+    path: still.session.projectPath, name: still.session.name, staleLevel: still.session.staleLevel,
+    branch: still.session.branch, dirty: still.session.dirty, mode: 'auto', sessionId: still.openedSessionId,
+    label: still.customLabel, pinned: still.pinned, agentId: still.session.agentId, machineId: still.machineId,
+  };
   closeSession(id); await createSession(p);
 }
 
 /** Small in-app confirmation modal (a DOM overlay, NOT window.confirm). Resolves true on confirm. */
-function confirmDialog(message: string): Promise<boolean> {
+function confirmDialog(message: string, confirmLabel: string): Promise<boolean> {
   return new Promise((resolve) => {
     const overlay = document.createElement('div'); overlay.className = 'ck-confirm-overlay';
     const panel = document.createElement('div'); panel.className = 'ck-confirm';
@@ -1506,7 +1606,7 @@ function confirmDialog(message: string): Promise<boolean> {
     const msg = document.createElement('div'); msg.className = 'ck-confirm-msg'; msg.textContent = message;
     const acts = document.createElement('div'); acts.className = 'ck-confirm-acts';
     const cancel = document.createElement('button'); cancel.className = 'ck-confirm-cancel'; cancel.textContent = tr('cockpit.cancel');
-    const ok = document.createElement('button'); ok.className = 'ck-confirm-ok'; ok.textContent = tr('cockpit.close');
+    const ok = document.createElement('button'); ok.className = 'ck-confirm-ok'; ok.textContent = confirmLabel;
     const done = (v: boolean) => { document.removeEventListener('keydown', onKey, true); overlay.remove(); resolve(v); };
     const onKey = (e: KeyboardEvent) => {
       // Tab stays between the two buttons: the terminal behind this is focusable, and tabbing into it
@@ -1530,11 +1630,11 @@ function confirmDialog(message: string): Promise<boolean> {
   });
 }
 
-/** User-facing close (row ✕ / header ✕): confirm first. restartSession calls closeSession directly (no confirm). */
+/** User-facing close (row ✕ / header ✕): confirm first, like restartSession. */
 async function requestClose(id: string): Promise<void> {
   const l = live.get(id); if (!l) return;
   const name = liveLabels.get(id) ?? l.session.name;
-  if (await confirmDialog(tr('cockpit.close_confirm').replace('{name}', name))) closeSession(id);
+  if (await confirmDialog(tr('cockpit.close_confirm').replace('{name}', name), tr('cockpit.close'))) closeSession(id);
 }
 
 function closeSession(id: string): void {

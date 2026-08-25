@@ -1,5 +1,5 @@
 import { dialog, shell, app, clipboard, type BrowserWindow } from 'electron';
-import { homedir, tmpdir } from 'node:os';
+import { homedir, release, tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -255,7 +255,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
 
   invoke('settings:get', allow('observe'), () => ({
     baseDir: effBaseDir(), thresholds: effThresholds(), language: cfg.store.getLanguage() ?? cfg.defaultLanguage,
-    openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform, ptyAvailable: cfg.ptyAvailable,
+    openAtLogin: effectiveOpenAtLogin(cfg.store.getOpenAtLogin()), platform: process.platform, osRelease: release(), ptyAvailable: cfg.ptyAvailable,
     viewMode: cfg.store.getViewMode(), trayAlert: cfg.store.getTrayAlert(), contextWindow: cfg.store.getContextWindow(),
     shutdownIdleMinutes: cfg.store.getShutdownIdleMinutes(),
     cockpitSidebarCollapsed: cfg.store.getCockpitSidebarCollapsed(),
@@ -526,6 +526,11 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       return;
     }
     cfg.ptyHost.resize(target, c, r);
+    // Announced, because a pty has ONE size and any number of terminals can be attached to it —
+    // this machine's tile and a tile on every machine watching the same session. Without this the
+    // views that did not ask keep drawing at a width the pty no longer has, and ConPTY's repaint
+    // lands on top of the older, wider one.
+    emit('cockpit:resized', { id: target, cols: c, rows: r });
   });
   send('cockpit:close', allow('control'), (id: string) => {
     const target = String(id);

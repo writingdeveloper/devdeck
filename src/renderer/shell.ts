@@ -230,7 +230,14 @@ export function mountShell(options: {
     sidebar.setAttribute('role', 'dialog'); sidebar.setAttribute('aria-modal', 'true');
     mobileBackdrop.classList.remove('hidden');
     mobileToggle.setAttribute('aria-expanded', 'true');
-    requestAnimationFrame(() => (quickOpen.getClientRects().length ? quickOpen : mobileFocusable()[0])?.focus());
+    requestAnimationFrame(() => {
+      // The drawer can be gone before this frame runs — Escape right after opening it, which is what
+      // a keyboard user does when they opened it by accident. Focusing into a drawer that is already
+      // closed strands the caret on something invisible AND takes it back off the toggle that
+      // closeMobileDrawer just returned it to, so the next Tab starts from nowhere.
+      if (!sidebar.classList.contains('mobile-open')) return;
+      (quickOpen.getClientRects().length ? quickOpen : mobileFocusable()[0])?.focus();
+    });
   };
   const updateMobileToggle = (): void => {
     const waiting = attentionCount(sessions);

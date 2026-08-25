@@ -4,6 +4,7 @@ import type { AgentId } from '../shared/types';
 import { tr } from './i18n-runtime';
 import { providerName } from './providerLogo';
 import { createIcon } from './icons';
+import { ptyCompatFor } from './ptyCompat';
 
 type LoginProvider = Extract<AgentId, 'claude' | 'codex'>;
 
@@ -34,6 +35,9 @@ function closeLoginTerminal(): void {
 export async function openUsageLoginTerminal(providerId: LoginProvider): Promise<void> {
   if (active) closeLoginTerminal();
   ensureBridgeListeners();
+  // Resolved before any of the dialog exists: xterm only reads this at construction, and this pty
+  // is always a local one (see ptyCompatFor).
+  const windowsPty = await ptyCompatFor();
 
   const overlay = document.createElement('div'); overlay.className = 'usage-login-overlay';
   const dialog = document.createElement('div'); dialog.className = 'usage-login-dialog';
@@ -47,7 +51,7 @@ export async function openUsageLoginTerminal(providerId: LoginProvider): Promise
   const terminalHost = document.createElement('div'); terminalHost.className = 'usage-login-terminal';
   dialog.append(head, note, terminalHost); overlay.appendChild(dialog); document.body.appendChild(overlay);
 
-  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: true });
+  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: true, windowsPty });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(terminalHost); fit.fit();
   const resize = new ResizeObserver(() => {
     if (!active || active.overlay !== overlay) return;

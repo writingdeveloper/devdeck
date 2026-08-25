@@ -1,5 +1,5 @@
 import { currentProjects, focusProject, mountProjects, onProjectsChanged, renderProjects, reloadProjects, syncProjectDisplayAgentChoices } from './projectsView';
-import { setCockpitEnabled } from './openRouter';
+import { cockpitIsEnabled, setCockpitEnabled } from './openRouter';
 import { mountNav } from './nav';
 import { mountShell, type ShellController } from './shell';
 import { cockpitIdentityContext, createContextRestoreCoordinator, type ContextRestoreCoordinator } from '../shared/contextRestore';
@@ -96,7 +96,7 @@ function applyStaticLabels(): void {
   newProject.replaceChildren(createIcon('plus'), document.createTextNode(tr('proj.new')));
   const refreshBtn = document.querySelector<HTMLButtonElement>('#refresh')!;
   refreshBtn.replaceChildren(createIcon('refresh'));
-  refreshBtn.title = tr('app.refresh');
+  refreshBtn.title = cockpitIsEnabled() ? tr('app.refresh_hint') : tr('app.refresh');
   refreshBtn.setAttribute('aria-label', tr('app.refresh'));
   const map: [string, string][] = [['[data-view="projects"]', 'nav.projects'], ['[data-view="usage"]', 'nav.usage'], ['[data-view="settings"]', 'nav.settings'], ['[data-view="next"]', 'nav.next']];
   for (const [sel, key] of map) { const el = document.querySelector<HTMLElement>(sel); if (el) { el.title = tr(key); el.setAttribute('aria-label', tr(key)); } }

@@ -9,6 +9,8 @@ let cockpitEnabled = false;
 
 /** Set by boot() once the platform is known — the cockpit is Windows-only (see isCockpitPlatform). */
 export function setCockpitEnabled(enabled: boolean): void { cockpitEnabled = enabled; }
+/** Whether this machine has embedded terminals at all — the Refresh button's description depends on it. */
+export function cockpitIsEnabled(): boolean { return cockpitEnabled; }
 
 /**
  * Route "open" to the embedded cockpit (Windows) or the external terminal (other OSes).

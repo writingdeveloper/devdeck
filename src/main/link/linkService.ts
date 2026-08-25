@@ -262,7 +262,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
         : payload;
     }
     if (!payload || typeof payload !== 'object') return payload;
-    if (channel !== 'cockpit:data' && channel !== 'cockpit:exit') return payload;
+    if (channel !== 'cockpit:data' && channel !== 'cockpit:exit' && channel !== 'cockpit:resized') return payload;
     const row = payload as { id?: unknown };
     if (typeof row.id !== 'string') return payload;
     return { ...row, id: qualifyRemoteId(machineId, row.id) };

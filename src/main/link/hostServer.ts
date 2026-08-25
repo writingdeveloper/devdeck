@@ -362,7 +362,7 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
    */
   const unsubscribe = options.api.events.subscribe((channel, payload) => {
     if (sessions.size === 0) return;
-    const sessionId = channel === 'cockpit:data' || channel === 'cockpit:exit'
+    const sessionId = channel === 'cockpit:data' || channel === 'cockpit:exit' || channel === 'cockpit:resized'
       ? String((payload as { id?: unknown })?.id ?? '')
       : null;
     for (const session of sessions) {

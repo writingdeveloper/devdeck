@@ -628,7 +628,14 @@ if (cockpitAvailable) {
     resizerHidden: (document.getElementById('shell-resizer')?.getClientRects().length ?? 0) === 0,
   }));
   await win.keyboard.press('Escape');
-  const mobileEscaped = await mobileTrigger.evaluate((button) => document.activeElement === button && button.getAttribute('aria-expanded') === 'false');
+  // Waited for rather than sampled: Escape closes the drawer, flips aria-expanded and hands focus
+  // back to the toggle, and those do not all land in the tick the key event is dispatched in —
+  // reading one tick later caught the drawer mid-close and failed a behaviour that was correct.
+  // Still a real assertion: it goes false if the handoff never happens.
+  const mobileEscaped = await win.waitForFunction(() => {
+    const button = document.getElementById('shell-mobile-toggle');
+    return document.activeElement === button && button?.getAttribute('aria-expanded') === 'false';
+  }, null, { timeout: 3000 }).then(() => true).catch(() => false);
   await mobileTrigger.click();
   await win.locator('.shell-session').first().click();
   const mobileSelected = await win.evaluate(() => ({
@@ -1388,6 +1395,62 @@ if (cockpitAvailable) {
     console.log('terminal resize churn: skipped (a second session did not open)');
   }
 
+  // A terminal must follow the resize rule of the pty it is attached to.
+  //
+  // xterm's default is the Unix one: when the terminal gets TALLER, the rows that appear at the top
+  // are filled from scrollback and the viewport slides up over content the user already scrolled
+  // past. ConPTY does the opposite — blank rows at the BOTTOM — and then repaints the screen on that
+  // assumption. Left at the default, one pane growing a few rows therefore lands ConPTY's repaint on
+  // top of resurrected scrollback: the duplicated, overlapping screen users reported. Measured on
+  // xterm 6 by growing a 10-row terminal to 16 with scrollback present: baseY 31 -> 25 and the top
+  // row jumping back six lines by default, both unchanged once the pty is declared.
+  const ptyBackends = await win.evaluate(() =>
+    [...new Set([...document.querySelectorAll('.ck-term')].map((t) => t.dataset.ptyBackend || 'unset'))]);
+  const wantBackend = process.platform === 'win32' ? 'conpty' : 'none';
+  console.log('tile pty backend:', JSON.stringify(ptyBackends));
+  if (ptyBackends.length !== 1 || ptyBackends[0] !== wantBackend) {
+    console.error(`QA FAILED — every terminal must declare the pty it is attached to (expected ${wantBackend}): ${JSON.stringify(ptyBackends)}`);
+    await closeApp();
+    process.exit(1);
+  }
+
+  // Refresh must repair a terminal, not just reload the deck.
+  //
+  // A pty has ONE size and any number of views can be attached to it — this deck, and every machine
+  // watching the same session over the link — so whichever view laid out last leaves the pty at ITS
+  // size and the others go on drawing at a width the pty no longer has. That is reproduced exactly
+  // here by forcing a live tile's pty narrow: the rows past the new width keep the previous, wider
+  // paint while the new one is drawn over their left half. Refresh is the button users press when a
+  // terminal looks wrong, and it used to reload projects and nothing else.
+  const liveIds = await win.evaluate(async () => (await window.devdeck.cockpit.liveSessions()).map((s) => s.id));
+  if (liveIds.length) {
+    await app.evaluate(({ ipcMain }) => {
+      globalThis.__repairResizes = [];
+      ipcMain.on('cockpit:resize', (_e, id, cols, rows) => globalThis.__repairResizes.push({ id, cols, rows }));
+    });
+    await win.evaluate((ids) => { for (const id of ids) window.devdeck.cockpit.resize(id, 70, 30); }, liveIds);
+    await win.waitForTimeout(1200);
+    await app.evaluate(() => { globalThis.__repairResizes.length = 0; });
+    await win.click('#refresh');
+    await win.waitForTimeout(4000);
+    const openTiles = await win.evaluate(() => document.querySelectorAll('.ck-term').length);
+    const repair = await app.evaluate(() => {
+      const put = globalThis.__repairResizes.filter((r) => r.cols !== 70);
+      return { reassertedFor: [...new Set(put.map((r) => r.id))].length, sizes: [...new Set(put.map((r) => `${r.cols}x${r.rows}`))] };
+    });
+    repair.tiles = openTiles;
+    repair.toast = await win.evaluate(() => [...document.querySelectorAll('[class*="toast"]')].map((t) => t.textContent.trim()).filter(Boolean).join(' | '));
+    console.log('refresh repairs the terminal:', JSON.stringify(repair));
+    if (repair.reassertedFor < openTiles || !repair.toast) {
+      console.error(`QA FAILED — Refresh must put every open terminal's own size back on its pty and say so: ${JSON.stringify(repair)}`);
+      await closeApp();
+      process.exit(1);
+    }
+  } else {
+    console.log('refresh repairs the terminal: skipped (no live session)');
+  }
+
+
   // The one dialog gating a destructive action must announce itself like every other one here.
   // Closing a running session asks first, and that question was the only overlay in the app without
   // role/aria-modal — a screen reader read it as stray text over the terminal, with nothing saying the
@@ -1415,6 +1478,48 @@ if (cockpitAvailable) {
     await closeApp();
     process.exit(1);
   }
+
+  // Restarting ONE session must ask, and must come back to the SAME conversation.
+  //
+  // Without a session id the open falls through to "continue", which is the project's LATEST
+  // conversation — so restarting one of two sessions in the same project could hand it the other
+  // one's history. And it kills a running agent while sitting one button away from ✕, which has
+  // always asked. This is the button people were doing exit-then-resume by hand to avoid.
+  const beforeRestart = await win.evaluate(async () =>
+    (await window.devdeck.cockpit.loadSessions()).map((s) => s.sessionId).filter(Boolean).sort());
+  const tilesBefore = await win.evaluate(() => document.querySelectorAll('.ck-term').length);
+  const clickRestart = () => win.evaluate(() => {
+    const acts = [...document.querySelectorAll('#ck-header .ck-act')];
+    acts[acts.length - 2]?.click(); // ... folder, restart, close
+  });
+  await clickRestart();
+  await win.waitForTimeout(500);
+  const restartAsks = await win.evaluate(() => {
+    const panel = document.querySelector('.ck-confirm');
+    return panel ? { asked: true, confirmLabel: panel.querySelector('.ck-confirm-ok')?.textContent || '' } : { asked: false };
+  });
+  await win.keyboard.press('Escape'); // answer "no"
+  await win.waitForTimeout(400);
+  const tilesAfterCancel = await win.evaluate(() => document.querySelectorAll('.ck-term').length);
+  await clickRestart();
+  await win.waitForSelector('.ck-confirm', { timeout: 5000 }).catch(() => {});
+  await win.keyboard.press('Enter'); // answer "yes"
+  await win.waitForTimeout(9000);
+  const afterRestart = await win.evaluate(async () =>
+    (await window.devdeck.cockpit.loadSessions()).map((s) => s.sessionId).filter(Boolean).sort());
+  const restart = {
+    ...restartAsks,
+    cancelKeptTiles: tilesAfterCancel === tilesBefore,
+    conversationsBefore: beforeRestart.length,
+    sameConversations: JSON.stringify(beforeRestart) === JSON.stringify(afterRestart),
+  };
+  console.log('restart one session:', JSON.stringify(restart));
+  if (!restart.asked || !restart.confirmLabel || !restart.cancelKeptTiles || !restart.sameConversations) {
+    console.error(`QA FAILED — restarting a session must ask first and resume that same conversation: ${JSON.stringify(restart)}`);
+    await closeApp();
+    process.exit(1);
+  }
+
 }
 
 writeFileSync(join(out, '_console.json'), JSON.stringify({ consoleErrors, pageErrors }, null, 2));
