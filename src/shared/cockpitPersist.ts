@@ -144,8 +144,21 @@ export function resolveRestoreTarget(
   reservedIds: Set<string> = new Set(),
 ): RestoreTarget {
   if (entry.sessionId) {
-    const usable = newestFirstIds.includes(entry.sessionId) && !liveIds.has(entry.sessionId);
-    return usable ? { sessionId: entry.sessionId, fresh: false } : { sessionId: null, fresh: true };
+    // Already open in another tile: this one cannot have it, and must not be handed a stranger's
+    // conversation either — so it comes back as a genuinely new one, with a new id.
+    if (liveIds.has(entry.sessionId)) return { sessionId: null, fresh: true };
+    if (newestFirstIds.includes(entry.sessionId)) return { sessionId: entry.sessionId, fresh: false };
+    // Nothing written under that id — the transcript was pruned, or the session was never typed in
+    // (Claude Code does not create the file until the first message). The tile still comes back
+    // fresh, but as ITSELF: starting the same id again, not minting a new one.
+    //
+    // Minting one looked harmless and multiplied without bound. A tile nobody typed in never gets a
+    // transcript, so the id that replaced it was ALSO absent from disk next time — every launch
+    // spawned another agent under another new id, each new conversation was announced to the paired
+    // machine, which had no saved entry for it and so adopted it as another NEW tile, which it then
+    // saved and restored the same way. Measured on the reporter's machine mid-runaway: 50 saved
+    // sessions, 48 of them on one remote machine, one project holding 25 of them.
+    return { sessionId: entry.sessionId, fresh: true };
   }
   if (entry.label && entry.agentId !== 'antigravity') return { sessionId: null, fresh: true };
   return { sessionId: pickRestoreSessionId(newestFirstIds, liveIds, reservedIds), fresh: false };

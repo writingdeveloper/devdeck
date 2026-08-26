@@ -1427,7 +1427,7 @@ if (cockpitAvailable) {
   // are checked here against a real running session.
   if (liveIds.length) {
     const id = liveIds[0];
-    const read = () => win.evaluate((i) => window.devdeck.cockpit.sessionBuffer(i), id);
+    const read = () => win.evaluate((i) => window.devdeck.cockpit.sessionScreen(i), id);
     // Let the deck's own layout settle first. The gates above drag the window, and the re-fit that
     // follows is debounced — probing into the middle of it measures the harness, not the product.
     let before = await read();

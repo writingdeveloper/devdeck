@@ -289,14 +289,26 @@ describe('resolveRestoreTarget', () => {
   // Claude Code deletes transcripts after cleanupPeriodDays, and a session the user never typed in was
   // never written at all — both leave a named entry pointing at nothing.
   it('opens a FRESH session when the saved conversation is gone from disk — never a substitute', () => {
-    expect(resolveRestoreTarget(saved('gone'), disk, new Set())).toEqual({ sessionId: null, fresh: true });
-    expect(resolveRestoreTarget(saved('gone'), [], new Set())).toEqual({ sessionId: null, fresh: true });
+    expect(resolveRestoreTarget(saved('gone'), disk, new Set())).toEqual({ sessionId: 'gone', fresh: true });
+    expect(resolveRestoreTarget(saved('gone'), [], new Set())).toEqual({ sessionId: 'gone', fresh: true });
   });
-  it('opens a fresh session when the saved id is already open in another tile', () => {
+  it('restores such a tile as ITSELF, so restoring twice does not leave two sessions', () => {
+    // The runaway this exists to stop. A tile nobody typed in never gets a transcript, so minting a
+    // replacement id left the tile pointing at another absent id — "gone" again next launch, another
+    // agent spawned, and the paired machine had no saved entry for the new conversation so it adopted
+    // it as another NEW tile and saved that too. Measured mid-runaway on the reporter's machine: 50
+    // saved sessions, 48 on one remote machine, 25 of them in a single project.
+    const first = resolveRestoreTarget(saved('never-typed-in'), disk, new Set());
+    const second = resolveRestoreTarget(saved(first.sessionId), disk, new Set());
+    expect(first).toEqual({ sessionId: 'never-typed-in', fresh: true });
+    expect(second).toEqual(first); // a fixed point: restoring again asks for the same conversation
+  });
+  it('opens a fresh session under a NEW id when the saved one is already open in another tile', () => {
+    // Here reusing the id would be wrong in the other direction: two ptys writing one conversation.
     expect(resolveRestoreTarget(saved('homepage'), disk, new Set(['homepage']))).toEqual({ sessionId: null, fresh: true });
   });
   it('never takes a conversation reserved by another saved entry', () => {
-    expect(resolveRestoreTarget(saved('gone'), disk, new Set(), new Set(['new']))).toEqual({ sessionId: null, fresh: true });
+    expect(resolveRestoreTarget(saved('gone'), disk, new Set(), new Set(['new']))).toEqual({ sessionId: 'gone', fresh: true });
   });
   // An id-less entry claims nothing beyond "a session in this project" — unless the user typed a name
   // for it, which is a claim about specific work.

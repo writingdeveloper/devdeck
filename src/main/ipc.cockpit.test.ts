@@ -104,6 +104,21 @@ describe('resolveOpenSession', () => {
     expect(resolveOpenSession(claude, { fresh: false, sessionId: null, sessionCount: 0, latestId: null, genId: gen }))
       .toEqual({ command: `claude --session-id ${UUID}`, sessionId: UUID });
   });
+  it('a fresh open that NAMES an id starts that one instead of minting another', () => {
+    // How a saved tile whose conversation was never written comes back as ITSELF. The id it carries
+    // is not on disk — starting it is exactly what the original open did — so restoring is idempotent.
+    // Minting instead left the tile carrying a different absent id every launch, and every launch
+    // spawned another agent: one project on the reporter's machine reached 25 saved sessions.
+    const saved = '11111111-2222-4333-8444-555555555555';
+    expect(resolveOpenSession(claude, { fresh: true, sessionId: saved, sessionCount: 0, latestId: null, genId: gen }))
+      .toEqual({ command: `claude --session-id ${saved}`, sessionId: saved });
+  });
+  it('mints an id when the named one is not a shape the provider will pin', () => {
+    // buildCommand drops an id that is not a uuid rather than putting it in a command line. Reporting
+    // it anyway would save the tile against a conversation nothing opened — the very state above.
+    expect(resolveOpenSession(claude, { fresh: true, sessionId: 'not-a-uuid', sessionCount: 0, latestId: null, genId: gen }))
+      .toEqual({ command: `claude --session-id ${UUID}`, sessionId: UUID });
+  });
   it('antigravity fresh: no --session-id support => plain new, id not pinned', () => {
     expect(resolveOpenSession(antigravity, { fresh: true, sessionId: null, sessionCount: 0, latestId: null, genId: gen }))
       .toEqual({ command: 'agy', sessionId: null });

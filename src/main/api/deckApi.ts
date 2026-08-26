@@ -614,7 +614,12 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
    * says something — which, while it thinks, can be minutes. Needs the permission that covers driving
    * a session, not mere observation: this is the session's actual content.
    */
-  invoke('cockpit:sessionBuffer', allow('control'), (id: string) => cfg.ptyHost.buffer(String(id)));
+  // Two shapes on purpose. `sessionBuffer` still answers with the bytes alone because a machine on an
+  // older build calls it and would write an object into its terminal; `sessionScreen` adds the size
+  // those bytes were drawn for, which is what makes replaying them safe. A viewer asks for the screen
+  // and falls back to the buffer, so either build can pair with either.
+  invoke('cockpit:sessionBuffer', allow('control'), (id: string) => cfg.ptyHost.buffer(String(id)).data);
+  invoke('cockpit:sessionScreen', allow('control'), (id: string) => cfg.ptyHost.buffer(String(id)));
   /**
    * Record the name the user gave a session, on the machine that RUNS it.
    *

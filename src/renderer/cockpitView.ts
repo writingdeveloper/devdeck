@@ -923,17 +923,24 @@ interface PtyScreen { data: string; cols: number; rows: number }
 const REPAINT_WAIT_MS = 400;
 const REPAINT_POLL_MS = 50;
 
-/** Ask a machine for the screen it is holding, with the geometry it was drawn for. */
+/**
+ * Ask a machine for the screen it is holding, with the geometry it was drawn for.
+ *
+ * A machine on an older build has no `sessionScreen` and refuses the call; it still has the bytes.
+ * Those are taken as this terminal's own size — no worse than before that machine learned to report
+ * it, and better than refusing to paint anything at all. Two machines on different builds have to go
+ * on working: they update independently, and one of them updating is exactly when this runs.
+ */
 async function fetchScreen(id: string, machineId: string, term: Terminal): Promise<PtyScreen | null> {
+  const deck = machineId === LOCAL_MACHINE_ID ? window.devdeck.cockpit : window.devdeck.machine(machineId).cockpit;
+  const target = machineId === LOCAL_MACHINE_ID ? id : parseRemoteId(id).hostId;
   try {
-    const raw = machineId === LOCAL_MACHINE_ID
-      ? await window.devdeck.cockpit.sessionBuffer(id)
-      : await window.devdeck.machine(machineId).cockpit.sessionBuffer(parseRemoteId(id).hostId);
-    // A machine still on an older build answers with the bytes alone. There is nothing to check them
-    // against, so they are taken as this terminal's own size: no worse than before that machine
-    // learned to report it, and better than refusing to paint anything at all.
-    if (typeof raw === 'string') return { data: raw, cols: term.cols, rows: term.rows };
-    return raw && raw.cols > 0 ? raw : null;
+    const screen = await deck.sessionScreen(target);
+    if (screen && screen.cols > 0) return screen;
+  } catch { /* older build, or the call was refused — fall back below */ }
+  try {
+    const data = await deck.sessionBuffer(target);
+    return typeof data === 'string' ? { data, cols: term.cols, rows: term.rows } : null;
   } catch { return null; }
 }
 
@@ -1766,8 +1773,18 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
       toast(tr('cockpit.restore_machine_offline', { name: entry.label || entry.name, machine: machineName(machineId) }));
       throw new Error('machine offline');
     }
-    let ids: string[] = [];
-    try { ids = await deckFor(machineId).cockpit.sessionIds(entry.projectPath, owner); } catch { ids = []; }
+    // "Could not ask" is not "there is nothing there". A remote call that times out or lands while
+    // the link is dropping used to come back as an empty list, which reads as "this tile's
+    // conversation is gone" — and the answer to that is to start a session, on a machine that is
+    // evidently already struggling. Leave the entry saved and say so, exactly as when the machine is
+    // known to be offline; a restore is one click away once it answers again.
+    let ids: string[];
+    try {
+      ids = await deckFor(machineId).cockpit.sessionIds(entry.projectPath, owner);
+    } catch {
+      toast(tr('cockpit.restore_machine_offline', { name: entry.label || entry.name, machine: machineName(machineId) }));
+      throw new Error('could not read the conversation list');
+    }
     const target = resolveRestoreTarget(entry, ids, liveIds, reserved);
     const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, tileId: entry.tileId, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner, machineId });
     if (ok) {

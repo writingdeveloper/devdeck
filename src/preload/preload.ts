@@ -75,6 +75,7 @@ contextBridge.exposeInMainWorld('devdeck', {
       ipcRenderer.on('cockpit:resized', (_e, p) => cb(p)),
     liveSessions: () => ipcRenderer.invoke('cockpit:liveSessions'),
     sessionBuffer: (id: string) => ipcRenderer.invoke('cockpit:sessionBuffer', id),
+    sessionScreen: (id: string) => ipcRenderer.invoke('cockpit:sessionScreen', id),
     /** Tell the machine running a session what the user named it — routed by tile id like input(). */
     noteLabel: (id: string, label: string | null) => ipcRenderer.send('cockpit:noteLabel', id, label),
     /** What is running on a machine, announced whenever it changes rather than polled. */
@@ -164,6 +165,7 @@ contextBridge.exposeInMainWorld('devdeck', {
       receiveImage: (base64: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:receiveImage', [base64]),
       liveSessions: () => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveSessions', []),
       sessionBuffer: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionBuffer', [id]),
+      sessionScreen: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionScreen', [id]),
     },
   }),
   setTrayAlert: (mode: string) => ipcRenderer.invoke('settings:setTrayAlert', mode),

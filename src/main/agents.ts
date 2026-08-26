@@ -118,7 +118,21 @@ export function resolveOpenSession(
   opts: { fresh: boolean; sessionId: string | null; sessionCount: number; latestId: string | null; genId: () => string },
 ): OpenResolution {
   if (opts.fresh || (opts.sessionId == null && opts.sessionCount === 0)) {
-    if (a.supportsSessionId) { const id = opts.genId(); return { command: a.buildCommand('new', id), sessionId: id }; }
+    // A fresh open that NAMES an id starts that one rather than minting another. This is how a saved
+    // tile whose conversation was never written comes back as itself: the id it already carries is
+    // not on disk, so starting it is exactly what the original open did, and restoring is idempotent.
+    // Minting instead left the tile carrying a different absent id every launch, which is how one
+    // project accumulated 25 saved sessions.
+    if (a.supportsSessionId) {
+      const named = opts.sessionId ?? opts.genId();
+      const command = a.buildCommand('new', named);
+      // A provider refuses an id it cannot pin (buildCommand validates the shape). Reporting one the
+      // command did not actually use would leave the tile saved against a conversation nothing opened
+      // — the same "points at nothing" state this change exists to stop — so mint one it will take.
+      if (command.includes(named)) return { command, sessionId: named };
+      const minted = opts.genId();
+      return { command: a.buildCommand('new', minted), sessionId: minted };
+    }
     return { command: a.buildCommand('new'), sessionId: null };
   }
   if (typeof opts.sessionId === 'string') return { command: a.buildCommand('resume', opts.sessionId), sessionId: opts.sessionId };
