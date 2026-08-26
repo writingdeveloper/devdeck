@@ -3,6 +3,9 @@ import { readdir, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
+
+/** ASCII line feed — transcripts are newline-delimited JSON. */
+const NEWLINE = 0x0a;
 import { emptyTotals, addUsage, addTotals, estimateCost, activeMsFromTimestamps, priceFor, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
 import type { LocalDailyUsage, LocalModelUsage, LocalProjectUsage, ProviderUsageSlice } from '../shared/localUsage';
 
@@ -21,6 +24,21 @@ interface FileDigest {
   stamps: number[];       // every line's timestamp (user + assistant + tool) for active-time gaps
   stampDayMs: number[];   // parallel to stamps: that line's UTC day start, for the sinceMs day filter
   bytes: number;          // estimated in-memory size, for the total-cache budget
+  /**
+   * How far into the file this digest has read, and what the file looked like then.
+   *
+   * The cache used to be keyed on mtime alone, which made it useless for the ONE file that matters
+   * most: the session you are typing in right now. Its mtime changes with every turn, so every scan
+   * — one per deck refresh, every 45 seconds, and again on every window focus — re-parsed the whole
+   * thing. Measured on the machine this was reported from: 5.5 seconds per scan on a 564 MB live
+   * transcript, forever, for the sake of the handful of lines appended since the last one.
+   *
+   * A transcript is append-only, so what was already folded stays true and only the tail is new.
+   * `offset` is always just past a newline, so resuming there never splits a record.
+   */
+  offset: number;
+  size: number;
+  birthtimeMs: number;
 }
 // The digest cache is still bounded as a whole (a runaway dataset must never OOM the main process
 // again), but digests are so small the working set effectively always fits.
@@ -76,49 +94,136 @@ function sumModelCost(byModel: Map<string, UsageTotals>): number | null {
   return any ? sum : null;
 }
 
+/** A digest holding nothing, ready to be folded into. */
+function emptyDigest(mtimeMs: number, size: number, birthtimeMs: number): FileDigest {
+  return { mtimeMs, entries: [], stamps: [], stampDayMs: [], bytes: digestBytes(0, 0), offset: 0, size, birthtimeMs };
+}
+
 /**
- * One full parse of a session file into its digest (the only place raw lines are ever walked).
- * STREAMED line by line: readFile'ing a multi-hundred-MB transcript spiked the main process to a
- * ~2.5GB RSS during the cold scan (the whole file as one string plus its split array) - the same
- * memory shape that OOM-aborted the process back in v1.12.2. A stream holds one line at a time, and
- * its async iterator naturally yields the event loop between chunks (no manual yield needed).
- * Returns null when the file is unreadable (caller skips it, like the old readFile-failure path).
+ * Can this digest be continued, or does the file have to be read from the beginning?
+ *
+ * Only an APPEND may be resumed. A file that shrank was truncated or replaced, a different birthtime
+ * is a different file at the same path, and an offset past the end means the file was rewritten
+ * shorter — in every one of those the bytes already folded are no longer the bytes that are there.
  */
-async function parseDigest(fullPath: string, fileMs: number, mtimeMs: number): Promise<FileDigest | null> {
-  const rollup = new Map<string, DigestEntry>(); // `${day} ${model}`
-  const stamps: number[] = [];
-  const stampDayMs: number[] = [];
+function resumable(previous: FileDigest | undefined, size: number, birthtimeMs: number): previous is FileDigest {
+  if (!previous) return false;
+  if (previous.birthtimeMs !== birthtimeMs) return false;
+  return size >= previous.size && previous.offset <= size;
+}
+
+/**
+ * Fold a session file into its digest — from the beginning, or onward from where the last fold
+ * stopped. The ONLY place raw lines are ever walked.
+ *
+ * Read in chunks and split on newlines by hand rather than through readline: resuming needs a BYTE
+ * offset, and readline reports lines, not positions. Splitting on the raw bytes also keeps a
+ * multi-byte character that straddles a chunk boundary intact, since only complete lines are decoded.
+ * A trailing partial line — the agent is mid-write — is left unread, so `offset` stays on a record
+ * boundary and the next fold picks that line up whole.
+ *
+ * Streamed for the same reason it always was: readFile'ing a multi-hundred-MB transcript spiked the
+ * main process to ~2.5 GB RSS during a cold scan, the memory shape that OOM-aborted it in v1.12.2.
+ */
+/**
+ * What a fold answers with.
+ *
+ * `durable` stops at the last complete line, which is the only place a later fold may resume from.
+ * `view` is that plus the trailing line when the file does not end in a newline — a line still being
+ * written, or a file whose last write was cut short. Counting it keeps the totals right; remembering
+ * it would double it the moment the rest of that line arrives.
+ */
+/** Fold ONE transcript line into a rollup. The only place a raw record is interpreted. */
+function foldLine(
+  line: string, fileMs: number,
+  rollup: Map<string, DigestEntry>, stamps: number[], stampDayMs: number[],
+): void {
+  if (!line.trim()) return;
+  let o: { type?: string; timestamp?: string; message?: { model?: string; usage?: RawUsage & { server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } } } };
+  try { o = JSON.parse(line); } catch { return; }
+  const day = dayKey(o.timestamp, fileMs);
+  const dayMs = new Date(day + 'T00:00:00.000Z').getTime();
+  // Collect every line's timestamp (user + assistant + tool) so gaps reflect real wall-clock activity.
+  if (o.timestamp) {
+    const ms = new Date(o.timestamp).getTime();
+    if (!Number.isNaN(ms)) { stamps.push(ms); stampDayMs.push(dayMs); }
+  }
+  const u = o.message?.usage;
+  if (o.type !== 'assistant' || !u) return;
+  const model = o.message?.model ?? 'unknown';
+  // Claude Code emits <synthetic> assistant lines (API errors, interrupts) with a zero usage block —
+  // not a real model. Skip them so they don't show as a phantom model row or trip the unknown warning.
+  if (model === SYNTHETIC_MODEL) return;
+  const key = day + ' ' + model;
+  let e = rollup.get(key);
+  if (!e) { e = { dayMs, day, model, totals: emptyTotals(), webSearch: 0, webFetch: 0, unknown: !priceFor(model) }; rollup.set(key, e); }
+  e.totals = addUsage(e.totals, u);
+  e.webSearch += u.server_tool_use?.web_search_requests ?? 0;
+  e.webFetch += u.server_tool_use?.web_fetch_requests ?? 0;
+}
+
+interface FoldResult { durable: FileDigest; view: FileDigest }
+
+async function foldDigest(
+  fullPath: string, fileMs: number, mtimeMs: number, size: number, birthtimeMs: number, previous?: FileDigest,
+): Promise<FoldResult | null> {
+  const resume = resumable(previous, size, birthtimeMs);
+  const base = resume ? previous : emptyDigest(mtimeMs, size, birthtimeMs);
+  const rollup = new Map<string, DigestEntry>(base.entries.map((e) => [e.day + ' ' + e.model, e]));
+  const stamps = base.stamps;
+  const stampDayMs = base.stampDayMs;
+  let offset = resume ? base.offset : 0;
+  if (offset >= size) {
+    const settled = { ...base, mtimeMs, size, birthtimeMs, offset };
+    return { durable: settled, view: settled };
+  }
+
+  const consume = (line: string): void => foldLine(line, fileMs, rollup, stamps, stampDayMs);
+
+  let trailing = Buffer.alloc(0);
+
   try {
-    const rl = createInterface({ input: createReadStream(fullPath, { encoding: 'utf8' }), crlfDelay: Infinity });
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-      let o: { type?: string; timestamp?: string; message?: { model?: string; usage?: RawUsage & { server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } } } };
-      try { o = JSON.parse(line); } catch { continue; }
-      const day = dayKey(o.timestamp, fileMs);
-      const dayMs = new Date(day + 'T00:00:00.000Z').getTime();
-      // Collect every line's timestamp (user + assistant + tool) so gaps reflect real wall-clock activity.
-      if (o.timestamp) {
-        const ms = new Date(o.timestamp).getTime();
-        if (!Number.isNaN(ms)) { stamps.push(ms); stampDayMs.push(dayMs); }
+    let pending = Buffer.alloc(0);
+    const stream = createReadStream(fullPath, { start: offset, end: size - 1 });
+    for await (const chunk of stream) {
+      pending = pending.length === 0 ? Buffer.from(chunk as Buffer) : Buffer.concat([pending, chunk as Buffer]);
+      let cut = pending.indexOf(NEWLINE);
+      while (cut >= 0) {
+        consume(pending.subarray(0, cut).toString('utf8'));
+        offset += cut + 1;
+        pending = pending.subarray(cut + 1);
+        cut = pending.indexOf(NEWLINE);
       }
-      const u = o.message?.usage;
-      if (o.type !== 'assistant' || !u) continue;
-      const model = o.message?.model ?? 'unknown';
-      // Claude Code emits <synthetic> assistant lines (API errors, interrupts) with a zero usage block -
-      // not a real model. Skip them so they don't show as a phantom model row or trip the unknown warning.
-      if (model === SYNTHETIC_MODEL) continue;
-      const key = day + ' ' + model;
-      let e = rollup.get(key);
-      if (!e) { e = { dayMs, day, model, totals: emptyTotals(), webSearch: 0, webFetch: 0, unknown: !priceFor(model) }; rollup.set(key, e); }
-      e.totals = addUsage(e.totals, u);
-      e.webSearch += u.server_tool_use?.web_search_requests ?? 0;
-      e.webFetch += u.server_tool_use?.web_fetch_requests ?? 0;
     }
+    trailing = pending;
   } catch {
     return null; // unreadable / vanished mid-read - skip this file
   }
   const entries = [...rollup.values()];
-  return { mtimeMs, entries, stamps, stampDayMs, bytes: digestBytes(entries.length, stamps.length) };
+  const durable: FileDigest = {
+    mtimeMs, entries, stamps, stampDayMs,
+    bytes: digestBytes(entries.length, stamps.length), offset, size, birthtimeMs,
+  };
+  if (trailing.length === 0) return { durable, view: durable };
+  // The file does not end in a newline. Fold that last line into a SEPARATE view so the numbers
+  // include it, and leave `durable` short of it: the next fold resumes at the boundary and reads
+  // that line again, whole, whether it grew in the meantime or turned out to be all there was.
+  const viewRollup = new Map<string, DigestEntry>(entries.map((e) => [e.day + ' ' + e.model, cloneEntry(e)]));
+  const viewStamps = [...stamps];
+  const viewStampDayMs = [...stampDayMs];
+  foldLine(trailing.toString('utf8'), fileMs, viewRollup, viewStamps, viewStampDayMs);
+  const viewEntries = [...viewRollup.values()];
+  return {
+    durable,
+    view: {
+      mtimeMs, entries: viewEntries, stamps: viewStamps, stampDayMs: viewStampDayMs,
+      bytes: digestBytes(viewEntries.length, viewStamps.length), offset, size, birthtimeMs,
+    },
+  };
+}
+
+function cloneEntry(e: DigestEntry): DigestEntry {
+  return { ...e, totals: { ...e.totals } };
 }
 
 /** Aggregate token usage across the given repos' Claude sessions. sinceMs filters by day (Infinity = all). */
@@ -142,15 +247,18 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
       for (const f of files) {
         const full = join(dir, f);
         let fileMs = Date.now();
-        try { fileMs = (await stat(full)).mtimeMs; } catch { /* keep default */ }
+        let size = 0;
+        let birthtimeMs = 0;
+        try { ({ mtimeMs: fileMs, size, birthtimeMs } = await stat(full)); } catch { /* keep defaults */ }
         let digest = _fileCache.get(full);
-        if (digest && digest.mtimeMs === fileMs) {
+        // Nothing appended AND nothing left unread: the digest already answers for this file.
+        if (digest && digest.mtimeMs === fileMs && digest.size === size && digest.offset >= size) {
           cacheTouch(full); // keep the hot file at the recent end of the LRU order
         } else {
-          const parsed = await parseDigest(full, fileMs, fileMs);
+          const parsed = await foldDigest(full, fileMs, fileMs, size, birthtimeMs, digest);
           if (!parsed) continue; // unreadable — skip, don't poison the cache
-          digest = parsed;
-          cacheSet(full, digest);
+          cacheSet(full, parsed.durable); // only what is aligned to a record boundary may be resumed
+          digest = parsed.view;           // what is counted includes a line still being written
         }
         let contributed = false;
         for (const e of digest.entries) {

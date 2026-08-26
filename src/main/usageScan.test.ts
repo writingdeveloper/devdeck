@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scanUsage, _cacheHasFile, _clearFileCache, _setCacheBudget } from './usageScan';
@@ -103,15 +103,71 @@ describe('scanUsage', () => {
     // Pin the mtime EXPLICITLY on both writes (restoring a stat()-captured mtime can lose sub-ms
     // precision on Windows, which would falsely read as a modification).
     const T = new Date('2026-06-01T00:00:00.000Z');
-    writeFileSync(f, asst('claude-opus-4-8', { input_tokens: 1 }) + '\n// ' + 'x'.repeat(6 * 1024 * 1024));
+    // Both writes are the same LENGTH as well as the same mtime. A file that changed size is a file
+    // that changed, and serving its old digest would be the stale-answer bug rather than a cache hit
+    // — so "nothing about this file changed" has to be genuinely true for the reuse to be provable.
+    const first = asst('claude-opus-4-8', { input_tokens: 1 });
+    const rewritten = asst('claude-opus-4-8', { input_tokens: 999 });
+    const filler = (bytes: number): string => '// ' + 'x'.repeat(bytes) + '\n';
+    const PAD = 6 * 1024 * 1024;
+    writeFileSync(f, first + '\n' + filler(PAD));
     utimesSync(f, T, T);
     const r1 = await scanUsage([{ path: 'C:\\g\\huge', name: 'huge' }], root, Infinity);
     expect(r1.global.input).toBe(1);
     expect(_cacheHasFile(f)).toBe(true); // cached — as a digest, not 6MB of text
-    writeFileSync(f, asst('claude-opus-4-8', { input_tokens: 999 }));
-    utimesSync(f, T, T); // same mtime → the scan must trust the digest and skip the read
+    writeFileSync(f, rewritten + '\n' + filler(PAD - (rewritten.length - first.length)));
+    utimesSync(f, T, T); // same mtime, same size → the scan must trust the digest and skip the read
     const r2 = await scanUsage([{ path: 'C:\\g\\huge', name: 'huge' }], root, Infinity);
     expect(r2.global.input).toBe(1); // old digest served → the big file was NOT re-parsed
+  });
+
+  // The cache used to be keyed on (path, mtime) alone, which made it useless for the one file that
+  // matters most: the session being typed in RIGHT NOW. Its mtime moves with every turn, so every
+  // scan re-parsed the whole thing — measured at 5.5 seconds per scan on a 564 MB live transcript,
+  // once per deck refresh, every 45 seconds and again on every window focus.
+  describe('a transcript that is still being written', () => {
+    const project = 'C:\\g\\live';
+    const scan = () => scanUsage([{ path: project, name: 'live' }], root, Infinity);
+    let file: string;
+    beforeEach(() => {
+      const d = join(root, 'C--g-live');
+      mkdirSync(d, { recursive: true });
+      file = join(d, 'live.jsonl');
+    });
+
+    it('folds only what was appended, and totals the same as a full re-read', async () => {
+      writeFileSync(file, asst('claude-opus-4-8', { input_tokens: 10 }) + '\n');
+      expect((await scan()).global.input).toBe(10);
+
+      appendFileSync(file, asst('claude-opus-4-8', { input_tokens: 7 }) + '\n');
+      const resumed = await scan();
+      expect(resumed.global.input).toBe(17);
+
+      // The same content read from scratch must give the identical answer — a resume that drifts
+      // from a cold read is worse than no cache at all.
+      _clearFileCache();
+      expect((await scan()).global).toEqual(resumed.global);
+    });
+
+    it('counts a line that has no newline after it yet, without counting it twice when it finishes', async () => {
+      // An agent mid-write leaves a partial record at the end. Skipping it would under-report until
+      // the next turn; remembering it would double the turn the moment the rest of the line lands.
+      const half = asst('claude-opus-4-8', { input_tokens: 5 });
+      writeFileSync(file, asst('claude-opus-4-8', { input_tokens: 10 }) + '\n' + half);
+      expect((await scan()).global.input).toBe(15);
+      appendFileSync(file, '\n');
+      expect((await scan()).global.input).toBe(15);
+      appendFileSync(file, asst('claude-opus-4-8', { input_tokens: 1 }) + '\n');
+      expect((await scan()).global.input).toBe(16);
+    });
+
+    it('re-reads from the beginning when the file was replaced rather than appended to', async () => {
+      // A shorter file, or one born at a different moment, is not the file the digest describes.
+      writeFileSync(file, [asst('claude-opus-4-8', { input_tokens: 10 }), asst('claude-opus-4-8', { input_tokens: 10 })].join('\n') + '\n');
+      expect((await scan()).global.input).toBe(20);
+      writeFileSync(file, asst('claude-opus-4-8', { input_tokens: 3 }) + '\n');
+      expect((await scan()).global.input).toBe(3);
+    });
   });
 
   it('bounds the TOTAL cached bytes — the least-recently-used file is evicted when the budget overflows', async () => {
