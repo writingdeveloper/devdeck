@@ -18,6 +18,8 @@ import { startHostServer, type ActiveInvite, type HostConnectionInfo, type HostS
 import { dialHost, type ConnectedLink, type DialFailure } from './clientLink';
 import { loadOrCreateIdentity, type LinkIdentity, type SafeStorageLike } from './identity';
 import { addressCandidates, advertisableAddresses } from './addressCandidates';
+import { mapPort, PORT_MAP_LIFETIME_S, type PortMapResult } from './portMap';
+import { defaultGateway, localAddressFor } from './defaultGateway';
 import { LinkLog } from './linkLog';
 import {
   createPairingToken, encodeInviteCode, findInviteCodeInText, parseInviteCode,
@@ -69,6 +71,13 @@ export interface HostStatus {
   connections: HostConnectionInfo[];
   devices: PairedDevice[];
   error: string | null;
+  /**
+   * What came of asking the router to open the port, or null while that is still in flight (and on
+   * a host that is not listening). Reported rather than hidden: "mapped" is why an invite made from
+   * behind NAT works from another network at all, and "carrier-nat" is the one case where nothing
+   * this app can do will help, which is worth saying out loud instead of failing later.
+   */
+  portMap: PortMapResult | null;
 }
 
 export interface LinkServiceOptions {
@@ -153,8 +162,46 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
   const outbound = new Map<string, Outbound>();
   let disposed = false;
 
+  let portMap: PortMapResult | null = null;
+  let portMapTimer: ReturnType<typeof setTimeout> | null = null;
+
   const changed = (): void => options.onChanged?.();
-  const addresses = (): string[] => advertisableAddresses(addressCandidates(networkInterfaces(), hostname()));
+  const addresses = (): string[] => advertisableAddresses(addressCandidates(
+    networkInterfaces(),
+    hostname(),
+    // The router's public address is not on any interface here — it belongs to the router. It rides
+    // in the invite as a 'public' candidate, which the dial order puts last: it is the one that
+    // works from ANOTHER network, and the ones before it are the ones that work from this one.
+    portMap?.state === 'mapped' && portMap.externalAddress
+      ? [{ address: portMap.externalAddress, kind: 'public' as const, via: portMap.via ?? 'router' }]
+      : [],
+  ));
+
+  /**
+   * Ask the router to open the port, and keep the mapping alive.
+   *
+   * Deliberately after the listen and never awaited by it: a router that answers neither protocol
+   * costs a couple of seconds of timeouts, and the host is already usable on the LAN throughout.
+   * Renewed at half the granted lifetime — routers hand out shorter leases than asked for, and a
+   * lapsed mapping closes the port silently.
+   */
+  async function refreshPortMapping(): Promise<void> {
+    if (disposed || !server) return;
+    const gateway = await defaultGateway();
+    const localAddress = gateway ? await localAddressFor(gateway) : null;
+    if (disposed || !server) return;
+    portMap = await mapPort({ port: server.port, gateway, localAddress });
+    changed();
+    if (portMap.state !== 'mapped') return; // nothing to keep alive
+    const lifetime = portMap.lifetimeS ?? PORT_MAP_LIFETIME_S;
+    portMapTimer = setTimeout(() => { void refreshPortMapping(); }, Math.max(60, lifetime / 2) * 1000);
+    portMapTimer.unref?.();
+  }
+
+  function stopPortMapping(): void {
+    if (portMapTimer) { clearTimeout(portMapTimer); portMapTimer = null; }
+    portMap = null;
+  }
 
   // ---- outbound ----
 
@@ -303,6 +350,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
         onConnectionsChanged: (list) => { connections = list; changed(); },
       });
       hostError = null;
+      void refreshPortMapping();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // EADDRINUSE is the realistic one (another DevDeck, or the port taken). Reported, not retried:
@@ -317,6 +365,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
     const running = server;
     server = null;
     connections = [];
+    stopPortMapping();
     await running?.close();
     changed();
   }
@@ -339,6 +388,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
         connections,
         devices: options.store.getPairedDevices(),
         error: hostError,
+        portMap,
       };
     },
 

@@ -388,31 +388,45 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
   });
 
   return new Promise<HostServer>((resolve, reject) => {
-    const onListenError = (err: Error): void => { server.off('error', onListenError); unsubscribe(); reject(err); };
-    server.once('error', onListenError);
-    server.listen(options.port, options.bindHost ?? '0.0.0.0', () => {
-      server.off('error', onListenError);
-      // A TLS error from one client (a probe, a scanner, a version mismatch) must not take the
-      // listener down with it.
-      server.on('error', () => { /* logged per connection */ });
-      server.on('tlsClientError', () => { /* an unauthenticated peer failing TLS is not an event */ });
-      const address = server.address();
-      const port = typeof address === 'object' && address ? address.port : options.port;
-      resolve({
-        port,
-        get connections() { return info(); },
-        disconnect(fingerprint: string) {
-          for (const session of [...sessions]) {
-            if (fingerprintsMatch(session.device?.fingerprint, fingerprint)) session.connection.close('disconnected by host');
-          }
-        },
-        close() {
-          unsubscribe();
-          for (const session of [...sessions]) session.connection.close('host stopped');
-          return new Promise<void>((done) => server.close(() => done()));
-        },
+    // Bound on `::`, which on every platform DevDeck ships for is a DUAL-STACK socket: it accepts
+    // IPv6 and IPv4 alike. `0.0.0.0` accepts only IPv4, and a host that advertises a global IPv6
+    // address nobody is listening on is worse than one that never advertised it — the invite would
+    // carry an address that refuses every connection. Falls back to IPv4 on a machine with IPv6
+    // switched off, where binding `::` fails outright.
+    const bindOrder = options.bindHost ? [options.bindHost] : ['::', '0.0.0.0'];
+    const listen = (index: number): void => {
+      const onListenError = (err: Error): void => {
+        server.off('error', onListenError);
+        if (index + 1 < bindOrder.length) { listen(index + 1); return; }
+        unsubscribe();
+        reject(err);
+      };
+      server.once('error', onListenError);
+      server.listen(options.port, bindOrder[index], () => {
+        server.off('error', onListenError);
+        // A TLS error from one client (a probe, a scanner, a version mismatch) must not take the
+        // listener down with it.
+        server.on('error', () => { /* logged per connection */ });
+        server.on('tlsClientError', () => { /* an unauthenticated peer failing TLS is not an event */ });
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : options.port;
+        resolve({
+          port,
+          get connections() { return info(); },
+          disconnect(fingerprint: string) {
+            for (const session of [...sessions]) {
+              if (fingerprintsMatch(session.device?.fingerprint, fingerprint)) session.connection.close('disconnected by host');
+            }
+          },
+          close() {
+            unsubscribe();
+            for (const session of [...sessions]) session.connection.close('host stopped');
+            return new Promise<void>((done) => server.close(() => done()));
+          },
+        });
       });
-    });
+    };
+    listen(0);
   });
 }
 

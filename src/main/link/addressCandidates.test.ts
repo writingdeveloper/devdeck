@@ -98,3 +98,110 @@ describe('advertisableAddresses', () => {
     expect(out[0]).toBe('100.64.0.9');
   });
 });
+
+// ---- IPv6 ----
+
+const ip6 = (address: string, extra: Partial<NetworkInterfaceInfo> = {}): NetworkInterfaceInfo => ({
+  address, netmask: 'ffff:ffff:ffff:ffff::', family: 'IPv6', mac: '00:00:00:00:00:00',
+  internal: false, cidr: `${address}/64`, scopeid: 0, ...extra,
+} as NetworkInterfaceInfo);
+
+describe('addressCandidates, IPv6', () => {
+  it('advertises a global address — the one candidate needing no router configuration', () => {
+    // Measured on the developer's machine: AT&T hands out a real /64, so there is no NAT in front of
+    // this address at all. Nothing to forward; only a firewall to allow.
+    const out = addressCandidates({ Ethernet: [ip('192.168.1.69'), ip6('2600:1700:1420:6a10::41')] }, '');
+    expect(out.map((c) => [c.address, c.kind])).toEqual([
+      ['192.168.1.69', 'lan'],
+      ['2600:1700:1420:6a10::41', 'global6'],
+    ]);
+  });
+
+  it('dials the LAN address first, so the common case pays no timeout for a blocked IPv6', () => {
+    const out = addressCandidates({ e: [ip6('2600:db8::41'), ip('192.168.1.69')] }, 'HOST');
+    expect(out.map((c) => c.kind)).toEqual(['lan', 'global6', 'hostname', 'mdns']);
+  });
+
+  it('drops the addresses that mean nothing on another machine', () => {
+    const out = addressCandidates({
+      e: [ip6('fe80::1c4f:2a1b:9d3e:5f70'), ip6('::1'), ip6('ff02::1')],
+    }, '');
+    expect(out).toEqual([]);
+  });
+
+  it('reads a Tailscale ULA as the overlay it is, and any other ULA as a LAN address', () => {
+    const out = addressCandidates({ ts: [ip6('fd7a:115c:a1e0::8c3a:f837')], z: [ip6('fd00:1234::5')] }, '');
+    expect(out.map((c) => c.kind)).toEqual(['overlay', 'lan']);
+  });
+
+  it('strips a zone id, which names an interface on THIS machine and nothing on the other one', () => {
+    const out = addressCandidates({ e: [ip6('2600:db8::41%12')] }, '');
+    expect(out.map((c) => c.address)).toEqual(['2600:db8::41']);
+  });
+
+  it('puts the assigned global address ahead of the rotating privacy one', () => {
+    // A machine holds three globals: one assigned (short, stable), one stable SLAAC, and one
+    // temporary address the OS rotates. Only two fit in an invite, and nothing in Node says which is
+    // which — so the compact one, which is the assigned one, goes first.
+    const out = addressCandidates({
+      e: [
+        ip6('2600:1700:1420:6a10:4c24:8866:9f88:c7cb'),
+        ip6('2600:1700:1420:6a10:ca9d:b6b3:4793:6229'),
+        ip6('2600:1700:1420:6a10::41'),
+      ],
+    }, '');
+    expect(out[0].address).toBe('2600:1700:1420:6a10::41');
+  });
+});
+
+describe('advertisableAddresses with several kinds', () => {
+  it('keeps the global IPv6 even when virtual adapters fill the LAN slots', () => {
+    // Docker, WSL and Hyper-V each add a LAN address. Taking the sorted list in order spent the whole
+    // budget on them and dropped the only address reachable from another network.
+    const out = advertisableAddresses(addressCandidates({
+      Docker: [ip('172.17.0.1')],
+      WSL: [ip('172.20.16.1')],
+      HyperV: [ip('192.168.56.1')],
+      Ethernet: [ip('192.168.1.69'), ip6('2600:db8::41')],
+      Tailscale: [ip('100.96.248.54')],
+    }, 'HOST'));
+    expect(out).toContain('2600:db8::41');
+    expect(out).toContain('100.96.248.54');
+    expect(out).toContain('HOST');
+    expect(out.length).toBeLessThanOrEqual(MAX_ADVERTISED_ADDRESSES);
+  });
+
+  it('still spends the whole budget when there is only one kind to spend it on', () => {
+    const out = advertisableAddresses(addressCandidates({
+      a: [ip('192.168.1.2')], b: [ip('192.168.2.2')], c: [ip('192.168.3.2')], d: [ip('192.168.4.2')],
+    }, ''));
+    expect(out).toHaveLength(4);
+  });
+});
+
+describe('an address the router reported on our behalf', () => {
+  it('travels in the invite even when the machine is full of virtual adapters', () => {
+    // The public address is not on any interface here — the ROUTER holds it, and hands it over after
+    // opening a port. It is the only candidate that reaches this machine from another network, so a
+    // pile of Docker/WSL addresses must not push it out of the invite.
+    const candidates = addressCandidates(
+      { Docker: [ip('172.17.0.1')], WSL: [ip('172.20.16.1')], HyperV: [ip('192.168.56.1')], Ethernet: [ip('192.168.1.69')] },
+      'HOST',
+      [{ address: '203.0.113.7', kind: 'public', via: 'nat-pmp' }],
+    );
+    expect(candidates.find((c) => c.address === '203.0.113.7')?.kind).toBe('public');
+    // Dialed last: the addresses before it are the ones that work from THIS network, and trying the
+    // router's own public address from inside the LAN is the one that commonly hairpins or hangs.
+    expect(candidates[candidates.length - 1].address).toBe('203.0.113.7');
+    expect(advertisableAddresses(candidates)).toContain('203.0.113.7');
+  });
+
+  it('is deduplicated against an interface that already carries it', () => {
+    const candidates = addressCandidates(
+      { Ethernet: [ip('203.0.113.7')] },
+      '',
+      [{ address: '203.0.113.7', kind: 'public', via: 'nat-pmp' }],
+    );
+    expect(candidates.filter((c) => c.address === '203.0.113.7')).toHaveLength(1);
+  });
+});

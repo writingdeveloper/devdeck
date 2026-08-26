@@ -92,6 +92,29 @@ function permissionChips(permissions: readonly LinkPermission[]): HTMLElement {
   return wrap;
 }
 
+/**
+ * The one-line verdict on automatic port opening.
+ *
+ * Null while it is still in flight — a router that answers neither protocol takes a couple of
+ * seconds to say so, and a line that appears and then changes reads worse than one that appears once.
+ * 'carrier-nat' is styled as a problem because it is the case nothing in this app can fix: the
+ * router opened a port behind the ISP's own translator, and the address it reports routes nowhere.
+ */
+function portMappingLine(status: HostStatus): HTMLElement | null {
+  const map = status.portMap;
+  if (!map) return null;
+  if (map.state === 'mapped') {
+    return el('p', 'set-hint', tr('link.portmap_mapped', { address: map.externalAddress ?? '', via: map.via ?? '' }));
+  }
+  if (map.state === 'carrier-nat') {
+    const note = el('p', 'link-row-problem', tr('link.portmap_carrier'));
+    note.setAttribute('role', 'status');
+    return note;
+  }
+  if (map.state === 'failed') return el('p', 'link-row-problem', tr('link.portmap_failed', { detail: map.detail ?? '' }));
+  return el('p', 'set-hint', tr('link.portmap_unsupported'));
+}
+
 // ---- this machine ----
 
 function hostSection(status: HostStatus, refresh: Refresh): HTMLElement {
@@ -134,6 +157,12 @@ function hostSection(status: HostStatus, refresh: Refresh): HTMLElement {
   fingerprint.title = status.fingerprint;
   meta.appendChild(fingerprint);
   wrap.appendChild(meta);
+
+  // What came of asking the router to open the port. Worth a line of its own: it is the difference
+  // between an invite that works from another network and one that only works from this room, and
+  // the person creating the invite is the only one who can act on it.
+  const mapping = portMappingLine(status);
+  if (mapping) wrap.appendChild(mapping);
 
   wrap.appendChild(inviteArea(status, refresh));
   wrap.appendChild(deviceList(status, refresh));

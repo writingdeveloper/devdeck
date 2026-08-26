@@ -12,6 +12,7 @@ import { _electron as electron } from 'playwright';
 import { mkdtempSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { connect as netConnect } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -90,6 +91,28 @@ try {
   await viewer.win.click('#settings-form .link-add-row .chip');
   await viewer.win.waitForFunction(() => document.querySelector('#settings-form .link-state.is-connected') !== null, undefined, { timeout: 20000 });
   result.paired = true;
+
+  // --- the listener has to accept IPv6, or advertising an IPv6 address is a trap ---
+  // IPv6 has no NAT, so a global address is the one candidate reachable from another network with
+  // no router configuration at all — but only if something is listening on it. Binding `0.0.0.0`
+  // accepts IPv4 alone, and an invite carrying an address that refuses every connection is worse
+  // than one that never carried it. `::1` is checked rather than the machine's global address
+  // because every machine has loopback, CI runners included, and it proves the same thing: the
+  // socket is dual-stack.
+  const hostBinding = await host.win.evaluate(async () => window.devdeck.link.hostStatus());
+  const tcpReaches = (address, port) => new Promise((resolve) => {
+    const socket = netConnect({ host: address, port });
+    const done = (v) => { socket.destroy(); resolve(v); };
+    socket.setTimeout(3000, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+  result.listensOnIpv6 = await tcpReaches("::1", hostBinding.port);
+  result.listensOnIpv4 = await tcpReaches("127.0.0.1", hostBinding.port);
+  const global6 = hostBinding.addresses.find((a) => /^[23].*:/.test(a));
+  // Informational: a machine without a global IPv6 is a normal machine, not a failure.
+  result.advertisedGlobalIpv6 = global6 ?? "none on this machine";
+  result.portMapOutcome = hostBinding.portMap ? hostBinding.portMap.state : "still in flight";
 
   // --- a session ALREADY running on the host must arrive here, with its screen ---
   // The scenario the feature is for: that machine is mid-work when you connect to it. Started BEFORE
