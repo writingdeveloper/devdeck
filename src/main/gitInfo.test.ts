@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, _clearRemoteCache } from './gitInfo';
 
 beforeEach(() => _clearRemoteCache());
@@ -134,5 +134,38 @@ describe('getRecentCommits', () => {
   it('throws when git cannot be read so callers can mark the source partial', async () => {
     const run = async (): Promise<string> => { throw new Error('git unavailable'); };
     await expect(getRecentCommits('C:/repo', 20, run)).rejects.toThrow('git unavailable');
+  });
+});
+
+// A git command that never returns is the difference between "slow" and what users call infinite
+// loading: the deck waits on a pool of eight of these and shows a skeleton until every one answers.
+describe('the git command is bounded', () => {
+  it('gives every call a timeout, a kill signal and room for a large status', async () => {
+    const calls: Record<string, unknown>[] = [];
+    vi.doMock('node:child_process', () => ({
+      execFile: (_cmd: string, _args: string[], options: Record<string, unknown>, cb: (e: unknown, r: { stdout: string; stderr: string }) => void) => {
+        calls.push(options);
+        cb(null, { stdout: '', stderr: '' });
+      },
+    }));
+    vi.resetModules();
+    const fresh = await import('./gitInfo');
+    await fresh.getGitBranchDirty('C:/repo');
+    vi.doUnmock('node:child_process');
+    vi.resetModules();
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const options of calls) {
+      // No limit at all was the bug: one hung git parks a worker forever and `projects:list` never
+      // resolves. The reporter's scan root is a cloud-synced folder with 200,000 files in it.
+      expect(typeof options.timeout).toBe('number');
+      expect(options.timeout as number).toBeGreaterThan(0);
+      expect(options.timeout as number).toBeLessThanOrEqual(30_000);
+      // SIGTERM is ignored on Windows by a process that is not responding, and git spawns children.
+      expect(options.killSignal).toBe('SIGKILL');
+      // A porcelain status on a big dirty repo passes Node's 1 MB default, which kills the call — so
+      // the row loses its git information for having too MUCH to say.
+      expect(options.maxBuffer as number).toBeGreaterThan(1024 * 1024);
+    }
   });
 });

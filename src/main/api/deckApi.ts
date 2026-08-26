@@ -240,8 +240,30 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     cfg.store.setHidden(path, hidden);
   });
 
+  /**
+   * Scans already running, by `sinceMs`.
+   *
+   * A usage scan walks every session store on the machine. Nothing stopped a second one starting
+   * while the first was still going: the deck asks on every refresh and again on every window focus,
+   * the usage view asks on its own, and a slow scan simply collected more callers, each doing the
+   * whole walk again and competing for the same disk. Callers now share the one in flight — the same
+   * thing `memoScan` does for the folder walk, for the same reason.
+   */
+  const usageInFlight = new Map<string, Promise<import("../../shared/types").UsageReport>>();
+
   invoke('usage:report', allow('observe'), async (sinceMs: number) => {
     const ms = (Number.isFinite(sinceMs) || sinceMs === Infinity) ? sinceMs : 0;
+    const key = String(ms);
+    const running = usageInFlight.get(key);
+    if (running) return running;
+    const started = buildUsageReport(ms);
+    usageInFlight.set(key, started);
+    // Cleared on completion rather than on a timer: the point is to share one walk, not to cache its
+    // answer — the next refresh must see what is on disk now.
+    try { return await started; } finally { usageInFlight.delete(key); }
+  });
+
+  async function buildUsageReport(ms: number): Promise<import("../../shared/types").UsageReport> {
     const claude = (async () => {
       const scanned = await memoScan();
       // Reconcile the live deck with ~/.claude so DELETED projects (folder gone, usage still on disk)
@@ -256,7 +278,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       sinceMs: ms,
     });
     return combineLocalUsageScans(claude, codex);
-  });
+  }
   invoke('settings:getLanguage', localOnly, () => cfg.store.getLanguage() ?? cfg.defaultLanguage);
   invoke('settings:setLanguage', localOnly, (lang: string) => cfg.store.setLanguage(lang));
   invoke('settings:getAgent', allow('observe'), () => activeAgent());

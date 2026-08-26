@@ -9,8 +9,38 @@ const execFileAsync = promisify(execFile);
 
 export type GitRunner = (args: string[]) => Promise<string>;
 
+/**
+ * How long a single git command may take before it is given up on.
+ *
+ * There was no limit at all, and that is the difference between "slow" and the thing users call
+ * infinite loading. The deck runs these through a pool of eight workers and waits for all of them:
+ * one git that never returns — an index.lock left by a crashed process, a credential helper waiting
+ * on a prompt nobody can see, a scan root inside a cloud-synced folder that is busy rehydrating —
+ * parks a worker forever, and `projects:list` never resolves. The deck then shows its skeleton for
+ * the rest of the session. The reporter's scan root is a OneDrive folder with 200,000 files in it.
+ *
+ * Ten seconds is far past any healthy call (a status on a large repository here is ~25 ms) and far
+ * short of "forever". A timed-out call reports nothing, which the deck already handles: git
+ * information is decoration on a project row, never the row itself.
+ */
+const GIT_TIMEOUT_MS = 10_000;
+
+/**
+ * A porcelain status on a big, dirty repository is easily past the 1 MB Node allows by default, and
+ * exceeding it kills the process and rejects — so the whole row loses its git information because it
+ * had too MUCH to say. Sized for tens of thousands of changed paths.
+ */
+const GIT_MAX_BUFFER = 32 * 1024 * 1024;
+
 const defaultRunner: GitRunner = async (args) => {
-  const { stdout } = await execFileAsync('git', args, { windowsHide: true });
+  const { stdout } = await execFileAsync('git', args, {
+    windowsHide: true,
+    timeout: GIT_TIMEOUT_MS,
+    // SIGTERM is the default and is ignored on Windows for a process that is not responding; git
+    // spawns children (credential helpers, pagers) and this has to actually end them.
+    killSignal: 'SIGKILL',
+    maxBuffer: GIT_MAX_BUFFER,
+  });
   return stdout;
 };
 

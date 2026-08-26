@@ -2,6 +2,7 @@ import { barChart, shareBar } from './charts';
 import { formatDuration } from '../shared/usage';
 import { tr, localeTag } from './i18n-runtime';
 import { renderLoadError } from './loadError';
+import { withTimeout } from '../shared/withTimeout';
 import { filterProjectRows, aggregateDeleted } from '../shared/usageFilter';
 import { selectProviderUsage, type LocalProjectUsage, type LocalUsageFilter, type LocalUsageProvider, type LocalUsageReport, type ProviderUsageSlice } from '../shared/localUsage';
 import { createProviderLogo, providerName } from './providerLogo';
@@ -35,6 +36,9 @@ function isUsageReport(value: unknown): value is LocalUsageReport {
   return Array.isArray(report.byProvider) && Array.isArray(report.byProject) && Array.isArray(report.byModel) && Array.isArray(report.daily);
 }
 
+/** How long the usage view waits before offering a retry instead of a skeleton. */
+const USAGE_TIMEOUT_MS = 90_000;
+
 async function load(): Promise<void> {
   const range = RANGES.find((r) => r.key === activeRange)!;
   const sinceMs = range.days === Infinity ? Infinity : Date.now() - range.days * 86_400_000;
@@ -44,7 +48,9 @@ async function load(): Promise<void> {
     // Follows the deck's machine selector: these are token counts for work done on a specific
     // machine, and showing this one's numbers under another machine's name would be a quietly wrong
     // answer to "what did that box cost me".
-    render(await deckFor(selectedMachineId()).usageReport(sinceMs));
+    // Bounded: a scan that never answers used to leave this view showing a skeleton for the rest of
+    // the session. Generous, because a cold scan over a very large store legitimately takes a while.
+    render(await withTimeout(deckFor(selectedMachineId()).usageReport(sinceMs), USAGE_TIMEOUT_MS, 'usage report'));
   } catch (e) {
     console.error('DevDeck: usage load failed', e);
     renderLoadError(viewEl, () => void load());

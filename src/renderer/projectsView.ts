@@ -8,6 +8,7 @@ import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
 import { todayCost } from '../shared/localUsage';
+import { withTimeout } from '../shared/withTimeout';
 import { basename } from '../shared/paths';
 import { renderLoadError, toast } from './loadError';
 import { createProviderLogo, providerName } from './providerLogo';
@@ -19,6 +20,8 @@ import { openSelectedPresentation, projectRowModel, projectStatePresentation } f
 import { createIcon } from './icons';
 
 const AUTO_REFRESH_MS = 45_000;
+/** How long the deck waits for a machine's project list before offering a retry instead of a skeleton. */
+const DECK_TIMEOUT_MS = 60_000;
 
 type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[number];
 
@@ -770,9 +773,13 @@ async function reload(): Promise<void> {
   try {
     // The deck shows ONE machine at a time. Settings stay local: view mode and the like belong to
     // the app you are sitting in front of, not to the machine being looked at.
-    [proj, settings] = await Promise.all([
+    // Bounded. `projects:list` waits on a pool of git commands, and a single one that never returns
+    // used to mean this promise never settled — the deck then showed its skeleton for the rest of the
+    // session with no way back. Git is bounded on its own side now too; this is the backstop for
+    // everything else in that chain, including a paired machine that stopped answering.
+    [proj, settings] = await withTimeout(Promise.all([
       deckFor(forMachine).listProjects(), window.devdeck.getSettings(),
-    ]);
+    ]), DECK_TIMEOUT_MS, 'project list');
   } catch (e) {
     console.error('DevDeck: projects load failed', e);
     window.devdeck.logDiagnostic(`projects load failed for ${forMachine}: ${e instanceof Error ? e.message : String(e)}`, 'error', 'deck');
