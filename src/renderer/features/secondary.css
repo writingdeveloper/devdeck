@@ -329,3 +329,15 @@ body .um-provider {
   #settings-form .link-row-actions { margin-left: 0; }
   #settings-form .link-log-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+
+/* Diagnostics: the machine's own log, made findable by someone who does not know it exists. */
+.about-diag { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--dd-border); }
+.about-diag.hidden { display: none; }
+.about-diag-label { color: var(--dd-text-muted); font-size: var(--dd-fs-meta); text-transform: uppercase; letter-spacing: .07em; }
+.about-diag-path {
+  display: block; margin: 4px 0 8px; padding: 4px 6px;
+  border-radius: var(--dd-radius-sm); background: var(--dd-surface);
+  color: var(--dd-text-muted); font-family: var(--dd-font-mono); font-size: var(--dd-fs-meta);
+  overflow-x: auto; white-space: nowrap;
+}
+.about-diag-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

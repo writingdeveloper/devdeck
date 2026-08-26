@@ -2,7 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { activityOrderStamp, filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
-import type { ShellSessionAction, ShellSessionInput } from '../shared/shellNavigation';
+import type { ShellSessionAction, ShellSessionGroup, ShellSessionInput } from '../shared/shellNavigation';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
@@ -361,7 +361,7 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
     // Which machine this terminal is actually on — shown ONLY when it is not this one, so a
     // single-machine sidebar reads exactly as it did before. Without it two sessions of the same
     // repository on two machines are indistinguishable, and typing into the wrong one is silent.
-    if (item.machineId !== LOCAL_MACHINE_ID) detailBits.unshift(`⇄ ${machineName(item.machineId)}`);
+    const remote = item.machineId !== LOCAL_MACHINE_ID ? { id: item.machineId, label: machineName(item.machineId) } : null;
     const model = friendlyModel(item.meta?.model ?? null);
     if (model) detailBits.push(model);
     const context = contextPercent(item.meta?.contextTokens ?? 0, windowFor(item.meta));
@@ -370,6 +370,7 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
       { ...session, id: navigationIdForLive(item) }, labels[index], detailBits.join(' · '), item.pinned,
       summaryEnabled ? item.meta?.summary ?? null : null,
       activityOrderStamp(liveActivityAt(item)),
+      remote,
     );
   });
   const previous = previousItems.map((entry, index): ShellSessionInput => ({
@@ -1569,6 +1570,46 @@ export function manageCockpitSessionAction(id: string, action: ShellSessionActio
   persist(); renderList();
 }
 
+/**
+ * Close (or forget) every session the sidebar shows under one heading, asked about ONCE.
+ *
+ * Shutting down a dozen terminals one confirmation at a time is a chore people simply stop doing, so
+ * sessions accumulate — and a deck holding fifty of them is a deck nobody can read. The groups are
+ * already the units someone thinks in: everything idle, everything on that machine, everything saved.
+ *
+ * The confirmation names the group and the count, and it is the only one: answering it once for six
+ * rows is the entire point. Saved entries are forgotten rather than closed — there is no terminal.
+ */
+export async function closeCockpitSessionGroup(group: ShellSessionGroup): Promise<void> {
+  const ids = group.items.map((item) => item.id);
+  if (!ids.length) return;
+  const forgetting = group.kind === 'previous';
+  const name = group.kind === 'remote' ? (group.machineLabel ?? '') : tr(GROUP_CONFIRM_LABELS[group.kind]);
+  const ok = await confirmDialog(
+    tr(forgetting ? 'shell.forget_group_confirm' : 'shell.close_group_confirm', { n: String(ids.length), name }),
+    tr(forgetting ? 'cockpit.forget' : 'cockpit.close'),
+  );
+  if (!ok) return;
+  window.devdeck.logDiagnostic(`bulk ${forgetting ? 'forget' : 'close'} ${ids.length} in ${group.key}`, 'info', 'sidebar');
+  for (const id of ids) {
+    // Resolved per id at the moment it is acted on: the list was captured before the confirmation,
+    // and a session can exit or be closed while the question is on screen.
+    const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
+    if (current) { closeSession(current.session.id); continue; }
+    const entry = restorable.find((item) => cockpitNavigationId(item) === id);
+    if (entry) restorable = restorable.filter((r) => r !== entry);
+  }
+  persist();
+  renderList();
+}
+
+/** What the bulk confirmation calls a group. Remote groups use the machine's name instead. */
+const GROUP_CONFIRM_LABELS: Record<string, string> = {
+  attention: 'shell.needs_you', working: 'shell.working', pinned: 'cockpit.grp_pinned',
+  remote: 'shell.grp_remote', turn: 'cockpit.grp_turn', quiet: 'cockpit.grp_idle',
+  previous: 'cockpit.prev_sessions',
+};
+
 export function restoreAllCockpitSessions(): void { void restoreAll(); }
 
 function publishSessionSelection(liveSession: Live): void {
@@ -1787,6 +1828,14 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     }
     const target = resolveRestoreTarget(entry, ids, liveIds, reserved);
     const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, tileId: entry.tileId, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner, machineId });
+    // The decision, on the record. A restore that opens the wrong thing — or opens anything at all
+    // when it should not have — is invisible from the outside, and reading it back off a machine
+    // nobody is sitting at was impossible until this line.
+    window.devdeck.logDiagnostic(
+      `restore ${entry.label || entry.name} on ${machineId === LOCAL_MACHINE_ID ? 'this pc' : machineName(machineId)}: `
+      + `saved=${entry.sessionId ?? '-'} onDisk=${ids.length} -> ${target.fresh ? 'fresh' : 'resume'} ${target.sessionId ?? '(new id)'} ok=${ok}`,
+      'info', 'restore',
+    );
     if (ok) {
       // Say why the tile is empty — whether its conversation was deleted or was never recorded.
       // Silence here would read as "my session lost its history".

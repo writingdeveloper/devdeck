@@ -49,6 +49,7 @@ import { emptyProjectMemory, makeProjectMemoryService } from '../projectMemory';
 import type { ShutdownLog } from '../shutdownLog';
 import type { ShutdownSessionSummary } from '../../shared/shutdownIdle';
 import { allow, blocked, localOnly, makeMethodTable, type DeckApi } from './methods';
+import type { DiagnosticsLog } from '../diagnostics';
 import type { LinkService } from '../link/linkService';
 import { isRemoteId, parseRemoteId, qualifyRemoteId } from '../../shared/link/machine';
 import { makeEventHub, type EventHub } from './events';
@@ -88,6 +89,14 @@ export interface DeckApiConfig {
    * on any machine where the link never starts.
    */
   link?: () => LinkService | null;
+  /**
+   * This machine's diagnostics log. Absent in the unit harnesses, which do not want a file.
+   *
+   * Deliberately local-only at the IPC layer: a log holds project paths, machine names and error
+   * text, and a paired machine has no business reading it. Someone who wants the other machine's log
+   * reads it on that machine — which is exactly the workflow this exists to support.
+   */
+  diagnostics?: DiagnosticsLog | null;
 }
 
 /**
@@ -281,6 +290,28 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     cfg.store.setViewMode(mode === 'list' ? 'list' : 'cards');
   });
   invoke('settings:setBaseDir', localOnly, (dir: string) => cfg.store.setBaseDir(String(dir).slice(0, 2000)));
+
+  // ---- diagnostics ----
+  // What a person hands to an agent when DevDeck misbehaves on a machine nobody is sitting at.
+  // The renderer reports its own failures here too: an exception in the window used to leave no
+  // trace at all, which is why "it froze and then opened a new session" could only ever be guessed at.
+  send('diag:log', localOnly, (level: string, source: string, message: string) => {
+    const lvl = level === 'error' || level === 'warn' ? level : 'info';
+    cfg.diagnostics?.write(lvl, String(source).slice(0, 40), String(message));
+  });
+  invoke('diag:info', localOnly, () => ({
+    path: cfg.diagnostics?.path ?? null,
+    bytes: cfg.diagnostics?.size() ?? 0,
+  }));
+  /** The tail, for the "copy" button — the whole file is deliberately not shipped through IPC. */
+  invoke('diag:tail', localOnly, (lines: number) => cfg.diagnostics?.tail(Math.min(2000, Math.max(1, Number(lines) | 0 || 400))) ?? '');
+  /** Show the file in the OS file manager, which is how it gets handed to an agent on that machine. */
+  invoke('diag:reveal', localOnly, () => {
+    const target = cfg.diagnostics?.path;
+    if (!target) return false;
+    shell.showItemInFolder(target);
+    return true;
+  });
   invoke('settings:getFolders', allow('observe'), () => effFolders());
   // addFolder is the one handler that WIDENS the scan allowlist every other path guard checks against,
   // so it accepts only a directory the user just chose via the native pickFolder dialog (a dialog a
@@ -492,11 +523,16 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
         (chunk) => { cfg.shutdown?.noteBusy(); ptyBatch.push(id, chunk); },
         (e) => {
           ptyBatch.flush(); // flush buffered output before the exit notice
+          cfg.diagnostics?.write(e.exitCode === 0 ? 'info' : 'warn', 'pty', `exit ${id} code=${e.exitCode}`);
           emit('cockpit:exit', { id, exitCode: e.exitCode });
           publishSessions();
         },
         { projectPath: req.projectPath, sessionId: resolved.sessionId, agentId: a.id },
       );
+      // Every terminal this machine starts, and WHY. A session appearing that nobody opened is the
+      // shape of more than one bug we have shipped, and until this line there was no way to tell a
+      // restore from a deck click from a paired machine's request after the fact.
+      cfg.diagnostics?.write('info', 'pty', `open ${id} agent=${a.id} mode=${req.mode ?? 'auto'} conversation=${resolved.sessionId ?? '-'} cmd=${resolved.command}`);
       publishSessions();
       cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
       return { id, agentId: a.id, sessionId: resolved.sessionId };
@@ -540,6 +576,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       return;
     }
     ptyBatch.drop(target);
+    cfg.diagnostics?.write('info', 'pty', `close ${target}`);
     cfg.ptyHost.kill(target);
     publishSessions();
   });

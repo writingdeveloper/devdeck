@@ -61,6 +61,12 @@ contextBridge.exposeInMainWorld('devdeck', {
     readImage: (): Promise<string | null> => ipcRenderer.invoke('clipboard:readImage'),
     readImageBytes: (): Promise<{ tooLarge: boolean; bytes: string | null } | null> => ipcRenderer.invoke('clipboard:readImageBytes'),
   },
+  // Diagnostics: one file per machine, readable by a person or an agent sitting at it.
+  logDiagnostic: (message: string, level = 'error', source = 'renderer') =>
+    ipcRenderer.send('diag:log', level, source, message),
+  diagnosticsInfo: () => ipcRenderer.invoke('diag:info'),
+  diagnosticsTail: (lines?: number) => ipcRenderer.invoke('diag:tail', lines ?? 400),
+  revealDiagnostics: () => ipcRenderer.invoke('diag:reveal'),
   cockpit: {
     open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }) =>
       ipcRenderer.invoke('cockpit:open', req),

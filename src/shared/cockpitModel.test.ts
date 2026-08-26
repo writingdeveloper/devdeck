@@ -10,7 +10,12 @@ it('adapts a cockpit session without losing project ownership or activity', () =
   const session = { id: 'a', projectPath: 'C:/a', name: 'repo', agentId: 'codex', status: 'running', staleLevel: 'fresh', branch: 'main', dirty: 0, activity: 'attention' } as CockpitSession;
   expect(sessionNavigationItem(session, 'review api', 'main · Codex', true)).toEqual({
     id: 'a', projectPath: 'C:/a', label: 'review api', detail: 'main · Codex', activity: 'attention', pinned: true, summary: null, lastActiveMs: null,
+    machineId: null, machineLabel: null,
   });
+  // A session on another machine carries which one, because that is what the sidebar groups by —
+  // a marker inside the detail line read exactly like a local session at a glance.
+  expect(sessionNavigationItem(session, 'review api', 'main · Codex', false, null, null, { id: 'm-2', label: 'studio pc' }))
+    .toMatchObject({ machineId: 'm-2', machineLabel: 'studio pc' });
   // The recency stamp is the sidebar's ordering key — it must survive the adaptation too.
   expect(sessionNavigationItem(session, 'review api', 'main · Codex', false, null, 1_700_000_000_000).lastActiveMs)
     .toBe(1_700_000_000_000);

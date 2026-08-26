@@ -35,6 +35,50 @@ describe('shell navigation', () => {
     expect(attentionCount(rows)).toBe(1);
   });
 
+  it('puts sessions from another machine in their own section, one per machine', () => {
+    // A remote session used to sit among the local ones with a marker buried in its detail line, so
+    // the two read alike at a glance — and which machine a terminal is on decides where the next
+    // keystroke lands. Two paired machines get two sections: one "remote" pile would be the same
+    // ambiguity one level up.
+    const remote = (id: string, machineId: string, over: Partial<ShellSessionInput> = {}): ShellSessionInput => ({
+      id, projectPath: `C:/${id}`, label: id, detail: '', activity: 'idle', pinned: false, machineId,
+      machineLabel: machineId === 'm-1' ? 'studio pc' : 'laptop', lastActiveMs: 1_000, ...over,
+    });
+    const groups = buildSessionGroups([
+      remote('a', 'm-1'), remote('b', 'm-2'), remote('c', 'm-1', { activity: 'attention' }),
+    ]);
+    expect(groups.map((g) => g.key)).toEqual(['remote:m-1', 'remote:m-2']);
+    expect(groups[0].machineLabel).toBe('studio pc');
+    expect(groups[0].items.map((i) => i.id)).toEqual(['a', 'c']);
+  });
+
+  it('keeps a remote session out of the local urgency groups, whatever it is doing', () => {
+    // Where it runs outranks what it is doing: "needs you" must mean "on this computer", or the
+    // group stops answering the question a person opens the sidebar to ask.
+    const groups = buildSessionGroups([
+      { id: 'local', projectPath: 'C:/l', label: 'local', detail: '', activity: 'attention', pinned: false },
+      { id: 'far', projectPath: 'C:/f', label: 'far', detail: '', activity: 'attention', pinned: true, machineId: 'm-9', machineLabel: 'laptop' },
+    ]);
+    expect(groups.map((g) => g.key)).toEqual(['attention', 'remote:m-9']);
+    expect(groups[0].items.map((i) => i.id)).toEqual(['local']);
+  });
+
+  it('treats an absent or local machine id as this machine', () => {
+    const groups = buildSessionGroups([
+      { id: 'a', projectPath: 'C:/a', label: 'a', detail: '', activity: 'idle', pinned: false },
+      { id: 'b', projectPath: 'C:/b', label: 'b', detail: '', activity: 'idle', pinned: false, machineId: null },
+      { id: 'c', projectPath: 'C:/c', label: 'c', detail: '', activity: 'idle', pinned: false, machineId: 'local' },
+    ]);
+    expect(groups.map((g) => g.key)).toEqual(['quiet']);
+  });
+
+  it('folds each machine independently, and drops a saved key it does not recognise', () => {
+    expect(normalizeCollapsedGroups(['quiet', 'remote:m-1', 'remote:../etc', 'nonsense', 7]))
+      .toEqual(['quiet', 'remote:m-1']);
+    expect(toggleCollapsedGroup(['remote:m-1'], 'remote:m-2')).toEqual(['remote:m-1', 'remote:m-2']);
+    expect(toggleCollapsedGroup(['remote:m-1', 'remote:m-2'], 'remote:m-1')).toEqual(['remote:m-2']);
+  });
+
   it('does not duplicate a pinned attention session in the pinned group', () => {
     const groups = buildSessionGroups([
       { id: 'ask', projectPath: 'C:/ask', label: 'ask', detail: 'main', activity: 'attention', pinned: true },

@@ -1,6 +1,5 @@
 import { app, BrowserWindow, globalShortcut, crashReporter, powerMonitor, powerSaveBlocker, safeStorage, screen } from 'electron';
 import * as path from 'node:path';
-import { appendFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { uptime, homedir, tmpdir } from 'node:os';
 import { Store } from './store';
@@ -10,6 +9,7 @@ import { setupTray } from './tray';
 import { registerUpdater } from './updater';
 import { applyOpenAtLogin } from './autostart';
 import { installGlobalErrorHandlers, installAppCrashHandlers, makeCrashRecovery } from './errorGuard';
+import { DiagnosticsLog, adoptLegacyErrorLog } from './diagnostics';
 import { ShutdownLog } from './shutdownLog';
 import { ShutdownScheduler } from './shutdownScheduler';
 import { latestTranscriptMtime } from './transcriptFreshness';
@@ -108,16 +108,14 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     const userData = app.getPath('userData');
-    // Every diagnostic line includes a memory snapshot: if DevDeck is dying to a V8
-    // "JavaScript heap out of memory" abort (long cockpit sessions accumulating buffered output),
-    // that abort itself bypasses uncaughtException — but a rising rss/heapUsed trend across
-    // whatever DID get logged before it is the only way to notice the pattern after the fact.
-    const logLine = (line: string): void => {
-      const m = process.memoryUsage();
-      const withMem = `${line} | rss=${Math.round(m.rss / 1048576)}MB heapUsed=${Math.round(m.heapUsed / 1048576)}MB`;
-      console.error('DevDeck', withMem);
-      try { appendFileSync(path.join(userData, 'devdeck-errors.log'), `${new Date().toISOString()} ${withMem}\n`); } catch { /* logging is best-effort */ }
-    };
+    // One log per machine, for the person (or the agent) sitting at it. The crash-only predecessor
+    // recorded nothing about a machine that was misbehaving without dying, which is most of them.
+    const diagnostics = new DiagnosticsLog(path.join(userData, 'devdeck.log'), {
+      echo: (line) => console.error('DevDeck', line),
+    });
+    adoptLegacyErrorLog(diagnostics, path.join(userData, 'devdeck-errors.log'));
+    const logLine = (line: string): void => diagnostics.write('error', 'main', line);
+    diagnostics.write('info', 'app', `started v${app.getVersion()} electron=${process.versions.electron} platform=${process.platform} ${process.arch}`);
     // Last-resort trap: keep the main process alive when an async callback (pty data/exit, the
     // PtyBatcher flush timer, a git spawn, a stray IPC reject) throws. Before this, such a throw
     // closed DevDeck "out of nowhere" and took every cockpit terminal with it.
@@ -208,6 +206,7 @@ if (!gotLock) {
       shutdownLog,
       bootTimeMs: () => Date.now() - uptime() * 1000,
       link: () => link,
+      diagnostics,
     });
 
     // DevDeck Link. Accepting connections stays off until someone turns it on; constructing the

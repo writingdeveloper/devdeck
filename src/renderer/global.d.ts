@@ -107,6 +107,10 @@ declare global {
         isMaximized(): Promise<boolean>;
         onMaximizeChange(cb: (maximized: boolean) => void): void;
       };
+      logDiagnostic(message: string, level?: 'error' | 'warn' | 'info', source?: string): void;
+      diagnosticsInfo(): Promise<{ path: string | null; bytes: number }>;
+      diagnosticsTail(lines?: number): Promise<string>;
+      revealDiagnostics(): Promise<boolean>;
       clipboard: {
         writeText(text: string): void;
         readText(): Promise<string>;

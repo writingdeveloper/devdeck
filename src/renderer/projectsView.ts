@@ -758,20 +758,35 @@ async function reload(): Promise<void> {
   // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
   // so they never wipe the deck to gray placeholders.
   if (!hasRenderedOnce) showSkeleton();
+  // WHICH machine this load is for. A refresh is already in flight most of the time — the deck
+  // re-scans every 45s and again whenever the window regains focus — and switching machines while
+  // one is on the wire used to end with the older answer landing last and painting the machine you
+  // just navigated away from. Reported as "sometimes the other PC's projects show up and sometimes
+  // it just keeps showing this PC's". Every answer is checked against the selection it was asked
+  // for, here and in the cost pass below.
+  const forMachine = selectedMachineId();
   let proj, settings;
   try {
     // The deck shows ONE machine at a time. Settings stay local: view mode and the like belong to
     // the app you are sitting in front of, not to the machine being looked at.
     [proj, settings] = await Promise.all([
-      deckFor(selectedMachineId()).listProjects(), window.devdeck.getSettings(),
+      deckFor(forMachine).listProjects(), window.devdeck.getSettings(),
     ]);
   } catch (e) {
     console.error('DevDeck: projects load failed', e);
-    // First-load failure would otherwise leave the skeleton stuck forever → offer a retry. A later
-    // background/focus refresh failing keeps the last good deck on screen (don't wipe it).
-    if (!hasRenderedOnce) renderLoadError(cardsEl, () => void reload());
+    window.devdeck.logDiagnostic(`projects load failed for ${forMachine}: ${e instanceof Error ? e.message : String(e)}`, 'error', 'deck');
+    if (selectedMachineId() !== forMachine) return; // already looking elsewhere — that load owns the deck
+    // Showing another machine's projects under this machine's name is worse than showing nothing:
+    // the rows look right, and every action on them would be aimed at the wrong computer. A remote
+    // deck that cannot be read says so and offers a retry, whether or not something was drawn before.
+    if (!hasRenderedOnce || forMachine !== LOCAL_MACHINE_ID) {
+      projects = [];
+      renderLoadError(cardsEl, () => void reload());
+      hasRenderedOnce = false; // the next successful load re-renders from scratch rather than reconciling
+    }
     return;
   }
+  if (selectedMachineId() !== forMachine) return; // the user moved on while this was on the wire
   projects = proj;
   viewMode = settings.viewMode === 'cards' ? 'cards' : 'list';
   for (const listener of projectListeners) listener([...projects]);
@@ -785,13 +800,15 @@ async function reload(): Promise<void> {
   // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch), then
   // the toolbar pulse summary (live status counts + today's cost). Both best-effort: any
   // failure in this chain falls back to a status-only pulse rather than blocking reload().
-  const costMachine = selectedMachineId();
+  const costMachine = forMachine;
   void deckFor(costMachine).usageReport(0).then(async (r) => {
+    if (selectedMachineId() !== costMachine) return; // costs are per machine — never paint one deck's onto another
     for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);
     render();
     const t0 = new Date();
     t0.setUTCHours(0, 0, 0, 0);
     const today = await deckFor(costMachine).usageReport(t0.getTime());
+    if (selectedMachineId() !== costMachine) return;
     renderDeckPulse(today.globalCost);
   }).catch(() => { renderDeckPulse(null); /* cost is best-effort; ignore failures */ });
 }

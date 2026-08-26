@@ -209,8 +209,43 @@ async function render(): Promise<void> {
   }
   upd.append(chk, status);
   const meta = document.createElement('div'); meta.className = 'about-meta'; meta.textContent = 'MIT · © Si Hyeong Lee';
-  about.append(aTitle, ver, links, upd, meta);
+  about.append(aTitle, ver, links, upd, buildDiagnostics(), meta);
   host.appendChild(about);
+}
+
+/**
+ * Where this machine's log is, and two ways to get at it.
+ *
+ * DevDeck runs on more than one computer and the interesting failures happen on the one nobody is
+ * looking at. Until there was a log there was nothing to look at either — so this exists to make the
+ * file findable by someone who does not know it exists: reveal it in the file manager to hand the
+ * path to an agent, or copy the tail straight into a message.
+ */
+function buildDiagnostics(): HTMLElement {
+  const wrap = document.createElement('div'); wrap.className = 'about-diag';
+  const label = document.createElement('div'); label.className = 'about-diag-label'; label.textContent = tr('diag.title');
+  const path = document.createElement('code'); path.className = 'about-diag-path'; path.textContent = '…';
+  const acts = document.createElement('div'); acts.className = 'about-diag-acts';
+  const reveal = document.createElement('button'); reveal.className = 'chip'; reveal.textContent = tr('diag.reveal');
+  const copy = document.createElement('button'); copy.className = 'chip'; copy.textContent = tr('diag.copy');
+  const status = document.createElement('span'); status.className = 'about-status'; status.setAttribute('aria-live', 'polite');
+  reveal.addEventListener('click', () => void window.devdeck.revealDiagnostics());
+  copy.addEventListener('click', async () => {
+    const text = await window.devdeck.diagnosticsTail(400).catch(() => '');
+    if (!text) { status.textContent = tr('diag.empty'); return; }
+    window.devdeck.clipboard.writeText(text);
+    status.textContent = tr('diag.copied', { n: String(text.split('\n').length) });
+  });
+  acts.append(reveal, copy, status);
+  void window.devdeck.diagnosticsInfo().then((info) => {
+    if (!info.path) { wrap.classList.add('hidden'); return; }
+    path.textContent = info.path;
+    path.title = info.path;
+    // The size is the honest signal that anything is being recorded at all.
+    label.textContent = `${tr('diag.title')} · ${(info.bytes / 1024).toFixed(0)} KB`;
+  }).catch(() => wrap.classList.add('hidden'));
+  wrap.append(label, path, acts);
+  return wrap;
 }
 
 export function mountSettings(onChanged: () => void): void { host = document.getElementById('settings-form')!; onChangedCb = onChanged; }

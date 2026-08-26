@@ -39,6 +39,8 @@ export function sessionNavigationItem(
   pinned: boolean,
   summary: string | null = null,
   lastActiveMs: number | null = null,
+  /** Which machine the terminal is on, when it is not this one — the sidebar groups by it. */
+  machine: { id: string; label: string } | null = null,
 ): ShellSessionInput {
   return {
     id: session.id,
@@ -49,6 +51,8 @@ export function sessionNavigationItem(
     pinned,
     summary,
     lastActiveMs,
+    machineId: machine?.id ?? null,
+    machineLabel: machine?.label ?? null,
   };
 }
 

@@ -93,7 +93,37 @@
 .shell-group-toggle:hover, .shell-group-toggle:focus-visible { color: var(--dd-text); }
 .shell-group-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell-group-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+/* A folded group holding a session that is waiting on you says so, or folding becomes the loophole
+   the never-truncate rule exists to close. */
+.shell-group-count.has-attention { color: var(--dd-attention); font-weight: 700; }
 .shell-group-chevron { flex: 0 0 auto; transition: rotate var(--dd-motion-fast); }
+
+/* A group whose sessions are on ANOTHER computer.
+   Splitting them out of the local groups is half the answer; the other half is that the split has to
+   be visible without reading. The heading keeps a monitor glyph, and every row in the section is
+   inset behind a standing rule, so the block reads as "elsewhere" at a glance — which matters because
+   the thing you get wrong otherwise is typing into a terminal on a machine you are not sitting at. */
+.shell-group-machine { flex: 0 0 auto; color: var(--dd-remote); }
+.shell-group.group-remote .shell-group-toggle { color: var(--dd-remote); }
+.shell-group.group-remote .shell-group-name { text-transform: none; letter-spacing: 0; font-weight: 600; }
+.shell-group.group-remote .shell-group-body {
+  margin-left: 6px; padding-left: 6px; border-left: 2px solid color-mix(in srgb, var(--dd-remote) 45%, transparent);
+}
+.shell-session-wrap.is-remote .shell-session { background-image: linear-gradient(90deg, color-mix(in srgb, var(--dd-remote) 9%, transparent), transparent 40%); }
+
+/* Close a whole group at once. Hidden until the heading is hovered or focused so the rail stays
+   quiet, but never hidden from the keyboard: :focus-within covers tabbing to it. */
+.shell-group-bulk {
+  flex: 0 0 auto; width: 22px; height: 22px; margin-right: 4px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--dd-radius-sm); background: transparent;
+  color: var(--dd-text-faint); cursor: pointer; opacity: 0;
+}
+.shell-group-heading { display: flex; align-items: center; }
+.shell-group-heading:hover .shell-group-bulk,
+.shell-group-heading:focus-within .shell-group-bulk { opacity: 1; }
+.shell-group-bulk:hover, .shell-group-bulk:focus-visible { background: var(--dd-surface-raised); color: var(--dd-destructive); opacity: 1; }
+.shell-group-bulk.hidden { display: none; }
 .shell-group.is-collapsed .shell-group-chevron,
 #shell-project-section.is-collapsed .shell-group-chevron { rotate: -90deg; }
 @media (prefers-reduced-motion: reduce) { .shell-group-chevron { transition: none; } }

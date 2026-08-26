@@ -13,6 +13,16 @@ export interface ShellSessionInput {
   lastActiveMs?: number | null;
   previous?: boolean;
   conversationGone?: boolean;
+  /**
+   * The machine this session is running on, when it is not this one.
+   *
+   * A remote session used to sit in the same groups as a local one, told apart only by a marker
+   * inside its detail line — so the two read alike at a glance, and typing into the wrong computer
+   * is silent. Sessions on another machine get their own group per machine instead.
+   */
+  machineId?: string | null;
+  /** What that machine is called, for the group heading. */
+  machineLabel?: string | null;
 }
 
 export interface ShellProjectInput {
@@ -23,11 +33,24 @@ export interface ShellProjectInput {
   pinned?: boolean;
 }
 
-export type ShellGroupKind = 'attention' | 'working' | 'pinned' | 'turn' | 'quiet' | 'previous';
+export type ShellGroupKind = 'attention' | 'working' | 'pinned' | 'remote' | 'turn' | 'quiet' | 'previous';
 
 export interface ShellSessionGroup {
   kind: ShellGroupKind;
+  /**
+   * What identifies this group on screen — its kind, except for `remote`, where there is one group
+   * PER machine and the kind alone would collapse them all into one section. Folding state, DOM ids
+   * and the "show more" cut are all keyed by this.
+   */
+  key: string;
   items: ShellSessionInput[];
+  /** Set on a remote group: the machine whose sessions these are. */
+  machineLabel?: string;
+}
+
+/** True when this row's session is running somewhere other than the machine showing it. */
+export function isRemoteSession(item: ShellSessionInput): boolean {
+  return typeof item.machineId === 'string' && item.machineId.length > 0 && item.machineId !== 'local';
 }
 
 export type ShellViewId = 'projects' | 'next' | 'usage' | 'settings';
@@ -82,15 +105,26 @@ export function sessionAccessibleLabel(item: ShellSessionInput, localizedStatus:
   return item.summary ? `${base}, ${item.summary}` : base;
 }
 
-const groupOrder: ShellGroupKind[] = ['attention', 'working', 'pinned', 'turn', 'quiet', 'previous'];
+const groupOrder: ShellGroupKind[] = ['attention', 'working', 'pinned', 'remote', 'turn', 'quiet', 'previous'];
 
 function groupOf(item: ShellSessionInput): ShellGroupKind {
+  if (item.previous) return 'previous'; // a saved entry has no terminal anywhere yet
+  // Before its own group, a session on another computer sat among the local ones with a marker
+  // buried in its detail line. Which machine a terminal is on decides where your keystrokes land,
+  // so it outranks what the session happens to be doing — high enough in the order that an active
+  // remote machine is still near the top, and never mixed in with the sessions on this one.
+  if (isRemoteSession(item)) return 'remote';
   if (item.activity === 'attention') return 'attention';
   if (item.activity === 'working') return 'working';
   if (item.pinned) return 'pinned';
-  if (item.previous) return 'previous';
   if (item.activity === 'turn') return 'turn';
   return 'quiet';
+}
+
+/** The group key a row belongs to — the kind, or `remote:<machineId>` for one machine's sessions. */
+export function sessionGroupKey(item: ShellSessionInput): string {
+  const kind = groupOf(item);
+  return kind === 'remote' ? `remote:${item.machineId}` : kind;
 }
 
 /**
@@ -118,9 +152,24 @@ export function compareSessionsByRecency(a: ShellSessionInput, b: ShellSessionIn
 }
 
 export function buildSessionGroups(items: ShellSessionInput[]): ShellSessionGroup[] {
-  return groupOrder.flatMap((kind) => {
+  return groupOrder.flatMap((kind): ShellSessionGroup[] => {
     const grouped = items.filter((item) => groupOf(item) === kind).sort(compareSessionsByRecency);
-    return grouped.length ? [{ kind, items: grouped }] : [];
+    if (!grouped.length) return [];
+    if (kind !== 'remote') return [{ kind, key: kind, items: grouped }];
+    // One section per machine. Two paired machines in one "remote" pile would be exactly the
+    // ambiguity this exists to remove. Ordered by their most recent activity, like everything else.
+    const byMachine = new Map<string, ShellSessionInput[]>();
+    for (const item of grouped) {
+      const id = String(item.machineId);
+      const bucket = byMachine.get(id);
+      if (bucket) bucket.push(item); else byMachine.set(id, [item]);
+    }
+    return [...byMachine.entries()]
+      .map(([id, machineItems]): ShellSessionGroup => ({
+        kind: 'remote', key: `remote:${id}`, items: machineItems,
+        machineLabel: machineItems[0].machineLabel ?? id,
+      }))
+      .sort((a, b) => compareSessionsByRecency(a.items[0], b.items[0]));
   });
 }
 
@@ -143,22 +192,31 @@ export function attentionCount(items: ShellSessionInput[]): number {
 }
 
 const collapsibleGroups = new Set<string>(groupOrder);
+/** `remote:<machineId>` — one folding state per paired machine, not one for "remote" as a whole. */
+const REMOTE_GROUP_KEY = /^remote:[A-Za-z0-9._:-]{1,64}$/;
 
-/** Sanitize the persisted set of folded group headers (localStorage is user-writable and survives
- *  downgrades, so an unknown kind must be dropped rather than rendered). */
-export function normalizeCollapsedGroups(value: unknown): ShellGroupKind[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<ShellGroupKind>();
-  for (const entry of value) {
-    if (typeof entry === 'string' && collapsibleGroups.has(entry)) seen.add(entry as ShellGroupKind);
-  }
-  return groupOrder.filter((kind) => seen.has(kind));
+function isGroupKey(value: unknown): value is string {
+  return typeof value === 'string' && (collapsibleGroups.has(value) || REMOTE_GROUP_KEY.test(value));
 }
 
-export function toggleCollapsedGroup(current: readonly ShellGroupKind[], kind: ShellGroupKind): ShellGroupKind[] {
-  return current.includes(kind)
-    ? current.filter((entry) => entry !== kind)
-    : normalizeCollapsedGroups([...current, kind]);
+/** Sanitize the persisted set of folded group headers (localStorage is user-writable and survives
+ *  downgrades, so an unknown key must be dropped rather than rendered). */
+export function normalizeCollapsedGroups(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const entry of value) if (isGroupKey(entry)) seen.add(entry);
+  // Fixed kinds first, in display order, then each machine's own key — a stable order so the saved
+  // value does not churn every time it is rewritten.
+  return [
+    ...groupOrder.filter((kind) => seen.has(kind)),
+    ...[...seen].filter((key) => !collapsibleGroups.has(key)).sort(),
+  ];
+}
+
+export function toggleCollapsedGroup(current: readonly string[], key: string): string[] {
+  return current.includes(key)
+    ? current.filter((entry) => entry !== key)
+    : normalizeCollapsedGroups([...current, key]);
 }
 
 /**

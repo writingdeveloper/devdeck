@@ -7,7 +7,7 @@ import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { activateCockpitSession, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, closeCockpitSessionGroup, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -230,7 +230,33 @@ function mountLangMenu(): void {
   wrap.appendChild(menu);
 }
 
+/**
+ * Send this window's own failures to the machine's log.
+ *
+ * The main process has had a crash trap for a long time; the renderer had nothing. Everything the
+ * user actually looks at lives here — the deck, the sidebar, every terminal — so an exception in it
+ * produced a window that had visibly stopped working and a log file with nothing in it. Installed
+ * before anything else boots, because the failures worth catching include the ones during boot.
+ */
+function reportRendererFailures(): void {
+  const seen = new Set<string>();
+  const report = (what: string): void => {
+    // A broken render loop can throw on every frame; the log must not become that one message.
+    if (seen.has(what)) return;
+    seen.add(what);
+    try { window.devdeck.logDiagnostic(what, 'error', 'renderer'); } catch { /* preload gone — nothing left to report to */ }
+  };
+  window.addEventListener('error', (e) => {
+    report(`${e.message} (${e.filename}:${e.lineno}) ${e.error instanceof Error ? e.error.stack ?? '' : ''}`);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = (e as PromiseRejectionEvent).reason;
+    report(`unhandled rejection: ${r instanceof Error ? r.stack ?? r.message : String(r)}`);
+  });
+}
+
 async function boot(): Promise<void> {
+  reportRendererFailures();
   mountTitlebar();
   setLanguage(await window.devdeck.getLanguage());
   // Cockpit (embedded node-pty terminals) is Windows-only for now — and needs the node-pty native
@@ -275,6 +301,7 @@ async function boot(): Promise<void> {
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
     },
     onSessionAction: (id, action) => manageCockpitSessionAction(id, action),
+    onGroupClose: (group) => { void closeCockpitSessionGroup(group); },
     onRestoreAll: () => restoreAllCockpitSessions(),
   });
   // Renderer-local QA seam: PTYs cannot be spawned in the screenshot harness, so a validated

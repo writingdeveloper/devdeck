@@ -30,6 +30,11 @@
   "shell.quick_open": "빠른 열기",
   "shell.needs_you": "응답 필요",
   "shell.working": "작업 중",
+  "shell.grp_remote": "다른 PC",
+  "shell.close_group": "{name} 세션 {n}개 모두 닫기",
+  "shell.forget_group": "{name} {n}개 모두 목록에서 지우기",
+  "shell.close_group_confirm": "{name}의 세션 {n}개를 모두 닫습니까? 실행 중인 에이전트도 함께 종료됩니다.",
+  "shell.forget_group_confirm": "{name} {n}개를 목록에서 지웁니까? 대화 기록 자체는 삭제되지 않습니다.",
   "shell.projects": "프로젝트",
   "shell.collapse": "사이드바 접기",
   "shell.expand": "사이드바 펼치기",
@@ -424,5 +429,10 @@
   "usage.machine_title": "{machine}의 로컬 사용량",
   "cockpit.remote_image_too_large": "이미지가 너무 커서 다른 기기로 보낼 수 없습니다 (5MB 제한).",
   "cockpit.remote_image_failed": "이미지를 다른 기기로 보내지 못했습니다 — 아무것도 붙여넣지 않았습니다.",
-  "cockpit.adopted_remote": "{machine}에서 이미 실행 중인 세션 {n}개를 가져왔습니다."
+  "cockpit.adopted_remote": "{machine}에서 이미 실행 중인 세션 {n}개를 가져왔습니다.",
+  "diag.title": "진단 로그",
+  "diag.reveal": "폴더 열기",
+  "diag.copy": "최근 로그 복사",
+  "diag.copied": "{n}줄 복사됨",
+  "diag.empty": "아직 기록된 내용이 없습니다"
 }

@@ -30,6 +30,11 @@
   "shell.quick_open": "快速打开",
   "shell.needs_you": "需要处理",
   "shell.working": "工作中",
+  "shell.grp_remote": "另一台电脑",
+  "shell.close_group": "关闭 {name} 中的全部 {n} 个会话",
+  "shell.forget_group": "从列表中移除 {name} 的全部 {n} 项",
+  "shell.close_group_confirm": "关闭 {name} 中的全部 {n} 个会话？其中仍在运行的智能体也会一并结束。",
+  "shell.forget_group_confirm": "从列表中移除 {name} 的 {n} 项？对话记录本身不会被删除。",
   "shell.projects": "项目",
   "shell.collapse": "收起侧栏",
   "shell.expand": "展开侧栏",
@@ -424,5 +429,10 @@
   "usage.machine_title": "{machine} 的本地用量",
   "cockpit.remote_image_too_large": "该图片过大，无法发送到其他设备（限制 5MB）。",
   "cockpit.remote_image_failed": "无法将图片发送到另一台设备 — 未粘贴任何内容。",
-  "cockpit.adopted_remote": "已接入 {machine} 上正在运行的 {n} 个会话。"
+  "cockpit.adopted_remote": "已接入 {machine} 上正在运行的 {n} 个会话。",
+  "diag.title": "诊断日志",
+  "diag.reveal": "在文件夹中显示",
+  "diag.copy": "复制最近日志",
+  "diag.copied": "已复制 {n} 行",
+  "diag.empty": "尚无记录"
 }

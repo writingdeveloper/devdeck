@@ -30,6 +30,11 @@
   "shell.quick_open": "Quick open",
   "shell.needs_you": "Needs you",
   "shell.working": "Working",
+  "shell.grp_remote": "Another PC",
+  "shell.close_group": "Close all {n} sessions in {name}",
+  "shell.forget_group": "Remove all {n} entries in {name} from the list",
+  "shell.close_group_confirm": "Close all {n} sessions in {name}? Any agent still running in them stops too.",
+  "shell.forget_group_confirm": "Remove {n} entries in {name} from the list? The conversations themselves are not deleted.",
   "shell.projects": "Projects",
   "shell.collapse": "Collapse sidebar",
   "shell.expand": "Expand sidebar",
@@ -424,5 +429,10 @@
   "usage.machine_title": "Local usage on {machine}",
   "cockpit.remote_image_too_large": "That image is too large to send to another machine (5 MB limit).",
   "cockpit.remote_image_failed": "Could not send the image to the other machine — nothing was pasted.",
-  "cockpit.adopted_remote": "Picked up {n} session(s) already running on {machine}."
+  "cockpit.adopted_remote": "Picked up {n} session(s) already running on {machine}.",
+  "diag.title": "Diagnostics log",
+  "diag.reveal": "Show in folder",
+  "diag.copy": "Copy recent log",
+  "diag.copied": "{n} lines copied",
+  "diag.empty": "Nothing recorded yet"
 }

@@ -13,7 +13,9 @@ import {
   SIDEBAR_WIDTH_MIN,
   sessionAccessibleLabel,
   sessionActionsFor,
-  sessionGroupOf,
+  sessionGroupKey,
+  isRemoteSession,
+  type ShellSessionGroup,
   sessionStatusCounts,
   sessionStatusShape,
   shellEntityKey,
@@ -37,7 +39,8 @@ const viewLabels: Record<ViewId, string> = {
 
 const groupLabels: Record<string, string> = {
   attention: 'shell.needs_you', working: 'shell.working', pinned: 'cockpit.grp_pinned',
-  turn: 'cockpit.grp_turn', quiet: 'cockpit.grp_idle', previous: 'cockpit.prev_sessions',
+  remote: 'shell.grp_remote', turn: 'cockpit.grp_turn', quiet: 'cockpit.grp_idle',
+  previous: 'cockpit.prev_sessions',
 };
 
 const actionLabels: Record<ShellSessionAction, string> = {
@@ -57,7 +60,7 @@ const actionIcons: Record<ShellSessionAction, IconName> = {
  * session that is *waiting on you* behind a "show more" would defeat the reason the sidebar exists.
  */
 const groupLimits: Record<ShellGroupKind, number> = {
-  attention: Infinity, working: Infinity, pinned: 10, turn: 8, quiet: 6, previous: 5,
+  attention: Infinity, working: Infinity, pinned: 10, remote: 10, turn: 8, quiet: 6, previous: 5,
 };
 
 /** Recent-first project rows shown before the list offers the full deck. Pinned ones are never cut. */
@@ -67,7 +70,7 @@ const PROJECTS_COLLAPSED_KEY = 'devdeck.shell.projectsCollapsed';
 const QUICK_OPEN_CHORD = 'Ctrl+Shift+P';
 const SIDEBAR_WIDTH_KEY = 'devdeck.shell.width';
 
-function readCollapsedGroups(): ShellGroupKind[] {
+function readCollapsedGroups(): string[] {
   try { return normalizeCollapsedGroups(JSON.parse(localStorage.getItem(COLLAPSED_GROUPS_KEY) ?? '[]')); }
   catch { return []; }
 }
@@ -92,6 +95,8 @@ export function mountShell(options: {
   onProject(path: string): void;
   onSession(id: string): void;
   onSessionAction(id: string, action: ShellSessionAction): void;
+  /** Close (or forget) every session in one group, asked once rather than row by row. */
+  onGroupClose?(group: ShellSessionGroup): void;
   onRestoreAll(): void;
 }): ShellController {
   const sidebar = document.getElementById('app-sidebar')!;
@@ -115,11 +120,11 @@ export function mountShell(options: {
   const sessionWraps = new Map<string, HTMLElement>();
   const sessionMenus = new Map<string, HTMLElement>();
   const projectRows = new Map<string, HTMLButtonElement>();
-  const sessionSections = new Map<ShellGroupKind, HTMLElement>();
+  const sessionSections = new Map<string, HTMLElement>();
   let collapsedGroups = readCollapsedGroups();
   /** Groups the user asked to see in full. Deliberately NOT persisted: "show all 40 previous
    *  sessions" answers one moment's question and should not be the shape of the next launch. */
-  const expandedGroups = new Set<ShellGroupKind>();
+  const expandedGroups = new Set<string>();
   let projectsExpanded = false;
   let projectsCollapsed = localStorage.getItem(PROJECTS_COLLAPSED_KEY) === '1';
 
@@ -368,7 +373,7 @@ export function mountShell(options: {
     // Every line is single-line + ellipsis, so hovering has to be able to reveal what was cut —
     // otherwise a truncated model name or summary is simply unreadable at narrow widths.
     row.title = [`${item.label} · ${status}`, item.detail, item.summary].filter(Boolean).join('\n');
-    wrap.className = `shell-session-wrap${item.previous ? ' is-previous' : ''}${item.conversationGone ? ' is-gone' : ''}`;
+    wrap.className = `shell-session-wrap${item.previous ? ' is-previous' : ''}${item.conversationGone ? ' is-gone' : ''}${isRemoteSession(item) ? ' is-remote' : ''}`;
     wrap.dataset.previous = String(item.previous === true);
     wrap.dataset.conversationGone = String(item.conversationGone === true);
     const actions = wrap.querySelector<HTMLButtonElement>('.shell-session-actions')!;
@@ -385,25 +390,43 @@ export function mountShell(options: {
 
   /** A counted, foldable header. The count is the point: a folded group has to keep advertising that
    *  its rows still exist, or folding becomes another way to lose track of a session. */
-  const createGroupSection = (kind: ShellGroupKind): HTMLElement => {
+  const createGroupSection = (group: ShellSessionGroup): HTMLElement => {
+    const { kind, key } = group;
+    const domId = key.replace(/[^A-Za-z0-9_-]/g, '-');
     const section = document.createElement('section'); section.className = `shell-group group-${kind}`;
-    const heading = document.createElement('h2'); heading.className = 'shell-group-heading'; heading.id = `shell-session-${kind}`;
+    section.dataset.groupKey = key;
+    const heading = document.createElement('h2'); heading.className = 'shell-group-heading'; heading.id = `shell-session-${domId}`;
     const toggle = document.createElement('button');
-    toggle.type = 'button'; toggle.className = 'shell-group-toggle'; toggle.setAttribute('aria-controls', `shell-session-${kind}-body`);
+    toggle.type = 'button'; toggle.className = 'shell-group-toggle'; toggle.setAttribute('aria-controls', `shell-session-${domId}-body`);
     toggle.append(
       createIcon('chevron-down', 'ui-icon shell-group-chevron'),
+      // A remote group is marked at the heading as well as on every row: the point of splitting them
+      // out is that you can tell, without reading, that these terminals are on another computer.
+      ...(kind === 'remote' ? [createIcon('machine', 'ui-icon shell-group-machine')] : []),
       Object.assign(document.createElement('span'), { className: 'shell-group-name' }),
       Object.assign(document.createElement('span'), { className: 'shell-group-count' }),
     );
     toggle.addEventListener('click', () => {
-      collapsedGroups = toggleCollapsedGroup(collapsedGroups, kind);
+      collapsedGroups = toggleCollapsedGroup(collapsedGroups, key);
       try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(collapsedGroups)); } catch { /* private mode / quota — folding just won't survive the restart */ }
       renderSessions(sessions);
     });
     heading.appendChild(toggle);
-    const body = document.createElement('div'); body.className = 'shell-group-body'; body.id = `shell-session-${kind}-body`;
+    // Close (or forget) a whole group at once. Shutting down a dozen sessions one confirmation at a
+    // time is the kind of chore people simply stop doing, and the groups are already the units
+    // someone thinks in: everything idle, everything that has exited, everything on that machine.
+    const bulk = document.createElement('button');
+    bulk.type = 'button'; bulk.className = 'shell-group-bulk';
+    bulk.appendChild(createIcon('close', 'ui-icon'));
+    bulk.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const current = buildSessionGroups(sessions).find((entry) => entry.key === key);
+      if (current) options.onGroupClose?.(current);
+    });
+    heading.appendChild(bulk);
+    const body = document.createElement('div'); body.className = 'shell-group-body'; body.id = `shell-session-${domId}-body`;
     const more = document.createElement('button'); more.type = 'button'; more.className = 'shell-more hidden';
-    more.addEventListener('click', () => { expandedGroups.add(kind); renderSessions(sessions); });
+    more.addEventListener('click', () => { expandedGroups.add(key); renderSessions(sessions); });
     section.setAttribute('aria-labelledby', heading.id);
     section.append(heading, body, more);
     return section;
@@ -415,11 +438,11 @@ export function mountShell(options: {
     const groups = buildSessionGroups(items);
     // Only rows that are actually RENDERED may keep their DOM: a row cut by a "show more" limit is
     // gone from the rail, so leaving its node cached would resurrect it under the next group.
-    const rendered = new Map<ShellGroupKind, { shown: ShellSessionInput[]; hidden: number }>();
+    const rendered = new Map<string, { shown: ShellSessionInput[]; hidden: number }>();
     for (const group of groups) {
-      const collapsed = collapsedGroups.includes(group.kind);
-      const cut = truncateList(group.items, { limit: groupLimits[group.kind], expanded: expandedGroups.has(group.kind) });
-      rendered.set(group.kind, collapsed ? { shown: [], hidden: 0 } : cut);
+      const collapsed = collapsedGroups.includes(group.key);
+      const cut = truncateList(group.items, { limit: groupLimits[group.kind], expanded: expandedGroups.has(group.key) });
+      rendered.set(group.key, collapsed ? { shown: [], hidden: 0 } : cut);
     }
     const liveKeys = new Set([...rendered.values()].flatMap((cut) => cut.shown).map((item) => shellEntityKey('session', item.id)));
     for (const [key, row] of sessionRows) {
@@ -428,20 +451,41 @@ export function mountShell(options: {
       }
     }
     for (const group of groups) {
-      let section = sessionSections.get(group.kind);
-      if (!section) { section = createGroupSection(group.kind); sessionSections.set(group.kind, section); }
-      const collapsed = collapsedGroups.includes(group.kind);
+      let section = sessionSections.get(group.key);
+      if (!section) { section = createGroupSection(group); sessionSections.set(group.key, section); }
+      const collapsed = collapsedGroups.includes(group.key);
       const toggle = section.querySelector<HTMLButtonElement>('.shell-group-toggle')!;
-      const name = tr(groupLabels[group.kind]);
+      // A remote group is named after the machine. "Remote" as a heading would be no better than the
+      // marker it replaces once two machines are paired — the point is knowing WHICH computer.
+      const name = group.kind === 'remote' ? (group.machineLabel ?? tr(groupLabels.remote)) : tr(groupLabels[group.kind]);
       toggle.querySelector<HTMLElement>('.shell-group-name')!.textContent = name;
-      toggle.querySelector<HTMLElement>('.shell-group-count')!.textContent = String(group.items.length);
+      // A folded group still has to advertise a session that is WAITING ON YOU. The urgent groups are
+      // deliberately never truncated for that reason, and folding must not become the loophole —
+      // most of all for a remote machine's group, which is the one holding a mix of states.
+      const waiting = sessionStatusCounts(group.items).attention;
+      const count = collapsed && waiting > 0 ? `${waiting}/${group.items.length}` : String(group.items.length);
+      const countEl = toggle.querySelector<HTMLElement>('.shell-group-count')!;
+      countEl.textContent = count;
+      countEl.classList.toggle('has-attention', collapsed && waiting > 0);
       toggle.setAttribute('aria-expanded', String(!collapsed));
-      toggle.setAttribute('aria-label', `${name}, ${group.items.length}`);
-      toggle.title = tr(collapsed ? 'shell.group_expand' : 'shell.group_collapse', { name });
+      // Screen readers get the plain word too: an unfamiliar machine name alone does not say that
+      // these sessions are somewhere else.
+      const spoken = group.kind === 'remote' ? `${tr(groupLabels.remote)}: ${name}` : name;
+      toggle.setAttribute('aria-label', collapsed && waiting > 0
+        ? `${spoken}, ${group.items.length}, ${tr('shell.needs_you')} ${waiting}`
+        : `${spoken}, ${group.items.length}`);
+      toggle.title = tr(collapsed ? 'shell.group_expand' : 'shell.group_collapse', { name: spoken });
       section.classList.toggle('is-collapsed', collapsed);
+      // Bulk close: live groups close their terminals, the saved group forgets its entries. Both are
+      // asked about first, so the button is a shortcut and never a surprise.
+      const bulk = section.querySelector<HTMLButtonElement>('.shell-group-bulk')!;
+      const bulkLabel = tr(group.kind === 'previous' ? 'shell.forget_group' : 'shell.close_group', { n: String(group.items.length), name: spoken });
+      bulk.title = bulkLabel;
+      bulk.setAttribute('aria-label', bulkLabel);
+      bulk.classList.toggle('hidden', collapsed || group.items.length < 2); // one row already has its own ⋯ close
       const body = section.querySelector<HTMLElement>('.shell-group-body')!;
       body.classList.toggle('hidden', collapsed);
-      const cut = rendered.get(group.kind)!;
+      const cut = rendered.get(group.key)!;
       for (const item of cut.shown) {
         const key = shellEntityKey('session', item.id);
         const row = sessionRows.get(key) ?? createSessionRow(key);
@@ -454,9 +498,9 @@ export function mountShell(options: {
       if (hidden > 0) more.textContent = tr('shell.show_more', { n: hidden });
       sessionHost.appendChild(section);
     }
-    const visibleGroups = new Set(groups.map((group) => group.kind));
-    for (const [kind, section] of sessionSections) {
-      if (!visibleGroups.has(kind)) { section.remove(); sessionSections.delete(kind); expandedGroups.delete(kind); }
+    const visibleGroups = new Set(groups.map((group) => group.key));
+    for (const [key, section] of sessionSections) {
+      if (!visibleGroups.has(key)) { section.remove(); sessionSections.delete(key); expandedGroups.delete(key); }
     }
     const previousCount = items.filter((item) => item.previous).length;
     restoreAll.classList.toggle('hidden', previousCount === 0);
@@ -473,16 +517,16 @@ export function mountShell(options: {
   const revealSession = (id: string): void => {
     const item = sessions.find((entry) => entry.id === id);
     if (!item) return;
-    const kind = sessionGroupOf(item);
-    const group = buildSessionGroups(sessions).find((entry) => entry.kind === kind);
-    const cut = group ? truncateList(group.items, { limit: groupLimits[kind], expanded: expandedGroups.has(kind) }) : null;
+    const key = sessionGroupKey(item);
+    const group = buildSessionGroups(sessions).find((entry) => entry.key === key);
+    const cut = group ? truncateList(group.items, { limit: groupLimits[group.kind], expanded: expandedGroups.has(key) }) : null;
     const truncatedAway = cut != null && !cut.shown.some((entry) => entry.id === id);
-    if (!collapsedGroups.includes(kind) && !truncatedAway) return;
-    if (collapsedGroups.includes(kind)) {
-      collapsedGroups = toggleCollapsedGroup(collapsedGroups, kind);
+    if (!collapsedGroups.includes(key) && !truncatedAway) return;
+    if (collapsedGroups.includes(key)) {
+      collapsedGroups = toggleCollapsedGroup(collapsedGroups, key);
       try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(collapsedGroups)); } catch { /* see above */ }
     }
-    if (truncatedAway) expandedGroups.add(kind);
+    if (truncatedAway) expandedGroups.add(key);
     renderSessions(sessions);
   };
 

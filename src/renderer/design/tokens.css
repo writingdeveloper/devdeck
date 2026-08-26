@@ -23,6 +23,10 @@
   --dd-success: #52d49a;
   --dd-destructive: #ff716a;
   --dd-focus: #9ab3ff;
+  /* Sessions running on ANOTHER machine. Its own hue rather than a borrowed one: the question it
+     answers ("where is this terminal") is orthogonal to status, so it must not be confusable with
+     attention/working. Teal reads as "elsewhere" without competing with either. */
+  --dd-remote: #4fc3c7;
   --dd-font-sans: "Geist", "Segoe UI", system-ui, sans-serif;
   --dd-font-mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
   --dd-fs-meta: 11px;

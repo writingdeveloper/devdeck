@@ -30,6 +30,11 @@
   "shell.quick_open": "クイックオープン",
   "shell.needs_you": "対応が必要",
   "shell.working": "作業中",
+  "shell.grp_remote": "別のPC",
+  "shell.close_group": "{name} のセッション {n} 件をすべて閉じる",
+  "shell.forget_group": "{name} の {n} 件をすべて一覧から削除",
+  "shell.close_group_confirm": "{name} のセッション {n} 件をすべて閉じますか？実行中のエージェントも終了します。",
+  "shell.forget_group_confirm": "{name} の {n} 件を一覧から削除しますか？会話の記録自体は削除されません。",
   "shell.projects": "プロジェクト",
   "shell.collapse": "サイドバーを折りたたむ",
   "shell.expand": "サイドバーを展開",
@@ -424,5 +429,10 @@
   "usage.machine_title": "{machine} のローカル使用量",
   "cockpit.remote_image_too_large": "この画像は大きすぎてほかのデバイスに送れません (5MB 制限)。",
   "cockpit.remote_image_failed": "画像をほかのデバイスに送れませんでした — 何も貼り付けていません。",
-  "cockpit.adopted_remote": "{machine} で実行中のセッション {n} 件を取り込みました。"
+  "cockpit.adopted_remote": "{machine} で実行中のセッション {n} 件を取り込みました。",
+  "diag.title": "診断ログ",
+  "diag.reveal": "フォルダーを開く",
+  "diag.copy": "最近のログをコピー",
+  "diag.copied": "{n} 行コピーしました",
+  "diag.empty": "まだ記録がありません"
 }

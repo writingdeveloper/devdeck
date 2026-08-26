@@ -392,11 +392,35 @@ try {
   result.hostConnections = hostStatus.connections.length;
   result.hostSeesAttached = hostStatus.connections[0]?.attachedSessions?.length > 0;
 
-  // --- the tile says which machine it is on, or two same-named repos are indistinguishable ---
+  // --- the sidebar says which machine a session is on, or two same-named repos are indistinguishable ---
+  //
+  // A marker inside the row's detail line was not enough: it sat in the same groups as the local
+  // sessions and read like one at a glance, and which machine a terminal is on decides where the next
+  // keystroke lands. A session running elsewhere gets its own section, named after that machine, with
+  // every row in it marked — so all three are checked, not just that the words appear somewhere.
   await viewer.win.click('.rail-item[data-view="cockpit"]').catch(() => {});
-  result.sidebarMarksRemote = await viewer.win.evaluate(() =>
-    [...document.querySelectorAll('.rail-session, .ck-row, [data-session-id]')]
-      .some((n) => (n.textContent || '').includes('⇄')));
+  await viewer.win.waitForTimeout(500);
+  result.remoteSidebar = await viewer.win.evaluate(() => {
+    const section = document.querySelector('.shell-group.group-remote');
+    if (!section) return { section: false };
+    const rows = [...section.querySelectorAll('.shell-session-wrap')];
+    return {
+      section: true,
+      heading: (section.querySelector('.shell-group-name')?.textContent || '').trim(),
+      machineGlyph: !!section.querySelector('.shell-group-machine'),
+      rows: rows.length,
+      everyRowMarked: rows.length > 0 && rows.every((r) => r.classList.contains('is-remote')),
+      // The local groups must not be holding it too — separation is the whole point.
+      alsoInLocalGroups: [...document.querySelectorAll('.shell-group:not(.group-remote) .shell-session-wrap.is-remote')].length,
+      canCloseWholeGroup: !!section.querySelector('.shell-group-bulk'),
+    };
+  });
+  result.sidebarMarksRemote = result.remoteSidebar.section === true
+    && result.remoteSidebar.everyRowMarked === true
+    && result.remoteSidebar.machineGlyph === true
+    && result.remoteSidebar.alsoInLocalGroups === 0
+    && result.remoteSidebar.canCloseWholeGroup === true
+    && result.remoteSidebar.heading.length > 0;
 
   // --- a saved tile remembers its machine, or a restart reopens it against a local path that means
   //     something entirely different here ---
