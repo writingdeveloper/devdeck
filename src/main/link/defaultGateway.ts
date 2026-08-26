@@ -82,8 +82,13 @@ export async function defaultGateway(platform: string = process.platform, timeou
       const output = await run('ip', ['-4', 'route', 'show', 'default'], timeoutMs);
       return output ? parseIpRoute(output) : null;
     }
-    const output = await run('netstat', ['-rn', '-f', 'inet'], timeoutMs);
-    return output ? parseNetstatRoute(output) : null;
+    // Named rather than used as a fallback: `netstat -rn` prints a BSD table, and running it on a
+    // platform that is not one would either fail or, worse, parse something else's output as a route.
+    if (platform === 'darwin' || platform === 'freebsd' || platform === 'openbsd') {
+      const output = await run('netstat', ['-rn', '-f', 'inet'], timeoutMs);
+      return output ? parseNetstatRoute(output) : null;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -96,6 +101,10 @@ export async function defaultGateway(platform: string = process.platform, timeou
  * wrong on any machine with Docker, WSL or a VPN client — several of those are LAN addresses and
  * only one of them is on the router's network. A connected UDP socket sends nothing, but the kernel
  * still resolves the route to fill in a source address, which is exactly the answer.
+ *
+ * The unspecified address is NOT an answer. Connecting to something unroutable leaves the socket
+ * bound to `0.0.0.0` on Linux and macOS rather than raising — and handing that to a router as the
+ * machine to forward a port to gets the mapping rejected, or silently pointed at nothing.
  */
 export function localAddressFor(target: string, timeoutMs = 1_000): Promise<string | null> {
   return new Promise((resolve) => {
@@ -113,7 +122,10 @@ export function localAddressFor(target: string, timeoutMs = 1_000): Promise<stri
     try {
       socket.connect(1, target, () => {
         clearTimeout(timer);
-        try { done(socket.address().address ?? null); } catch { done(null); }
+        try {
+          const address = socket.address().address;
+          done(address && address !== '0.0.0.0' && address !== '::' ? address : null);
+        } catch { done(null); }
       });
     } catch {
       clearTimeout(timer);

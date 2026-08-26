@@ -79,7 +79,9 @@ describe('defaultGateway on this machine', () => {
     expect(gateway === null || /^\d{1,3}(\.\d{1,3}){3}$/.test(gateway)).toBe(true);
   });
 
-  it('answers null for a platform whose command is not there', async () => {
+  it('answers null on a platform whose routing table it does not know how to read', async () => {
+    // Not a fallback to `netstat`: running a BSD command somewhere that is not BSD either fails or,
+    // worse, parses something else's output as a route.
     expect(await defaultGateway('plan9', 1000)).toBeNull();
   });
 });
@@ -90,7 +92,10 @@ describe('localAddressFor', () => {
     expect(await localAddressFor('127.0.0.1')).toBe('127.0.0.1');
   });
 
-  it('answers null rather than throwing when handed something that is not a target', async () => {
+  it('refuses the unspecified address, which a router would reject as a forwarding target', async () => {
+    // Connecting to something unroutable does not raise on Linux or macOS — it leaves the socket on
+    // 0.0.0.0, and handing THAT to a router as "forward the port here" gets the mapping rejected.
+    // Caught by CI on both platforms; Windows raises instead and never showed it.
     expect(await localAddressFor('not-an-address', 500)).toBeNull();
   });
 });
