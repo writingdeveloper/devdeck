@@ -308,6 +308,9 @@ body .um-provider {
 #settings-form .link-row-problem.is-alarming,
 #settings-form .link-error { color: var(--dd-danger, #f85149); }
 #settings-form .link-error { margin: 0; font-size: var(--dd-fs-small); }
+/* A failed dial now reports one line PER address plus a closing recommendation, so the newlines it
+   builds have to survive. Without this the whole thing collapses into one unreadable run. */
+#settings-form .link-error { white-space: pre-line; }
 
 #settings-form .link-sub { margin: 8px 0 0; font-size: var(--dd-fs-small); color: var(--dd-text-muted); font-weight: 620; }
 

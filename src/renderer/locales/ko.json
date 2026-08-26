@@ -434,5 +434,15 @@
   "diag.reveal": "폴더 열기",
   "diag.copy": "최근 로그 복사",
   "diag.copied": "{n}줄 복사됨",
-  "diag.empty": "아직 기록된 내용이 없습니다"
+  "diag.empty": "아직 기록된 내용이 없습니다",
+  "link.err_unreachable_head": "이 기기의 주소 어디에서도 응답이 없습니다:",
+  "link.dial_no-route": "이 네트워크에서 경로 없음",
+  "link.dial_refused": "연결 거부됨 (기기는 켜져 있으나 해당 포트가 닫힘)",
+  "link.dial_timed-out": "응답 없음 (경로는 있으나 패킷이 사라짐)",
+  "link.dial_unknown-name": "이름을 찾을 수 없음",
+  "link.dial_tls": "연결은 됐으나 보안 협상 실패",
+  "link.dial_other": "연결 실패",
+  "link.advice_no-ipv6-here": "다른 망에서 닿을 수 있는 주소는 IPv6뿐인데, 지금 이 PC의 네트워크에 IPv6 경로가 없습니다. 상대 기기 설정으로는 해결되지 않습니다 — 이 PC가 IPv6를 쓸 수 있는 망에 있거나, 양쪽에 Tailscale 같은 오버레이가 필요합니다.",
+  "link.advice_far-side-blocking": "IPv6 주소까지는 경로가 있는데 응답이 없습니다. 상대 기기의 공유기가 인바운드를 막고 있거나 그 기기가 절전 중입니다.",
+  "link.advice_same-network-only": "받은 주소가 전부 같은 망 안에서만 쓸 수 있는 것들입니다. 상대 기기가 외부에서 닿을 주소를 알려주지 못했습니다."
 }

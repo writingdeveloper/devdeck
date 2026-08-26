@@ -11,6 +11,7 @@
  * paired with).
  */
 import { tr } from './i18n-runtime';
+import { adviseFromAttempts, type DialAttempt } from '../shared/link/dialReason';
 import { LINK_PERMISSIONS, LINK_PERMISSION_LABEL_KEY, type LinkPermission } from '../shared/link/permissions';
 import type { HostStatus, MachineStatus } from '../main/link/linkService';
 import type { HostLogEntry } from '../main/link/hostServer';
@@ -50,6 +51,22 @@ function relativeTime(ms: number | null): string {
 }
 
 /**
+ * What a failed dial says.
+ *
+ * The old sentence listed every address and blamed sleep, network or firewall — three guesses for
+ * six addresses, most of which could never have worked from wherever the caller is standing. Which
+ * one mattered, and why it failed, were both invisible. This names each address with its own reason
+ * and then says the one thing worth doing about it.
+ */
+function unreachableText(attempts: readonly DialAttempt[], tried: readonly string[]): string {
+  if (attempts.length === 0) return tr('link.err_unreachable', { addresses: tried.join(', ') || '—' });
+  const lines = attempts.map((a) => `${a.address} — ${tr(`link.dial_${a.reason}`)}`).join('\n');
+  const advice = adviseFromAttempts(attempts);
+  const head = tr('link.err_unreachable_head');
+  return advice ? `${head}\n${lines}\n\n${tr(`link.advice_${advice}`)}` : `${head}\n${lines}`;
+}
+
+/**
  * The sentence a failed connection gets. `problem` comes straight from the dial, so each branch here
  * corresponds to a distinct thing that went wrong rather than to a generic "offline".
  */
@@ -58,7 +75,7 @@ function machineProblemText(machine: MachineStatus): string {
   if (!problem) return '';
   switch (problem.kind) {
     case 'unreachable':
-      return tr('link.err_unreachable', { addresses: problem.tried.join(', ') || '—' });
+      return unreachableText(problem.attempts ?? [], problem.tried);
     case 'tls':
       return tr('link.err_tls');
     case 'fingerprint':

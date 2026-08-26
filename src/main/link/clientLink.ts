@@ -15,6 +15,7 @@
  * its refreshed address list.
  */
 import * as tls from 'node:tls';
+import { dialReasonFor, type DialAttempt } from '../../shared/link/dialReason';
 import { attachConnection, type LinkConnection } from './connection';
 import { fingerprintsMatch } from './selfSignedCert';
 import { dialOrder, type KnownHost } from './devices';
@@ -26,8 +27,15 @@ import type { LinkIdentity } from './identity';
 
 /** Why a connection attempt ended, in the vocabulary the diagnostic UI speaks (plan section 4.1). */
 export type DialFailure =
-  /** Nothing answered at any advertised address: wrong network, host asleep, firewall. */
-  | { kind: 'unreachable'; tried: string[]; lastError: string }
+  /**
+   * Nothing answered at any advertised address.
+   *
+   * `attempts` carries the reason PER address, because most of them are expected to fail from
+   * wherever the caller is standing — a LAN address from another network, a hostname that resolves
+   * nowhere, an overlay address without the overlay — and a flat list of six buries the one that
+   * could have worked among five that never could.
+   */
+  | { kind: 'unreachable'; tried: string[]; attempts: DialAttempt[]; lastError: string }
   /** TCP connected but TLS did not complete — usually a version gap between the two installs. */
   | { kind: 'tls'; address: string; error: string }
   /** The machine that answered is NOT the one that was paired with. Never retried. */
@@ -83,18 +91,25 @@ export type DialResult =
 export async function dialHost(options: DialOptions): Promise<DialResult> {
   const addresses = dialOrder(options.host);
   if (addresses.length === 0) {
-    return { ok: false, failure: { kind: 'unreachable', tried: [], lastError: 'no address' } };
+    return { ok: false, failure: { kind: 'unreachable', tried: [], attempts: [], lastError: 'no address' } };
   }
   let lastError = '';
+  const attempts: DialAttempt[] = [];
   for (const address of addresses) {
     const attempt = await dialOne(address, options);
     if (attempt.ok) return attempt;
     // A wrong machine or an explicit refusal is an answer, not a miss — stop and report it rather
     // than working down the list and finally saying "unreachable", which would be false.
     if (attempt.failure.kind === 'fingerprint' || attempt.failure.kind === 'refused') return attempt;
-    lastError = attempt.failure.kind === 'tls' ? attempt.failure.error : attempt.failure.lastError;
+    if (attempt.failure.kind === 'tls') {
+      lastError = attempt.failure.error;
+      attempts.push({ address, reason: 'tls' });
+    } else {
+      lastError = attempt.failure.lastError;
+      attempts.push(attempt.failure.attempts[0] ?? { address, reason: 'other' });
+    }
   }
-  return { ok: false, failure: { kind: 'unreachable', tried: addresses, lastError } };
+  return { ok: false, failure: { kind: 'unreachable', tried: addresses, attempts, lastError } };
 }
 
 function dialOne(address: string, options: DialOptions): Promise<DialResult> {
@@ -117,7 +132,7 @@ function dialOne(address: string, options: DialOptions): Promise<DialResult> {
 
     const timer = setTimeout(() => {
       socket.destroy();
-      done({ ok: false, failure: { kind: 'unreachable', tried: [address], lastError: 'timed out' } });
+      done({ ok: false, failure: { kind: 'unreachable', tried: [address], attempts: [{ address, reason: 'timed-out' }], lastError: 'timed out' } });
     }, options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS);
 
     socket.once('error', (err: Error & { code?: string }) => {
@@ -128,7 +143,7 @@ function dialOne(address: string, options: DialOptions): Promise<DialResult> {
         || err.code === 'ENOTFOUND' || err.code === 'ETIMEDOUT' || err.code === 'ENETUNREACH'
         || err.code === 'EAI_AGAIN';
       done(transport
-        ? { ok: false, failure: { kind: 'unreachable', tried: [address], lastError: err.message } }
+        ? { ok: false, failure: { kind: 'unreachable', tried: [address], attempts: [{ address, reason: dialReasonFor(err.code, err.message) }], lastError: err.message } }
         : { ok: false, failure: { kind: 'tls', address, error: err.message } });
     });
 
@@ -167,7 +182,7 @@ function handshake(
     onPty: (sessionId, bytes) => options.onPty?.(sessionId, bytes),
     onClose: (reason) => {
       settleAllPending(reason ?? 'disconnected');
-      if (!established) done({ ok: false, failure: { kind: 'unreachable', tried: [address], lastError: reason ?? 'closed' } });
+      if (!established) done({ ok: false, failure: { kind: 'unreachable', tried: [address], attempts: [{ address, reason: 'other' }], lastError: reason ?? 'closed' } });
       else options.onClose?.(reason);
     },
   });

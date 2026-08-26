@@ -434,5 +434,15 @@
   "diag.reveal": "Show in folder",
   "diag.copy": "Copy recent log",
   "diag.copied": "{n} lines copied",
-  "diag.empty": "Nothing recorded yet"
+  "diag.empty": "Nothing recorded yet",
+  "link.err_unreachable_head": "None of this machine's addresses answered:",
+  "link.dial_no-route": "no route from this network",
+  "link.dial_refused": "connection refused (the machine is up, nothing listening there)",
+  "link.dial_timed-out": "no answer (the route exists; the packets went nowhere)",
+  "link.dial_unknown-name": "the name resolved to nothing",
+  "link.dial_tls": "connected, but the two ends could not agree on security",
+  "link.dial_other": "could not connect",
+  "link.advice_no-ipv6-here": "The only addresses reachable from another network are IPv6, and this machine has no IPv6 route. No setting on the other machine can fix that — this one needs a network with IPv6, or an overlay such as Tailscale at both ends.",
+  "link.advice_far-side-blocking": "There IS a route to the IPv6 address and nothing answered on it. The other machine's router is blocking inbound connections, or that machine is asleep.",
+  "link.advice_same-network-only": "Every address offered only works inside that machine's own network. It had no address to give that reaches it from outside."
 }

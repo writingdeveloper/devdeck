@@ -434,5 +434,15 @@
   "diag.reveal": "在文件夹中显示",
   "diag.copy": "复制最近日志",
   "diag.copied": "已复制 {n} 行",
-  "diag.empty": "尚无记录"
+  "diag.empty": "尚无记录",
+  "link.err_unreachable_head": "该设备的所有地址均无响应：",
+  "link.dial_no-route": "从当前网络没有路由",
+  "link.dial_refused": "连接被拒绝（设备在线，但该端口没有服务）",
+  "link.dial_timed-out": "无响应（路由存在，但数据包石沉大海）",
+  "link.dial_unknown-name": "无法解析该名称",
+  "link.dial_tls": "已连接，但双方无法完成安全协商",
+  "link.dial_other": "无法连接",
+  "link.advice_no-ipv6-here": "唯一能从其他网络到达的地址是 IPv6，而这台设备所在的网络没有 IPv6 路由。对方设备的任何设置都无法解决 — 需要这台设备接入支持 IPv6 的网络，或在两端使用 Tailscale 之类的覆盖网络。",
+  "link.advice_far-side-blocking": "到该 IPv6 地址是有路由的，但没有任何响应。对方设备的路由器正在阻止入站连接，或者那台设备处于睡眠状态。",
+  "link.advice_same-network-only": "提供的所有地址都只能在该设备自己的网络内使用，没有一个能从外部到达。"
 }
