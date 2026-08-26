@@ -1,4 +1,5 @@
-import { closeSync, openSync, readSync, statSync } from 'node:fs';
+import { open, stat, type FileHandle } from 'node:fs/promises';
+import { setImmediate as yieldToLoop } from 'node:timers/promises';
 import { join } from 'node:path';
 import { encodeProjectPath } from '../shared/paths';
 import {
@@ -39,13 +40,25 @@ const _metaCache = new Map<string, { mtimeMs: number; offset: number; state: Ses
  * The chunk boundary is found in the BYTES, not in decoded text, so a multi-byte character split
  * across two reads is never decoded in halves.
  */
-function foldFrom(fd: number, start: number, size: number, state: SessionMetaState): number {
+/**
+ * Fold a log forward, chunk by chunk, YIELDING between chunks.
+ *
+ * The loop itself is unchanged; what changed is that it lets go of the thread. It was `readSync` all
+ * the way down, so the first read of a large session — after a launch, after restoring a saved tile,
+ * after a renderer crash reload — held the main process for the whole of it. Measured on the machine
+ * this was reported from: 3.6 seconds on a 564 MB session, and thirteen saved tiles to do it for.
+ * Nothing replies to IPC during that, no terminal output moves, and the window is "not responding".
+ *
+ * Reading the same bytes still takes the same time. The difference is that everything else keeps
+ * running while it happens, which is the entire complaint.
+ */
+async function foldFrom(handle: FileHandle, start: number, size: number, state: SessionMetaState): Promise<number> {
   let pos = start;
   let carry = Buffer.alloc(0); // bytes after the last newline seen — an incomplete line
   while (pos < size) {
     const want = Math.min(CHUNK_BYTES, size - pos);
     const buf = Buffer.allocUnsafe(want);
-    const n = readSync(fd, buf, 0, want, pos);
+    const { bytesRead: n } = await handle.read(buf, 0, want, pos);
     if (n <= 0) break;
     pos += n;
     const data = carry.length ? Buffer.concat([carry, buf.subarray(0, n)]) : buf.subarray(0, n);
@@ -53,18 +66,20 @@ function foldFrom(fd: number, start: number, size: number, state: SessionMetaSta
     if (nl < 0) { carry = Buffer.from(data); continue; } // one line longer than a chunk — keep reading
     advanceSessionMeta(state, data.subarray(0, nl).toString('utf8'));
     carry = Buffer.from(data.subarray(nl + 1));
+    // Parsing a 4 MB chunk is itself long enough to drop frames; hand the loop back between them.
+    await yieldToLoop();
   }
   return pos - carry.length; // the trailing partial line is NOT consumed — it may still be being written
 }
 
 /** Read a Claude session's meta from its on-disk .jsonl (best-effort; an empty meta if missing). */
-export function readClaudeSessionMeta(projectPath: string, sessionId: string, claudeProjectsDir: string): ClaudeSessionMeta {
+export async function readClaudeSessionMeta(projectPath: string, sessionId: string, claudeProjectsDir: string): Promise<ClaudeSessionMeta> {
   // Guard the id before it touches a path — a crafted sessionId must not escape ~/.claude/projects (path traversal).
   if (!isValidSessionId(sessionId)) return emptySessionMeta();
   const file = join(claudeProjectsDir, encodeProjectPath(projectPath), sessionId + '.jsonl');
   let mtimeMs: number;
   let size: number;
-  try { ({ mtimeMs, size } = statSync(file)); } catch { return emptySessionMeta(); }
+  try { ({ mtimeMs, size } = await stat(file)); } catch { return emptySessionMeta(); }
   const cached = _metaCache.get(file);
   if (cached && cached.mtimeMs === mtimeMs) return cached.meta; // unchanged log → skip the read entirely
 
@@ -73,15 +88,15 @@ export function readClaudeSessionMeta(projectPath: string, sessionId: string, cl
   // no longer there — reparse from zero.
   const resume = cached && size >= cached.offset;
   const state = resume ? cached.state : emptySessionMetaState();
-  let fd: number;
-  try { fd = openSync(file, 'r'); } catch { return emptySessionMeta(); }
+  let handle: FileHandle;
+  try { handle = await open(file, 'r'); } catch { return emptySessionMeta(); }
   let offset: number;
   try {
-    offset = foldFrom(fd, resume ? cached.offset : 0, size, state);
+    offset = await foldFrom(handle, resume ? cached.offset : 0, size, state);
   } catch {
     return emptySessionMeta(); // leave the cache alone: a later read can still resume from it
   } finally {
-    try { closeSync(fd); } catch { /* already gone */ }
+    await handle.close().catch(() => { /* already gone */ });
   }
   const meta = { ...finalizeSessionMeta(state), mtimeMs };
   _metaCache.set(file, { mtimeMs, offset, state, meta });
