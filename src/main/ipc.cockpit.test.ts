@@ -173,11 +173,11 @@ describe('session-scoped provider', () => {
     expect(launchCommand()).toBe('codex');
   });
 
-  it('cockpit:liveSessionId reads the OWNING provider\'s session store', () => {
+  it('cockpit:liveSessionId reads the OWNING provider\'s session store', async () => {
     const liveSessionId = handlers.get('cockpit:liveSessionId')!;
     storedAgent = 'codex';
     claudeStats.mockClear(); codexStats.mockClear();
-    liveSessionId(null, projectPath, { currentId: null, claimedIds: [], openedAtMs: 1, sinceMs: 2, lastDataAtMs: 3, agentId: 'claude' });
+    await liveSessionId(null, projectPath, { currentId: null, claimedIds: [], openedAtMs: 1, sinceMs: 2, lastDataAtMs: 3, agentId: 'claude' });
     expect(claudeStats).toHaveBeenCalledOnce();
     expect(codexStats).not.toHaveBeenCalled();
   });
@@ -210,24 +210,24 @@ describe('cockpit:liveSessionId', () => {
   const projectPath = join(ALLOWED_ROOT, 'project');
   const opts = { currentId: 'current', claimedIds: [], openedAtMs: 1, sinceMs: 2, lastDataAtMs: 3 };
 
-  it('falls back to the active provider when the caller has no session context', () => {
+  it('falls back to the active provider when the caller has no session context', async () => {
     const liveSessionId = handlers.get('cockpit:liveSessionId')!;
 
     storedAgent = 'claude';
     claudeStats.mockClear(); codexStats.mockClear();
-    liveSessionId(null, projectPath, opts);
+    await liveSessionId(null, projectPath, opts);
     expect(claudeStats).toHaveBeenCalledOnce();
     expect(codexStats).not.toHaveBeenCalled();
 
     storedAgent = 'codex';
     claudeStats.mockClear(); codexStats.mockClear();
-    liveSessionId(null, projectPath, opts);
+    await liveSessionId(null, projectPath, opts);
     expect(codexStats).toHaveBeenCalledOnce();
     expect(claudeStats).not.toHaveBeenCalled();
 
     storedAgent = 'antigravity';
     claudeStats.mockClear(); codexStats.mockClear();
-    expect(liveSessionId(null, projectPath, opts)).toBeNull();
+    expect(await liveSessionId(null, projectPath, opts)).toBeNull();
     expect(claudeStats).not.toHaveBeenCalled();
     expect(codexStats).not.toHaveBeenCalled();
   });
@@ -239,8 +239,8 @@ describe('cockpit:sessionMeta summary per provider', () => {
   const projectPath = join(ALLOWED_ROOT, 'project');
   const SESSION = '019f91b2-fa6d-7971-b19d-c07092dcfc57';
 
-  it('summarizes a Codex session from its rollout, with its own model and context window', () => {
-    const out = handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'codex') as Record<string, unknown>;
+  it('summarizes a Codex session from its rollout, with its own model and context window', async () => {
+    const out = await handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'codex') as Record<string, unknown>;
     expect(out).toMatchObject({
       summary: '설정 저장 로직을 정리했습니다',
       summarySource: 'assistant',
@@ -251,8 +251,8 @@ describe('cockpit:sessionMeta summary per provider', () => {
     });
   });
 
-  it('returns the neutral shape for a provider with no transcript reader', () => {
-    expect(handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'antigravity'))
+  it('returns the neutral shape for a provider with no transcript reader', async () => {
+    expect(await handlers.get('cockpit:sessionMeta')!(null, projectPath, SESSION, 'antigravity'))
       .toEqual({ model: null, activeMs: 0, contextTokens: 0, contextWindow: 0, summary: null, summarySource: null });
   });
 });

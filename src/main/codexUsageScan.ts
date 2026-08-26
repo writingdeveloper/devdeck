@@ -295,7 +295,7 @@ function reportFromFiles(files: IndexedFile[], sinceMs: number, exists: (path: s
 }
 
 export async function scanCodexUsage(options: ScanCodexUsageOptions): Promise<ProviderUsageSlice> {
-  const heads = listCodexRolloutHeads(options.sessionsDir);
+  const heads = await listCodexRolloutHeads(options.sessionsDir);
   if (!heads.length) return emptyProviderUsage('codex');
   const previous = loadIndex(options.cachePath);
   const previousByFile = new Map(previous.files.map((file) => [file.file, file]));

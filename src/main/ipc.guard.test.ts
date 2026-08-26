@@ -158,10 +158,10 @@ describe('project:memory path guard', () => {
 describe('cockpit read-path guards', () => {
   // The guard returns before the provider is touched, so a disallowed path yields each handler's neutral
   // shape without leaking session ids / model / time / context for projects outside a scanned folder.
-  it('returns empty/neutral for a path outside the allowed folders', () => {
+  it('returns empty/neutral for a path outside the allowed folders', async () => {
     const outside = join(process.cwd(), 'elsewhere', 'proj');
-    expect(handlers.get('cockpit:sessionIds')!(null, outside)).toEqual([]);
-    expect(handlers.get('cockpit:sessionMeta')!(null, outside, 'some-sid'))
+    expect(await handlers.get('cockpit:sessionIds')!(null, outside)).toEqual([]);
+    expect(await handlers.get('cockpit:sessionMeta')!(null, outside, 'some-sid'))
       .toEqual({ model: null, activeMs: 0, contextTokens: 0, contextWindow: 0, summary: null, summarySource: null });
   });
 });

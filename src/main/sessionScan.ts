@@ -30,7 +30,7 @@ export interface SessionScanDeps {
   /** Per-project store (Claude): asked once per project. */
   perProject: Partial<Record<AgentId, (projectPath: string, limit: number) => Promise<SessionMeta[]>>>;
   /** Flat stores (Codex, Antigravity): indexed once, then looked up by canonical cwd key. */
-  indexed: Partial<Record<AgentId, () => Map<string, SessionMeta[]>>>;
+  indexed: Partial<Record<AgentId, () => Map<string, SessionMeta[]> | Promise<Map<string, SessionMeta[]>>>>;
 }
 
 export interface ProjectSessionScan {
@@ -43,11 +43,16 @@ export interface ProjectSessionScan {
  * project of that refresh, then thrown away (so the next refresh sees fresh data — no TTL to tune).
  */
 export function makeProjectSessionScan(deps: SessionScanDeps): ProjectSessionScan {
-  const indexes = new Map<AgentId, Map<string, SessionMeta[]>>();
-  const indexFor = (id: AgentId): Map<string, SessionMeta[]> => {
+  // The PROMISE is remembered, not the finished map: a refresh asks for the index once per project,
+  // and remembering only completed work let every one of a hundred projects start its own walk of
+  // the same flat store before the first finished.
+  const indexes = new Map<AgentId, Promise<Map<string, SessionMeta[]>>>();
+  const indexFor = (id: AgentId): Promise<Map<string, SessionMeta[]>> => {
     let idx = indexes.get(id);
     if (!idx) {
-      try { idx = deps.indexed[id]!(); } catch { idx = new Map(); } // an unreadable store must not blank the deck
+      // an unreadable store must not blank the deck
+      try { idx = Promise.resolve(deps.indexed[id]!()).catch(() => new Map<string, SessionMeta[]>()); }
+      catch { idx = Promise.resolve(new Map<string, SessionMeta[]>()); }
       indexes.set(id, idx);
     }
     return idx;
@@ -61,7 +66,7 @@ export function makeProjectSessionScan(deps: SessionScanDeps): ProjectSessionSca
         if (perProject) {
           try { byProvider.push({ agentId, sessions: await perProject(projectPath, limit) }); } catch { /* skip this provider */ }
         } else if (deps.indexed[agentId]) {
-          byProvider.push({ agentId, sessions: indexFor(agentId).get(key) ?? [] });
+          byProvider.push({ agentId, sessions: (await indexFor(agentId)).get(key) ?? [] });
         }
       }
       return mergeProjectSessions(byProvider, limit);

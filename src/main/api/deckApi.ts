@@ -168,17 +168,20 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // an alt-tab burst would otherwise re-walk both stores each time. Shorter than the refresh cycle, so
   // a normal refresh still sees current data.
   const INDEX_TTL_MS = 30_000;
-  const codexIndexCache = makeTtlCache<Map<string, SessionMeta[]>>(INDEX_TTL_MS);
-  const antigravityIndexCache = makeTtlCache<Map<string, SessionMeta[]>>(INDEX_TTL_MS);
+  const codexIndexCache = makeTtlCache<Promise<Map<string, SessionMeta[]>>>(INDEX_TTL_MS);
+  const antigravityIndexCache = makeTtlCache<Promise<Map<string, SessionMeta[]>>>(INDEX_TTL_MS);
   const cachedIndex = (
-    cache: ReturnType<typeof makeTtlCache<Map<string, SessionMeta[]>>>,
+    cache: ReturnType<typeof makeTtlCache<Promise<Map<string, SessionMeta[]>>>>,
     dir: string,
-    build: () => Map<string, SessionMeta[]>,
-  ): Map<string, SessionMeta[]> => {
+    build: () => Map<string, SessionMeta[]> | Promise<Map<string, SessionMeta[]>>,
+  ): Promise<Map<string, SessionMeta[]>> => {
     const now = Date.now();
     const hit = cache.get(dir, now);
     if (hit) return hit;
-    const built = build();
+    // The PROMISE is cached, not just its result: the deck asks for this once per project on every
+    // refresh, and caching only on completion let a hundred of them all miss and start their own
+    // walk of the same flat store.
+    const built = Promise.resolve(build());
     cache.set(dir, now, built);
     return built;
   };
@@ -596,7 +599,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // projects outside a scanned folder if a compromised renderer asks. Return each handler's neutral shape.
   // `wantAi` is the renderer's "this session just finished a turn" signal: asking while it is still
   // working would spend a haiku call on every 30s tick and summarize a half-done turn.
-  invoke('cockpit:sessionMeta', allow('observe'), (projectPath: string, sessionId: string, agentId?: AgentId, wantAi?: boolean) => {
+  invoke('cockpit:sessionMeta', allow('observe'), async (projectPath: string, sessionId: string, agentId?: AgentId, wantAi?: boolean) => {
     const blank = { model: null, activeMs: 0, contextTokens: 0, contextWindow: 0, summary: null, summarySource: null };
     const path = String(projectPath);
     if (!isAllowedPath(effFolders(), path)) return blank;
@@ -606,10 +609,10 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     // SUMMARY works for Codex too, off a bounded tail read of its rollout.
     if (provider !== 'claude' && provider !== 'codex') return blank;
     const meta = provider === 'claude'
-      ? { ...readClaudeSessionMeta(path, sessionId, CLAUDE_PROJECTS), contextWindow: 0 }
+      ? { ...await readClaudeSessionMeta(path, sessionId, CLAUDE_PROJECTS), contextWindow: 0 }
       // Codex records its own model + real context window per turn, so those come from the rollout
       // rather than the global 1M/200K setting. Active time has no Codex equivalent.
-      : { ...readCodexSessionMeta(path, sessionId, CODEX_SESSIONS), activeMs: 0 };
+      : { ...await readCodexSessionMeta(path, sessionId, CODEX_SESSIONS), activeMs: 0 };
     // The summary is assembled HERE, not in the renderer: the raw sources (a 400-char assistant turn,
     // the user's last prompt) stay in main and only the finished one-liner crosses IPC.
     const source = buildAiSourceText(meta);
@@ -678,9 +681,9 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // ALL of the project's on-disk session ids (mtime-desc) — the restore resolver needs the full set so
   // an older-but-valid saved id is still recognized as existing (listSessions caps at 5, which would
   // hide it and wrongly fall the tile back to the newest conversation).
-  invoke('cockpit:sessionIds', allow('observe'), (projectPath: string, agentId?: AgentId) => {
+  invoke('cockpit:sessionIds', allow('observe'), async (projectPath: string, agentId?: AgentId) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return [];
-    return agentFor(agentId).listSessionIds(String(projectPath));
+    return await agentFor(agentId).listSessionIds(String(projectPath));
   });
   /**
    * Which of the saved cockpit entries' conversations still exist on disk, answered as a parallel
@@ -692,11 +695,14 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
    * read once and memoized for the call. Anything unverifiable — a denied path, an id-less Antigravity
    * entry, a malformed item — answers `true`: this may only report what it is sure is missing.
    */
-  invoke('cockpit:sessionsExist', allow('observe'), (items: unknown) => {
+  invoke('cockpit:sessionsExist', allow('observe'), async (items: unknown) => {
     const list = (Array.isArray(items) ? items : []).slice(0, 200);
     const folders = effFolders();
     const claudeIds = new Map<string, Set<string>>();
-    let codexByCwd: Map<string, SessionMeta[]> | null = null;
+    // Built once, up front, and only when something in the batch is actually a Codex entry: the
+    // rollout store is flat, so this walks all of it.
+    const wantsCodex = list.some((raw) => agentFor((raw as { agentId?: unknown })?.agentId).id === 'codex');
+    const codexByCwd = wantsCodex ? await indexCodexSessionsByCwd(CODEX_SESSIONS) : null;
     return list.map((raw) => {
       const it = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
       const projectPath = typeof it.projectPath === 'string' ? it.projectPath : '';
@@ -705,8 +711,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       const owner = agentFor(it.agentId).id;
       if (owner === 'antigravity') return true; // records no per-tile id — nothing to verify
       if (owner === 'codex') {
-        codexByCwd ??= indexCodexSessionsByCwd(CODEX_SESSIONS);
-        return (codexByCwd.get(cwdKey(projectPath)) ?? []).some((s) => s.id === sessionId);
+        return (codexByCwd?.get(cwdKey(projectPath)) ?? []).some((s) => s.id === sessionId);
       }
       let ids = claudeIds.get(projectPath);
       if (!ids) { ids = new Set(listSessionIds(projectPath, CLAUDE_PROJECTS)); claudeIds.set(projectPath, ids); }
@@ -718,12 +723,12 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // sends the tile's timing evidence; this stats the project's session files and adopts a new id only
   // when unambiguous (pickDriftedSessionId). Claude and Codex have per-file session stores;
   // Antigravity does not.
-  invoke('cockpit:liveSessionId', allow('observe'), (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: AgentId; ptyId?: string }) => {
+  invoke('cockpit:liveSessionId', allow('observe'), async (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: AgentId; ptyId?: string }) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return null;
     if (!opts || typeof opts !== 'object') return null;
     const a = agentFor(opts.agentId).id;
     const stats = a === 'claude' ? listSessionStats(String(projectPath), CLAUDE_PROJECTS)
-      : a === 'codex' ? listCodexSessionStats(String(projectPath), CODEX_SESSIONS)
+      : a === 'codex' ? await listCodexSessionStats(String(projectPath), CODEX_SESSIONS)
         : null;
     if (!stats) return null;
     const currentId = typeof opts.currentId === 'string' && opts.currentId ? opts.currentId : null;
