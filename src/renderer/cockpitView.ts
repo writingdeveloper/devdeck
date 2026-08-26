@@ -890,29 +890,75 @@ function flushReplayHold(l: Live): void {
   if (held?.length) l.term.write(held.join(''));
 }
 
-/** Write a running session's recent output into a freshly attached terminal. */
+/**
+ * Write a running session's recent output into a freshly attached terminal.
+ *
+ * This one ADOPTS the screen's geometry instead of demanding its own. The terminal is empty — there
+ * is nothing on it to be corrupted — and the session may well be running on another machine, at a
+ * size this deck has not been told yet. Sizing to what the bytes were drawn for paints them right the
+ * first time; the layout pass that follows negotiates the size properly (see followPtySize).
+ */
 async function replayInto(id: string, machineId: string, term: Terminal): Promise<void> {
-  let buffer = '';
+  let screen: PtyScreen | null = null;
   try {
-    buffer = await sessionScrollback(id, machineId);
+    screen = await fetchScreen(id, machineId, term);
   } finally {
     // The hold is released on EVERY path. A tile whose repaint failed must go back to writing what
     // its session says — a terminal that silently stopped printing is worse than one missing history.
     const l = live.get(id);
     if (l && l.term === term) {
-      if (buffer) term.write(buffer);
+      if (screen?.data) {
+        if (screen.cols !== term.cols || screen.rows !== term.rows) term.resize(screen.cols, screen.rows);
+        term.write(screen.data);
+      }
       flushReplayHold(l);
     }
   }
 }
 
-/** The recent output a machine is holding for one of its sessions — its screen, near enough. */
-async function sessionScrollback(id: string, machineId: string): Promise<string> {
+/** A machine's remembered screen for one session, and the geometry it was drawn for. */
+interface PtyScreen { data: string; cols: number; rows: number }
+
+/** How long to wait for conpty's post-resize repaint before giving up and painting nothing. */
+const REPAINT_WAIT_MS = 400;
+const REPAINT_POLL_MS = 50;
+
+/** Ask a machine for the screen it is holding, with the geometry it was drawn for. */
+async function fetchScreen(id: string, machineId: string, term: Terminal): Promise<PtyScreen | null> {
   try {
-    return machineId === LOCAL_MACHINE_ID
+    const raw = machineId === LOCAL_MACHINE_ID
       ? await window.devdeck.cockpit.sessionBuffer(id)
       : await window.devdeck.machine(machineId).cockpit.sessionBuffer(parseRemoteId(id).hostId);
-  } catch { return ''; }
+    // A machine still on an older build answers with the bytes alone. There is nothing to check them
+    // against, so they are taken as this terminal's own size: no worse than before that machine
+    // learned to report it, and better than refusing to paint anything at all.
+    if (typeof raw === 'string') return { data: raw, cols: term.cols, rows: term.rows };
+    return raw && raw.cols > 0 ? raw : null;
+  } catch { return null; }
+}
+
+/**
+ * The screen a machine is holding — but only once it is one this terminal may paint.
+ *
+ * Terminal output is not size-independent text: conpty paints by absolute cursor address, computed
+ * for the width it had at the time, so bytes drawn at 165 columns replayed into an 80-column terminal
+ * land in the wrong places with the older, wider paint still showing through underneath. That is the
+ * split screen this whole path exists to repair, and replaying blind is how it was being CAUSED.
+ *
+ * Unlike a fresh attach this cannot simply adopt the geometry: the terminal already has a size that
+ * the pane and every other view agreed on. A mismatch here is momentary — changing the size makes
+ * that machine drop what it remembers, and conpty refills it with a full repaint a frame or two later
+ * — so it waits for the screen that belongs to the size this terminal is at.
+ */
+async function sessionScreen(id: string, machineId: string, term: Terminal): Promise<PtyScreen | null> {
+  const deadline = Date.now() + REPAINT_WAIT_MS;
+  for (;;) {
+    const screen = await fetchScreen(id, machineId, term);
+    if (!screen) return null;
+    if (screen.data && screen.cols === term.cols && screen.rows === term.rows) return screen;
+    if (Date.now() >= deadline) return null;
+    await new Promise((r) => setTimeout(r, REPAINT_POLL_MS));
+  }
 }
 
 /**
@@ -932,7 +978,31 @@ async function resyncMachineTiles(machineId: string): Promise<void> {
   // A tile already mid-repaint (one being adopted as this connect is handled) is skipped: it is
   // fetching the very same screen, and painting it twice is the duplication this all exists to stop.
   const tiles = [...live.values()].filter((l) => l.machineId === machineId && l.session.status !== 'exited' && !l.replayPending);
-  for (const tile of tiles) await repaintTile(tile);
+  await repaintAll(tiles);
+}
+
+/**
+ * How many tiles may be repainting at once.
+ *
+ * Repaints were run one after another, each waiting for the whole of the previous one. That is nearly
+ * free for a tile on this machine and very much not for a tile on another: every one costs a round
+ * trip plus up to a screenful of bytes back, so a dozen sessions on a reconnecting machine served
+ * their round trips strictly end to end — and the deck sat there for as long as that took. They are
+ * independent of each other, so they overlap; bounded rather than unbounded because a dozen
+ * simultaneous screen requests is exactly the burst a host's send buffer is sized to refuse.
+ */
+const REPAINT_CONCURRENCY = 4;
+
+/** Repaint tiles with a few in flight at once, in the order given. */
+async function repaintAll(tiles: Live[]): Promise<void> {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(REPAINT_CONCURRENCY, tiles.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= tiles.length) return;
+      await repaintTile(tiles[i]);
+    }
+  }));
 }
 
 /**
@@ -952,13 +1022,17 @@ async function repaintTile(tile: Live, assertSize = true): Promise<void> {
   const id = tile.session.id;
   if (assertSize) window.devdeck.cockpit.resize(id, tile.term.cols, tile.term.rows);
   tile.replayPending = []; // hold the resumed stream until the screen is back under it
-  let buffer = '';
+  let screen: PtyScreen | null = null;
   try {
-    buffer = await sessionScrollback(id, tile.machineId);
+    screen = await sessionScreen(id, tile.machineId, tile.term);
   } finally {
     const still = live.get(id);
     if (still && still.term === tile.term) {
-      if (buffer) { still.term.reset(); still.term.write(buffer); }
+      // Only a screen drawn for THIS size gets painted. When there is none — the size just changed and
+      // conpty's repaint has not landed yet — the terminal is left exactly as it is and the repaint,
+      // which is being held right now, becomes the new screen a moment later. Resetting to a blank
+      // rectangle in the hope that something arrives is how a session ends up showing nothing at all.
+      if (screen?.data) { still.term.reset(); still.term.write(screen.data); }
       flushReplayHold(still);
     } else {
       tile.replayPending = null; // the tile was closed or rebuilt while we asked
@@ -979,7 +1053,7 @@ async function redrawCockpitTerminals(): Promise<number> {
   // baked into the repaint.
   for (const l of live.values()) l.ptyCap = null; // a view that was holding these down may be long gone
   layoutTerminals();
-  for (const tile of tiles) await repaintTile(tile);
+  await repaintAll(tiles);
   return tiles.length;
 }
 
@@ -1152,6 +1226,15 @@ function layoutTerminals(): void {
   const dims = shown.fit.proposeDimensions();
   if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return; // nothing measurable yet
   const pane = { cols: dims.cols, rows: dims.rows };
+  // A cap records "another view is watching this session in a smaller window", and nothing tells us
+  // when that view closes its session or its window — so a cap kept forever leaves a terminal drawing
+  // in 80 columns of a 165-column pane, with the rest blank, and no way back: the tile is already at
+  // min(pane, cap), so the loop below skips it and never asks for anything larger. A real layout
+  // change is the moment to stop guessing and propose the pane again; if that other view is still
+  // there and still smaller, it answers by claiming the size back, which costs exactly one round.
+  if (!paneDims || paneDims.cols !== pane.cols || paneDims.rows !== pane.rows) {
+    for (const l of live.values()) l.ptyCap = null;
+  }
   paneDims = pane;
   for (const l of live.values()) {
     // A session that ANOTHER view is watching in a smaller window stays at that view's size. Raising

@@ -79,7 +79,7 @@ describe('what a machine can say about its own sessions', () => {
     host.create('s', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {});
     f.emit('first line\nbuilding…\n');
     f.emit('done\n');
-    expect(host.buffer('s')).toContain('done');
+    expect(host.buffer('s').data).toContain('done');
   });
 
   it('drops the OLDEST output when the buffer fills — the recent part is what matters', () => {
@@ -90,14 +90,52 @@ describe('what a machine can say about its own sessions', () => {
     host.create('s', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {});
     for (let i = 0; i < 40; i++) f.emit('x'.repeat(10_000) + '\n');
     f.emit('THE-LATEST-LINE\n');
-    const buffer = host.buffer('s');
+    const buffer = host.buffer('s').data;
     expect(buffer).toContain('THE-LATEST-LINE');
     expect(buffer.length).toBeLessThanOrEqual(256 * 1024);
   });
 
+  it('reports the size its remembered output was drawn for', () => {
+    const f = fake();
+    const host = new PtyHost(() => f.proc);
+    host.create('s', 'pwsh', [], 'C:/repo', 120, 40, () => {}, () => {});
+    f.emit('first\nhello\n');
+    expect(host.buffer('s')).toEqual({ data: expect.stringContaining('hello'), cols: 120, rows: 40 });
+  });
+
+  it('forgets output drawn at the old size when the size changes', () => {
+    // The bug this exists for: ConPTY paints by absolute cursor address, computed for the width it
+    // had at the time. Handing a viewer bytes drawn at 120 columns to replay into an 80-column
+    // terminal puts every one of those writes in the wrong place, and the wider paint underneath
+    // shows through — reported as a terminal split down the middle. Bytes and geometry travel
+    // together or not at all.
+    const f = fake();
+    const host = new PtyHost(() => f.proc);
+    host.create('s', 'pwsh', [], 'C:/repo', 120, 40, () => {}, () => {});
+    f.emit('first\ndrawn-at-120-columns\n');
+    expect(host.resize('s', 80, 30)).toBe(true);
+    expect(host.buffer('s')).toEqual({ data: '', cols: 80, rows: 30 });
+    f.emit('first\nrepainted-at-80\n');
+    expect(host.buffer('s').data).toContain('repainted-at-80');
+  });
+
+  it('drops a resize to the size it already has, rather than making conpty repaint for nothing', () => {
+    // Every resize costs a full screen repaint, fanned out to every attached terminal on every
+    // machine watching. Re-asserting an unchanged size buys none of that back.
+    const proc = fakeProc();
+    const host = new PtyHost(() => proc);
+    host.create('s', 'pwsh', [], 'C:/repo', 120, 40, () => {}, () => {});
+    proc.emitData('first\nkeep-me\n');
+    expect(host.resize('s', 120, 40)).toBe(false);
+    expect(proc.resize).not.toHaveBeenCalled();
+    expect(host.buffer('s').data).toContain('keep-me'); // and the screen it already had survives
+    expect(host.resize('s', 120, 41)).toBe(true); // a real change still goes through
+    expect(proc.resize).toHaveBeenCalledWith(120, 41);
+  });
+
   it('answers emptily for a session it does not have', () => {
     const host = new PtyHost(() => fake().proc);
-    expect(host.buffer('nope')).toBe('');
+    expect(host.buffer('nope').data).toBe('');
     expect(host.list()).toEqual([]);
   });
 

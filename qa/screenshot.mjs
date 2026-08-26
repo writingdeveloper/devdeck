@@ -1414,6 +1414,60 @@ if (cockpitAvailable) {
     process.exit(1);
   }
 
+  const liveIds = await win.evaluate(async () => (await window.devdeck.cockpit.liveSessions()).map((s) => s.id));
+
+  // A machine must never hand out a screen drawn at a size it is no longer at.
+  //
+  // Terminal output is not size-independent text: conpty paints by absolute cursor address, computed
+  // for the width it had at the time. Replaying bytes drawn at 165 columns into an 80-column terminal
+  // puts every one of those writes in the wrong place and leaves the older, wider paint showing
+  // through underneath — a screen split down the middle, which is exactly what users reported. The
+  // repaint path was replaying whatever the machine happened to be holding, so the code meant to
+  // REPAIR a corrupted terminal was the code corrupting it. Two invariants close that off, and both
+  // are checked here against a real running session.
+  if (liveIds.length) {
+    const id = liveIds[0];
+    const read = () => win.evaluate((i) => window.devdeck.cockpit.sessionBuffer(i), id);
+    // Let the deck's own layout settle first. The gates above drag the window, and the re-fit that
+    // follows is debounced — probing into the middle of it measures the harness, not the product.
+    let before = await read();
+    for (let i = 0; i < 8; i++) {
+      await win.waitForTimeout(600);
+      const now = await read();
+      if (now.cols === before.cols && now.rows === before.rows) { before = now; break; }
+      before = now;
+    }
+    // (1) Re-asserting the size a pty already has must change NOTHING. Every resize costs conpty a
+    // full screen repaint, fanned out over IPC to every attached terminal on every machine watching;
+    // a redundant one buys none of that back. If it had gone through, the screen below would have
+    // been dropped and rebuilt — so an unchanged buffer is the proof it did not.
+    await win.evaluate(([i, c, r]) => window.devdeck.cockpit.resize(i, c, r), [id, before.cols, before.rows]);
+    await win.waitForTimeout(700);
+    const unchanged = await read();
+    // (2) A size that DOES change must take the geometry with it: what the machine reports next
+    // belongs to the new size, so a viewer can tell a screen it may paint from one it must not.
+    await win.evaluate(([i, c, r]) => window.devdeck.cockpit.resize(i, c, r), [id, before.cols - 17, before.rows - 3]);
+    await win.waitForTimeout(1500);
+    const after = await read();
+    const geometry = {
+      before: `${before.cols}x${before.rows}`, hadScreen: before.data.length > 0,
+      afterNoOp: `${unchanged.cols}x${unchanged.rows}`,
+      // A running agent only ever appends, so the screen can grow between the two reads. What it
+      // cannot do without a resize is SHRINK: a dropped buffer restarts from conpty's repaint.
+      screenKept: unchanged.data.length >= before.data.length,
+      afterResize: `${after.cols}x${after.rows}`,
+    };
+    console.log('pty screen carries its geometry:', JSON.stringify(geometry));
+    if (!geometry.screenKept || geometry.afterNoOp !== geometry.before
+      || after.cols !== before.cols - 17 || after.rows !== before.rows - 3) {
+      console.error(`QA FAILED — a machine's remembered screen must say which size it was drawn for, and an unchanged resize must not disturb it: ${JSON.stringify(geometry)}`);
+      await closeApp();
+      process.exit(1);
+    }
+  } else {
+    console.log('pty screen carries its geometry: skipped (no live session)');
+  }
+
   // Refresh must repair a terminal, not just reload the deck.
   //
   // A pty has ONE size and any number of views can be attached to it — this deck, and every machine
@@ -1422,7 +1476,6 @@ if (cockpitAvailable) {
   // here by forcing a live tile's pty narrow: the rows past the new width keep the previous, wider
   // paint while the new one is drawn over their left half. Refresh is the button users press when a
   // terminal looks wrong, and it used to reload projects and nothing else.
-  const liveIds = await win.evaluate(async () => (await window.devdeck.cockpit.liveSessions()).map((s) => s.id));
   if (liveIds.length) {
     await app.evaluate(({ ipcMain }) => {
       globalThis.__repairResizes = [];

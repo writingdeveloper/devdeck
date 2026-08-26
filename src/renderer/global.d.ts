@@ -63,7 +63,7 @@ declare global {
           gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
           receiveImage(base64: string): Promise<string | null>;
           liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
-          sessionBuffer(id: string): Promise<string>;
+          sessionBuffer(id: string): Promise<{ data: string; cols: number; rows: number } | string>;
         };
       };
       setTrayAlert(mode: 'off' | 'attention' | 'all'): Promise<void>;
@@ -121,7 +121,7 @@ declare global {
         onExit(cb: (p: { id: string; exitCode: number }) => void): void;
         onResized(cb: (p: { id: string; cols: number; rows: number }) => void): void;
         liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
-        sessionBuffer(id: string): Promise<string>;
+        sessionBuffer(id: string): Promise<{ data: string; cols: number; rows: number } | string>;
         noteLabel(id: string, label: string | null): void;
         onSessions(cb: (p: import('../main/ptyHost').PtySessionInfo[]) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;

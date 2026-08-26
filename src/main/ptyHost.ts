@@ -7,6 +7,15 @@ export interface PtyProcess {
   kill(): void;
 }
 
+/**
+ * A session's recent output, together with the geometry it was drawn for.
+ *
+ * The size travels WITH the bytes because the only safe use of them is painting a terminal that is
+ * currently that size; a viewer holding a differently-sized one has to wait for a screen it can use
+ * rather than paint one it will immediately have to draw over.
+ */
+export interface PtyScreen { data: string; cols: number; rows: number }
+
 export type PtySpawn = (
   file: string, args: string[], opts: { cwd: string; cols: number; rows: number }
 ) => PtyProcess;
@@ -49,6 +58,18 @@ export interface PtySessionInfo {
 const SCROLLBACK_BYTES = 256 * 1024;
 
 interface Session {
+  /**
+   * The size the pty is at right now — and therefore the size every byte in `chunks` was drawn for.
+   *
+   * A terminal's output is not size-independent text. ConPTY repaints by absolute cursor address
+   * ("go to row 9, column 118, erase to end of line"), computed against the width it had at the time.
+   * Replaying bytes produced at one width into a terminal of another leaves those writes at the wrong
+   * places, with the earlier, wider paint still showing through underneath — the split screen this is
+   * reported as. So the size is kept here, the buffer is dropped whenever it changes, and what a
+   * viewer is handed always says which geometry it belongs to.
+   */
+  cols: number;
+  rows: number;
   proc: PtyProcess;
   info: PtySessionInfo;
   /**
@@ -74,6 +95,8 @@ export class PtyHost {
     const proc = this.spawn(file, args, { cwd, cols, rows });
     const session: Session = {
       proc,
+      cols,
+      rows,
       info: {
         id,
         projectPath: info?.projectPath ?? cwd,
@@ -136,16 +159,40 @@ export class PtyHost {
    * Trimmed to the first line boundary: the cut point is arbitrary, and starting a replay in the
    * middle of an escape sequence makes xterm render the tail of it as literal text.
    */
-  buffer(id: string): string {
+  buffer(id: string): PtyScreen {
     const session = this.sessions.get(id);
-    if (!session) return '';
+    if (!session) return { data: '', cols: 0, rows: 0 };
     const joined = session.chunks.join('');
     const firstBreak = joined.indexOf('\n');
-    return firstBreak >= 0 && firstBreak < joined.length - 1 ? joined.slice(firstBreak + 1) : joined;
+    const data = firstBreak >= 0 && firstBreak < joined.length - 1 ? joined.slice(firstBreak + 1) : joined;
+    return { data, cols: session.cols, rows: session.rows };
   }
 
   write(id: string, data: string): void { this.sessions.get(id)?.proc.write(data); }
-  resize(id: string, cols: number, rows: number): void { this.sessions.get(id)?.proc.resize(cols, rows); }
+  /**
+   * Set a session's size — and forget everything printed at the old one.
+   *
+   * Two things happen here and both matter. A resize to the size the pty already has is dropped
+   * outright: ConPTY answers every resize with a full repaint of the screen, so re-asserting an
+   * unchanged size costs a screenful of bytes through the IPC channel and into every attached
+   * terminal, on every machine watching, for nothing. And a resize that DOES change the size drops
+   * the remembered output, because those bytes were drawn for the old geometry and replaying them at
+   * the new one is what corrupts the screen (see `cols`). ConPTY's own repaint refills the buffer
+   * within a frame or two, so what a viewer is handed next is a screen drawn for the size it is at.
+   *
+   * Returns whether the size changed, so a caller can tell "a repaint is coming" from "nothing did".
+   */
+  resize(id: string, cols: number, rows: number): boolean {
+    const session = this.sessions.get(id);
+    if (!session) return false;
+    if (session.cols === cols && session.rows === rows) return false;
+    session.cols = cols;
+    session.rows = rows;
+    session.chunks = [];
+    session.bufferedLength = 0;
+    session.proc.resize(cols, rows);
+    return true;
+  }
   kill(id: string): void { const s = this.sessions.get(id); if (s) { s.proc.kill(); this.sessions.delete(id); } }
   killAll(): void { for (const s of this.sessions.values()) s.proc.kill(); this.sessions.clear(); }
 }
