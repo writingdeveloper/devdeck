@@ -128,3 +128,28 @@ export function selectProviderUsage(report: LocalUsageReport, filter: LocalUsage
   if (filter === 'all') return report;
   return report.byProvider.find((slice) => slice.providerId === filter) ?? emptyProviderUsage(filter);
 }
+
+/**
+ * The UTC day key a moment falls in — the same key `daily` rows are built with.
+ *
+ * Everything in this file buckets by UTC, so a caller asking "what did today cost" has to ask in the
+ * same calendar the answer was computed in.
+ */
+export function usageDayKey(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Today's cost, read out of a report that already covers today.
+ *
+ * The deck used to get this by running a SECOND full usage scan bounded to midnight — every 45s, and
+ * again on every window focus, over a store that reached 4.35 GB on the machine this was reported
+ * from. The scan it already did contains the answer: `daily` is bucketed by day and its `cost` is
+ * summed exactly the way a since-midnight scan's `globalCost` would be (per model, then per provider,
+ * null only when nothing priceable was found). So the second scan was computing a number the first
+ * one already had.
+ */
+export function todayCost(daily: readonly LocalDailyUsage[], nowMs: number): number | null {
+  const key = usageDayKey(nowMs);
+  return daily.find((row) => row.day === key)?.cost ?? null;
+}

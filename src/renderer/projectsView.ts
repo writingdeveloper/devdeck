@@ -7,6 +7,7 @@ import { deckFor, knownMachines, machineName, machineState, onMachinesChanged, s
 import { openInTerminal } from './openRouter';
 import { presetBoardProject } from './nextView';
 import { taskCounts } from '../shared/tasks';
+import { todayCost } from '../shared/localUsage';
 import { basename } from '../shared/paths';
 import { renderLoadError, toast } from './loadError';
 import { createProviderLogo, providerName } from './providerLogo';
@@ -801,15 +802,16 @@ async function reload(): Promise<void> {
   // the toolbar pulse summary (live status counts + today's cost). Both best-effort: any
   // failure in this chain falls back to a status-only pulse rather than blocking reload().
   const costMachine = forMachine;
-  void deckFor(costMachine).usageReport(0).then(async (r) => {
+  // ONE scan. This used to ask twice — everything, then everything since midnight — and a usage scan
+  // walks the whole session store: 4.35 GB and forty seconds cold on the machine this was reported
+  // from, run twice per refresh, every 45 seconds and again on every window focus. The second answer
+  // was already inside the first: `daily` is bucketed by day and its cost is summed exactly as a
+  // since-midnight scan's total would be.
+  void deckFor(costMachine).usageReport(0).then((r) => {
     if (selectedMachineId() !== costMachine) return; // costs are per machine — never paint one deck's onto another
     for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);
     render();
-    const t0 = new Date();
-    t0.setUTCHours(0, 0, 0, 0);
-    const today = await deckFor(costMachine).usageReport(t0.getTime());
-    if (selectedMachineId() !== costMachine) return;
-    renderDeckPulse(today.globalCost);
+    renderDeckPulse(todayCost(r.daily, Date.now()));
   }).catch(() => { renderDeckPulse(null); /* cost is best-effort; ignore failures */ });
 }
 

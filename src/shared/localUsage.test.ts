@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  combineProviderUsage, emptyProviderUsage, selectProviderUsage,
-  type ProviderUsageSlice,
+  combineProviderUsage, emptyProviderUsage, selectProviderUsage, todayCost, usageDayKey,
+  type LocalDailyUsage, type ProviderUsageSlice,
 } from './localUsage';
 
 const zero = { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 };
@@ -63,5 +63,33 @@ describe('combineProviderUsage', () => {
     const report = combineProviderUsage([slice('claude', 7.5, 'C:\\p'), emptyProviderUsage('codex', 'error')]);
     expect(report.globalCost).toBe(7.5);
     expect(report.byProvider.find((p) => p.providerId === 'codex')?.state).toBe('error');
+  });
+});
+
+describe('todayCost', () => {
+  const row = (day: string, cost: number | null): LocalDailyUsage =>
+    ({ day, tokens: 1, cost, providerTokens: {}, providerCosts: {} });
+  const noon = Date.parse('2026-08-26T12:00:00.000Z');
+
+  it("reads today's cost out of a report that already covers today", () => {
+    // The deck ran a SECOND full scan bounded to midnight to get this number, every 45 seconds and
+    // again on every window focus, over a session store that reached 4.35 GB. The first scan had it.
+    expect(todayCost([row('2026-08-25', 3), row('2026-08-26', 7.5)], noon)).toBe(7.5);
+  });
+
+  it('answers null when today has no priced usage, and when today has no row at all', () => {
+    // Both mean the same thing to the caller — "no figure to show" — and both used to come back as
+    // the since-midnight scan's null globalCost.
+    expect(todayCost([row('2026-08-26', null)], noon)).toBeNull();
+    expect(todayCost([row('2026-08-25', 3)], noon)).toBeNull();
+    expect(todayCost([], noon)).toBeNull();
+  });
+
+  it('buckets by UTC, the calendar the rows were built in', () => {
+    // dayKey() in the scanner is toISOString().slice(0,10). Asking in local time would miss the row
+    // by a day for anyone far enough from UTC — which is everyone this app is used by.
+    expect(usageDayKey(Date.parse('2026-08-26T23:59:59.999Z'))).toBe('2026-08-26');
+    expect(usageDayKey(Date.parse('2026-08-27T00:00:00.000Z'))).toBe('2026-08-27');
+    expect(todayCost([row('2026-08-27', 2)], Date.parse('2026-08-27T00:00:00.000Z'))).toBe(2);
   });
 });
