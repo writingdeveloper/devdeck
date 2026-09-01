@@ -145,6 +145,7 @@ export function mountCockpit(): void {
   document.getElementById('ck-collapse')!.addEventListener('click', () => toggleSidebar(true));
   document.getElementById('ck-expand')!.addEventListener('click', () => toggleSidebar(false));
   refreshCockpitSidebar();
+  void window.devdeck.getAppInfo().then((info) => { webglAllowed = info.gpu !== false; }).catch(() => { /* keep the default */ });
 
   window.devdeck.cockpit.onData(({ id, chunk }) => {
     const l = live.get(id); if (!l) return;
@@ -561,7 +562,11 @@ async function createSession(p: OpenReq): Promise<boolean> {
  * textured quads. It is loaded after `open()` (it needs the element) and dropped — back to DOM,
  * automatically — if the context is ever lost, so a machine without usable WebGL is exactly as it was.
  */
+/** False once main says GPU acceleration is off (--disable-gpu): software WebGL is not worth having. */
+let webglAllowed = true;
+
 function attachWebgl(term: Terminal): WebglAddon | null {
+  if (!webglAllowed) return null;
   try {
     const addon = new WebglAddon();
     addon.onContextLoss(() => { try { addon.dispose(); } catch { /* already gone */ } });

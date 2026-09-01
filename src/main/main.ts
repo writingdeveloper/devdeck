@@ -212,6 +212,11 @@ if (!gotLock) {
       diagnostics,
     });
 
+    // The method table, reachable from a harness driving the unpackaged app (qa/*.mjs): it lets a
+    // check freeze one answer — the project list, say — and then hand the channel BACK to the real
+    // handler, which ipcMain alone cannot do once a handler has been replaced. Never in a package.
+    if (!app.isPackaged) (globalThis as { __devdeckApi?: unknown }).__devdeckApi = deckApi;
+
     // DevDeck Link. Accepting connections stays off until someone turns it on; constructing the
     // service only loads this machine's identity and reconnects to machines already paired with.
     const toRenderer = (channel: string, payload: unknown): void => {

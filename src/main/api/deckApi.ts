@@ -399,6 +399,10 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     // over the link is also how it learns the name changed without re-pairing.
     machineId: cfg.store.getMachineId(),
     machineName: cfg.store.getMachineName(),
+    // Whether GPU acceleration is on. Launched with --disable-gpu, WebGL still "works" through a
+    // software rasterizer that is no cheaper than DOM rendering and hides the terminal's text from
+    // anything reading the DOM — the QA harnesses included. The cockpit draws with DOM nodes then.
+    gpu: !app.commandLine.hasSwitch('disable-gpu'),
   }));
   invoke('shell:openExternal', localOnly, async (url: string) => {
     const u = String(url);

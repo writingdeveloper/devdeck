@@ -53,7 +53,7 @@ declare global {
         getSettings(): Promise<unknown>;
         getFolders(): Promise<import('../shared/types').Folder[]>;
         availableAgents(): Promise<import('../shared/types').AgentId[]>;
-        appInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean; machineId: string; machineName: string }>;
+        appInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean; machineId: string; machineName: string; gpu?: boolean }>;
         cockpit: {
           open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string }>;
           sessionMeta(projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean): Promise<unknown>;
@@ -97,7 +97,7 @@ declare global {
       installUpdate(): Promise<void>;
       setPendingAutoRestore(sessions: import('../shared/cockpitPersist').PersistedSession[]): Promise<void>;
       consumeAutoRestore(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
-      getAppInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean; machineId: string; machineName: string }>;
+      getAppInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean; machineId: string; machineName: string; gpu?: boolean }>;
       openExternal(url: string): Promise<void>;
       checkForUpdates(): Promise<void>;
       windowControls: {

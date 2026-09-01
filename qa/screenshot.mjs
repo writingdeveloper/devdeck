@@ -30,6 +30,9 @@ writeFileSync(join(qaUserData, 'state.json'), JSON.stringify({
   },
 }, null, 2));
 const app = await electron.launch({
+  // --disable-gpu also means no WebGL terminal (see attachWebgl): the rows are then DOM nodes, whose
+  // text these checks read. With WebGL the same rows are pixels on a canvas and every "the terminal
+  // shows X" assertion reads an empty element. The WebGL path is exercised by qa/perf.mjs.
   args: ['.', `--user-data-dir=${qaUserData}`, '--no-sandbox', '--disable-gpu'],
   cwd: root,
 });
@@ -508,6 +511,17 @@ await win.waitForTimeout(300);
 // Smooth refresh: a manual refresh must reconcile in place (reuse unchanged card nodes),
 // not wipe + rebuild the whole deck. Tag every card, refresh, and confirm the nodes survive.
 // The old full-replaceChildren behavior would leave 0 survivors.
+//
+// With the SAME answer. The scanned folder is this checkout, and an agent working in it — the one
+// running this harness, typically — appends to its transcript continuously, so the project list's
+// session timestamps move between two loads and the card is rebuilt for a real change. That is the
+// deck being right, not the reconciler being wrong: the check freezes the list at its current answer
+// for the duration of the refresh, then hands the channel back to the real handler.
+const frozenList = await win.evaluate(() => window.devdeck.listProjects());
+await app.evaluate(({ ipcMain }, list) => {
+  ipcMain.removeHandler('projects:list');
+  ipcMain.handle('projects:list', () => list);
+}, frozenList);
 const reuse = await win.evaluate(async () => {
   const before = Array.from(document.querySelectorAll('#cards .card'));
   before.forEach((el, i) => { el.dataset.qaMark = String(i); });
@@ -521,6 +535,11 @@ const reuse = await win.evaluate(async () => {
     cardsNow: document.querySelectorAll('#cards .card').length,
     rowsNow: document.querySelectorAll('#cards .prow').length,
   };
+});
+await app.evaluate(({ ipcMain }) => {
+  ipcMain.removeHandler('projects:list');
+  const real = globalThis.__devdeckApi.methods['projects:list'].handler;
+  ipcMain.handle('projects:list', (_e, ...args) => real(...args));
 });
 console.log(`refresh reuse: ${reuse.survived}/${reuse.total} card nodes reused ${JSON.stringify(reuse)}`);
 if (reuse.total > 0 && reuse.survived === 0) {
