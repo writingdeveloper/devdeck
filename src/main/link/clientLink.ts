@@ -80,6 +80,25 @@ export interface DialOptions {
 const DEFAULT_CONNECT_TIMEOUT_MS = 4_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * The calls that walk a whole machine, and how long they are allowed.
+ *
+ * A project list on a hundred repositories runs git under a pool, each command bounded at ten
+ * seconds, so a cold list can legitimately take a minute — and did, on the machine this was reported
+ * from: "timed out: projects:list" every refresh, the deck retrying while the host was still working
+ * on the last one. The renderer's own deadline is longer than these on purpose, so it is the link
+ * that gives up, with a reason that names the machine.
+ */
+const HEAVY_REQUEST_TIMEOUT_MS: Record<string, number> = {
+  'projects:list': 120_000,
+  'usage:report': 120_000,
+  'project:memory': 120_000,
+};
+
+export function requestTimeoutFor(method: string, fallback = DEFAULT_REQUEST_TIMEOUT_MS): number {
+  return HEAVY_REQUEST_TIMEOUT_MS[method] ?? fallback;
+}
+
 export type DialResult =
   | { ok: true; link: ConnectedLink }
   | { ok: false; failure: DialFailure };
@@ -269,7 +288,7 @@ function handshake(
           const timer = setTimeout(() => {
             pending.delete(id);
             reject(new Error(`timed out: ${method}`));
-          }, options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+          }, options.requestTimeoutMs ?? requestTimeoutFor(method));
           pending.set(id, { resolve, reject, timer });
           connection.send({ t: 'req', id, method, args });
         });

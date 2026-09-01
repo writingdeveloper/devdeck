@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
   clipboard: { readText: () => clipboardText.value },
 }));
 
-import { createLinkService, type LinkPersistence, type LinkService } from './linkService';
+import { createLinkService, retryDelayForFailure, type LinkPersistence, type LinkService } from './linkService';
 import { makeMethodTable, allow, blocked } from '../api/methods';
 import { makeEventHub, type EventHub } from '../api/events';
 import type { DeckApiBundle } from '../api/deckApi';
@@ -276,6 +276,49 @@ describe('host mode', () => {
     const status = await host.service.createInvite();
     expect(status.fingerprint).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
     expect(status.addresses.length).toBeGreaterThan(0);
+  });
+});
+
+describe('what a refusal means for the next attempt', () => {
+  const steps = [100, 200, 300];
+  it('keeps trying a host that turned host mode off, and one mid-update, but never an impostor', () => {
+    expect(retryDelayForFailure({ kind: 'refused', code: 'host-unavailable', message: '' }, 0, steps)).toBe(100);
+    expect(retryDelayForFailure({ kind: 'refused', code: 'host-unavailable', message: '' }, 9, steps)).toBe(300);
+    expect(retryDelayForFailure({ kind: 'refused', code: 'protocol-mismatch', message: '' }, 0, steps)).toBe(5 * 60_000);
+    expect(retryDelayForFailure({ kind: 'refused', code: 'rate-limited', message: '' }, 0, steps)).toBe(60_000);
+    expect(retryDelayForFailure({ kind: 'unreachable', tried: [], attempts: [], lastError: '' }, 1, steps)).toBe(200);
+    expect(retryDelayForFailure({ kind: 'tls', address: 'a', error: '' }, 0, steps)).toBe(100);
+    expect(retryDelayForFailure({ kind: 'refused', code: 'unpaired', message: '' }, 0, steps)).toBeNull();
+    expect(retryDelayForFailure({ kind: 'refused', code: 'token-expired', message: '' }, 0, steps)).toBeNull();
+    expect(retryDelayForFailure({ kind: 'fingerprint', address: 'a', expected: 'x', seen: 'y' }, 0, steps)).toBeNull();
+  });
+
+  it('comes back on its own after the host turns host mode off and on', async () => {
+    const host = makeService('host');
+    const viewer = makeService('viewer', { machineId: '11111111-2222-4333-8444-555555555555', reconnectStepsMs: [80, 80] });
+    await host.service.setPort(await freePort());
+    await host.service.setHostMode(true);
+    const code = (await host.service.createInvite()).invite!.code;
+    expect((await viewer.service.addMachine(code)).ok).toBe(true);
+    await host.service.setHostMode(false);
+    await waitFor(() => viewer.service.machines()[0]?.state !== 'connected');
+    await host.service.setHostMode(true);
+    // No probe, no button: the backoff alone brings it back.
+    await waitFor(() => viewer.service.machines()[0]?.state === 'connected');
+  });
+
+  it('reconnect() dials at once for a machine that was refused', async () => {
+    const host = makeService('host');
+    const viewer = makeService('viewer', { machineId: '11111111-2222-4333-8444-555555555555', reconnectStepsMs: [60_000] });
+    await host.service.setPort(await freePort());
+    await host.service.setHostMode(true);
+    const code = (await host.service.createInvite()).invite!.code;
+    expect((await viewer.service.addMachine(code)).ok).toBe(true);
+    await host.service.setHostMode(false);
+    await waitFor(() => viewer.service.machines()[0]?.state !== 'connected');
+    await host.service.setHostMode(true);
+    await viewer.service.reconnect(viewer.service.machines()[0]!.machineId);
+    expect(viewer.service.machines()[0]?.state).toBe('connected');
   });
 });
 

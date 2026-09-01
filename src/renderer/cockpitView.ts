@@ -685,7 +685,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   const machineId = p.machineId ?? LOCAL_MACHINE_ID;
   // Main answers a failed open with id:'' (allowlist refusal / pty spawn error) — but guard the invoke
   // itself too, so a reject can't leak the terminal we already mounted or abort a restore-all loop.
-  let res: { id: string; agentId: AgentId; sessionId: string | null };
+  let res: { id: string; agentId: AgentId; sessionId: string | null; error?: string };
   if (p.adoptId) {
     // Binding to a terminal that is already running — started by the person at that machine, or by
     // this one before a restart. Nothing is spawned; the tile simply takes ownership of the stream.
@@ -695,11 +695,18 @@ async function buildTile(p: OpenReq): Promise<boolean> {
       // The machine that owns the project opens it. A remote answer carries an id already qualified
       // with that machine, which is what lets input/resize/close below stay machine-agnostic.
       res = await deckFor(machineId).cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, mode: p.mode, agentId: p.agentId });
-    } catch {
-      res = { id: '', agentId: 'claude', sessionId: null };
+    } catch (err) {
+      res = { id: '', agentId: 'claude', sessionId: null, error: err instanceof Error ? err.message : String(err) };
     }
   }
-  if (!res.id) { el.remove(); term.dispose(); if (selectedId) select(selectedId); return false; } // refused/failed — restore prior selection
+  if (!res.id) {
+    // Refused or failed: tear the terminal down, restore the prior selection, and SAY SO. A silent
+    // vanish read as "the click did nothing", whether the cause was a path outside the allowlist, a
+    // deleted folder, or a machine that would not answer.
+    el.remove(); term.dispose(); if (selectedId) select(selectedId);
+    toast(res.error ? `${tr('cockpit.open_failed', { name: p.name })} — ${res.error}` : tr('cockpit.open_failed', { name: p.name }));
+    return false;
+  }
   const session: CockpitSession = { id: res.id, projectPath: p.path, name: p.name, agentId: res.agentId, status: 'running', staleLevel: p.staleLevel, branch: p.branch, dirty: p.dirty, activity: 'working' };
   term.onData((d) => {
     window.devdeck.cockpit.input(res.id, d);

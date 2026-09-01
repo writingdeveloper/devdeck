@@ -109,10 +109,40 @@ export interface LinkServiceOptions {
   rateLimit?: { capacity: number; refillPerMs: number };
   /** Liveness timing for both directions; tests shorten it. */
   heartbeat?: HeartbeatOptions;
+  /** Reconnect backoff steps; tests shorten them. */
+  reconnectStepsMs?: number[];
 }
 
 /** Reconnect backoff. Capped low: the common failure is a sleeping laptop, which comes back. */
 const RECONNECT_STEPS_MS = [2_000, 5_000, 15_000, 30_000, 60_000];
+
+/**
+ * How long to wait before dialing again after `failure`, or null for "never on a timer".
+ *
+ * A refusal used to be final: the host said no, so the link sat in 'refused' until the app was
+ * restarted, with no button to try again. But most refusals are momentary — the host toggled host
+ * mode off and on, or is mid-update — and the person on this side cannot tell those from the one that
+ * genuinely needs a new code.
+ */
+export function retryDelayForFailure(failure: DialFailure, attempt: number, steps: readonly number[] = RECONNECT_STEPS_MS): number | null {
+  const step = steps[Math.min(attempt, steps.length - 1)];
+  switch (failure.kind) {
+    // A different machine answering at the pinned address is the case pinning exists for. Never quietly retried.
+    case 'fingerprint': return null;
+    case 'refused':
+      switch (failure.code) {
+        // Host mode off, or the host restarting: it comes back, and nobody should have to notice.
+        case 'host-unavailable': return step;
+        // One side is being updated. Ask again rarely; the moment both match, it connects.
+        case 'protocol-mismatch': return Math.max(step, 5 * 60_000);
+        case 'rate-limited': return Math.max(step, 60_000);
+        // A new code is the only way back; a retry loop would only fill the host's audit log.
+        case 'unpaired': case 'token-expired': case 'bad-token': return null;
+        default: return step;
+      }
+    default: return step;
+  }
+}
 
 interface Outbound {
   host: KnownHost;
@@ -148,6 +178,12 @@ export interface LinkService {
   clipboardInvite(): { code: string; machineName: string } | null;
   call(machineId: string, method: string, args: unknown[]): Promise<unknown>;
   notify(machineId: string, method: string, args: unknown[]): void;
+  /**
+   * The person pressed "retry": dial now, from the first backoff step, whatever the last answer was.
+   * On a link that looks connected this probes instead — "retry" on a terminal that has gone quiet is
+   * exactly the half-open case, and the probe is what settles it.
+   */
+  reconnect(machineId: string): Promise<void>;
   /**
    * The machine just woke up, or the network just changed: find out NOW which links are still real.
    * A connected link is probed and hung up on if silent; one waiting out a backoff is re-dialed at
@@ -290,7 +326,8 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
         : result.failure.kind === 'refused' ? 'refused'
           : 'offline';
       changed();
-      if (entry.state === 'offline') scheduleRetry(entry);
+      const delay = retryDelayForFailure(result.failure, entry.attempt, options.reconnectStepsMs ?? RECONNECT_STEPS_MS);
+      if (delay !== null) scheduleRetry(entry, delay);
       return;
     }
 
@@ -313,9 +350,10 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
     changed();
   }
 
-  function scheduleRetry(entry: Outbound): void {
+  function scheduleRetry(entry: Outbound, delayMs?: number): void {
     if (disposed || entry.timer || entry.state === 'impostor') return;
-    const delay = RECONNECT_STEPS_MS[Math.min(entry.attempt, RECONNECT_STEPS_MS.length - 1)];
+    const steps = options.reconnectStepsMs ?? RECONNECT_STEPS_MS;
+    const delay = delayMs ?? steps[Math.min(entry.attempt, steps.length - 1)];
     entry.attempt += 1;
     entry.timer = setTimeout(() => { entry.timer = null; void connect(entry); }, delay);
     entry.timer.unref?.();
@@ -562,6 +600,18 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
 
     notify(machineId, method, args) {
       try { linkFor(machineId).notify(method, args); } catch { /* offline: a keystroke has nowhere to go */ }
+    },
+
+    async reconnect(machineId) {
+      const entry = outbound.get(machineId);
+      if (!entry || disposed) return;
+      if (entry.link) { entry.link.probe(5_000); return; }
+      if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
+      entry.attempt = 0;
+      entry.problem = null;
+      entry.state = 'connecting';
+      changed();
+      await connect(entry);
     },
 
     probe() {

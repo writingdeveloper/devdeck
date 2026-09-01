@@ -324,6 +324,12 @@ function clientSection(machines: MachineStatus[], clipboard: { code: string; mac
     row.appendChild(state);
     row.appendChild(el('span', 'link-row-meta', machine.address ?? relativeTime(machine.lastSeenMs)));
     const actions = el('div', 'link-row-actions');
+    // Anything short of "a different machine answered" can be asked again on the spot: a host that
+    // toggled host mode, a code that was re-issued, a terminal that has gone quiet. An impostor is
+    // not offered a one-click retry — that needs a person to decide, not a reflex.
+    if (machine.state !== 'impostor') {
+      actions.appendChild(chip('link.retry_now', async () => { await window.devdeck.link.reconnect(machine.machineId); refresh(); }));
+    }
     actions.appendChild(chip('link.forget_machine', async () => { await window.devdeck.link.removeMachine(machine.machineId); refresh(); }, 'chip-danger'));
     row.appendChild(actions);
 

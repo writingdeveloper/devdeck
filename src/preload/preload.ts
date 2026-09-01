@@ -130,6 +130,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     machines: () => ipcRenderer.invoke('link:machines'),
     addMachine: (code: string) => ipcRenderer.invoke('link:addMachine', code),
     removeMachine: (machineId: string) => ipcRenderer.invoke('link:removeMachine', machineId),
+    reconnect: (machineId: string) => ipcRenderer.invoke('link:reconnect', machineId),
     setDevicePermissions: (fingerprint: string, permissions: string[]) => ipcRenderer.invoke('link:setDevicePermissions', fingerprint, permissions),
     revokeDevice: (fingerprint: string) => ipcRenderer.invoke('link:revokeDevice', fingerprint),
     disconnectDevice: (fingerprint: string) => ipcRenderer.invoke('link:disconnectDevice', fingerprint),

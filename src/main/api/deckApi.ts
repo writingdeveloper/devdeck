@@ -531,9 +531,13 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   });
   invoke('cockpit:open', allow('spawn'), async (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode?: OpenMode; agentId?: AgentId }) => {
     const folders = effFolders();
+    // A refusal travels back IN THE ANSWER. `sendError` reaches this machine's own window — which, for
+    // an open asked over the link, is not where the person who pressed Open is looking: they saw a
+    // tile flash and vanish, and the explanation was toasted in another room.
     if (!isAllowedPath(folders, req.projectPath)) {
-      cfg.sendError(`Path outside allowed folders: ${req.projectPath}`);
-      return { id: '', agentId: agentFor(req?.agentId).id, sessionId: null };
+      const error = `Path outside allowed folders: ${req.projectPath}`;
+      cfg.diagnostics?.write('warn', 'pty', `open refused: ${error}`);
+      return { id: '', agentId: agentFor(req?.agentId).id, sessionId: null, error };
     }
     const a = agentFor(req.agentId);
     const forceNew = req.mode === 'new';
@@ -576,8 +580,9 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
       return { id, agentId: a.id, sessionId: resolved.sessionId };
     } catch (err) {
-      cfg.sendError(`Could not open session in ${req.projectPath}: ${err instanceof Error ? err.message : String(err)}`);
-      return { id: '', agentId: a.id, sessionId: null };
+      const error = `Could not open session in ${req.projectPath}: ${err instanceof Error ? err.message : String(err)}`;
+      cfg.diagnostics?.write('warn', 'pty', `open failed: ${error}`);
+      return { id: '', agentId: a.id, sessionId: null, error };
     }
   });
   // A tile's id says which machine owns it (shared/link/machine.ts), so the hot terminal path needs
@@ -1003,6 +1008,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   invoke('link:machines', localOnly, () => cfg.link?.()?.machines() ?? []);
   invoke('link:addMachine', localOnly, (code: string) => linkOrThrow().addMachine(String(code)));
   invoke('link:removeMachine', localOnly, (machineId: string) => { linkOrThrow().removeMachine(String(machineId)); });
+  invoke('link:reconnect', localOnly, (machineId: string) => linkOrThrow().reconnect(String(machineId)));
   invoke('link:setDevicePermissions', localOnly, (fingerprint: string, permissions: unknown) => {
     linkOrThrow().setDevicePermissions(String(fingerprint), Array.isArray(permissions) ? permissions as never : []);
   });

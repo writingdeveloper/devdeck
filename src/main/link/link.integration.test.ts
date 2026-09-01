@@ -12,7 +12,7 @@ import { makeEventHub, type EventHub } from '../api/events';
 import type { DeckApiBundle } from '../api/deckApi';
 import { generateMachineCertificate } from './selfSignedCert';
 import { startHostServer, type ActiveInvite, type HostLogEntry, type HostServer } from './hostServer';
-import { dialHost, type ConnectedLink } from './clientLink';
+import { dialHost, requestTimeoutFor, type ConnectedLink } from './clientLink';
 import { createPairingToken } from './inviteCode';
 import { attachConnection } from './connection';
 import { LINK_PROTOCOL } from './protocol';
@@ -516,6 +516,15 @@ describe('liveness', () => {
     expect(activity).toBe(after);
     void makeTokenBucket; // keeps the import honest under isolatedModules
     dialed.link.close();
+  });
+});
+
+describe('request deadlines', () => {
+  it('gives the calls that walk a whole machine longer than a keystroke', () => {
+    expect(requestTimeoutFor('projects:list')).toBe(120_000);
+    expect(requestTimeoutFor('usage:report')).toBe(120_000);
+    expect(requestTimeoutFor('cockpit:sessionScreen')).toBe(30_000);
+    expect(requestTimeoutFor('projects:list', 5)).toBe(120_000); // the table wins over a caller's default
   });
 });
 

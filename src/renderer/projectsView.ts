@@ -20,8 +20,14 @@ import { openSelectedPresentation, projectRowModel, projectStatePresentation } f
 import { createIcon } from './icons';
 
 const AUTO_REFRESH_MS = 45_000;
-/** How long the deck waits for a machine's project list before offering a retry instead of a skeleton. */
-const DECK_TIMEOUT_MS = 60_000;
+/**
+ * How long the deck waits for a machine's project list before offering a retry instead of a skeleton.
+ * Longer than the link's own per-call deadline (clientLink.ts) so a remote list that gives up does so
+ * with the link's reason — "timed out: projects:list on <machine>" — rather than this generic one.
+ */
+const DECK_TIMEOUT_MS = 150_000;
+/** The machine whose project list is on the wire right now, or null. One load per machine at a time. */
+let loadInFlight: string | null = null;
 
 type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[number];
 
@@ -758,10 +764,6 @@ function renderDeckPulse(todayCost: number | null): void {
 }
 
 async function reload(): Promise<void> {
-  lastLoadMs = Date.now();
-  // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
-  // so they never wipe the deck to gray placeholders.
-  if (!hasRenderedOnce) showSkeleton();
   // WHICH machine this load is for. A refresh is already in flight most of the time — the deck
   // re-scans every 45s and again whenever the window regains focus — and switching machines while
   // one is on the wire used to end with the older answer landing last and painting the machine you
@@ -769,6 +771,20 @@ async function reload(): Promise<void> {
   // it just keeps showing this PC's". Every answer is checked against the selection it was asked
   // for, here and in the cost pass below.
   const forMachine = selectedMachineId();
+  // And ONE load per machine at a time. A slow remote list (a minute, on a hundred repositories)
+  // outlived the 45s refresh, so a second ask went out while the first was still being answered —
+  // the host doing the whole walk twice, and each answer discarded by the next. The refresh timer
+  // simply comes round again once this one has landed.
+  if (loadInFlight === forMachine) return;
+  loadInFlight = forMachine;
+  try { await reloadFor(forMachine); } finally { if (loadInFlight === forMachine) loadInFlight = null; }
+}
+
+async function reloadFor(forMachine: string): Promise<void> {
+  lastLoadMs = Date.now();
+  // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
+  // so they never wipe the deck to gray placeholders.
+  if (!hasRenderedOnce) showSkeleton();
   let proj, settings;
   try {
     // The deck shows ONE machine at a time. Settings stay local: view mode and the like belong to
@@ -789,7 +805,7 @@ async function reload(): Promise<void> {
     // deck that cannot be read says so and offers a retry, whether or not something was drawn before.
     if (!hasRenderedOnce || forMachine !== LOCAL_MACHINE_ID) {
       projects = [];
-      renderLoadError(cardsEl, () => void reload());
+      renderLoadError(cardsEl, () => { loadInFlight = null; void reload(); });
       hasRenderedOnce = false; // the next successful load re-renders from scratch rather than reconciling
     }
     return;

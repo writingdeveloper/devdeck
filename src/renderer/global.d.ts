@@ -29,6 +29,7 @@ declare global {
           | { ok: true; machine: import('../main/link/linkService').MachineStatus }
           | { ok: false; problem: import('../main/link/inviteCode').InviteProblem | 'dial'; failure?: import('../main/link/clientLink').DialFailure }>;
         removeMachine(machineId: string): Promise<void>;
+        reconnect(machineId: string): Promise<void>;
         setDevicePermissions(fingerprint: string, permissions: import('../shared/link/permissions').LinkPermission[]): Promise<void>;
         revokeDevice(fingerprint: string): Promise<void>;
         disconnectDevice(fingerprint: string): Promise<void>;
@@ -54,7 +55,7 @@ declare global {
         availableAgents(): Promise<import('../shared/types').AgentId[]>;
         appInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean; machineId: string; machineName: string }>;
         cockpit: {
-          open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
+          open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string }>;
           sessionMeta(projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean): Promise<unknown>;
           sessionIds(projectPath: string, agentId?: string): Promise<string[]>;
           sessionsExist(items: { projectPath: string; sessionId: string | null; agentId?: string }[]): Promise<boolean[]>;
@@ -118,7 +119,7 @@ declare global {
         readImageBytes(): Promise<{ tooLarge: boolean; bytes: string | null } | null>;
       };
       cockpit: {
-        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: import('../shared/types').AgentId }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null }>;
+        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: import('../shared/types').AgentId }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string }>;
         input(id: string, data: string): void;
         resize(id: string, cols: number, rows: number): void;
         close(id: string): void;
