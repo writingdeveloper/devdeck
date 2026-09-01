@@ -16,6 +16,7 @@ import { clipboard } from 'electron';
 import type { DeckApiBundle } from '../api/deckApi';
 import { startHostServer, type ActiveInvite, type HostConnectionInfo, type HostServer } from './hostServer';
 import { dialHost, type ConnectedLink, type DialFailure } from './clientLink';
+import type { HeartbeatOptions } from './connection';
 import { loadOrCreateIdentity, type LinkIdentity, type SafeStorageLike } from './identity';
 import { addressCandidates, advertisableAddresses } from './addressCandidates';
 import { mapPort, PORT_MAP_LIFETIME_S, type PortMapResult } from './portMap';
@@ -106,6 +107,8 @@ export interface LinkServiceOptions {
   liveSessionIds?: () => string[];
   /** Per-connection request budget; the host's default is right for real use, tests lower it. */
   rateLimit?: { capacity: number; refillPerMs: number };
+  /** Liveness timing for both directions; tests shorten it. */
+  heartbeat?: HeartbeatOptions;
 }
 
 /** Reconnect backoff. Capped low: the common failure is a sleeping laptop, which comes back. */
@@ -145,6 +148,18 @@ export interface LinkService {
   clipboardInvite(): { code: string; machineName: string } | null;
   call(machineId: string, method: string, args: unknown[]): Promise<unknown>;
   notify(machineId: string, method: string, args: unknown[]): void;
+  /**
+   * The machine just woke up, or the network just changed: find out NOW which links are still real.
+   * A connected link is probed and hung up on if silent; one waiting out a backoff is re-dialed at
+   * once rather than whenever its timer was going to fire.
+   */
+  probe(): void;
+  /**
+   * The machine is about to sleep: hang up cleanly in both directions, so every peer learns it in
+   * one round trip instead of a heartbeat timeout — and so the sessions viewers held here are
+   * released before the idle watcher is asked whether anyone is still watching.
+   */
+  suspend(): void;
   attach(qualifiedSessionId: string, cols: number, rows: number): void;
   detach(qualifiedSessionId: string): void;
   auditLog(limit?: number): ReturnType<LinkLog['recent']>;
@@ -245,6 +260,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
       machineId: options.machineId,
       machineName: options.machineName(),
       appVersion: options.appVersion,
+      heartbeat: options.heartbeat,
       onEvent: (channel, payload) => {
         // "What is running there" is re-addressed to a channel that NAMES the machine. Deriving it
         // from the ids would work right up until the interesting case — an empty list, which is how a
@@ -351,6 +367,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
         onActivity: () => options.onRemoteActivity?.(),
         sessionIds: () => options.liveSessionIds?.() ?? null,
         rateLimit: options.rateLimit,
+        heartbeat: options.heartbeat,
         log: (entry) => {
           log.append(entry);
           // A viewer doing anything here counts as this machine being in use, so the idle-shutdown
@@ -545,6 +562,23 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
 
     notify(machineId, method, args) {
       try { linkFor(machineId).notify(method, args); } catch { /* offline: a keystroke has nowhere to go */ }
+    },
+
+    probe() {
+      if (disposed) return;
+      for (const entry of outbound.values()) {
+        if (entry.link) { entry.link.probe(5_000); continue; }
+        if (entry.state === 'impostor' || entry.inflight) continue;
+        if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
+        entry.attempt = 0;
+        void connect(entry);
+      }
+    },
+
+    suspend() {
+      if (disposed) return;
+      for (const entry of outbound.values()) entry.link?.close('suspend');
+      server?.disconnectAll('suspend');
     },
 
     attach(qualifiedSessionId, cols, rows) {

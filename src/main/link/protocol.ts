@@ -15,6 +15,20 @@ import type { LinkPermission } from '../../shared/link/permissions';
 
 export const LINK_PROTOCOL = 'devdeck-link/1';
 
+/**
+ * Optional abilities, announced in `hello`/`ready` so a build can tell what the OTHER end will do.
+ *
+ * The protocol version is exact-match and has never been bumped; everything added since ships as a
+ * message an older peer ignores (both ends drop unknown kinds). What an older peer will not do is
+ * ANSWER — so a feature that expects a reply must be enforced only when the peer said it has it.
+ */
+export const LINK_FEATURES = ['ping'] as const;
+
+/** Whether a `hello`/`ready` announced `feature`. A message without `features` is an older build. */
+export function peerSupports(message: { features?: unknown }, feature: (typeof LINK_FEATURES)[number]): boolean {
+  return Array.isArray(message.features) && message.features.includes(feature);
+}
+
 /** Default listening port. Configurable; nothing in the protocol depends on it. */
 export const LINK_DEFAULT_PORT = 47820;
 
@@ -67,6 +81,8 @@ export interface HelloMessage {
    * real answer is that their code aged out five minutes ago.
    */
   wantsPairing?: boolean;
+  /** See `LINK_FEATURES`. Absent from a build that predates the field. */
+  features?: string[];
 }
 
 /** Sent by a client that has a one-time invite token and wants to become paired. */
@@ -84,6 +100,7 @@ export interface ReadyMessage {
   permissions: LinkPermission[];
   addresses: string[];
   port: number;
+  features?: string[];
 }
 
 export interface ErrorMessage {
@@ -102,13 +119,21 @@ export interface NotifyMessage { t: 'notify'; method: string; args: unknown[] }
 /** A push from the host: one of the API's event-hub channels. */
 export interface EventMessage { t: 'evt'; ch: string; payload: unknown }
 /** Attach/detach a terminal session's byte stream. Only attached sessions stream to this client. */
+/**
+ * Liveness. A socket that lost its peer without a FIN — the peer slept, a NAT forgot the flow, the
+ * Wi-Fi changed — reads as perfectly connected forever; nothing ever arrives and nothing ever errors.
+ * Either end pings after a silence and hangs up after a longer one. Answered by the connection layer
+ * itself, so a ping is never mistaken for the peer USING this machine.
+ */
+export interface PingMessage { t: 'ping'; at: number }
+export interface PongMessage { t: 'pong'; at: number }
 export interface AttachMessage { t: 'attach'; sessionId: string; cols: number; rows: number }
 export interface DetachMessage { t: 'detach'; sessionId: string }
 
 export type LinkMessage =
   | HelloMessage | PairMessage | ReadyMessage | ErrorMessage
   | RequestMessage | ResponseMessage | NotifyMessage | EventMessage
-  | AttachMessage | DetachMessage;
+  | AttachMessage | DetachMessage | PingMessage | PongMessage;
 
 export function encodeJsonFrame(message: LinkMessage): Buffer {
   return frame(FrameKind.Json, Buffer.from(JSON.stringify(message), 'utf8'));

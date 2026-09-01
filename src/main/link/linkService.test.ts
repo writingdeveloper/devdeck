@@ -88,6 +88,24 @@ function makeService(name: string, over: Partial<Parameters<typeof createLinkSer
   return { service, events, opened, dir };
 }
 
+/** A port nothing is listening on right now — a host that restarts must come back on the SAME port. */
+async function freePort(): Promise<number> {
+  const { createServer } = await import('node:net');
+  return new Promise((resolve) => {
+    const s = createServer();
+    s.listen(0, '127.0.0.1', () => { const port = (s.address() as { port: number }).port; s.close(() => resolve(port)); });
+  });
+}
+
+/** Poll until `cond` holds; the link settles on real sockets and real timers. */
+async function waitFor(cond: () => boolean, timeoutMs = 4_000): Promise<void> {
+  const until = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() > until) throw new Error('condition never held');
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 beforeEach(() => { clipboardText.value = ''; });
 afterEach(async () => {
   for (const s of services.splice(0)) await s.dispose();
@@ -258,6 +276,46 @@ describe('host mode', () => {
     const status = await host.service.createInvite();
     expect(status.fingerprint).toMatch(/^([0-9A-F]{2}:){31}[0-9A-F]{2}$/);
     expect(status.addresses.length).toBeGreaterThan(0);
+  });
+});
+
+describe('waking up', () => {
+  it('probe() re-dials a machine that was waiting out a backoff', async () => {
+    const host = makeService('host');
+    const viewer = makeService('viewer', { machineId: '11111111-2222-4333-8444-555555555555' });
+    await host.service.setPort(await freePort());
+    await host.service.setHostMode(true);
+    const code = (await host.service.createInvite()).invite!.code;
+    const added = await viewer.service.addMachine(code);
+    expect(added.ok).toBe(true);
+    const hostId = host.service.hostStatus().machineId;
+
+    await host.service.setHostMode(false);
+    await waitFor(() => viewer.service.machines()[0]?.state !== 'connected');
+    await host.service.setHostMode(true);
+    // Without the probe the viewer would sit on its backoff timer; with it, it is back at once.
+    viewer.service.probe();
+    await waitFor(() => viewer.service.machines()[0]?.state === 'connected');
+    expect(viewer.service.machines().find((m) => m.machineId === hostId)?.state).toBe('connected');
+  });
+
+  it('suspend() says goodbye in both directions, so nothing is left attached', async () => {
+    const host = makeService('host');
+    const viewer = makeService('viewer', { machineId: '11111111-2222-4333-8444-555555555555' });
+    await host.service.setHostMode(true);
+    const code = (await host.service.createInvite()).invite!.code;
+    await viewer.service.addMachine(code);
+    const hostId = host.service.hostStatus().machineId;
+    viewer.service.attach(`link:${hostId}:C:\\remote-repo#1`, 80, 24);
+    await waitFor(() => host.service.hasRemoteViewers());
+
+    viewer.service.suspend();
+    await waitFor(() => !host.service.hasRemoteViewers());
+    expect(host.service.hostStatus().connections).toEqual([]);
+    expect(viewer.service.machines()[0]?.state).not.toBe('connected');
+    // And a resume brings it back, with the watched session re-attached.
+    viewer.service.probe();
+    await waitFor(() => host.service.hasRemoteViewers());
   });
 });
 

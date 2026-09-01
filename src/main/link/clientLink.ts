@@ -16,11 +16,11 @@
  */
 import * as tls from 'node:tls';
 import { dialReasonFor, type DialAttempt } from '../../shared/link/dialReason';
-import { attachConnection, type LinkConnection } from './connection';
+import { attachConnection, type HeartbeatOptions, type LinkConnection } from './connection';
 import { fingerprintsMatch } from './selfSignedCert';
 import { dialOrder, type KnownHost } from './devices';
 import {
-  LINK_PROTOCOL, protocolMatches,
+  LINK_FEATURES, LINK_PROTOCOL, peerSupports, protocolMatches,
   type LinkErrorCode, type LinkMessage, type ReadyMessage,
 } from './protocol';
 import type { LinkIdentity } from './identity';
@@ -54,6 +54,8 @@ export interface ConnectedLink {
   notify(method: string, args: unknown[]): void;
   attach(sessionId: string, cols: number, rows: number): void;
   detach(sessionId: string): void;
+  /** Hang up unless the host answers within `deadlineMs` — see LinkConnection.probe. */
+  probe(deadlineMs: number): void;
   close(reason?: string): void;
   readonly closed: boolean;
 }
@@ -69,6 +71,7 @@ export interface DialOptions {
   /** Per-address connect timeout. Kept short: the point is to fall through to the next candidate. */
   connectTimeoutMs?: number;
   requestTimeoutMs?: number;
+  heartbeat?: HeartbeatOptions;
   onEvent?: (channel: string, payload: unknown) => void;
   onPty?: (sessionId: string, bytes: Buffer) => void;
   onClose?: (reason: string | null) => void;
@@ -149,6 +152,10 @@ function dialOne(address: string, options: DialOptions): Promise<DialResult> {
 
     socket.once('secureConnect', () => {
       clearTimeout(timer);
+      // The OS-level watch: it notices a peer that is gone without a FIN even when the peer is a
+      // build that answers no pings. Terminal traffic is small and latency-bound; do not coalesce it.
+      socket.setKeepAlive(true, 10_000);
+      socket.setNoDelay(true);
       const seen = socket.getPeerX509Certificate()?.fingerprint256 ?? '';
       if (!fingerprintsMatch(options.host.fingerprint, seen)) {
         // Checked before a byte is exchanged. Not retried, not fallen through: a different machine
@@ -185,7 +192,7 @@ function handshake(
       if (!established) done({ ok: false, failure: { kind: 'unreachable', tried: [address], attempts: [{ address, reason: 'other' }], lastError: reason ?? 'closed' } });
       else options.onClose?.(reason);
     },
-  });
+  }, options.heartbeat);
 
   function onMessage(message: LinkMessage): void {
     switch (message.t) {
@@ -202,6 +209,7 @@ function handshake(
           t: 'hello', protocol: LINK_PROTOCOL, appVersion: options.appVersion,
           machineId: options.machineId, machineName: options.machineName,
           wantsPairing: !!options.pairingToken,
+          features: [...LINK_FEATURES],
         });
         // Redeeming an invite is a separate step so an already-paired device never sends a token it
         // does not have, and the host can tell the two cases apart.
@@ -210,6 +218,9 @@ function handshake(
       }
       case 'ready': {
         established = true;
+        // Enforced only against a host that said it answers pings. An older host is watched by TCP
+        // keepalive alone — which is what watched every host before this existed, so nothing regresses.
+        connection.startHeartbeat(peerSupports(message, 'ping'));
         done({ ok: true, link: makeLink(message) });
         return;
       }
@@ -266,6 +277,7 @@ function handshake(
       notify(method, args) { connection.send({ t: 'notify', method, args }); },
       attach(sessionId, cols, rows) { connection.send({ t: 'attach', sessionId, cols, rows }); },
       detach(sessionId) { connection.send({ t: 'detach', sessionId }); },
+      probe(deadlineMs) { connection.probe(deadlineMs); },
       close(reason) { connection.close(reason); },
       get closed() { return connection.closed; },
     };

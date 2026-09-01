@@ -16,6 +16,7 @@ import { dialHost, type ConnectedLink } from './clientLink';
 import { createPairingToken } from './inviteCode';
 import { attachConnection } from './connection';
 import { LINK_PROTOCOL } from './protocol';
+import { makeTokenBucket } from './tokenBucket';
 import { noteHostReached, type KnownHost, type PairedDevice } from './devices';
 import type { LinkIdentity } from './identity';
 import type { LinkPermission } from '../../shared/link/permissions';
@@ -436,6 +437,85 @@ describe('session ids a paired machine may name', () => {
       setTimeout(() => resolve('still open'), 2_000);
     });
     expect(outcome).toMatch(/^(error:protocol-mismatch|closed)$/);
+  });
+});
+
+describe('liveness', () => {
+  const rawClient = (host: HostServer, hello: Record<string, unknown>, onReady: (conn: ReturnType<typeof attachConnection>) => void, answerPings: boolean) =>
+    new Promise<{ closed: boolean }>((resolve) => {
+      const socket = tls.connect({
+        host: '127.0.0.1', port: host.port,
+        key: clientIdentity.keyPem, cert: clientIdentity.certPem,
+        rejectUnauthorized: false, checkServerIdentity: () => undefined, minVersion: 'TLSv1.3',
+      }, () => {
+        const conn = attachConnection(socket, {
+          onMessage: (message) => {
+            if (message.t === 'hello') conn.send({ t: 'hello', protocol: LINK_PROTOCOL, appVersion: '1.34.1', machineId: CLIENT_ID, machineName: 'laptop', ...hello } as never);
+            if (message.t === 'ready') onReady(conn);
+          },
+          onPty: () => undefined,
+          onClose: () => resolve({ closed: true }),
+        }, { idleMs: 60_000, timeoutMs: 180_000, answerPings });
+      });
+      socket.on('error', () => resolve({ closed: true }));
+      setTimeout(() => resolve({ closed: false }), 600);
+    });
+
+  it('drops a paired client that stops answering, and releases what it was watching', async () => {
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions: ['observe', 'control'], pairedAtMs: now, lastSeenMs: null }];
+    const host = await startHost({ heartbeat: { idleMs: 40, timeoutMs: 150 } });
+    let sawAttached = false;
+    const outcome = await rawClient(host, { features: ['ping'] }, (conn) => {
+      conn.send({ t: 'attach', sessionId: 'sess-1', cols: 80, rows: 24 });
+      setTimeout(() => { sawAttached = host.connections[0]?.attachedSessions.includes('sess-1') ?? false; }, 60);
+    }, false);
+    expect(sawAttached).toBe(true);
+    expect(outcome.closed).toBe(true);
+    expect(host.connections).toEqual([]);
+    expect(log.some((l) => l.kind === 'disconnected')).toBe(true);
+  });
+
+  it('keeps a client from a build that predates pings, however silent', async () => {
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions: ['observe'], pairedAtMs: now, lastSeenMs: null }];
+    const host = await startHost({ heartbeat: { idleMs: 40, timeoutMs: 150 } });
+    const outcome = await rawClient(host, {}, () => undefined, false); // no `features`, never answers
+    expect(outcome.closed).toBe(false);
+    expect(host.connections.length).toBe(1);
+  });
+
+  it('a client gives up on a host that answers nothing', async () => {
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions: ['observe'], pairedAtMs: now, lastSeenMs: null }];
+    // The host advertises pings (it is a current build) but its socket is a black hole from here on.
+    const host = await startHost({ heartbeat: { idleMs: 60_000, timeoutMs: 180_000, answerPings: false } });
+    const closed: (string | null)[] = [];
+    const dialed = await connect(host.port, { heartbeat: { idleMs: 40, timeoutMs: 150 }, onClose: (r) => closed.push(r) });
+    if (!dialed.ok) throw new Error('expected a connection');
+    await new Promise((r) => setTimeout(r, 400));
+    expect(dialed.link.closed).toBe(true);
+    expect(closed).toEqual(['heartbeat timeout']);
+  });
+
+  it('a request keeps the link alive as well as a pong would', async () => {
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions: ['observe'], pairedAtMs: now, lastSeenMs: null }];
+    const host = await startHost({ heartbeat: { idleMs: 40, timeoutMs: 150, answerPings: false } });
+    const dialed = await connect(host.port, { heartbeat: { idleMs: 40, timeoutMs: 150 } });
+    if (!dialed.ok) throw new Error('expected a connection');
+    for (let i = 0; i < 6; i++) { await dialed.link.request('projects:list', []); await new Promise((r) => setTimeout(r, 50)); }
+    expect(dialed.link.closed).toBe(false);
+    dialed.link.close();
+  });
+
+  it('pings do not count as the peer using this machine', async () => {
+    let activity = 0;
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions: ['observe'], pairedAtMs: now, lastSeenMs: null }];
+    const host = await startHost({ heartbeat: { idleMs: 30, timeoutMs: 10_000 }, onActivity: () => { activity += 1; } });
+    const dialed = await connect(host.port, { heartbeat: { idleMs: 30, timeoutMs: 10_000 } });
+    if (!dialed.ok) throw new Error('expected a connection');
+    const after = activity;
+    await new Promise((r) => setTimeout(r, 300)); // several pings each way
+    expect(activity).toBe(after);
+    void makeTokenBucket; // keeps the import honest under isolatedModules
+    dialed.link.close();
   });
 });
 

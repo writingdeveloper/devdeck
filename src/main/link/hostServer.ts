@@ -23,13 +23,13 @@ import * as tls from 'node:tls';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { DeckApiBundle } from '../api/deckApi';
 import { mayCallRemotely, sessionIdArgOf } from '../api/methods';
-import { attachConnection, type LinkConnection } from './connection';
+import { attachConnection, type HeartbeatOptions, type LinkConnection } from './connection';
 import { makeTokenBucket, type TokenBucket } from './tokenBucket';
 import { isRemoteId } from '../../shared/link/machine';
 import { fingerprintsMatch } from './selfSignedCert';
 import { findPairedDevice, upsertPairedDevice, type PairedDevice } from './devices';
 import { tokensMatch } from './inviteCode';
-import { LINK_PROTOCOL, protocolMatches, type LinkErrorCode, type LinkMessage } from './protocol';
+import { LINK_FEATURES, LINK_PROTOCOL, peerSupports, protocolMatches, type LinkErrorCode, type LinkMessage } from './protocol';
 import { sanitizeMachineName } from '../../shared/link/machine';
 import { sanitizePermissions, type LinkPermission } from '../../shared/link/permissions';
 import type { LinkIdentity } from './identity';
@@ -93,6 +93,7 @@ export interface HostServerOptions {
   sessionIds: () => string[] | null;
   /** Requests a connection may make: `capacity` at once, refilling at `refillPerMs`. */
   rateLimit?: { capacity: number; refillPerMs: number };
+  heartbeat?: HeartbeatOptions;
 }
 
 export interface HostConnectionInfo {
@@ -109,6 +110,8 @@ export interface HostServer {
   readonly connections: HostConnectionInfo[];
   /** Drop one device's connections (the kill switch in Settings). */
   disconnect(fingerprint: string): void;
+  /** Drop every connection but keep listening — this machine is about to sleep. */
+  disconnectAll(reason: string): void;
   close(): Promise<void>;
 }
 
@@ -154,6 +157,8 @@ interface Session {
   helloSeen: boolean;
   requests: TokenBucket;
   lastRefusalLogMs: number;
+  /** What the client's hello announced it can do. */
+  peerPings: boolean;
 }
 
 export function startHostServer(options: HostServerOptions): Promise<HostServer> {
@@ -208,8 +213,11 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       helloSeen: false,
       requests: makeTokenBucket({ ...(options.rateLimit ?? DEFAULT_RATE_LIMIT), now: options.now }),
       lastRefusalLogMs: 0,
+      peerPings: false,
     };
 
+    socket.setKeepAlive(true, 10_000);
+    socket.setNoDelay(true);
     session.connection = attachConnection(socket, {
       onMessage: (message) => handleMessage(session, message, fingerprint),
       onPty: () => {
@@ -226,7 +234,7 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
         });
         announce();
       },
-    });
+    }, options.heartbeat);
 
     sessions.add(session);
     // An unknown device that connects and then says nothing must not sit here holding a socket. This
@@ -245,6 +253,7 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       appVersion: options.appVersion,
       machineId: options.machineId,
       machineName: options.machineName(),
+      features: [...LINK_FEATURES],
     });
   });
 
@@ -263,6 +272,7 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
           return;
         }
         session.helloSeen = true;
+        session.peerPings = peerSupports(message, 'ping');
         if (session.device) { sendReady(session, fingerprint); return; }
         // Unknown device. It has just told us whether it is about to redeem a code, so the refusal can
         // be the RIGHT one on the first message: a device with no code is simply not paired, while one
@@ -447,7 +457,12 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       // address using the one that still worked.
       addresses: options.addresses(),
       port: options.port,
+      features: [...LINK_FEATURES],
     });
+    // A paired connection that goes silent is now dropped — which is what releases its attached
+    // sessions, and with them this machine's "someone is watching, stay awake". Only enforced against
+    // a client that answers pings; an older one is watched by TCP keepalive, as before.
+    session.connection.startHeartbeat(session.peerPings);
     options.log({ at: options.now(), kind: 'connected', machineName: device.machineName, fingerprint, detail: '' });
     announce();
   }
@@ -513,6 +528,9 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
             for (const session of [...sessions]) {
               if (fingerprintsMatch(session.device?.fingerprint, fingerprint)) session.connection.close('disconnected by host');
             }
+          },
+          disconnectAll(reason: string) {
+            for (const session of [...sessions]) session.connection.close(reason);
           },
           close() {
             unsubscribe();

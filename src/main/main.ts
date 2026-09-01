@@ -278,7 +278,14 @@ if (!gotLock) {
     powerMonitor.on('resume', () => {
       shutdown?.noteBusy();
       toRenderer('devdeck:resume', null);
+      // Every link this machine held across the sleep may be a socket whose other end is long gone.
+      // Ask now, rather than letting a tile that looks connected stay silent until the heartbeat
+      // gives up on it.
+      link?.probe();
     });
+    // And going INTO sleep, say goodbye: peers learn it in one round trip instead of a timeout, and
+    // the sessions viewers held here are released before anything asks whether someone is watching.
+    powerMonitor.on('suspend', () => { link?.suspend(); });
 
     registerUpdater(w);
     globalShortcut.register('Control+Alt+D', showWindow);
