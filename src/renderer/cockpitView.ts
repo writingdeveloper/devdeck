@@ -565,8 +565,32 @@ async function createSession(p: OpenReq): Promise<boolean> {
 /** False once main says GPU acceleration is off (--disable-gpu): software WebGL is not worth having. */
 let webglAllowed = true;
 
+/**
+ * Whether WebGL here is a real GPU. Decided once, synchronously, from the driver's own name: with
+ * GPU acceleration off Chromium still hands out a context, backed by a software rasterizer (WARP's
+ * "Microsoft Basic Render Driver", SwiftShader, llvmpipe) that is no cheaper than DOM rendering and
+ * has crashed the renderer under a resize storm. Asked before the first tile, not after an IPC answer
+ * — a tile made in that gap would be the one on the software path.
+ */
+let hardwareGl: boolean | null = null;
+function hasHardwareGl(): boolean {
+  if (hardwareGl !== null) return hardwareGl;
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
+    if (!gl) { hardwareGl = false; return false; }
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+    hardwareGl = !/basic render driver|swiftshader|llvmpipe|softpipe|software/i.test(name);
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch {
+    hardwareGl = false;
+  }
+  return hardwareGl;
+}
+
 function attachWebgl(term: Terminal): WebglAddon | null {
-  if (!webglAllowed) return null;
+  if (!webglAllowed || !hasHardwareGl()) return null;
   try {
     const addon = new WebglAddon();
     addon.onContextLoss(() => { try { addon.dispose(); } catch { /* already gone */ } });

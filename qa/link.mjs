@@ -9,7 +9,8 @@
 // `npm run qa` — the deck-refresh reconciliation check in that harness reports false failures when
 // another instance is competing for the machine.
 import { _electron as electron } from 'playwright';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { connect as netConnect } from 'node:net';
@@ -17,27 +18,50 @@ import { fileURLToPath } from 'node:url';
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 
-async function launch(tag, registerFolder) {
-  const userData = mkdtempSync(join(tmpdir(), `devdeck-rc-${tag}-`));
+// The project the host serves is a FIXTURE repository, never this checkout. Registering the checkout
+// made the host's "continue" open resume whatever conversation was newest in it — the very Claude
+// session running this harness — and a second agent on a live conversation took the host's Chromium
+// child processes down with it (renderer, GPU, network service, exit code -1, no dump). Bisected
+// across five builds before the pattern showed: every run from a worktree passed, every run from the
+// checkout crashed. A fresh repo has no conversation to continue.
+const fixtureRepo = mkdtempSync(join(tmpdir(), 'devdeck-link-fixture-'));
+writeFileSync(join(fixtureRepo, 'README.md'), '# fixture');
+execFileSync('git', ['init', '-q'], { cwd: fixtureRepo });
+execFileSync('git', ['-c', 'user.email=qa@devdeck', '-c', 'user.name=qa', 'add', '-A'], { cwd: fixtureRepo });
+execFileSync('git', ['-c', 'user.email=qa@devdeck', '-c', 'user.name=qa', 'commit', '-q', '-m', 'fixture'], { cwd: fixtureRepo });
+
+async function launch(tag, registerFolder, reuse = null) {
+  // A relaunch keeps its user-data directory: that is where the machine's identity, its pairings and
+  // its port live, and "the host came back" is only meaningful if it comes back as the same machine.
+  const userData = reuse?.userData ?? mkdtempSync(join(tmpdir(), `devdeck-rc-${tag}-`));
   // Its own temp directory. Both instances run against one filesystem here, so a pasted image landing
   // in the HOST's temp dir is the only thing that distinguishes "the bytes crossed the link and the
   // machine running the agent wrote the file" from "the local paste ran and typed a path that machine
   // cannot read" — which is the whole failure this feature exists to avoid, and it is silent.
-  const temp = mkdtempSync(join(tmpdir(), `devdeck-tmp-${tag}-`));
+  const temp = reuse?.temp ?? mkdtempSync(join(tmpdir(), `devdeck-tmp-${tag}-`));
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${userData}`, '--no-sandbox', '--disable-gpu'],
     cwd: repo,
-    env: { ...process.env, TEMP: temp, TMP: temp, TMPDIR: temp },
+    // A nested agent must not inherit this session's identity, or it writes into the transcript of
+    // the conversation running the harness (the same scrub perf.mjs does).
+    env: { ...process.env, TEMP: temp, TMP: temp, TMPDIR: temp, CLAUDE_CODE_SSE_PORT: '', CLAUDECODE: '', CLAUDE_CODE_ENTRYPOINT: '' },
   });
   const win = await app.firstWindow();
+  // A window that disappears mid-run says WHY, with a time, instead of leaving the next evaluate to
+  // report "target closed" with no hint of which app or which cause.
+  const stamp = () => new Date().toISOString().slice(11, 23);
+  win.on('crash', () => console.error(`[${stamp()}] ${tag}: renderer CRASHED`));
+  win.on('close', () => console.error(`[${stamp()}] ${tag}: window closed`));
+  win.on('pageerror', (e) => console.error(`[${stamp()}] ${tag}: page error ${String(e).slice(0, 200)}`));
+  app.process().on('exit', (code) => console.error(`[${stamp()}] ${tag}: app process exited code=${code}`));
   await win.waitForSelector('#cards .card, #cards .empty', { timeout: 30000 }).catch(() => {});
   if (registerFolder) {
     // addFolder only accepts a directory blessed by the native picker, so drive the real handshake.
-    await app.evaluate(({ dialog }, p) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] }); }, repo);
+    await app.evaluate(({ dialog }, p) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] }); }, fixtureRepo);
     await win.evaluate(async () => window.devdeck.pickFolder());
-    await win.evaluate(async (p) => window.devdeck.addFolder(p, 'repo'), repo);
+    await win.evaluate(async (p) => window.devdeck.addFolder(p, 'repo'), fixtureRepo);
   }
-  return { app, win, temp };
+  return { app, win, temp, userData };
 }
 
 /** A port the OS says is free right now — asked of the OS rather than guessed. */
@@ -128,6 +152,11 @@ try {
   });
   result.adoptedScreenRepainted = await viewer.win.evaluate(() =>
     [...document.querySelectorAll('.ck-term')].some((n) => (n.textContent || '').trim().length > 0));
+  // Under --disable-gpu every tile must be drawing with DOM nodes: a WebGL tile on a software
+  // rasterizer is the one that crashed the host's renderer during the size negotiation below.
+  result.hostTileRenderers = await host.win.evaluate(() => [...document.querySelectorAll('.ck-term')].map((n) => n.dataset.termRenderer ?? '?'));
+  result.viewerTileRenderers = await viewer.win.evaluate(() => [...document.querySelectorAll('.ck-term')].map((n) => n.dataset.termRenderer ?? '?'));
+  result.tilesUseDomWithoutGpu = [...result.hostTileRenderers, ...result.viewerTileRenderers].every((r) => r === 'dom');
 
   // --- and it is a WORKING terminal, not merely a repainted screen ---
   // A tile picked up on connect must carry an id naming the machine that owns it. A bare one routes
@@ -392,6 +421,68 @@ try {
   result.hostConnections = hostStatus.connections.length;
   result.hostSeesAttached = hostStatus.connections[0]?.attachedSessions?.length > 0;
 
+  // --- the host must not reach into a THIRD machine for us, nor into its own login shell ---
+  // A `link:`-qualified id names a session somewhere else; handed to the host's id-routed methods it
+  // would be relayed there with the HOST's credentials. And the host's OAuth login pty is in the same
+  // table, unannounced on purpose. Both are asked for the way a hostile viewer would ask, and both
+  // must come back refused — with the refusal in the host's audit log.
+  const hostDeniedBefore = (await host.win.evaluate(async () => window.devdeck.link.log())).filter((e) => e.kind === 'denied').length;
+  const relay = await viewer.win.evaluate(async () => {
+    const machines = await window.devdeck.link.machines();
+    const connected = machines.find((m) => m.state === 'connected');
+    if (!connected) return { relayed: 'no machine', internal: 'no machine' };
+    const remote = window.devdeck.machine(connected.machineId);
+    const outcome = async (p) => p.then(() => 'served', (e) => `refused: ${String(e && e.message ? e.message : e).slice(0, 60)}`);
+    return {
+      relayed: await outcome(remote.cockpit.sessionBuffer(`link:${connected.machineId}:C:\\nowhere#1`)),
+      internal: await outcome(remote.cockpit.liveAgent('usage-login:claude:1')),
+    };
+  });
+  result.hostRefusesRelayedId = relay.relayed.startsWith('refused');
+  result.hostRefusesInternalSession = relay.internal.startsWith('refused');
+  const hostDeniedAfter = (await host.win.evaluate(async () => window.devdeck.link.log())).filter((e) => e.kind === 'denied').length;
+  result.hostAuditsTheRefusal = hostDeniedAfter > hostDeniedBefore;
+
+  // --- an open the host refuses is explained HERE, not on the host's screen ---
+  const hostToastsBefore = await host.win.evaluate(() => document.querySelectorAll('#toast-host .toast').length);
+  const refusedOpen = await viewer.win.evaluate(async () => {
+    const machines = await window.devdeck.link.machines();
+    const connected = machines.find((m) => m.state === 'connected');
+    if (!connected) return null;
+    return window.devdeck.machine(connected.machineId).cockpit.open({ projectPath: 'C:\\devdeck-qa-not-a-registered-folder', sessionId: null, cols: 80, rows: 24, mode: 'new', agentId: 'claude' });
+  });
+  await host.win.waitForTimeout(300);
+  const hostToastsAfter = await host.win.evaluate(() => document.querySelectorAll('#toast-host .toast').length);
+  result.refusedOpenExplainsItself = refusedOpen !== null && refusedOpen.id === '' && typeof refusedOpen.error === 'string' && refusedOpen.error.length > 0;
+  result.refusedOpenIsQuietOnHost = hostToastsAfter === hostToastsBefore;
+
+  // --- the host turning host mode off and on must not strand the viewer on "refused" ---
+  await host.win.evaluate(async () => window.devdeck.link.setHostMode(false));
+  const refusedDeadline = Date.now() + 15000;
+  let sawNotConnected = false;
+  while (Date.now() < refusedDeadline) {
+    const state = (await viewer.win.evaluate(async () => window.devdeck.link.machines()))[0]?.state;
+    if (state && state !== 'connected') { sawNotConnected = true; break; }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  result.viewerNoticesHostModeOff = sawNotConnected;
+  // While it is down, the row offers a retry — and pressing it must not throw.
+  await viewer.win.click('.rail-item[data-view="settings"]').catch(() => {});
+  await viewer.win.waitForTimeout(600);
+  result.retryChipOffered = await viewer.win.evaluate(() =>
+    [...document.querySelectorAll('.link-row .chip')].some((c) => (c.textContent || '').trim().length > 0 && !c.classList.contains('chip-danger')));
+  await host.win.evaluate(async () => window.devdeck.link.setHostMode(true));
+  await viewer.win.evaluate(async () => { const m = await window.devdeck.link.machines(); if (m[0]) await window.devdeck.link.reconnect(m[0].machineId); });
+  const backDeadline = Date.now() + 15000;
+  let cameBack = false;
+  while (Date.now() < backDeadline) {
+    const state = (await viewer.win.evaluate(async () => window.devdeck.link.machines()))[0]?.state;
+    if (state === 'connected') { cameBack = true; break; }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  result.recoversFromHostModeToggle = cameBack;
+  await viewer.win.click('.rail-item[data-view="cockpit"]').catch(() => {});
+
   // --- the sidebar says which machine a session is on, or two same-named repos are indistinguishable ---
   //
   // A marker inside the row's detail line was not enough: it sat in the same groups as the local
@@ -429,22 +520,51 @@ try {
   result.persistedCarriesMachine = persisted.some((entry) => typeof entry.machineId === 'string' && entry.machineId.length > 10);
 
   // --- the host going away must not wedge the viewer: it reports offline and reconnects on its own ---
+  // Noticed within seconds: a clean quit sends FIN, and the heartbeat is the backstop for one that
+  // does not. Twenty-five seconds was the old allowance; a tile that stays "connected" for a minute
+  // after its machine is gone is the bug the heartbeat was written for.
+  const quitAt = Date.now();
+  const hostProcess = host.app.process(); // taken BEFORE close: a closed app no longer answers for its process
   await closeApp(host.app);
-  await viewer.win.waitForFunction(
-    () => (window.__lastMachines = null, window.devdeck.link.machines().then((m) => { window.__lastMachines = m; })),
-    undefined, { timeout: 5000 },
-  ).catch(() => {});
-  const offlineDeadline = Date.now() + 25000;
+  const offlineDeadline = Date.now() + 8000;
   let offlineState = null;
   while (Date.now() < offlineDeadline) {
     const machines = await viewer.win.evaluate(async () => window.devdeck.link.machines());
     offlineState = machines[0]?.state ?? null;
     if (offlineState !== 'connected') break;
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 250));
   }
   result.stateAfterHostQuit = offlineState;
+  result.msToNoticeHostQuit = Date.now() - quitAt;
   result.viewerSurvivedHostQuit = offlineState !== null && offlineState !== 'connected';
   result.viewerStillAlive = await viewer.win.evaluate(() => document.getElementById('machine-switch') !== null);
+
+  // --- and when the host comes back, the viewer is back on it ---
+  // Relaunched as the SAME machine (same identity, pairings and port). Before the viewer reconnects,
+  // the host must show no viewers at all: a ghost from the previous run is what vetoed idle shutdown.
+  // The old process must be GONE first: the single-instance lock is keyed by the user-data dir, and
+  // a relaunch that beats the old instance's exit loses the lock and quits on the spot.
+  await new Promise((resolve) => {
+    if (hostProcess.exitCode !== null) { resolve(); return; }
+    hostProcess.once('exit', resolve);
+    setTimeout(resolve, 8000);
+  });
+  const hostAgain = await launch('host', false, { userData: host.userData, temp: host.temp });
+  host.app = hostAgain.app; host.win = hostAgain.win;
+  await host.win.waitForTimeout(1500);
+  result.hostRestartsWithNoGhostViewers = (await host.win.evaluate(async () => window.devdeck.link.hostStatus())).connections.length === 0
+    || (await viewer.win.evaluate(async () => window.devdeck.link.machines()))[0]?.state === 'connected';
+  await viewer.win.evaluate(async () => { const m = await window.devdeck.link.machines(); if (m[0]) await window.devdeck.link.reconnect(m[0].machineId); });
+  // Its terminals died with the old process (a restart is not a sleep), so what is owed is the LINK:
+  // the viewer back on the machine, without a person touching Settings.
+  const reconnectDeadline = Date.now() + 20000;
+  let reconnected = false;
+  while (Date.now() < reconnectDeadline) {
+    const state = (await viewer.win.evaluate(async () => window.devdeck.link.machines()))[0]?.state;
+    if (state === 'connected') { reconnected = true; break; }
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  result.reconnectedAfterHostRestart = reconnected;
 } catch (err) {
   result.error = String(err).split('\n').slice(0, 2).join(' | ');
 } finally {
