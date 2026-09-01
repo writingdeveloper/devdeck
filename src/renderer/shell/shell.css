@@ -160,7 +160,11 @@
 .shell-signal.signal-square { border-radius: 1px; background: var(--dd-text-faint); }
 .shell-signal.signal-spinner {
   border: 1.6px solid var(--dd-working); border-right-color: transparent; background: transparent;
-  animation: shell-spin .7s linear infinite;
+  /* Stepped, not smooth. A continuous rotation is composited at the display's refresh rate for as
+     long as it runs — measured at two thirds of the whole app's CPU while one agent worked, more than
+     the terminal it was decorating. Eight steps a cycle reads as the same spinner and costs ten
+     frames a second instead of sixty. */
+  animation: shell-spin .8s steps(8, end) infinite;
 }
 @keyframes shell-spin { to { rotate: 360deg; } }
 @media (prefers-reduced-motion: reduce) {

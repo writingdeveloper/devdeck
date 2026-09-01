@@ -1,5 +1,5 @@
 import { createIcon, type IconName } from './icons';
-import { tr } from './i18n-runtime';
+import { tr, currentLang } from './i18n-runtime';
 import { undoToast } from './loadError';
 import {
   buildSessionGroups,
@@ -383,7 +383,14 @@ export function mountShell(options: {
       const action = entry.dataset.sessionAction as ShellSessionAction;
       const shown = offered.has(action);
       entry.classList.toggle('hidden', !shown);
-      if (shown) entry.replaceChildren(createIcon(actionIcons[action]), document.createTextNode(tr(actionLabels[action])));
+      // The icon and label are rebuilt only when they would read differently. This runs for every row
+      // on every sidebar publish, and a dozen rows times three actions was a few dozen fresh SVG
+      // nodes per second on a deck where nothing had changed.
+      const want = shown ? `${action}:${currentLang()}` : '';
+      if (shown && entry.dataset.rendered !== want) {
+        entry.replaceChildren(createIcon(actionIcons[action]), document.createTextNode(tr(actionLabels[action])));
+        entry.dataset.rendered = want;
+      }
     }
     applyEntityState(row, key);
   };
@@ -486,17 +493,24 @@ export function mountShell(options: {
       const body = section.querySelector<HTMLElement>('.shell-group-body')!;
       body.classList.toggle('hidden', collapsed);
       const cut = rendered.get(group.key)!;
+      // Rows are placed by index, not re-appended: `appendChild` on a node already in place still
+      // moves it, and moving every row of every group on every publish forced a full reflow of the
+      // rail each time an agent's spinner ticked.
+      let position = 0;
       for (const item of cut.shown) {
         const key = shellEntityKey('session', item.id);
         const row = sessionRows.get(key) ?? createSessionRow(key);
         updateSessionRow(row, item, key);
-        body.appendChild(sessionWraps.get(key)!);
+        const wrap = sessionWraps.get(key)!;
+        if (body.children[position] !== wrap) body.insertBefore(wrap, body.children[position] ?? null);
+        position += 1;
       }
       const hidden = cut.hidden;
       const more = section.querySelector<HTMLButtonElement>('.shell-more')!;
       more.classList.toggle('hidden', hidden === 0);
       if (hidden > 0) more.textContent = tr('shell.show_more', { n: hidden });
-      sessionHost.appendChild(section);
+      const at = groups.indexOf(group);
+      if (sessionHost.children[at] !== section) sessionHost.insertBefore(section, sessionHost.children[at] ?? null);
     }
     const visibleGroups = new Set(groups.map((group) => group.key));
     for (const [key, section] of sessionSections) {
@@ -505,7 +519,11 @@ export function mountShell(options: {
     const previousCount = items.filter((item) => item.previous).length;
     restoreAll.classList.toggle('hidden', previousCount === 0);
     restoreAll.disabled = previousCount === 0;
-    restoreAll.replaceChildren(createIcon('restart'), document.createTextNode(`${tr('cockpit.restore_all')} · ${previousCount}`));
+    const restoreText = `${tr('cockpit.restore_all')} · ${previousCount}`;
+    if (restoreAll.dataset.rendered !== restoreText) {
+      restoreAll.replaceChildren(createIcon('restart'), document.createTextNode(restoreText));
+      restoreAll.dataset.rendered = restoreText;
+    }
     updateMobileToggle();
     renderCollapsedStatus();
     applyProjectActivity(); // session state changed → the project rows' inherited marks follow
@@ -562,7 +580,12 @@ export function mountShell(options: {
       const state = activity.get(row.dataset.projectPath ?? '') ?? null;
       const signal = row.querySelector<HTMLElement>('.shell-signal');
       if (!signal) continue;
-      signal.className = `shell-signal ${state === 'attention' ? 'signal-diamond' : state === 'working' ? 'signal-spinner' : 'signal-blank'}`;
+      const className = `shell-signal ${state === 'attention' ? 'signal-diamond' : state === 'working' ? 'signal-spinner' : 'signal-blank'}`;
+      // Written only on change: forty project rows re-labelled per publish is forty attribute
+      // mutations the accessibility tree has to absorb, for a state that moves once a minute.
+      if (signal.className === className && row.dataset.activityLang === currentLang()) continue;
+      row.dataset.activityLang = currentLang();
+      signal.className = className;
       const label = state ? `${row.dataset.projectName ?? ''}, ${tr(state === 'attention' ? 'shell.needs_you' : 'shell.working')}` : row.dataset.projectName ?? '';
       row.setAttribute('aria-label', label);
       // The path is what disambiguates two repos with the same folder name, and it never fits the row.
@@ -844,7 +867,14 @@ export function mountShell(options: {
       if (!available) closeMobileDrawer();
       document.querySelector<HTMLElement>('.rail-item[data-view="cockpit"]')?.classList.toggle('hidden', !available);
     },
-    setSessionGroups: (items) => { sessions = [...items]; renderSessions(sessions); applyQuery(); },
+    setSessionGroups: (items) => {
+      sessions = [...items];
+      renderSessions(sessions);
+      // The result list is rebuilt only while a query is being typed — and then WITHOUT resetting the
+      // row the person had arrowed to. Sessions publish about once a second while any agent is busy,
+      // and each publish used to put the highlight back on the first result mid-navigation.
+      if (quickOpen.value.trim()) { const keep = quickIndex; applyQuery(); highlightQuickResult(keep); }
+    },
     setProjects: (items) => { projects = [...items]; renderProjects(projects); applyQuery(); },
     setActiveProject: (path) => {
       if (path != null) revealProject(path);

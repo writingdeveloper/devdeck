@@ -592,7 +592,7 @@ button.primary:hover { background: var(--accent-hover); }
 .rail-badge.hidden { display: none; }
 .ck-ind { width: 16px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
 .ck-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neutral); }
-.ck-spin { width: 10px; height: 10px; border: 1.6px solid #3fb950; border-right-color: transparent; border-radius: 50%; animation: ck-spin .7s linear infinite; }
+.ck-spin { width: 10px; height: 10px; border: 1.6px solid #3fb950; border-right-color: transparent; border-radius: 50%; animation: ck-spin .8s steps(8, end) infinite; } /* stepped for the same reason as .shell-signal.signal-spinner */
 @keyframes ck-spin { to { transform: rotate(360deg); } }
 .ck-row.act-turn .ck-dot { background: var(--accent); }
 .ck-row.act-idle .ck-dot { background: var(--neutral); opacity: .55; }

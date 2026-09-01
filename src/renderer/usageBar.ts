@@ -31,7 +31,14 @@ export function mountUsageBar(): void {
     .then((s) => { if (s) { snapshot = s; render(); } })
     .catch(() => { /* first paint just waits for the refresh */ })
     .finally(() => { void refreshUsageBar(); });
-  window.addEventListener('focus', () => { void refreshUsageBar(); });
+  // Alt-tabbing back is not a reason to ask every provider again if the last answer is seconds old:
+  // the deck already throttles its own focus refresh to ten seconds, and the footer follows suit.
+  let lastFocusRefresh = 0;
+  window.addEventListener('focus', () => {
+    if (Date.now() - lastFocusRefresh < 10_000) return;
+    lastFocusRefresh = Date.now();
+    void refreshUsageBar();
+  });
   // Waking from sleep: the reading on screen was taken before the clock jumped, and it was taken
   // while the network was down. Ask again now rather than leaving a number that could be a whole
   // night old sitting there until the poll comes round.

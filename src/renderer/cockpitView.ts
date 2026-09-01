@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { activityOrderStamp, filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
 import type { ShellSessionAction, ShellSessionGroup, ShellSessionInput } from '../shared/shellNavigation';
 import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
@@ -29,6 +30,8 @@ type SessionMetaView = { model: string | null; activeMs: number; contextTokens: 
 interface Live {
   /** The machine this tile's terminal actually runs on. */ machineId: string;
   tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement;
+  /** The GPU renderer, when the machine could give us one; null means xterm is drawing with DOM nodes. */
+  webgl: WebglAddon | null;
   lastDataAt: number; lastInputAt: number; recentOutput: string;
   openedSessionId: string | null; openedAt: number; idCheckAt: number;
   customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number;
@@ -548,6 +551,27 @@ async function createSession(p: OpenReq): Promise<boolean> {
   return onMachineQueue(p.machineId ?? LOCAL_MACHINE_ID, () => buildTile(p));
 }
 
+/**
+ * Draw with the GPU when there is one.
+ *
+ * xterm's default renderer is DOM nodes: every cell that changes is an element restyled, and a TUI
+ * that redraws its whole screen on every spinner frame keeps the layout engine and the compositor
+ * busy for as long as an agent is thinking. Measured on the reporting machine: one idle tile cost the
+ * GPU process ~9% and the renderer ~6% of a core, all day. The WebGL addon draws the same cells as
+ * textured quads. It is loaded after `open()` (it needs the element) and dropped — back to DOM,
+ * automatically — if the context is ever lost, so a machine without usable WebGL is exactly as it was.
+ */
+function attachWebgl(term: Terminal): WebglAddon | null {
+  try {
+    const addon = new WebglAddon();
+    addon.onContextLoss(() => { try { addon.dispose(); } catch { /* already gone */ } });
+    term.loadAddon(addon);
+    return addon;
+  } catch {
+    return null; // no WebGL here (software GL disabled, remote desktop, an old GPU): the DOM renderer stays
+  }
+}
+
 async function buildTile(p: OpenReq): Promise<boolean> {
   // Before any DOM: xterm has to be told, at construction, whether its pty is a Windows one, and
   // that is a fact about the machine the session runs on (see ptyCompatFor).
@@ -560,8 +584,12 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   // exactly the one that must not be left showing, and the map can no longer reach it.
   hideAllTerminals();
   el.classList.add('show');
-  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: true, windowsPty });
+  // No cursor blink: it is a repaint twice a second per visible terminal for the life of the app,
+  // and the spinner beside the input already says whether the agent is busy.
+  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: false, windowsPty });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
+  const webgl = attachWebgl(term);
+  el.dataset.termRenderer = webgl ? 'webgl' : 'dom'; // which renderer this tile got — read by the perf harness and by anyone debugging a slow machine
   // The size this terminal is actually drawing at. Written on every resize because a pty is shared:
   // when two machines watch one session, "do both terminals agree with the pty" is the whole
   // question, and it cannot be read back off the screen — a row of text is as long as its content.
@@ -723,7 +751,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   const displaced = live.get(res.id);
   if (displaced && displaced.el !== el) { displaced.el.remove(); displaced.term.dispose(); }
   live.set(res.id, {
-    machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el,
+    machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, webgl,
     lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '',
     openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(),
     customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now(),
@@ -1342,10 +1370,12 @@ function renderList(): void {
   const labels = numberCollidingNames(union);
   liveLabels = new Map(liveLive.map((l, i) => [l.session.id, labels[i]]));
   const prevLabels = prev.map((_r, i) => labels[liveLive.length + i]);
-  publishCockpitNavigation();
 
   // Skip the full DOM rebuild when nothing the list shows has changed (this runs on every 1s activity
   // tick + per-session meta/git refresh, so most calls become no-ops once the deck settles).
+  // The sidebar is published from BEHIND this gate too: everything it shows is in the signature, so
+  // an unchanged signature is an unchanged sidebar, and rebuilding its item list to find that out
+  // was the single largest thing this function did on a quiet deck.
   const sig = cockpitListSignature(
     liveLive.map((l) => ({
       id: l.session.id, activity: l.session.activity, label: liveLabels.get(l.session.id) ?? '', dirty: l.session.dirty,
@@ -1358,6 +1388,7 @@ function renderList(): void {
   ) + `\nedit:${editingId ?? ''}`; // a row being renamed becomes an <input> — also part of what the list renders
   if (sig === lastListSig) return;
   lastListSig = sig;
+  publishCockpitNavigation();
 
   // #ck-empty and the "+ New session" label live in the terminal pane and are still shown; the group
   // list below is the hidden compatibility surface (features/cockpit/cockpit.css) that the shared shell
@@ -1778,7 +1809,7 @@ async function requestClose(id: string): Promise<void> {
 function closeSession(id: string): void {
   const l = live.get(id); if (!l) return;
   window.devdeck.cockpit.close(id);
-  l.term.dispose(); l.el.remove(); live.delete(id); updateRailBadge();
+  l.webgl?.dispose(); l.term.dispose(); l.el.remove(); live.delete(id); updateRailBadge();
   persist(); // close = forget (the closed session drops out of persistence)
   if (selectedId === id) {
     const next = [...live.keys()][0] ?? null;
