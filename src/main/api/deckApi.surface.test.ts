@@ -12,7 +12,7 @@ vi.mock('electron', () => ({
 }));
 
 import { createDeckApi, type DeckApiConfig } from './deckApi';
-import { mayCallRemotely, type DeckApi, type LinkPermission } from './methods';
+import { mayCallRemotely, sessionIdArgOf, type DeckApi, type LinkPermission } from './methods';
 import type { EventHub } from './events';
 
 const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
@@ -128,6 +128,29 @@ describe('remote exposure policy', () => {
   it('does not route the viewer\'s own window, clipboard and tile list to another machine', () => {
     for (const name of ['win:minimize', 'win:close', 'win:isMaximized', 'clipboard:readText',
       'clipboard:writeText', 'cockpit:loadSessions', 'cockpit:saveSessions', 'tray:counts']) {
+      expect(api[name]?.remote.remote, name).toBe('local');
+    }
+  });
+
+  it('declares the session-id argument on every method that routes by one', () => {
+    // The host validates that argument before dispatch: a `link:`-qualified id from a paired machine
+    // is a request to relay into a third machine, and an unannounced id is the OAuth login shell.
+    // A method that routes by id without declaring it would skip both checks.
+    for (const name of ['cockpit:input', 'cockpit:resize', 'cockpit:close', 'cockpit:noteLabel',
+      'cockpit:sessionBuffer', 'cockpit:sessionScreen', 'cockpit:liveAgent']) {
+      expect(sessionIdArgOf(api[name]), name).toBe(0);
+    }
+  });
+
+  it('never opens a window on this desktop for a caller who is not in front of it', () => {
+    for (const name of ['projects:open', 'project:openFolder', 'project:openEditor', 'cockpit:openFile']) {
+      expect(api[name]?.remote.remote, name).toBe('blocked');
+    }
+  });
+
+  it('keeps this deck\'s own presentation settings out of a paired machine\'s reach', () => {
+    for (const name of ['settings:setAgent', 'settings:setContextWindow', 'settings:setThresholds',
+      'settings:setSessionSummary', 'settings:setAiSessionSummary']) {
       expect(api[name]?.remote.remote, name).toBe('local');
     }
   });

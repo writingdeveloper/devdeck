@@ -20,9 +20,12 @@
  * activity would leak to a device that never asked to watch it.
  */
 import * as tls from 'node:tls';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { DeckApiBundle } from '../api/deckApi';
-import { mayCallRemotely } from '../api/methods';
+import { mayCallRemotely, sessionIdArgOf } from '../api/methods';
 import { attachConnection, type LinkConnection } from './connection';
+import { makeTokenBucket, type TokenBucket } from './tokenBucket';
+import { isRemoteId } from '../../shared/link/machine';
 import { fingerprintsMatch } from './selfSignedCert';
 import { findPairedDevice, upsertPairedDevice, type PairedDevice } from './devices';
 import { tokensMatch } from './inviteCode';
@@ -30,6 +33,17 @@ import { LINK_PROTOCOL, protocolMatches, type LinkErrorCode, type LinkMessage } 
 import { sanitizeMachineName } from '../../shared/link/machine';
 import { sanitizePermissions, type LinkPermission } from '../../shared/link/permissions';
 import type { LinkIdentity } from './identity';
+
+/**
+ * Set for the duration of any handler run on behalf of a PAIRED MACHINE, and unset for the local
+ * renderer's calls. The handlers that route by session id consult it: a `link:`-qualified id arriving
+ * from over the link is a request to relay into a third machine, and is refused there as well as at
+ * the dispatch check below — two independent gates for the one thing this host must never do.
+ */
+export const remoteCallContext = new AsyncLocalStorage<'remote'>();
+
+/** True while the current call chain was started by a paired machine rather than this one's renderer. */
+export function calledFromRemote(): boolean { return remoteCallContext.getStore() === 'remote'; }
 
 /** An invite the person generated on this machine and has not spent yet. */
 export interface ActiveInvite {
@@ -71,6 +85,14 @@ export interface HostServerOptions {
   /** Called for every request a paired device makes — this machine is in use, even with no terminal
    *  attached and nobody at the keyboard. See handleMessage. */
   onActivity?: () => void;
+  /**
+   * The ids of the sessions this machine is running and announcing — what a session-id argument or
+   * an attach may name. `null` means the caller cannot say (tests, a build without a pty host); the
+   * membership check is skipped then, and only the shape check remains.
+   */
+  sessionIds: () => string[] | null;
+  /** Requests a connection may make: `capacity` at once, refilling at `refillPerMs`. */
+  rateLimit?: { capacity: number; refillPerMs: number };
 }
 
 export interface HostConnectionInfo {
@@ -110,6 +132,18 @@ const MAX_BACKLOG_BYTES = 4 * 1024 * 1024;
  */
 const UNAUTHENTICATED_GRACE_MS = 10_000;
 
+/**
+ * Sessions one connection may watch at once. A viewer has one deck and a bounded number of tiles;
+ * the set is otherwise grown by any `attach` frame a paired device cares to send, forever.
+ */
+const MAX_ATTACHED_PER_CONNECTION = 64;
+
+/** Sixty requests in hand, six a second after that — a deck refresh is a handful, a runaway loop is not. */
+const DEFAULT_RATE_LIMIT = { capacity: 60, refillPerMs: 6 / 1000 };
+
+/** A refusal is logged at most this often per connection, so the limiter cannot itself fill the log. */
+const REFUSAL_LOG_INTERVAL_MS = 10_000;
+
 interface Session {
   connection: LinkConnection;
   unauthenticatedTimer?: NodeJS.Timeout;
@@ -118,6 +152,8 @@ interface Session {
   connectedAtMs: number;
   pairAttempts: number;
   helloSeen: boolean;
+  requests: TokenBucket;
+  lastRefusalLogMs: number;
 }
 
 export function startHostServer(options: HostServerOptions): Promise<HostServer> {
@@ -170,6 +206,8 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       connectedAtMs: options.now(),
       pairAttempts: 0,
       helloSeen: false,
+      requests: makeTokenBucket({ ...(options.rateLimit ?? DEFAULT_RATE_LIMIT), now: options.now }),
+      lastRefusalLogMs: 0,
     };
 
     session.connection = attachConnection(socket, {
@@ -243,7 +281,9 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
         return;
       }
       case 'req': {
+        if (!session.helloSeen) { fail(session, 'protocol-mismatch', 'request before hello'); return; }
         const method = options.api.methods[message.method];
+        const args = Array.isArray(message.args) ? message.args : [];
         if (!authorized(session, message.method)) {
           session.connection.send({
             t: 'res', id: message.id, ok: false,
@@ -253,29 +293,53 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
           denied(session, fingerprint, message.method);
           return;
         }
-        void Promise.resolve()
-          .then(() => method.handler(...(Array.isArray(message.args) ? message.args : [])))
+        if (!sessionArgAllowed(session, fingerprint, message.method, args)) {
+          session.connection.send({ t: 'res', id: message.id, ok: false, code: 'permission-denied', error: `not a session on this machine: ${message.method}` });
+          return;
+        }
+        if (!session.requests.take()) {
+          session.connection.send({ t: 'res', id: message.id, ok: false, code: 'rate-limited', error: `too many requests: ${message.method}` });
+          deniedThrottled(session, fingerprint, `rate-limited:${message.method}`);
+          return;
+        }
+        // The whole chain runs inside the remote context, so a handler that routes by id can tell it
+        // is answering another machine and refuse to forward. `run` must wrap the promise chain, not
+        // just the first call, or the store is gone by the time an async handler continues.
+        void remoteCallContext.run('remote', () => Promise.resolve()
+          .then(() => method.handler(...args))
           .then(
             (value) => session.connection.send({ t: 'res', id: message.id, ok: true, value: value ?? null }),
             (err: unknown) => session.connection.send({
               t: 'res', id: message.id, ok: false, code: 'method-not-available',
               error: err instanceof Error ? err.message : String(err),
             }),
-          );
+          ));
         return;
       }
       case 'notify': {
+        if (!session.helloSeen) { fail(session, 'protocol-mismatch', 'request before hello'); return; }
+        const args = Array.isArray(message.args) ? message.args : [];
         if (!authorized(session, message.method)) { denied(session, fingerprint, message.method); return; }
+        if (!sessionArgAllowed(session, fingerprint, message.method, args)) return;
+        // Not rate-limited: these are keystrokes and resizes, bursty by nature, and a dropped keystroke
+        // is worse than a slow scan. The output backlog guard below bounds what they can cost.
         try {
-          options.api.methods[message.method].handler(...(Array.isArray(message.args) ? message.args : []));
+          remoteCallContext.run('remote', () => { options.api.methods[message.method].handler(...args); });
         } catch { /* a fire-and-forget call has nowhere to report to; the global trap logs it */ }
         return;
       }
       case 'attach': {
+        if (!session.helloSeen) { fail(session, 'protocol-mismatch', 'request before hello'); return; }
         // Watching a session's output is reading it, and resizing it is driving it — so attach needs
         // both, and asks through the same methods a local viewer would.
         if (!authorized(session, 'cockpit:resize')) { denied(session, fingerprint, 'attach'); return; }
-        session.attached.add(String(message.sessionId));
+        const sessionId = message.sessionId;
+        if (!isLocalSessionId(sessionId)) { deniedThrottled(session, fingerprint, `attach:${String(sessionId).slice(0, 80)}`); return; }
+        if (!session.attached.has(sessionId) && session.attached.size >= MAX_ATTACHED_PER_CONNECTION) {
+          deniedThrottled(session, fingerprint, 'attach:too-many');
+          return;
+        }
+        session.attached.add(sessionId);
         announce();
         return;
       }
@@ -294,11 +358,43 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
     return mayCallRemotely(options.api.methods[methodName], session.device.permissions);
   }
 
+  /**
+   * A session id a paired machine may name: a bare id (never `link:`-qualified — that would name a
+   * session on a THIRD machine and ask this one to relay) of a session this machine announces.
+   * Everything this machine runs but does not announce (its own OAuth login shell) is unreachable by
+   * construction, whatever the caller holds.
+   */
+  function isLocalSessionId(id: unknown): id is string {
+    if (typeof id !== 'string' || !id || id.length > 512 || isRemoteId(id)) return false;
+    const known = options.sessionIds();
+    return known === null || known.includes(id);
+  }
+
+  /** The session-id argument check for a method that declares one; refusals are audited. */
+  function sessionArgAllowed(session: Session, fingerprint: string, methodName: string, args: unknown[]): boolean {
+    const index = sessionIdArgOf(options.api.methods[methodName]);
+    if (index === null) return true;
+    if (isLocalSessionId(args[index])) return true;
+    deniedThrottled(session, fingerprint, `${methodName}:${String(args[index]).slice(0, 80)}`);
+    return false;
+  }
+
   function denied(session: Session, fingerprint: string, methodName: string): void {
     options.log({
       at: options.now(), kind: 'denied',
       machineName: session.device?.machineName ?? '', fingerprint, detail: methodName,
     });
+  }
+
+  /**
+   * `denied`, at most once per interval per connection. A keystroke aimed at a session that just
+   * exited, or a viewer over its request budget, would otherwise write a log row per attempt.
+   */
+  function deniedThrottled(session: Session, fingerprint: string, detail: string): void {
+    const t = options.now();
+    if (t - session.lastRefusalLogMs < REFUSAL_LOG_INTERVAL_MS) return;
+    session.lastRefusalLogMs = t;
+    denied(session, fingerprint, detail);
   }
 
   function pair(session: Session, token: unknown, fingerprint: string): void {

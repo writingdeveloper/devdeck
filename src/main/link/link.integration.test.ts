@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as tls from 'node:tls';
-import { makeMethodTable, allow, blocked, localOnly, type DeckApi } from '../api/methods';
+import { makeMethodTable, allow, allowSession, blocked, localOnly, type DeckApi } from '../api/methods';
 import { makeEventHub, type EventHub } from '../api/events';
 import type { DeckApiBundle } from '../api/deckApi';
 import { generateMachineCertificate } from './selfSignedCert';
@@ -37,6 +37,8 @@ let log: HostLogEntry[];
 let events: EventHub;
 let methods: DeckApi;
 let openedProjects: string[];
+let typed: { id: string; data: string }[];
+let liveSessionIds: string[] | null;
 let now: number;
 
 function buildApi(): DeckApiBundle {
@@ -47,8 +49,10 @@ function buildApi(): DeckApiBundle {
     openedProjects.push(req.projectPath);
     return { id: 'sess-1', sessionId: 'abc' };
   });
-  table.send('cockpit:input', allow('control'), () => undefined);
-  table.send('cockpit:resize', allow('control'), () => undefined);
+  typed = [];
+  table.send('cockpit:input', allowSession('control'), (id: string, data: string) => { typed.push({ id, data }); });
+  table.send('cockpit:resize', allowSession('control'), () => undefined);
+  table.invoke('cockpit:sessionBuffer', allowSession('control'), (id: string) => `screen of ${id}`);
   table.invoke('boom', allow('observe'), () => { throw new Error('handler exploded'); });
   table.invoke('settings:addFolder', blocked('native picker only'), () => ['C:\\anything']);
   table.invoke('win:close', localOnly, () => undefined);
@@ -74,6 +78,7 @@ async function startHost(over: Partial<Parameters<typeof startHostServer>[0]> = 
     addresses: () => ['127.0.0.1', 'SIHYEONG-MAIN'],
     now: () => now,
     log: (entry) => { log.push(entry); },
+    sessionIds: () => liveSessionIds,
     ...over,
   });
   server = started;
@@ -108,6 +113,7 @@ beforeEach(() => {
   paired = [];
   invite = null;
   log = [];
+  liveSessionIds = ['sess-1', 'sess-2', 's'];
   now = 1_756_000_000_000;
   server = null;
 });
@@ -332,6 +338,104 @@ describe('terminal streaming', () => {
     });
 
     expect(outcome).toMatch(/^(error:method-not-available|closed)$/);
+  });
+});
+
+describe('session ids a paired machine may name', () => {
+  const controller = async (permissions: LinkPermission[] = ['observe', 'control']) => {
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions, pairedAtMs: now, lastSeenMs: null }];
+    const host = await startHost();
+    const dialed = await connect(host.port);
+    if (!dialed.ok) throw new Error('expected a connection');
+    return { link: dialed.link, host };
+  };
+
+  it('refuses to relay a call aimed at a THIRD machine', async () => {
+    // A `link:`-qualified id names a session on some other machine this host is paired with. Handing
+    // it to the id-routed handlers would make this machine type into that one with its own
+    // credentials, on behalf of a caller that was never paired there.
+    const { link } = await controller();
+    const relayed = 'link:11111111-2222-4333-8444-555555555555:sess-9';
+    await expect(link.request('cockpit:sessionBuffer', [relayed])).rejects.toThrow(/not a session on this machine/);
+    link.notify('cockpit:input', [relayed, 'rm -rf /\r']);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(typed).toEqual([]);
+    expect(log.some((l) => l.kind === 'denied' && l.detail.startsWith('cockpit:sessionBuffer:link:'))).toBe(true);
+    link.close();
+  });
+
+  it('keeps sessions this machine does not announce out of reach', async () => {
+    // The OAuth login shell runs in the same pty table but is never announced; a device holding
+    // `control` could otherwise read the login screen, type into it and kill it.
+    const { link } = await controller();
+    await expect(link.request('cockpit:sessionBuffer', ['usage-login:claude:7'])).rejects.toThrow(/not a session on this machine/);
+    link.notify('cockpit:input', ['usage-login:claude:7', 'x']);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(typed).toEqual([]);
+    link.close();
+  });
+
+  it('serves a bare id of a session it does announce', async () => {
+    const { link } = await controller();
+    await expect(link.request('cockpit:sessionBuffer', ['sess-1'])).resolves.toBe('screen of sess-1');
+    link.notify('cockpit:input', ['sess-1', 'ls\r']);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(typed).toEqual([{ id: 'sess-1', data: 'ls\r' }]);
+    link.close();
+  });
+
+  it('records an attach only for an announced session, and only so many of them', async () => {
+    liveSessionIds = Array.from({ length: 100 }, (_, i) => `sess-${i}`);
+    const { link, host } = await controller();
+    link.attach('link:11111111-2222-4333-8444-555555555555:sess-1', 80, 24);
+    link.attach('not-running', 80, 24);
+    for (let i = 0; i < 100; i++) link.attach(`sess-${i}`, 80, 24);
+    await new Promise((r) => setTimeout(r, 120));
+    const attached = host.connections[0]?.attachedSessions ?? [];
+    expect(attached.length).toBe(64);
+    expect(attached.some((id) => id.startsWith('link:') || id === 'not-running')).toBe(false);
+    link.close();
+  });
+
+  it('slows a device that asks too much, without dropping it', async () => {
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions: ['observe'], pairedAtMs: now, lastSeenMs: null }];
+    const host = await startHost({ rateLimit: { capacity: 3, refillPerMs: 0 } });
+    const dialed = await connect(host.port);
+    if (!dialed.ok) throw new Error('expected a connection');
+    const link = dialed.link;
+    await link.request('projects:list', []);
+    await link.request('projects:list', []);
+    await link.request('projects:list', []);
+    await expect(link.request('projects:list', [])).rejects.toThrow(/too many requests/);
+    expect(link.closed).toBe(false);
+    expect(log.filter((l) => l.kind === 'denied' && l.detail.startsWith('rate-limited')).length).toBe(1);
+    link.close();
+  });
+
+  it('answers nothing before hello', async () => {
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions: ['observe'], pairedAtMs: now, lastSeenMs: null }];
+    const host = await startHost();
+    const outcome = await new Promise<string>((resolve) => {
+      const socket = tls.connect({
+        host: '127.0.0.1', port: host.port,
+        key: clientIdentity.keyPem, cert: clientIdentity.certPem,
+        rejectUnauthorized: false, checkServerIdentity: () => undefined, minVersion: 'TLSv1.3',
+      }, () => {
+        const conn = attachConnection(socket, {
+          onMessage: (message) => {
+            // Skip hello on purpose: a client that never states its protocol must not be served.
+            if (message.t === 'hello') conn.send({ t: 'req', id: 1, method: 'projects:list', args: [] });
+            if (message.t === 'res') resolve('served');
+            if (message.t === 'error') resolve(`error:${message.code}`);
+          },
+          onPty: () => resolve('pty'),
+          onClose: () => resolve('closed'),
+        });
+      });
+      socket.on('error', () => resolve('closed'));
+      setTimeout(() => resolve('still open'), 2_000);
+    });
+    expect(outcome).toMatch(/^(error:protocol-mismatch|closed)$/);
   });
 });
 

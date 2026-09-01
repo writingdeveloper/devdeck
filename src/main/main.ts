@@ -46,6 +46,9 @@ const realSpawn: PtySpawn = (file, args, opts) => {
 const ptyHost = new PtyHost(realSpawn);
 
 let win: BrowserWindow | null = null;
+
+/** Event channels a paired machine's pushes are allowed to reach this window on. */
+const REMOTE_EVENT_CHANNELS = new Set(['cockpit:data', 'cockpit:exit', 'cockpit:resized', 'link:sessions', 'link:error']);
 // Module-scoped so the quit handler can shut the link down; assigned once the app is ready.
 let linkService: LinkService | null = null;
 
@@ -236,9 +239,14 @@ if (!gotLock) {
       // Remote output goes STRAIGHT to this window rather than through the API's event hub. The hub
       // is this machine's own output, and republishing another machine's bytes into it would offer
       // them onward to anyone viewing THIS machine.
-      onRemoteEvent: (channel, payload) => toRenderer(channel, payload),
+      // And only the channels a host is expected to push. Anything else arriving as an event —
+      // `devdeck:error`, `devdeck:update`, `shutdown:status` — would land on the renderer under that
+      // name as if this machine had produced it.
+      onRemoteEvent: (channel, payload) => { if (REMOTE_EVENT_CHANNELS.has(channel)) toRenderer(channel, payload); },
       onRemotePty: (id, bytes) => toRenderer('cockpit:data', { id, chunk: bytes.toString('utf8') }),
       onRemoteActivity: () => shutdown?.noteBusy(),
+      // What a paired machine may name: the sessions this machine announces, and nothing it does not.
+      liveSessionIds: () => ptyHost.list().map((s) => s.id),
     });
     linkService = link;
 

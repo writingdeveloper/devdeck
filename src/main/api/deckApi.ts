@@ -48,7 +48,9 @@ import { pendingBootBanner } from '../shutdownScheduler';
 import { emptyProjectMemory, makeProjectMemoryService } from '../projectMemory';
 import type { ShutdownLog } from '../shutdownLog';
 import type { ShutdownSessionSummary } from '../../shared/shutdownIdle';
-import { allow, blocked, localOnly, makeMethodTable, type DeckApi } from './methods';
+import { allow, allowSession, blocked, localOnly, makeMethodTable, type DeckApi } from './methods';
+import { calledFromRemote } from '../link/hostServer';
+import { usageInFlightKey } from '../../shared/usageInFlightKey';
 import type { DiagnosticsLog } from '../diagnostics';
 import type { LinkService } from '../link/linkService';
 import { isRemoteId, parseRemoteId, qualifyRemoteId } from '../../shared/link/machine';
@@ -253,7 +255,11 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
 
   invoke('usage:report', allow('observe'), async (sinceMs: number) => {
     const ms = (Number.isFinite(sinceMs) || sinceMs === Infinity) ? sinceMs : 0;
-    const key = String(ms);
+    // Keyed by DAY, not by the exact millisecond: the usage view asks for `now - N days`, a value that
+    // is different on every call, so keying on it shared nothing — the deck's scan and the usage
+    // view's ran side by side, each walking the whole store. Two asks for the same range on the same
+    // day are the same question.
+    const key = usageInFlightKey(ms);
     const running = usageInFlight.get(key);
     if (running) return running;
     const started = buildUsageReport(ms);
@@ -283,7 +289,11 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   invoke('settings:setLanguage', localOnly, (lang: string) => cfg.store.setLanguage(lang));
   invoke('settings:getAgent', allow('observe'), () => activeAgent());
   invoke('settings:availableAgents', allow('observe'), () => availableAgents());
-  invoke('settings:setAgent', allow('write'), (id: string) => {
+  // What this deck shows and how — the selected provider, the context window it assumes, the staleness
+  // thresholds, the summary lines — belongs to the person sitting at THIS machine. A viewer's own
+  // settings screen stays local (see machineDeck.ts), so nothing ever calls these over the link; a
+  // remote policy on them was a way for a paired device to rewrite the host's preferences unasked.
+  invoke('settings:setAgent', localOnly, (id: string) => {
     if (id === 'claude' || id === 'antigravity' || id === 'codex') cfg.store.setAgent(id);
   });
 
@@ -295,13 +305,13 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     cockpitSidebarCollapsed: cfg.store.getCockpitSidebarCollapsed(),
     sessionSummary: cfg.store.getSessionSummary(), aiSessionSummary: cfg.store.getAiSessionSummary(),
   }));
-  invoke('settings:setSessionSummary', allow('write'), (on: boolean) => cfg.store.setSessionSummary(on === true));
-  invoke('settings:setAiSessionSummary', allow('write'), (on: boolean) => {
+  invoke('settings:setSessionSummary', localOnly, (on: boolean) => cfg.store.setSessionSummary(on === true));
+  invoke('settings:setAiSessionSummary', localOnly, (on: boolean) => {
     cfg.store.setAiSessionSummary(on === true);
     aiSummarizer.setEnabled(on === true); // takes effect on the next meta refresh, no restart
   });
   invoke('settings:setCockpitSidebar', localOnly, (collapsed: boolean) => cfg.store.setCockpitSidebarCollapsed(collapsed)); // store setter owns the strict-boolean coercion
-  invoke('settings:setContextWindow', allow('write'), (w: number) => cfg.store.setContextWindow(w === 200_000 ? 200_000 : 1_000_000));
+  invoke('settings:setContextWindow', localOnly, (w: number) => cfg.store.setContextWindow(w === 200_000 ? 200_000 : 1_000_000));
   invoke('settings:setTrayAlert', localOnly, (mode: string) => {
     cfg.store.setTrayAlert(mode === 'off' || mode === 'all' ? mode : 'attention');
     cfg.tray.applyCounts(lastTrayCounts, cfg.store.getTrayAlert()); // re-apply immediately with the latest counts
@@ -365,7 +375,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     cfg.store.removeFolder(String(p).slice(0, 2000));
     return effFolders();
   });
-  invoke('settings:setThresholds', allow('write'), (t: { freshDays: number; warnDays: number; neglectedDays: number }) => {
+  invoke('settings:setThresholds', localOnly, (t: { freshDays: number; warnDays: number; neglectedDays: number }) => {
     const { freshDays, warnDays, neglectedDays } = t ?? {};
     if (
       typeof freshDays === 'number' && typeof warnDays === 'number' && typeof neglectedDays === 'number' &&
@@ -396,7 +406,11 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     else cfg.sendError(`Blocked external URL: ${u}`);
   });
 
-  invoke('projects:open', allow('spawn'), async (items: ProjectOpenIntent[]) => {
+  // These four open something ON THIS MACHINE'S SCREEN — a terminal window, Explorer, an editor, a
+  // file viewer. Asked from another machine they would pop windows in front of whoever is (or is not)
+  // sitting here, for a caller who cannot see them. Same invariant as settings:pickFolder.
+  const OPENS_HERE = 'opens a window on this machine\'s desktop, where the caller is not';
+  invoke('projects:open', blocked(OPENS_HERE), async (items: ProjectOpenIntent[]) => {
     const now = new Date().toISOString();
     const folders = effFolders();
     const tabs: WtTab[] = [];
@@ -428,7 +442,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   });
 
   // Open the project folder in the OS file manager.
-  invoke('project:openFolder', allow('spawn'), async (p: string) => {
+  invoke('project:openFolder', blocked(OPENS_HERE), async (p: string) => {
     if (!isAllowedPath(effFolders(), p)) {
       cfg.sendError(`Path outside allowed folders: ${p}`);
       return;
@@ -438,7 +452,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   });
 
   // Open the project in VS Code (`code <path>`).
-  invoke('project:openEditor', allow('spawn'), (p: string) => {
+  invoke('project:openEditor', blocked(OPENS_HERE), (p: string) => {
     if (!isAllowedPath(effFolders(), p)) {
       cfg.sendError(`Path outside allowed folders: ${p}`);
       return;
@@ -569,17 +583,18 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // A tile's id says which machine owns it (shared/link/machine.ts), so the hot terminal path needs
   // no separate remote channels and no renderer branching: the same three calls reach a local pty or
   // a paired machine's pty depending only on the id they were given.
-  send('cockpit:input', allow('control'), (id: string, data: string) => {
+  send('cockpit:input', allowSession('control'), (id: string, data: string) => {
     cfg.shutdown?.noteBusy();
     const target = String(id);
     if (isRemoteId(target)) { remote(target, (link, machineId, hostId) => link.notify(machineId, 'cockpit:input', [hostId, String(data)])); return; }
     cfg.ptyHost.write(target, String(data));
   });
-  send('cockpit:resize', allow('control'), (id: string, cols: number, rows: number) => {
+  send('cockpit:resize', allowSession('control'), (id: string, cols: number, rows: number) => {
     const target = String(id);
     const c = Math.max(1, cols | 0);
     const r = Math.max(1, rows | 0);
     if (isRemoteId(target)) {
+      if (refuseRelay(target, 'cockpit:resize')) return;
       // attach() carries the size, and re-sending it is also what re-establishes the stream after a
       // reconnect — so a resize doubles as the "still watching, this big" heartbeat.
       cfg.link?.()?.attach(target, c, r);
@@ -593,9 +608,10 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     // lands on top of the older, wider one.
     emit('cockpit:resized', { id: target, cols: c, rows: r });
   });
-  send('cockpit:close', allow('control'), (id: string) => {
+  send('cockpit:close', allowSession('control'), (id: string) => {
     const target = String(id);
     if (isRemoteId(target)) {
+      if (refuseRelay(target, 'cockpit:close')) return;
       cfg.link?.()?.detach(target);
       remote(target, (link, machineId, hostId) => link.notify(machineId, 'cockpit:close', [hostId]));
       return;
@@ -680,8 +696,8 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // older build calls it and would write an object into its terminal; `sessionScreen` adds the size
   // those bytes were drawn for, which is what makes replaying them safe. A viewer asks for the screen
   // and falls back to the buffer, so either build can pair with either.
-  invoke('cockpit:sessionBuffer', allow('control'), (id: string) => cfg.ptyHost.buffer(String(id)).data);
-  invoke('cockpit:sessionScreen', allow('control'), (id: string) => cfg.ptyHost.buffer(String(id)));
+  invoke('cockpit:sessionBuffer', allowSession('control'), (id: string) => cfg.ptyHost.buffer(String(id)).data);
+  invoke('cockpit:sessionScreen', allowSession('control'), (id: string) => cfg.ptyHost.buffer(String(id)));
   /**
    * Record the name the user gave a session, on the machine that RUNS it.
    *
@@ -690,7 +706,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
    * folder name, so two sessions the user deliberately named apart become indistinguishable rows.
    * Routed by tile id like input/resize/close, so renaming a remote session reaches its own machine.
    */
-  send('cockpit:noteLabel', allow('control'), (id: string, label: unknown) => {
+  send('cockpit:noteLabel', allowSession('control'), (id: string, label: unknown) => {
     const target = String(id);
     // A label is shown verbatim in another machine's session list; bound it there rather than trusting
     // the sender, and normalize "cleared" to null so it does not travel as an empty string.
@@ -782,7 +798,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // to the OLD provider. Null when the shell is at a bare prompt or the probe fails: the caller then
   // keeps what it has (an absent answer must never be read as "the provider changed").
   const probeAgent = makeAgentProbe();
-  invoke('cockpit:liveAgent', allow('observe'), async (id: string) => {
+  invoke('cockpit:liveAgent', allowSession('observe'), async (id: string) => {
     const pid = cfg.ptyHost.pid(String(id));
     if (!pid) return null;
     try { return await probeAgent(pid); } catch { return null; }
@@ -895,7 +911,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // never executables/scripts), sit under an allowed folder OR the OS temp dir (where agent tooling writes
   // cross-project scratch files — a click-to-open convenience, not project-file access), and exist.
   // Returns a status string so failures can toast + be tested.
-  invoke('cockpit:openFile', allow('spawn'), async (projectPath: string, filePath: string) => {
+  invoke('cockpit:openFile', blocked(OPENS_HERE), async (projectPath: string, filePath: string) => {
     const resolved = resolveAgentFilePath(String(projectPath), String(filePath), homedir());
     // Inert-content only (AGENT_OPEN_EXT) — executables/scripts/.svg/.html are refused so a click can never run code.
     if (!AGENT_OPEN_EXT.test(resolved)) { cfg.sendError(`Not an openable file type: ${resolved}`); return 'denied'; }
@@ -947,8 +963,20 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   invoke('win:close', localOnly, () => cfg.win.close());
   invoke('win:isMaximized', localOnly, () => cfg.win.isMaximized());
 
+  /**
+   * A `link:`-qualified id reaching an id-routed handler FROM A PAIRED MACHINE is a request to relay
+   * into a third machine with this one's credentials. The host refuses it at dispatch (hostServer.ts);
+   * this is the second gate, in case a future method routes by id without declaring the argument.
+   */
+  function refuseRelay(qualifiedId: string, method: string): boolean {
+    if (!calledFromRemote()) return false;
+    cfg.diagnostics?.write('warn', 'link', `refused to relay ${method} for a remote caller: ${qualifiedId.slice(0, 80)}`);
+    return true;
+  }
+
   /** Run `fn` against the machine that owns a qualified id, silently when it is offline. */
   function remote(qualifiedId: string, fn: (link: LinkService, machineId: string, hostId: string) => void): void {
+    if (refuseRelay(qualifiedId, 'a remote call')) return;
     const link = cfg.link?.();
     if (!link) return;
     const { machineId, hostId } = parseRemoteId(qualifiedId);

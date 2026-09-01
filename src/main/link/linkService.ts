@@ -98,6 +98,14 @@ export interface LinkServiceOptions {
   onRemotePty?: (qualifiedSessionId: string, bytes: Buffer) => void;
   /** Told when a viewer is actively watching this machine, so it does not power down under them. */
   onRemoteActivity?: () => void;
+  /**
+   * The ids of the sessions this machine runs and announces — the only ids a paired machine may name
+   * in a call or an attach. Omitted (tests) means the host checks the shape of an id but not its
+   * membership.
+   */
+  liveSessionIds?: () => string[];
+  /** Per-connection request budget; the host's default is right for real use, tests lower it. */
+  rateLimit?: { capacity: number; refillPerMs: number };
 }
 
 /** Reconnect backoff. Capped low: the common failure is a sleeping laptop, which comes back. */
@@ -341,6 +349,8 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
         addresses,
         now,
         onActivity: () => options.onRemoteActivity?.(),
+        sessionIds: () => options.liveSessionIds?.() ?? null,
+        rateLimit: options.rateLimit,
         log: (entry) => {
           log.append(entry);
           // A viewer doing anything here counts as this machine being in use, so the idle-shutdown

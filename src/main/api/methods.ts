@@ -17,8 +17,17 @@ export type { LinkPermission } from '../../shared/link/permissions';
 import type { LinkPermission } from '../../shared/link/permissions';
 
 export type RemotePolicy =
-  /** Callable by a paired device that holds `permission`. */
-  | { readonly remote: 'allow'; readonly permission: LinkPermission }
+  /**
+   * Callable by a paired device that holds `permission`.
+   *
+   * `sessionIdArg` names the argument that is a SESSION ID on this machine. The host checks that
+   * argument before dispatch: it must be a bare id of a session actually running here. A method that
+   * routes by id (`cockpit:input` and friends) forwards a `link:`-qualified id to whichever machine
+   * the id names — which, if a remote caller could supply one, would make this machine relay one
+   * peer's keystrokes into another peer's terminal. And an id that is not in the announced session
+   * list is either gone or one this machine never announces on purpose (its own OAuth login shell).
+   */
+  | { readonly remote: 'allow'; readonly permission: LinkPermission; readonly sessionIdArg?: number }
   /**
    * Never routed to another machine — not because it is dangerous, but because it is MEANINGLESS
    * there: window controls, the viewer's own UI preferences, its clipboard, its tile list.
@@ -28,6 +37,8 @@ export type RemotePolicy =
   | { readonly remote: 'blocked'; readonly reason: string };
 
 export const allow = (permission: LinkPermission): RemotePolicy => ({ remote: 'allow', permission });
+/** `allow`, for a method whose first argument is one of this machine's session ids. */
+export const allowSession = (permission: LinkPermission): RemotePolicy => ({ remote: 'allow', permission, sessionIdArg: 0 });
 export const localOnly: RemotePolicy = { remote: 'local' };
 export const blocked = (reason: string): RemotePolicy => ({ remote: 'blocked', reason });
 
@@ -76,6 +87,12 @@ export function mayCallRemotely(method: ApiMethod | undefined, held: readonly Li
   if (!method) return false;
   if (method.remote.remote !== 'allow') return false;
   return held.includes(method.remote.permission);
+}
+
+/** Which argument of `method` is a local session id, or null when none is. */
+export function sessionIdArgOf(method: ApiMethod | undefined): number | null {
+  if (!method || method.remote.remote !== 'allow') return null;
+  return method.remote.sessionIdArg ?? null;
 }
 
 /** Method names a remote device could ever reach, for display in the pairing/permission UI. */
