@@ -7,7 +7,7 @@ import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { activateCockpitSession, closeCockpitSessionGroup, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, closeCockpitSessionGroup, closeCockpitSessions, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -301,6 +301,7 @@ async function boot(): Promise<void> {
       localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'session', id }));
     },
     onSessionAction: (id, action) => manageCockpitSessionAction(id, action),
+    onCloseSessions: (ids) => closeCockpitSessions(ids),
     onGroupClose: (group) => { void closeCockpitSessionGroup(group); },
     onRestoreAll: () => restoreAllCockpitSessions(),
   });

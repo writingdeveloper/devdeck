@@ -1,4 +1,5 @@
-export type ActivityState = 'working' | 'attention' | 'turn' | 'idle' | 'exited';
+/** `offline`: the terminal is on another machine and that machine cannot be reached right now. */
+export type ActivityState = 'working' | 'attention' | 'turn' | 'idle' | 'exited' | 'offline';
 
 export const WORKING_MS = 1500;
 // Once 'working', tolerate the agent's OWN output gaps (thinking, running a tool, API latency) this long

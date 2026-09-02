@@ -75,10 +75,10 @@ export function shouldNotifyAttention(x: { prev: ActivityState; next: ActivitySt
 }
 
 type Bucket = 'attention' | 'working' | 'turn' | 'idle';
-const ACTIVITY_RANK: Record<ActivityState, number> = { attention: 0, working: 1, turn: 2, idle: 3, exited: 4 };
+const ACTIVITY_RANK: Record<ActivityState, number> = { attention: 0, working: 1, turn: 2, idle: 3, offline: 4, exited: 5 };
 // 'turn' is its own calm "Your turn" bucket (separate from "Needs you"), so an active/just-finished
 // session isn't lumped with genuine agent questions and doesn't inflate the needs-you badge.
-const BUCKET_OF: Record<ActivityState, Bucket> = { attention: 'attention', working: 'working', turn: 'turn', idle: 'idle', exited: 'idle' };
+const BUCKET_OF: Record<ActivityState, Bucket> = { attention: 'attention', working: 'working', turn: 'turn', idle: 'idle', offline: 'idle', exited: 'idle' };
 const BUCKET_ORDER = ['attention', 'working', 'turn', 'idle'] as const;
 
 export function groupByActivity(list: CockpitSession[]): { bucket: Bucket; items: CockpitSession[] }[] {

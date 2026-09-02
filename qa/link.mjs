@@ -542,6 +542,7 @@ try {
   // Noticed within seconds: a clean quit sends FIN, and the heartbeat is the backstop for one that
   // does not. Twenty-five seconds was the old allowance; a tile that stays "connected" for a minute
   // after its machine is gone is the bug the heartbeat was written for.
+  const remoteTilesBeforeQuit = await viewer.win.evaluate(() => [...document.querySelectorAll('.ck-term')].length);
   const quitAt = Date.now();
   const hostProcess = host.app.process(); // taken BEFORE close: a closed app no longer answers for its process
   await closeApp(host.app);
@@ -584,6 +585,43 @@ try {
     await new Promise((r) => setTimeout(r, 400));
   }
   result.reconnectedAfterHostRestart = reconnected;
+
+  // --- what a restart leaves behind: no dead tiles, no duplicates ---
+  // The relaunched host runs none of the sessions the viewer held. Those tiles must become saved
+  // entries (one click restores them THERE), not tiles that look alive and take no input. And when
+  // the host brings one of those conversations back, the viewer must end up with ONE tile for it.
+  await viewer.win.waitForTimeout(3000);
+  const afterRestart = await viewer.win.evaluate(async () => {
+    const saved = await window.devdeck.cockpit.loadSessions();
+    return {
+      tiles: [...document.querySelectorAll('.ck-term')].length,
+      tileDetail: [...document.querySelectorAll('.ck-term')].map((t) => `${t.className}|${t.dataset.termSize}|${t.dataset.termRenderer}|text=${(t.textContent || '').trim().length}`),
+      sidebar: [...document.querySelectorAll('#shell-session-groups .shell-session')].map((r) => `${r.className.replace('shell-entity shell-session ', '')}:${(r.querySelector('strong')?.textContent || '').slice(0, 20)}`),
+      remoteSaved: saved.filter((s) => typeof s.machineId === 'string' && s.machineId.length > 10),
+    };
+  });
+  result.afterHostRestartDetail = { tilesBefore: remoteTilesBeforeQuit, tilesAfter: afterRestart.tiles, tileDetail: afterRestart.tileDetail, sidebar: afterRestart.sidebar, remoteSaved: afterRestart.remoteSaved.map((s) => `${(s.sessionId || '-').slice(0, 8)}:${s.tileId.slice(0, 6)}`) };
+  result.staleRemoteTilesBecomePrevious = remoteTilesBeforeQuit > 0 && afterRestart.tiles < remoteTilesBeforeQuit && afterRestart.remoteSaved.length > 0;
+  const revive = afterRestart.remoteSaved.find((s) => s.sessionId);
+  if (revive) {
+    await host.win.evaluate(async (s) => window.devdeck.cockpit.open({ projectPath: s.projectPath, sessionId: s.sessionId, cols: 80, rows: 24, mode: 'auto', agentId: s.agentId }), revive);
+    const deadline = Date.now() + 15000;
+    let tilesFor = 0;
+    while (Date.now() < deadline) {
+      tilesFor = await viewer.win.evaluate((sid) => [...document.querySelectorAll('.ck-term')].length, revive.sessionId);
+      if (tilesFor > 0) break;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    await viewer.win.waitForTimeout(2000);
+    const saved = await viewer.win.evaluate(async () => window.devdeck.cockpit.loadSessions());
+    const tilesNow = await viewer.win.evaluate(() => [...document.querySelectorAll('.ck-term')].map((t) => (t.classList.contains('show') ? 'shown' : 'hidden')));
+    const hostNow = await host.win.evaluate(async () => (await window.devdeck.cockpit.liveSessions()).map((s) => `${(s.sessionId || '-').slice(0, 8)}@${s.id.slice(-6)}`));
+    result.afterHostRestoreDetail = { revived: revive.sessionId.slice(0, 8), tiles: tilesNow, savedFor: saved.filter((s) => s.sessionId === revive.sessionId).map((s) => `${s.tileId.slice(0, 6)}${s.machineId ? '@remote' : '@local'}`), hostLive: hostNow };
+    // One tile per conversation. (The other conversation may legitimately be back as its own tile —
+    // the relaunched host restores its pinned session, and the viewer rebinds to it — so the total is
+    // not the measure; the count for THIS conversation is.)
+    result.noDuplicateAfterHostRestore = saved.filter((s) => s.sessionId === revive.sessionId).length === 1 && tilesNow.length >= 1;
+  }
 } catch (err) {
   result.error = String(err).split('\n').slice(0, 2).join(' | ');
 } finally {

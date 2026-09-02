@@ -182,6 +182,11 @@
 .shell-session-menu .menu-item-danger { color: var(--dd-destructive); }
 .shell-session-warning { color: var(--warn) !important; }
 .shell-session-wrap.is-gone .shell-signal { background: var(--warn); }
+.shell-session-wrap.is-selected .shell-session { background: color-mix(in srgb, var(--dd-accent, #58a6ff) 16%, transparent); box-shadow: inset 2px 0 0 var(--dd-accent, #58a6ff); }
+.shell-session.activity-offline .shell-entity-copy { opacity: .55; }
+.shell-session.activity-offline .shell-signal { background: transparent; border: 1px dashed var(--dd-text-faint); }
+.shell-selection { display: flex; align-items: center; gap: 6px; padding: 4px 8px; margin: 0 6px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--dd-surface-raised); font-size: 12px; }
+.shell-selection-count { flex: 1; min-width: 0; color: var(--dd-text); }
 
 .shell-collapsed-status {
   align-self: center; min-height: 26px; margin: 2px 0; padding: 0 7px;

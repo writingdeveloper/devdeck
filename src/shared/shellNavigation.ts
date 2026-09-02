@@ -86,6 +86,7 @@ export function sessionStatusShape(item: ShellSessionInput): ShellStatusShape {
   if (item.activity === 'working') return 'spinner';
   if (item.activity === 'turn') return 'ring';
   if (item.activity === 'exited') return 'square';
+  if (item.activity === 'offline') return 'square';
   return 'dot';
 }
 

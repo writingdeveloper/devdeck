@@ -45,6 +45,16 @@ interface Live {
    * then the whole scrollback dumped ON TOP of it, the overlap appearing twice.
    */
   replayPending: string[] | null;
+  /** Its machine cannot be reached right now. Display only — see `detachedAt` for what it means. */
+  offline: boolean;
+  /**
+   * When the link to this tile's machine dropped, or null. Kept until the machine's session list is
+   * reconciled after a reconnect: a terminal that survived on the other side is rebound or repainted,
+   * and one that did not becomes a "previous" entry — never a dead tile that looks alive.
+   */
+  detachedAt: number | null;
+  /** Last time the person was told their keystrokes are going nowhere. */
+  offlineToldAt: number;
   /**
    * The size a SMALLER view has this session's pty pinned to, or null when this view is free to fill
    * its pane. Set when a size smaller than the pane is adopted; cleared when a machine comes or goes,
@@ -201,10 +211,17 @@ export function mountCockpit(): void {
   // repaint of the ones it already holds — everything they printed while the link was down reached
   // nobody, and re-attaching does not replay it. Resync goes first so it snapshots the tiles that
   // existed BEFORE this connect, leaving the ones adoption is about to create to paint themselves.
-  onMachineConnected((machineId) => { void resyncMachineTiles(machineId); void pullMachineSessions(machineId); });
+  // Reconcile FIRST, then repaint: reconciling is what rebinds a tile whose terminal came back under
+  // a new id (a machine that restarted restores its sessions with fresh ids) and retires the ones that
+  // did not come back. Repainting before that would ask the machine for screens it no longer has.
+  onMachineConnected((machineId) => { void pullMachineSessions(machineId).then(() => resyncMachineTiles(machineId)); });
   // A machine coming or going is exactly when a size another view was holding this pty down to stops
   // being true — drop the caps and let the pane have its terminals back.
-  onMachinesChanged(() => { for (const l of live.values()) l.ptyCap = null; scheduleLayout(); });
+  onMachinesChanged(() => {
+    for (const l of live.values()) l.ptyCap = null;
+    markMachineReachability();
+    scheduleLayout();
+  });
   // Re-lay-out the terminals whenever their pane changes size — NOT just on window resize. The
   // always-on usage bar appears/disappears after its async load, resizing #shell (and thus .ck-terms)
   // by ~27px while the user sits on the cockpit; without a re-fit the terminal keeps its old row count
@@ -234,9 +251,20 @@ export function mountCockpit(): void {
  *  latest conversation (via restoreSession). They're removed from the "Previous" list first so they
  *  aren't shown as restorable AND opened. Sequential to avoid a simultaneous PTY burst. */
 async function autoRestoreAfterUpdate(pending: PersistedSession[]): Promise<void> {
-  restorable = removeAutoRestoreMatches(restorable, pending);
+  // Entries on a machine that is not reachable right now stay saved — they come back by adoption the
+  // moment that machine connects and is found running them, or by a click. Asking now would only
+  // produce one "offline" toast per entry; one per machine is enough.
+  const offlineByMachine = new Map<string, number>();
+  const now = pending.filter((entry) => {
+    const machineId = entry.machineId ?? LOCAL_MACHINE_ID;
+    if (machineId === LOCAL_MACHINE_ID || machineState(machineId) === 'connected') return true;
+    offlineByMachine.set(machineId, (offlineByMachine.get(machineId) ?? 0) + 1);
+    return false;
+  });
+  for (const [machineId, n] of offlineByMachine) toast(tr('cockpit.restore_machine_offline_n', { n: String(n), machine: machineName(machineId) }));
+  restorable = removeAutoRestoreMatches(restorable, now);
   renderList();
-  for (const entry of pending) await restoreSession(entry);
+  for (const entry of now) await restoreSession(entry);
 }
 
 // ---- in-terminal find (Ctrl+F over the selected session's scrollback) ----
@@ -381,7 +409,16 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
     id: cockpitNavigationId(entry),
     projectPath: entry.projectPath,
     label: labels[liveItems.length + index],
-    detail: `${providerName(toAgentId(entry.agentId) ?? 'claude')} · ${missingConversations.has(prevKey(entry)) ? tr('cockpit.prev_gone') : tr('cockpit.restore')}`,
+    detail: [
+      providerName(toAgentId(entry.agentId) ?? 'claude'),
+      // A saved entry for another machine says so, and says when it can come back. Without this a
+      // row for a machine that is off read exactly like a local one — and clicking it did nothing
+      // visible but a toast.
+      ...(entry.machineId ? [machineName(entry.machineId)] : []),
+      missingConversations.has(prevKey(entry)) ? tr('cockpit.prev_gone')
+        : entry.machineId && machineState(entry.machineId) !== 'connected' ? tr('cockpit.prev_machine_offline')
+          : tr('cockpit.restore'),
+    ].join(' · '),
     activity: 'idle',
     pinned: entry.pinned === true,
     lastActiveMs: entry.lastActiveMs ?? null,
@@ -775,9 +812,17 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   }
   const session: CockpitSession = { id: res.id, projectPath: p.path, name: p.name, agentId: res.agentId, status: 'running', staleLevel: p.staleLevel, branch: p.branch, dirty: p.dirty, activity: 'working' };
   term.onData((d) => {
-    window.devdeck.cockpit.input(res.id, d);
-    const l = live.get(res.id); // typing answers any pending prompt → clear the buffer + mark input so it reads as "your turn", not "working"
-    if (l) { l.recentOutput = ''; l.lastInputAt = Date.now(); }
+    // Through `session.id`, not the id captured at open: a tile rebound to a terminal that came back
+    // under a new id after its machine restarted must type into THAT one.
+    const current = session.id;
+    const l = live.get(current);
+    if (l?.offline) {
+      // Say so, rather than dropping the keystroke in a send that has nowhere to go.
+      if (Date.now() - l.offlineToldAt > 5_000) { l.offlineToldAt = Date.now(); toast(tr('cockpit.machine_offline_input', { machine: machineName(l.machineId) })); }
+      return;
+    }
+    window.devdeck.cockpit.input(current, d);
+    if (l) { l.recentOutput = ''; l.lastInputAt = Date.now(); } // typing answers any pending prompt → "your turn", not "working"
   });
   // Consume the matching restorable entry (dedupe by session id, not path — siblings stay), inheriting
   // its pin + label when the open request has none (deck/board opens don't know about pins).
@@ -793,6 +838,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '',
     openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(),
     customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now(),
+    offline: false, detachedAt: null, offlineToldAt: 0,
     // A terminal we are BINDING to is already producing, and its screen has yet to be fetched. Hold
     // its output until the screen is under it (replayInto releases). A terminal we started has no
     // history to paint, so it writes through from the first byte.
@@ -859,6 +905,62 @@ function adoptAnnounced(machineId: string, sessions: readonly RunningSession[]):
   });
 }
 
+/**
+ * Reflect each machine's reachability on its tiles.
+ *
+ * A remote tile used to stay "running" after its machine went away: the screen froze, and every
+ * keystroke went into a send that quietly dropped it. The tile now says the machine is offline, and
+ * remembers that it went through a disconnect, so the reconnect can tell "still there" from "gone".
+ */
+function markMachineReachability(): void {
+  let changed = false;
+  for (const l of live.values()) {
+    if (l.machineId === LOCAL_MACHINE_ID) continue;
+    const offline = machineState(l.machineId) !== 'connected';
+    if (offline === l.offline) continue;
+    l.offline = offline;
+    // An exited tile goes through the disconnect too: its final screen is worth keeping while the
+    // machine is away, but once the machine is back that terminal is gone for good, and the tile is
+    // reconciled like any other — rebound if the conversation returned, retired if not.
+    if (offline) { l.detachedAt = l.detachedAt ?? Date.now(); if (l.session.status !== 'exited') l.session.activity = 'offline'; }
+    else if (l.session.activity === 'offline') l.session.activity = 'idle';
+    changed = true;
+    window.devdeck.logDiagnostic(`reachability ${machineName(l.machineId)} ${offline ? 'offline' : 'back'} tile=${l.session.id.slice(-12)} status=${l.session.status}`, 'info', 'link');
+  }
+  if (changed) { renderAll(); updateRailBadge(); }
+}
+
+/**
+ * A terminal that came back under a new id after its machine restarted: keep the TILE — its label,
+ * pin, place in the list and scrollback — and point it at the new terminal.
+ */
+function rebindTile(l: Live, newId: string): void {
+  const oldId = l.session.id;
+  live.delete(oldId);
+  l.session.id = newId;
+  l.session.status = 'running';
+  l.session.activity = 'idle';
+  l.offline = false;
+  l.detachedAt = null;
+  live.set(newId, l);
+  if (selectedId === oldId) selectedId = newId;
+  l.replayPending = [];
+  void replayInto(newId, l.machineId, l.term);
+  window.devdeck.cockpit.resize(newId, l.term.cols, l.term.rows);
+}
+
+/** A tile whose terminal did not survive its machine's absence becomes a saved entry — one click restores it there. */
+function retireToPrevious(l: Live): void {
+  const entry: PersistedSession = {
+    tileId: l.tileId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId,
+    agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned || undefined, lastActiveMs: liveActivityAt(l),
+    machineId: l.machineId === LOCAL_MACHINE_ID ? undefined : l.machineId,
+  };
+  l.webgl?.dispose(); l.term.dispose(); l.el.remove(); live.delete(l.session.id);
+  if (selectedId === l.session.id) { selectedId = [...live.keys()][0] ?? null; if (selectedId) select(selectedId); else hideAllTerminals(); }
+  restorable = [entry, ...restorable.filter((r) => r.tileId !== entry.tileId)];
+}
+
 /** Ask a machine what it is running, then reconcile. Used when a link comes up. */
 export async function pullMachineSessions(machineId: string): Promise<void> {
   let sessions: RunningSession[] = [];
@@ -887,7 +989,19 @@ export async function syncMachineSessions(machineId: string, sessions: readonly 
   let adopted = 0;
   for (const info of sessions) {
     const id = info.id; // already qualified by the link when it came from another machine
-    if (known.has(id)) { syncAdoptedLabel(machineId, id, info.label ?? null); continue; }
+    if (known.has(id)) {
+      const held = live.get(id);
+      if (held) held.detachedAt = null; // the terminal is still there; nothing to reconcile
+      syncAdoptedLabel(machineId, id, info.label ?? null);
+      continue;
+    }
+    // The same conversation, already held here as a tile whose terminal went away with its machine:
+    // the machine restarted and restored it under a new id. Rebind rather than add a second tile next
+    // to a dead one — that pair, per conversation, was what a host restart left behind.
+    const stale = info.sessionId
+      ? [...live.values()].find((l) => l.machineId === machineId && l.detachedAt !== null && l.openedSessionId === info.sessionId)
+      : undefined;
+    if (stale) { rebindTile(stale, id); syncAdoptedLabel(machineId, id, info.label ?? null); continue; }
     // A tile this deck is still holding as "previous" for the same conversation should become live
     // rather than sit next to it as a stale duplicate.
     const saved = restorable.find((r) => r.sessionId && r.sessionId === info.sessionId);
@@ -931,11 +1045,22 @@ function syncAdoptedLabel(machineId: string, id: string, label: string | null): 
 /** Mark a tile whose terminal is gone on the machine that owned it. */
 export function noteSessionsGone(machineId: string, aliveIds: readonly string[]): void {
   const alive = new Set(aliveIds);
-  for (const [id, l] of live) {
-    if (l.machineId !== machineId || l.session.status === 'exited') continue;
+  let retired = 0;
+  for (const [id, l] of [...live]) {
+    if (l.machineId !== machineId) continue;
     if (alive.has(id)) continue;
+    // Gone across a disconnect — with or without an exit seen on the way down: the machine came back
+    // without it. A dead tile that looks alive is the worst answer; a saved entry is one click away.
+    if (l.detachedAt !== null) { retireToPrevious(l); retired += 1; continue; }
+    if (l.session.status === 'exited') continue;
     l.session.status = 'exited';
     l.session.activity = 'exited';
+  }
+  const kept = [...live.values()].filter((l) => l.machineId === machineId && !alive.has(l.session.id)).map((l) => `${l.session.id.slice(-12)}:${l.session.status}:${l.detachedAt === null ? 'attached' : 'detached'}`);
+  window.devdeck.logDiagnostic(`gone ${machineName(machineId)} alive=${aliveIds.length} retired=${retired} kept=[${kept.join(' ')}]`, 'info', 'link');
+  if (retired > 0) {
+    persist();
+    toast(tr('cockpit.stale_to_previous', { n: String(retired), machine: machineName(machineId) }));
   }
   renderAll();
   updateRailBadge();
@@ -1364,9 +1489,9 @@ function tickActivity(): void {
     const prev = l.session.activity;
     // spinnerReliable: only Claude's spinner glyph is one we match, so only there can we trust "spinner
     // gone ⇒ turn" and skip the timing hysteresis (avoids 작업중 lingering ~10s after each Claude turn).
-    const next = computeActivity({
+    const next = l.offline && l.session.status !== 'exited' ? 'offline' : computeActivity({
       exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, lastInputAt: l.lastInputAt, now,
-      recentOutput: l.recentOutput, screenText: liveScreenTail(l), prev, spinnerReliable: l.session.agentId === 'claude',
+      recentOutput: l.recentOutput, screenText: liveScreenTail(l), prev: prev === 'offline' ? 'idle' : prev, spinnerReliable: l.session.agentId === 'claude',
     });
     if (next !== prev) {
       l.session.activity = next; changed = true;
@@ -1677,6 +1802,28 @@ export async function closeCockpitSessionGroup(group: ShellSessionGroup): Promis
   }
   persist();
   renderList();
+}
+
+/**
+ * Close (or forget) the sessions the person selected in the sidebar, asked about once.
+ *
+ * Groups close whole headings; this closes exactly what was picked — Ctrl+click and Shift+click in
+ * the sidebar — because "these six, but not that one" is how a deck actually gets tidied.
+ */
+export async function closeCockpitSessions(ids: readonly string[]): Promise<boolean> {
+  if (!ids.length) return false;
+  const ok = await confirmDialog(tr('shell.close_selected_confirm', { n: String(ids.length) }), tr('cockpit.close'));
+  if (!ok) return false;
+  window.devdeck.logDiagnostic(`bulk close ${ids.length} selected`, 'info', 'sidebar');
+  for (const id of ids) {
+    const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
+    if (current) { closeSession(current.session.id); continue; }
+    const entry = restorable.find((item) => cockpitNavigationId(item) === id);
+    if (entry) restorable = restorable.filter((r) => r !== entry);
+  }
+  persist();
+  renderList();
+  return true;
 }
 
 /** What the bulk confirmation calls a group. Remote groups use the machine's name instead. */

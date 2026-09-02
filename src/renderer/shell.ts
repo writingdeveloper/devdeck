@@ -95,6 +95,8 @@ export function mountShell(options: {
   onProject(path: string): void;
   onSession(id: string): void;
   onSessionAction(id: string, action: ShellSessionAction): void;
+  /** Close (or forget) a hand-picked set of sessions; resolves true when they were. */
+  onCloseSessions(ids: string[]): Promise<boolean>;
   /** Close (or forget) every session in one group, asked once rather than row by row. */
   onGroupClose?(group: ShellSessionGroup): void;
   onRestoreAll(): void;
@@ -276,9 +278,15 @@ export function mountShell(options: {
   const createSessionRow = (key: string): HTMLButtonElement => {
     const wrap = document.createElement('div'); wrap.className = 'shell-session-wrap';
     const row = document.createElement('button'); row.type = 'button';
-    row.addEventListener('click', () => {
+    row.addEventListener('click', (event) => {
       const id = row.dataset.sessionId;
       if (!id) return;
+      // Ctrl+click picks a session (or un-picks it); Shift+click picks everything between the last
+      // pick and this row, in the order the rail shows them. Either way the row is NOT opened — a
+      // selection is for closing several at once, and opening each while picking would be absurd.
+      if (event.ctrlKey || event.metaKey) { event.preventDefault(); toggleSelected(key); return; }
+      if (event.shiftKey && selectionAnchor) { event.preventDefault(); selectRange(selectionAnchor, key); return; }
+      clearSelection();
       updateActiveEntity(row, key);
       closeMobileDrawer();
       options.onSession(id);
@@ -439,6 +447,56 @@ export function mountShell(options: {
     return section;
   };
 
+  // ---- picking several sessions to close at once ----
+  const selected = new Set<string>();
+  let selectionAnchor: string | null = null;
+  const selectionBar = document.createElement('div');
+  selectionBar.className = 'shell-selection hidden';
+  selectionBar.setAttribute('role', 'toolbar');
+  const selectionCount = document.createElement('span'); selectionCount.className = 'shell-selection-count'; selectionCount.setAttribute('aria-live', 'polite');
+  const selectionClose = document.createElement('button'); selectionClose.type = 'button'; selectionClose.className = 'chip chip-danger shell-selection-close';
+  const selectionAll = document.createElement('button'); selectionAll.type = 'button'; selectionAll.className = 'chip shell-selection-all';
+  const selectionClear = document.createElement('button'); selectionClear.type = 'button'; selectionClear.className = 'chip shell-selection-clear';
+  selectionBar.append(selectionCount, selectionClose, selectionAll, selectionClear);
+  sessionHost.parentElement?.insertBefore(selectionBar, sessionHost);
+  /** Rows in rail order — what a Shift+click range and "select all" mean. */
+  const visibleSessionKeys = (): string[] => Array.from(sessionHost.querySelectorAll('.shell-session-wrap'))
+    .map((wrap) => (wrap.querySelector('.shell-session') as HTMLButtonElement | null)?.dataset.shellEntityKey ?? '').filter(Boolean);
+  const applySelection = (): void => {
+    for (const [key, row] of sessionRows) {
+      const on = selected.has(key);
+      sessionWraps.get(key)?.classList.toggle('is-selected', on);
+      row.setAttribute('aria-pressed', String(on));
+    }
+    selectionBar.classList.toggle('hidden', selected.size === 0);
+    selectionCount.textContent = tr('shell.selected_n', { n: String(selected.size) });
+    selectionClose.textContent = tr('shell.close_selected');
+    selectionAll.textContent = tr('shell.select_all');
+    selectionClear.textContent = tr('shell.clear_selection');
+    selectionBar.title = tr('shell.selection_hint');
+    selectionBar.setAttribute('aria-label', tr('shell.selected_n', { n: String(selected.size) }));
+  };
+  const clearSelection = (): void => { if (selected.size === 0) return; selected.clear(); selectionAnchor = null; applySelection(); };
+  const toggleSelected = (key: string): void => {
+    if (selected.has(key)) selected.delete(key); else selected.add(key);
+    selectionAnchor = key;
+    applySelection();
+  };
+  const selectRange = (from: string, to: string): void => {
+    const keys = visibleSessionKeys();
+    const a = keys.indexOf(from), b = keys.indexOf(to);
+    if (a < 0 || b < 0) { toggleSelected(to); return; }
+    for (const key of keys.slice(Math.min(a, b), Math.max(a, b) + 1)) selected.add(key);
+    applySelection();
+  };
+  selectionClear.addEventListener('click', clearSelection);
+  selectionAll.addEventListener('click', () => { for (const key of visibleSessionKeys()) selected.add(key); applySelection(); });
+  selectionClose.addEventListener('click', () => {
+    const ids = [...selected].map((key) => sessionRows.get(key)?.dataset.sessionId ?? '').filter(Boolean);
+    void options.onCloseSessions(ids).then((done) => { if (done) clearSelection(); });
+  });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && selected.size > 0) { event.preventDefault(); clearSelection(); } });
+
   const renderSessions = (items: ShellSessionInput[]): void => {
     const focusedKey = document.activeElement instanceof HTMLButtonElement
       ? document.activeElement.dataset.shellEntityKey : undefined;
@@ -527,6 +585,10 @@ export function mountShell(options: {
     updateMobileToggle();
     renderCollapsedStatus();
     applyProjectActivity(); // session state changed → the project rows' inherited marks follow
+    // A picked row that left the rail (closed, folded away) leaves the selection with it.
+    for (const key of [...selected]) if (!sessionRows.has(key)) selected.delete(key);
+    if (selectionAnchor && !sessionRows.has(selectionAnchor)) selectionAnchor = null;
+    applySelection();
     preserveFocusedRow(focusedKey, sessionRows);
   };
 
