@@ -70,6 +70,20 @@ describe('auto-restore de-duplication', () => {
 });
 
 describe('sanitizePersistedList', () => {
+  it('keeps one entry per conversation per machine, and lets a duplicate donate its label and pin', () => {
+    // Two saved tiles for one conversation cannot both come back: the second finds the conversation
+    // live and mints a fresh empty session under the same name — an extra empty tab, every launch.
+    const list = sanitizePersistedList([
+      { projectPath: 'C:\\repo', sessionId: 'aaaa', agentId: 'claude', tileId: 't1' },
+      { projectPath: 'C:\\repo', sessionId: 'aaaa', agentId: 'claude', tileId: 't2', label: 'named later', pinned: true },
+      { projectPath: 'C:\\repo', sessionId: 'aaaa', agentId: 'claude', tileId: 't3', machineId: '3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b' },
+      { projectPath: 'C:\\repo', sessionId: null, agentId: 'claude', tileId: 't4' },
+      { projectPath: 'C:\\repo', sessionId: null, agentId: 'claude', tileId: 't5' },
+    ]);
+    expect(list.map((e) => e.tileId)).toEqual(['t1', 't3', 't4', 't5']); // same conversation on ANOTHER machine is a different tile; id-less entries are never merged
+    expect(list[0]).toMatchObject({ label: 'named later', pinned: true });
+  });
+
   it('returns [] for non-arrays', () => {
     expect(sanitizePersistedList(null)).toEqual([]);
     expect(sanitizePersistedList({})).toEqual([]);

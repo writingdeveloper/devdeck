@@ -268,11 +268,26 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
     usedTileIds.add(generated);
     return generated;
   };
+  // One entry per conversation per machine. Two tiles for one conversation cannot both come back —
+  // the second restore finds the conversation live and mints a fresh, empty session under the same
+  // name — so a duplicate saved once became an extra empty tab on every launch thereafter. The first
+  // entry keeps its place; a later duplicate only contributes a label or a pin the first lacked.
+  const seen = new Map<string, PersistedSession>();
   for (const r of raw) {
     if (!r || typeof r !== 'object') continue;
     const o = r as Record<string, unknown>;
     if (typeof o.projectPath !== 'string' || !o.projectPath) continue;
     const label = typeof o.label === 'string' && o.label.trim() ? o.label.trim().slice(0, MAX_LABEL) : null;
+    if (typeof o.sessionId === 'string' && o.sessionId) {
+      const machine = isValidMachineId(o.machineId) && o.machineId !== LOCAL_MACHINE_ID ? o.machineId : LOCAL_MACHINE_ID;
+      const key = `${machine}\u0000${o.sessionId}`;
+      const first = seen.get(key);
+      if (first) {
+        if (!first.label && label) first.label = label;
+        if (!first.pinned && o.pinned === true) first.pinned = true;
+        continue;
+      }
+    }
     // Only a finite positive number is an ordering key; NaN/Infinity/negatives would poison the sort.
     const lastActiveMs = typeof o.lastActiveMs === 'number' && Number.isFinite(o.lastActiveMs) && o.lastActiveMs > 0
       ? o.lastActiveMs : undefined;
@@ -290,6 +305,8 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
       // work at that path.
       machineId: isValidMachineId(o.machineId) && o.machineId !== LOCAL_MACHINE_ID ? o.machineId : undefined,
     });
+    const entry = out[out.length - 1];
+    if (entry.sessionId) seen.set(`${entry.machineId ?? LOCAL_MACHINE_ID}\u0000${entry.sessionId}`, entry);
     if (out.length >= MAX_PERSISTED) break;
   }
   return out;

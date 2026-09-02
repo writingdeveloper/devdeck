@@ -32,7 +32,7 @@ export interface DeckFacade {
   setHidden: (path: string, hidden: boolean) => Promise<void>;
   usageReport: (sinceMs: number) => Promise<import('../shared/types').UsageReport>;
   cockpit: {
-    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }) => Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string }>;
+    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }) => Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string; adopted?: boolean }>;
     sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) => Promise<never>;
     sessionIds: (projectPath: string, agentId?: string) => Promise<string[]>;
     sessionsExist: (items: { projectPath: string; sessionId: string | null; agentId?: string }[]) => Promise<boolean[]>;

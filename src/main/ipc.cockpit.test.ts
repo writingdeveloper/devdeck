@@ -73,7 +73,7 @@ beforeAll(() => {
     },
     sendError: vi.fn(),
     defaultLanguage: 'en',
-    ptyHost: { create: ptyCreate, pid: (id: string) => (id === 'live#1' ? 4321 : null) },
+    ptyHost: { create: ptyCreate, list: () => [], pid: (id: string) => (id === 'live#1' ? 4321 : null) },
     ptyAvailable: true,
     tray: {},
     shutdown: null,

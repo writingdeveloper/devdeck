@@ -37,8 +37,12 @@ const fakeLink = {
 
 /** Enough of a pty table to see what the session-name channel writes and announces. */
 const noteCalls: { id: string; patch: Record<string, unknown> }[] = [];
+/** What this machine is running, as the pty table would announce it. Tests push into it. */
+const fakeLive: { id: string; projectPath: string; sessionId: string | null; agentId: string; startedAtMs: number; label: string | null }[] = [];
+const createCalls: string[] = [];
 const fakePtyHost = {
-  list: () => [],
+  list: () => fakeLive,
+  create: (id: string) => { createCalls.push(id); },
   note: (id: string, patch: Record<string, unknown>) => { noteCalls.push({ id, patch }); return patch.label !== 'already-set'; },
 };
 
@@ -205,6 +209,20 @@ describe('routing a call to another machine', () => {
   it('leaves the answer of a non-open call alone', async () => {
     const value = await api['link:call'].handler('3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b', 'projects:list', []) as { method: string };
     expect(value.method).toBe('projects:list');
+  });
+});
+
+describe('opening a conversation this machine already runs', () => {
+  it('hands back the running session instead of starting a second terminal for it', async () => {
+    // A paired deck restoring its saved tiles asks for each conversation by id; this machine is
+    // usually already running it in a tile of its own. A second `claude --resume` here was a
+    // duplicate tab in front of the person at this machine, once per saved entry, on every launch.
+    fakeLive.length = 0; createCalls.length = 0;
+    fakeLive.push({ id: `${ALLOWED_ROOT}#7`, projectPath: ALLOWED_ROOT, sessionId: '0f9a2b1c-3d4e-4f5a-8b6c-7d8e9f0a1b2c', agentId: 'claude', startedAtMs: 1, label: 'mine' });
+    const answer = await api['cockpit:open'].handler({ projectPath: ALLOWED_ROOT, sessionId: '0f9a2b1c-3d4e-4f5a-8b6c-7d8e9f0a1b2c', cols: 80, rows: 24, mode: 'auto', agentId: 'claude' }) as { id: string; sessionId: string | null; adopted?: boolean };
+    expect(answer).toMatchObject({ id: `${ALLOWED_ROOT}#7`, sessionId: '0f9a2b1c-3d4e-4f5a-8b6c-7d8e9f0a1b2c', adopted: true });
+    expect(createCalls).toEqual([]);
+    fakeLive.length = 0;
   });
 });
 

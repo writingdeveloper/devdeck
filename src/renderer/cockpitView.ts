@@ -742,7 +742,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   const machineId = p.machineId ?? LOCAL_MACHINE_ID;
   // Main answers a failed open with id:'' (allowlist refusal / pty spawn error) — but guard the invoke
   // itself too, so a reject can't leak the terminal we already mounted or abort a restore-all loop.
-  let res: { id: string; agentId: AgentId; sessionId: string | null; error?: string };
+  let res: { id: string; agentId: AgentId; sessionId: string | null; error?: string; adopted?: boolean };
   if (p.adoptId) {
     // Binding to a terminal that is already running — started by the person at that machine, or by
     // this one before a restart. Nothing is spawned; the tile simply takes ownership of the stream.
@@ -756,6 +756,15 @@ async function buildTile(p: OpenReq): Promise<boolean> {
       res = { id: '', agentId: 'claude', sessionId: null, error: err instanceof Error ? err.message : String(err) };
     }
   }
+  // The machine answered with a session it was ALREADY running for this conversation rather than a
+  // new one. If this deck holds that tile, this open was a duplicate: switch to it. Otherwise bind to
+  // the running terminal exactly as adoption does — repaint from its screen, then stream.
+  if (res.adopted && res.id && live.has(res.id)) {
+    el.remove(); term.dispose(); select(res.id);
+    toast(tr('cockpit.already_open', { name: liveLabels.get(res.id) ?? p.name }));
+    return true;
+  }
+  const adopting = !!p.adoptId || res.adopted === true;
   if (!res.id) {
     // Refused or failed: tear the terminal down, restore the prior selection, and SAY SO. A silent
     // vanish read as "the click did nothing", whether the cause was a path outside the allowlist, a
@@ -787,7 +796,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     // A terminal we are BINDING to is already producing, and its screen has yet to be fetched. Hold
     // its output until the screen is under it (replayInto releases). A terminal we started has no
     // history to paint, so it writes through from the first byte.
-    replayPending: p.adoptId ? [] : null,
+    replayPending: adopting ? [] : null,
     ptyCap: null,
   });
   // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
@@ -797,7 +806,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   // Started on the very next statement after the tile is registered, and paired with the hold armed
   // there: nothing between the two can throw and leave a terminal holding its output forever. It is a
   // round trip, so the sooner it is asked for, the less has to be held.
-  if (p.adoptId) void replayInto(res.id, machineId, term);
+  if (adopting) void replayInto(res.id, machineId, term);
   // Tell the owning machine what this tile is called, so a deck on the OTHER side of a link shows the
   // session's name rather than re-deriving the repository folder.
   if (adopted.label) noteLabelOnOwner(res.id, adopted.label);
@@ -806,7 +815,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   persist();
   // Attaching does not itself tell the host our size; a resize does, and it is also what starts the
   // stream flowing for a session this viewer did not open.
-  if (p.adoptId) window.devdeck.cockpit.resize(res.id, term.cols, term.rows);
+  if (adopting) window.devdeck.cockpit.resize(res.id, term.cols, term.rows);
   void refreshMeta(res.id);
   void refreshGit(res.id);
   return true;
@@ -1886,6 +1895,24 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     // conversation is gone" — and the answer to that is to start a session, on a machine that is
     // evidently already struggling. Leave the entry saved and say so, exactly as when the machine is
     // known to be offline; a restore is one click away once it answers again.
+    // Before opening ANYTHING on another machine, ask what it is already running. Its own tile for
+    // this conversation is usually right there — a machine restores its sessions on launch just as
+    // this one does — and it must be adopted, not opened again: opening put a second terminal for the
+    // same conversation in front of the person at that machine, once per saved entry, per launch.
+    if (machineId !== LOCAL_MACHINE_ID && entry.sessionId) {
+      let running: RunningSession[] = [];
+      try { running = await window.devdeck.machine(machineId).cockpit.liveSessions(); } catch { running = []; }
+      const theirs = running.find((s) => s.sessionId === entry.sessionId && !live.has(s.id));
+      if (theirs) {
+        const ok = await createSession({
+          path: theirs.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0,
+          tileId: entry.tileId, sessionId: theirs.sessionId, mode: 'auto', label: entry.label ?? theirs.label ?? null,
+          pinned: entry.pinned, agentId: toAgentId(theirs.agentId) ?? owner, machineId, adoptId: theirs.id,
+        });
+        window.devdeck.logDiagnostic(`restore ${entry.label || entry.name} on ${machineName(machineId)}: saved=${entry.sessionId} -> adopt ${theirs.id} (already running there) ok=${ok}`, 'info', 'restore');
+        if (ok) return;
+      }
+    }
     let ids: string[];
     try {
       ids = await deckFor(machineId).cockpit.sessionIds(entry.projectPath, owner);

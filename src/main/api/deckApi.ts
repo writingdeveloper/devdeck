@@ -561,6 +561,20 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
         latestId: forceNew ? null : history[0]?.id ?? null,
         genId: () => randomUUID(),
       });
+      // ONE terminal per conversation on this machine. A viewer restoring its saved tiles asks for
+      // each by conversation id — and the machine it asks is, more often than not, already running
+      // that very conversation in a tile of its own. Spawning a second `claude --resume` for it put a
+      // duplicate tab in front of the person sitting here, once per saved entry, on every launch of
+      // every paired deck; each duplicate was then saved by both sides and restored again. The
+      // caller is handed the running session instead and binds to it as it would to any session it
+      // picked up on connect.
+      const running = resolved.sessionId
+        ? cfg.ptyHost.list().find((s) => s.sessionId === resolved.sessionId && s.agentId === a.id)
+        : undefined;
+      if (running) {
+        cfg.diagnostics?.write('info', 'pty', `open reused ${running.id} conversation=${resolved.sessionId} (already running here)`);
+        return { id: running.id, agentId: a.id, sessionId: running.sessionId, adopted: true };
+      }
       warnIfCliMissing(resolved.command);
       const shellPath = resolveShellPath();
       const id = `${req.projectPath}#${++cockpitSeq}`;

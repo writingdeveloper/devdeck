@@ -180,6 +180,25 @@ try {
     return { id, total };
   });
   result.adoptedIdIsQualified = typeof adoptedStream.id === 'string' && adoptedStream.id.startsWith('link:');
+
+  // --- restoring a saved tile for a conversation the host is ALREADY running must not start another ---
+  // This is what a deck does on launch for every remote tile it saved. The host was answering each
+  // with a second terminal for the same conversation — a duplicate tab in front of the person at the
+  // host, per saved entry, per launch, then saved by both sides and restored again.
+  const hostBefore = await host.win.evaluate(async () => window.devdeck.cockpit.liveSessions());
+  const reopened = await viewer.win.evaluate(async () => {
+    const machines = await window.devdeck.link.machines();
+    const connected = machines.find((m) => m.state === 'connected');
+    if (!connected) return null;
+    const running = await window.devdeck.machine(connected.machineId).cockpit.liveSessions();
+    const one = running.find((s) => s.sessionId);
+    if (!one) return null;
+    const answer = await window.devdeck.machine(connected.machineId).cockpit.open({ projectPath: one.projectPath, sessionId: one.sessionId, cols: 80, rows: 24, mode: 'auto', agentId: one.agentId });
+    return { asked: one.id, got: answer.id, adopted: answer.adopted === true };
+  });
+  const hostAfter = await host.win.evaluate(async () => window.devdeck.cockpit.liveSessions());
+  result.reopenOfRunningConversationAdopts = reopened !== null && reopened.adopted && reopened.got === reopened.asked;
+  result.reopenStartsNothingOnHost = hostAfter.length === hostBefore.length;
   result.adoptedBytesFlow = adoptedStream.total > 0;
 
   // --- the switcher appears only now that a machine is paired ---
