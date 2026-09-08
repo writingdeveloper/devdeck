@@ -166,7 +166,7 @@ npm run qa:resilience
 
 CI runs the multilingual journeys and failure/recovery checks as well as unit tests and accessibility audits.
 Tagged releases wait for those checks and all OS builds, then exercise the packaged Windows app before publication.
-See the [quality review and regression-testing guide](docs/quality-review-1.37.5.md) for coverage and remaining risks.
+See the [quality review and regression-testing guide](docs/quality-review-1.37.6.md) for coverage and remaining risks.
 
 ## How it works
 
