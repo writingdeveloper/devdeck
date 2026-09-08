@@ -1232,8 +1232,8 @@ for (const [where, surplus] of Object.entries(hostBoxes)) {
 // process is suspended — so a laptop armed at midnight and opened at eight sees eight hours of "idle"
 // on its first tick and issues `shutdown /s /f /t 60` before the user has touched anything.
 // Reproduced against the real scheduler; this asserts the wiring that prevents it, by firing the same
-// event Electron fires on resume.
-{
+// event Electron fires on resume. The shutdown scheduler/IPC only exists on Windows.
+if (qaSettings.platform === 'win32') {
   await win.evaluate(async () => window.devdeck.shutdown.arm());
   await win.waitForTimeout(200);
   const before = await win.evaluate(async () => (await window.devdeck.shutdown.status()).lastBusyAt);
