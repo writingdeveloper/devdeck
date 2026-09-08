@@ -32,11 +32,14 @@ let loadInFlight: number | null = null;
 let loadVersion = 0;
 let loadingMachine: string | null = null;
 let loadIsSlow = false;
+let loadingEmptyDeck = false;
 
 function renderProjectLoadStatus(): void {
   const el = document.getElementById('project-load-status');
   if (!el) return;
-  el.classList.toggle('hidden', loadingMachine === null);
+  // Routine 45-second refreshes reconcile existing rows; do not shift them with a flashing banner.
+  // A first load or machine switch announces immediately, and any prolonged refresh becomes visible.
+  el.classList.toggle('hidden', loadingMachine === null || (!loadingEmptyDeck && !loadIsSlow));
   el.textContent = loadingMachine === null ? '' : tr(loadIsSlow ? 'proj.loading_slow' : 'proj.loading', {
     machine: loadingMachine === LOCAL_MACHINE_ID ? tr('link.this_pc') : machineName(loadingMachine),
   });
@@ -807,6 +810,7 @@ async function reload(): Promise<void> {
   const version = ++loadVersion;
   const current = () => selection === machineSelectionVersion() && version === loadVersion;
   loadingMachine = forMachine; loadIsSlow = false;
+  loadingEmptyDeck = !hasRenderedOnce;
   renderProjectLoadStatus();
   const slowTimer = setTimeout(() => {
     if (current()) { loadIsSlow = true; renderProjectLoadStatus(); }

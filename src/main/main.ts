@@ -311,8 +311,9 @@ if (!gotLock) {
       withTimeout(Promise.resolve(linkService?.dispose()), 5_000, 'link shutdown'),
     ]).then((results) => {
       for (const result of results) if (result.status === 'rejected') console.error('DevDeck: shutdown incomplete', result.reason);
-      quitReady = true;
-      app.quit();
+      // Exit promises can settle inside a native terminal callback. Let that callback unwind before
+      // Electron tears down its Node environment; quitting in its microtask can stall native teardown.
+      setImmediate(() => { quitReady = true; app.quit(); });
     });
   });
   app.on('will-quit', () => globalShortcut.unregisterAll());
