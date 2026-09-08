@@ -1,4 +1,5 @@
 {
+  "common.save_failed": "保存できませんでした。変更の保存を確認できません。もう一度お試しください。",
   "proj.new": "新規プロジェクト",
   "proj.display": "表示",
   "proj.show_hidden": "非表示のプロジェクトを表示",

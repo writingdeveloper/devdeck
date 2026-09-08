@@ -1,6 +1,7 @@
 import { tr, localeTag } from './i18n-runtime';
 import { openInTerminal } from './openRouter';
-import { renderLoadError } from './loadError';
+import { renderLoadError, reportSaveError } from './loadError';
+import { withTimeout } from '../shared/withTimeout';
 import { buildMonthGrid, toDateStr, type DayCell } from '../shared/calendar';
 import {
   groupTasksByDue, classifyDue, addTodo, toggleTodo, editTodoText, setTodoDue, removeTodo,
@@ -11,11 +12,14 @@ import { createProviderOpenControl } from './providerOpenControl';
 import { createIcon } from './icons';
 import { liveProjectProviders } from './cockpitView';
 import type { AgentId } from '../shared/types';
-import { deckFor, selectedMachineId } from './machineDeck';
+import { deckFor, selectedMachineId, machineSelectionVersion, onMachineSelected } from './machineDeck';
 
 let viewEl: HTMLElement;
 interface Proj { path: string; name: string; todos: Todo[]; agentIds: AgentId[]; }
 let projects: Proj[] = [];
+let loadVersion = 0;
+let loadedSelection = -1;
+let pendingWrite: symbol | null = null;
 
 // Board filters (view-local; reset only by explicit user action, so a re-render keeps them).
 let filterProject: string | null = null;
@@ -31,28 +35,58 @@ let calSelected: string | null = null; // the clicked day (YYYY-MM-DD), shows it
 export function presetBoardProject(path: string): void { filterProject = path; }
 
 async function load(): Promise<void> {
+  if (pendingWrite) return;
+  const version = ++loadVersion;
+  const selection = machineSelectionVersion();
+  const current = () => version === loadVersion && selection === machineSelectionVersion();
+  viewEl.replaceChildren();
+  const skeleton = document.createElement('div'); skeleton.className = 'skeleton'; viewEl.appendChild(skeleton);
   let list;
   try {
     // Same machine the deck is showing, so the board and the task writes below agree about which
     // machine's projects these are.
-    list = await deckFor(selectedMachineId()).listProjects();
+    list = await withTimeout(deckFor(selectedMachineId()).listProjects(), 90_000, 'task board');
   } catch (e) {
+    if (!current()) return;
     console.error('DevDeck: task board load failed', e); // otherwise the board would sit blank
     renderLoadError(viewEl, () => void load());
     return;
   }
+  if (!current()) return;
+  loadedSelection = selection;
   projects = list.map((p) => ({ path: p.path, name: p.name, todos: p.todos ?? [], agentIds: p.agentIds ?? [] }));
   render();
 }
 
-function mutate(path: string, fn: (todos: Todo[]) => Todo[]): void {
+async function mutate(path: string, fn: (todos: Todo[]) => Todo[]): Promise<boolean> {
+  if (pendingWrite || loadedSelection !== machineSelectionVersion()) return false;
   const p = projects.find((x) => x.path === path);
-  if (!p) return;
-  p.todos = fn(p.todos);
-  // Routed by machine: the board follows whichever deck is on screen, so writing locally would
-  // attach another machine's task list to whatever sits at the same path here.
-  void deckFor(selectedMachineId()).setTodos(path, p.todos); // renderer owns the array; sends it whole (like note)
-  render();
+  if (!p) return false;
+  const next = fn(p.todos);
+  const api = deckFor(selectedMachineId());
+  const selection = machineSelectionVersion();
+  const token = pendingWrite = Symbol();
+  ++loadVersion; // a read begun before this write must not undo it
+  viewEl.inert = true; // blur handlers may rebuild controls while a remote write is pending
+  const controls = Array.from(viewEl.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>('input, button, select'));
+  const disabled = controls.map((c) => c.disabled);
+  controls.forEach((c) => { c.disabled = true; });
+  viewEl.setAttribute('aria-busy', 'true');
+  try {
+    await api.setTodos(path, next);
+    if (selection === machineSelectionVersion()) { p.todos = next; render(); }
+    return true;
+  } catch (error) {
+    reportSaveError(error);
+    // Preserve a new-task draft; undo the native checkbox toggle without rebuilding the form.
+    if (selection === machineSelectionVersion()) {
+      viewEl.querySelectorAll<HTMLInputElement>('.tk-check').forEach((cb) => { cb.checked = cb.defaultChecked; });
+    }
+    return false;
+  } finally {
+    controls.forEach((c, i) => { c.disabled = disabled[i]; });
+    if (pendingWrite === token) { pendingWrite = null; viewEl.inert = false; viewEl.removeAttribute('aria-busy'); }
+  }
 }
 
 const BUCKET_CLASS: Record<DueBucket, string> = {
@@ -80,7 +114,7 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
   const row = document.createElement('div'); row.className = 'tk-row ui-row' + (todo.done ? ' tk-done' : ''); row.setAttribute('role', 'listitem');
 
   const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'tk-check';
-  cb.checked = todo.done; cb.setAttribute('aria-label', tr('tasks.done'));
+  cb.checked = cb.defaultChecked = todo.done; cb.setAttribute('aria-label', tr('tasks.done'));
   cb.addEventListener('change', () => mutate(projectPath, (ts) => toggleTodo(ts, todo.id)));
 
   const proj = document.createElement('span'); proj.className = 'tk-proj'; proj.textContent = projectName;
@@ -115,9 +149,11 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
 function startEdit(text: HTMLElement, path: string, todo: Todo): void {
   const input = document.createElement('input'); input.className = 'tk-edit'; input.value = todo.text;
   let done = false;
-  const commit = (save: boolean): void => {
+  const commit = async (save: boolean): Promise<void> => {
     if (done) return; done = true;
-    if (save && input.value.trim()) mutate(path, (ts) => editTodoText(ts, todo.id, input.value));
+    if (save && input.value.trim()) {
+      if (!await mutate(path, (ts) => editTodoText(ts, todo.id, input.value))) { done = false; if (input.isConnected) input.focus(); }
+    }
     else render();
   };
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(true); if (e.key === 'Escape') commit(false); });
@@ -196,7 +232,7 @@ function filterControls(bar: HTMLElement): void {
     const clear = document.createElement('button'); clear.className = 'tk-clear-done';
     clear.textContent = tr('tasks.clear_done');
     let armed = false;
-    clear.addEventListener('click', () => {
+    clear.addEventListener('click', async () => {
       if (!armed) {
         armed = true;
         clear.textContent = tr('tasks.clear_done_confirm').replace('{n}', String(doneCount));
@@ -204,12 +240,12 @@ function filterControls(bar: HTMLElement): void {
         setTimeout(() => { armed = false; clear.textContent = tr('tasks.clear_done'); clear.classList.remove('armed'); }, 3000);
         return;
       }
-      for (const p of projects) {
+      const selection = machineSelectionVersion();
+      for (const p of [...projects]) {
+        if (selection !== machineSelectionVersion()) break;
         if (!p.todos.some((t) => t.done)) continue;
-        p.todos = clearDone(p.todos);
-        void deckFor(selectedMachineId()).setTodos(p.path, p.todos);
+        await mutate(p.path, clearDone);
       }
-      render();
     });
     bar.appendChild(clear);
   }
@@ -343,5 +379,12 @@ function dayCell(cell: DayCell): HTMLElement {
   return el;
 }
 
-export function mountNext(): void { viewEl = document.getElementById('view-next')!; }
+export function mountNext(): void {
+  viewEl = document.getElementById('view-next')!;
+  onMachineSelected(() => {
+    ++loadVersion; loadedSelection = -1; projects = []; pendingWrite = null;
+    filterProject = null; viewEl.replaceChildren(); viewEl.inert = false; viewEl.removeAttribute('aria-busy');
+    if (viewEl.classList.contains('active')) void load();
+  });
+}
 export function showNext(): void { void load(); }

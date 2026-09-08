@@ -6,7 +6,7 @@ import { withTimeout } from '../shared/withTimeout';
 import { filterProjectRows, aggregateDeleted } from '../shared/usageFilter';
 import { selectProviderUsage, type LocalProjectUsage, type LocalUsageFilter, type LocalUsageProvider, type LocalUsageReport, type ProviderUsageSlice } from '../shared/localUsage';
 import { createProviderLogo, providerName } from './providerLogo';
-import { deckFor, machineName, selectedMachineId, LOCAL_MACHINE_ID } from './machineDeck';
+import { deckFor, machineName, selectedMachineId, LOCAL_MACHINE_ID, machineSelectionVersion, onMachineSelected } from './machineDeck';
 
 const RANGES: { key: string; label: string; days: number }[] = [
   { key: '7d', label: '7d', days: 7 },
@@ -38,8 +38,12 @@ function isUsageReport(value: unknown): value is LocalUsageReport {
 
 /** How long the usage view waits before offering a retry instead of a skeleton. */
 const USAGE_TIMEOUT_MS = 90_000;
+let loadVersion = 0;
 
 async function load(): Promise<void> {
+  const version = ++loadVersion;
+  const selection = machineSelectionVersion();
+  const current = () => version === loadVersion && selection === machineSelectionVersion();
   const range = RANGES.find((r) => r.key === activeRange)!;
   const sinceMs = range.days === Infinity ? Infinity : Date.now() - range.days * 86_400_000;
   const sk = document.createElement('div'); sk.className = 'skeleton'; sk.style.margin = '16px';
@@ -50,8 +54,10 @@ async function load(): Promise<void> {
     // answer to "what did that box cost me".
     // Bounded: a scan that never answers used to leave this view showing a skeleton for the rest of
     // the session. Generous, because a cold scan over a very large store legitimately takes a while.
-    render(await withTimeout(deckFor(selectedMachineId()).usageReport(sinceMs), USAGE_TIMEOUT_MS, 'usage report'));
+    const report = await withTimeout(deckFor(selectedMachineId()).usageReport(sinceMs), USAGE_TIMEOUT_MS, 'usage report');
+    if (current()) render(report);
   } catch (e) {
+    if (!current()) return;
     console.error('DevDeck: usage load failed', e);
     renderLoadError(viewEl, () => void load());
   }
@@ -219,6 +225,11 @@ function render(report: LocalUsageReport): void {
 
 export function mountUsage(): void {
   viewEl = document.getElementById('view-usage')!;
+  onMachineSelected(() => {
+    loadVersion++;
+    viewEl.replaceChildren();
+    if (viewEl.classList.contains('active')) void load();
+  });
   document.addEventListener('devdeck:local-usage-report', (event) => {
     const detail = (event as CustomEvent<unknown>).detail;
     if (isUsageReport(detail)) render(detail);

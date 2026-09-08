@@ -1,6 +1,6 @@
 {
   "name": "devdeck",
-  "version": "1.37.4",
+  "version": "1.37.5",
   "description": "Project command deck — at-a-glance state + Claude Code, Codex, and Antigravity resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
@@ -34,6 +34,7 @@
     "qa": "npm run build && node qa/screenshot.mjs",
     "qa:audit": "npm run build && node qa/audit.mjs",
     "qa:link": "npm run build && node qa/link.mjs",
+    "qa:resilience": "npm run build && node qa/resilience.mjs",
     "qa:perf": "npm run build && node qa/perf.mjs"
   },
   "build": {

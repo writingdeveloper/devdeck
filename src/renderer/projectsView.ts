@@ -1,4 +1,5 @@
 import { tr, localeTag } from './i18n-runtime';
+import { machineSelectionVersion, onMachineSelected } from './machineDeck';
 import { shouldAutoRefresh } from '../shared/autoRefresh';
 import { projectSignature, diffCards, filterByDeckState, neglectedCount, type SignatureUiState } from '../shared/deckReconcile';
 import { openNewProjectModal } from './newProjectModal';
@@ -10,7 +11,7 @@ import { taskCounts } from '../shared/tasks';
 import { todayCost } from '../shared/localUsage';
 import { withTimeout } from '../shared/withTimeout';
 import { basename } from '../shared/paths';
-import { renderLoadError, toast } from './loadError';
+import { renderLoadError, toast, reportSaveError } from './loadError';
 import { createProviderLogo, providerName } from './providerLogo';
 import type { AgentId } from '../shared/types';
 import { selectedAgent } from './agentSelection';
@@ -27,7 +28,8 @@ const AUTO_REFRESH_MS = 45_000;
  */
 const DECK_TIMEOUT_MS = 150_000;
 /** The machine whose project list is on the wire right now, or null. One load per machine at a time. */
-let loadInFlight: string | null = null;
+let loadInFlight: number | null = null;
+let loadVersion = 0;
 
 type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[number];
 
@@ -232,6 +234,7 @@ function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
     wrap.appendChild(el);
   };
   const showEdit = (prefill?: string) => {
+    const api = deckFor(selectedMachineId());
     const original = p.note;
     wrap.replaceChildren();
     const ta = document.createElement('textarea');
@@ -246,8 +249,18 @@ function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
         ta.blur();
       }
     });
-    ta.addEventListener('blur', () => {
-      if (!cancelling && ta.value !== p.note) { p.note = ta.value; void deckFor(selectedMachineId()).setNote(p.path, ta.value); }
+    ta.addEventListener('blur', async () => {
+      if (ta.disabled) return;
+      if (!cancelling && ta.value !== p.note) {
+        ta.disabled = true;
+        try { await api.setNote(p.path, ta.value); p.note = ta.value; }
+        catch (error) {
+          reportSaveError(error);
+          ta.disabled = false;
+          if (ta.isConnected) ta.focus(); // keep the unsaved draft available for retry
+          return;
+        }
+      }
       showRead();
     });
     wrap.appendChild(ta); ta.focus();
@@ -365,12 +378,12 @@ function makeMenuWrap(p: ProjectViewModel): HTMLElement {
   const pinItem = document.createElement('button');
   pinItem.className = 'menu-item'; pinItem.setAttribute('role', 'menuitem');
   pinItem.textContent = p.pinned ? tr('proj.unpin') : tr('proj.pin');
-  pinItem.addEventListener('click', () => { void deckFor(selectedMachineId()).setPinned(p.path, !p.pinned).then(reload); });
+  pinItem.addEventListener('click', () => { void deckFor(selectedMachineId()).setPinned(p.path, !p.pinned).then(reload).catch(reportSaveError); });
 
   const hideItem = document.createElement('button');
   hideItem.className = 'menu-item'; hideItem.setAttribute('role', 'menuitem');
   hideItem.textContent = tr('proj.hide');
-  hideItem.addEventListener('click', () => { void deckFor(selectedMachineId()).setHidden(p.path, true).then(reload); });
+  hideItem.addEventListener('click', () => { void deckFor(selectedMachineId()).setHidden(p.path, true).then(reload).catch(reportSaveError); });
 
   menu.append(pinItem, hideItem);
 
@@ -663,14 +676,14 @@ function render(): void {
     const cached = cardCache.get(p.path);
     // Reuse the existing node when nothing visible changed, or when the user is mid-interaction
     // inside this card (e.g. editing a note) — never yank focus out from under them.
-    if (cached && (reuse.has(p.path) || cached.el.contains(document.activeElement))) {
+    if (cached && (reuse.has(p.path) || cached.el.contains(document.activeElement) || cached.el.querySelector('.note-edit'))) {
       orderedEls.push(cached.el);
       return;
     }
     const el = viewMode === 'list' ? makeRow(p, act.get(p.path) ?? '') : makeCard(p, render, act.get(p.path) ?? '');
     if (showHidden) {
       const restore = document.createElement('button'); restore.className = 'chip'; restore.textContent = tr('proj.restore');
-      restore.addEventListener('click', () => { void deckFor(selectedMachineId()).setHidden(p.path, false).then(reload); });
+      restore.addEventListener('click', () => { void deckFor(selectedMachineId()).setHidden(p.path, false).then(reload).catch(reportSaveError); });
       // List mode's row is a 7-column grid (.prow); appending to the row root adds an 8th
       // child that wraps to an implicit second row. Put it in the actions cell instead so it
       // sits inline with the other action buttons.
@@ -771,16 +784,19 @@ async function reload(): Promise<void> {
   // it just keeps showing this PC's". Every answer is checked against the selection it was asked
   // for, here and in the cost pass below.
   const forMachine = selectedMachineId();
+  const selection = machineSelectionVersion();
   // And ONE load per machine at a time. A slow remote list (a minute, on a hundred repositories)
   // outlived the 45s refresh, so a second ask went out while the first was still being answered —
   // the host doing the whole walk twice, and each answer discarded by the next. The refresh timer
   // simply comes round again once this one has landed.
-  if (loadInFlight === forMachine) return;
-  loadInFlight = forMachine;
-  try { await reloadFor(forMachine); } finally { if (loadInFlight === forMachine) loadInFlight = null; }
+  if (loadInFlight === selection) return;
+  loadInFlight = selection;
+  const version = ++loadVersion;
+  const current = () => selection === machineSelectionVersion() && version === loadVersion;
+  try { await reloadFor(forMachine, current); } finally { if (loadInFlight === selection) loadInFlight = null; }
 }
 
-async function reloadFor(forMachine: string): Promise<void> {
+async function reloadFor(forMachine: string, current: () => boolean): Promise<void> {
   lastLoadMs = Date.now();
   // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
   // so they never wipe the deck to gray placeholders.
@@ -799,7 +815,7 @@ async function reloadFor(forMachine: string): Promise<void> {
   } catch (e) {
     console.error('DevDeck: projects load failed', e);
     window.devdeck.logDiagnostic(`projects load failed for ${forMachine}: ${e instanceof Error ? e.message : String(e)}`, 'error', 'deck');
-    if (selectedMachineId() !== forMachine) return; // already looking elsewhere — that load owns the deck
+    if (!current()) return;
     // Showing another machine's projects under this machine's name is worse than showing nothing:
     // the rows look right, and every action on them would be aimed at the wrong computer. A remote
     // deck that cannot be read says so and offers a retry, whether or not something was drawn before.
@@ -810,7 +826,7 @@ async function reloadFor(forMachine: string): Promise<void> {
     }
     return;
   }
-  if (selectedMachineId() !== forMachine) return; // the user moved on while this was on the wire
+  if (!current()) return;
   projects = proj;
   viewMode = settings.viewMode === 'cards' ? 'cards' : 'list';
   for (const listener of projectListeners) listener([...projects]);
@@ -831,11 +847,12 @@ async function reloadFor(forMachine: string): Promise<void> {
   // was already inside the first: `daily` is bucketed by day and its cost is summed exactly as a
   // since-midnight scan's total would be.
   void deckFor(costMachine).usageReport(0).then((r) => {
-    if (selectedMachineId() !== costMachine) return; // costs are per machine — never paint one deck's onto another
+    if (!current()) return;
+    costByPath.clear();
     for (const pu of r.byProject) costByPath.set(pu.path, pu.costEstimate);
     render();
     renderDeckPulse(todayCost(r.daily, Date.now()));
-  }).catch(() => { renderDeckPulse(null); /* cost is best-effort; ignore failures */ });
+  }).catch(() => { if (current()) renderDeckPulse(null); });
 }
 
 // External triggers (agent switch, settings change) should rebuild from scratch: the agent
@@ -903,12 +920,14 @@ function mountMachineSwitch(): void {
   machineSwitchEl = document.getElementById('machine-switch') as HTMLSelectElement | null;
   machineSwitchEl?.addEventListener('change', () => {
     selectMachine(machineSwitchEl!.value);
-    // A different machine is a different set of projects, so nothing about the old deck survives:
-    // rebuild rather than reconcile, or rows would be matched across machines by path.
-    cardCache.clear();
-    selected.clear();
-    void reload();
+  });
+  onMachineSelected(() => {
+    cardCache.clear(); selected.clear(); expanded.clear(); costByPath.clear();
+    projects = []; hasRenderedOnce = false; lastPulseCost = null; pendingFocusPath = null;
+    for (const listener of projectListeners) listener([]);
+    syncOpenBtn(); renderDeckPulse(null); showSkeleton();
     renderMachineSwitch();
+    void reload();
   });
   renderMachineSwitch();
 }

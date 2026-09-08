@@ -24,6 +24,14 @@ export function toast(message: string): void {
   setTimeout(() => el.remove(), 6000);
 }
 
+/** Handled write failures still belong in diagnostics; never include the user's draft text. */
+export function reportSaveError(error: unknown): void {
+  toast(tr('common.save_failed'));
+  try {
+    window.devdeck.logDiagnostic(`save failed: ${error instanceof Error ? error.message : String(error)}`, 'error', 'store');
+  } catch { /* the renderer may be shutting down */ }
+}
+
 /**
  * A neutral toast that reports a reversible change and offers to undo it.
  *

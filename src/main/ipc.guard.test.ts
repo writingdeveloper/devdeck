@@ -117,10 +117,10 @@ describe('project store-setter path guards', () => {
 
   it('ignores writes to a path outside the allowed folders', () => {
     for (const s of Object.values(storeSpies)) s.mockClear();
-    handlers.get('project:setNote')!(null, outside, 'x');
-    handlers.get('project:setTodos')!(null, outside, []);
-    handlers.get('project:setPinned')!(null, outside, true);
-    handlers.get('project:setHidden')!(null, outside, true);
+    expect(() => handlers.get('project:setNote')!(null, outside, 'x')).toThrow('allowed folders');
+    expect(() => handlers.get('project:setTodos')!(null, outside, [])).toThrow('allowed folders');
+    expect(() => handlers.get('project:setPinned')!(null, outside, true)).toThrow('allowed folders');
+    expect(() => handlers.get('project:setHidden')!(null, outside, true)).toThrow('allowed folders');
     expect(storeSpies.setNote).not.toHaveBeenCalled();
     expect(storeSpies.setTodos).not.toHaveBeenCalled();
     expect(storeSpies.setPinned).not.toHaveBeenCalled();

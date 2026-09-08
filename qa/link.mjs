@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { connect as netConnect } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { closeElectron } from './electron-lifecycle.mjs';
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -75,8 +76,7 @@ async function freePort() {
 }
 
 async function closeApp(app) {
-  await app.evaluate(({ app: a }) => { a.isQuitting = true; setImmediate(() => a.quit()); }).catch(() => {});
-  await app.close().catch(() => {});
+  await closeElectron(app);
 }
 
 const host = await launch('host', true);   // the machine with the project on it
@@ -636,6 +636,8 @@ try {
     console.error(`QA:LINK FAILED — ${failed.join(', ')}`);
     process.exitCode = 1;
   }
-  await closeApp(host.app).catch(() => {});
-  await closeApp(viewer.app).catch(() => {});
+  for (const instance of [host, viewer]) {
+    try { await closeApp(instance.app); }
+    catch (error) { console.error(`QA:LINK shutdown failed: ${error}`); process.exitCode = 1; }
+  }
 }

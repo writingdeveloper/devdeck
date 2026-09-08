@@ -21,9 +21,11 @@ const EMPTY: StoreEntry = {
 
 export class Store {
   private state: StateFile;
+  private committed: string;
 
   constructor(private readonly filePath: string) {
     this.state = this.load();
+    this.committed = JSON.stringify(this.state);
   }
 
   /** Parse a state file, or null if missing/unreadable/not an object (so callers can fall back). */
@@ -31,8 +33,14 @@ export class Store {
     if (!existsSync(path)) return null;
     try {
       const parsed = JSON.parse(readFileSync(path, 'utf8'));
-      if (!parsed || typeof parsed !== 'object') return null;
-      const projects = parsed.projects && typeof parsed.projects === 'object' ? parsed.projects : {};
+      const object = (v: unknown) => v !== null && typeof v === 'object' && !Array.isArray(v);
+      if (!object(parsed)) return null;
+      if (parsed.projects !== undefined && !object(parsed.projects)) return null;
+      if (parsed.settings !== undefined && !object(parsed.settings)) return null;
+      if (parsed.settings?.folders !== undefined && (!Array.isArray(parsed.settings.folders)
+        || !parsed.settings.folders.every((f: unknown) => object(f) && typeof (f as Folder).path === 'string'
+          && ['root', 'repo'].includes((f as Folder).kind)))) return null;
+      const projects = parsed.projects ?? {};
       return { projects, settings: parsed.settings };
     } catch {
       return null;
@@ -60,13 +68,17 @@ export class Store {
   private save(): void {
     const tmp = this.filePath + '.tmp';
     try {
-      writeFileSync(tmp, JSON.stringify(this.state, null, 2), 'utf8');
+      const serialized = JSON.stringify(this.state, null, 2);
+      writeFileSync(tmp, serialized, 'utf8');
       renameSync(tmp, this.filePath);
+      this.committed = serialized;
       // Mirror the just-written good state to .bak so external corruption of the live file (disk error,
       // a sync tool, a manual edit) is recoverable on the next load instead of starting from empty.
       try { copyFileSync(this.filePath, this.filePath + '.bak'); } catch { /* best-effort backup */ }
     } catch (err) {
+      this.state = JSON.parse(this.committed) as StateFile;
       console.error('DevDeck: failed to persist state', err);
+      throw err;
     }
   }
 

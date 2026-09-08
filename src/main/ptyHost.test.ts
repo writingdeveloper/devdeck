@@ -16,6 +16,49 @@ function fakeProc() {
 }
 
 describe('PtyHost', () => {
+  it('waits for already-closing terminals and rejects new opens during shutdown', async () => {
+    const a = fakeProc(), b = fakeProc();
+    const host = new PtyHost(vi.fn().mockReturnValueOnce(a).mockReturnValueOnce(b));
+    host.create('a', 'cmd', [], '.', 80, 24, () => {}, () => {});
+    host.create('b', 'cmd', [], '.', 80, 24, () => {}, () => {});
+    host.kill('a');
+    const work = host.shutdown();
+    expect(host.shutdown()).toBe(work);
+    expect(a.kill).toHaveBeenCalledTimes(1);
+    expect(b.kill).toHaveBeenCalledTimes(1);
+    expect(() => host.create('c', 'cmd', [], '.', 80, 24, () => {}, () => {})).toThrow('shutting down');
+    let finished = false;
+    void work.then(() => { finished = true; });
+    b.emitExit(0);
+    await Promise.resolve();
+    expect(finished).toBe(false);
+    a.emitExit(0);
+    await work;
+    expect(finished).toBe(true);
+  });
+
+  it('bounds shutdown when a native terminal never sends exit', async () => {
+    vi.useFakeTimers();
+    try {
+      const host = new PtyHost(() => fakeProc());
+      host.create('a', 'cmd', [], '.', 80, 24, () => {}, () => {});
+      const result = expect(host.shutdown(100)).rejects.toThrow('terminal shutdown');
+      await vi.advanceTimersByTimeAsync(100);
+      await result;
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('an old terminal exit cannot remove a replacement with the same id', () => {
+    const a = fakeProc(), b = fakeProc();
+    const host = new PtyHost(vi.fn().mockReturnValueOnce(a).mockReturnValueOnce(b));
+    host.create('same', 'cmd', [], '.', 80, 24, () => {}, () => {});
+    host.kill('same');
+    host.create('same', 'cmd', [], '.', 80, 24, () => {}, () => {});
+    a.emitExit(0);
+    host.write('same', 'still here');
+    expect(b.write).toHaveBeenCalledWith('still here');
+  });
+
   it('create() spawns with cwd/cols/rows and routes data to the per-id callback', () => {
     const proc = fakeProc();
     const spawn: PtySpawn = vi.fn(() => proc);

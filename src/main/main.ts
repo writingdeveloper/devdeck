@@ -16,6 +16,7 @@ import { latestTranscriptMtime } from './transcriptFreshness';
 import { cleanupPasteImages } from './tempClean';
 import { resolveWindowBounds, WINDOW_MIN_HEIGHT, WINDOW_MIN_WIDTH } from '../shared/windowBounds';
 import { createLinkService, type LinkService } from './link/linkService';
+import { withTimeout } from '../shared/withTimeout';
 
 // Local-only crash capture (no upload — nothing is ever sent anywhere) so a NATIVE crash (a fault
 // inside node-pty/conpty or Chromium itself) writes an inspectable minidump instead of vanishing —
@@ -298,6 +299,21 @@ if (!gotLock) {
   });
 
   app.on('window-all-closed', () => { /* stay alive in tray */ });
-  app.on('before-quit', () => { ptyHost.killAll(); void linkService?.dispose(); });
+  let quitReady = false;
+  let quitWork: Promise<void> | null = null;
+  app.on('before-quit', (event) => {
+    if (quitReady) return;
+    event.preventDefault();
+    if (quitWork) return; // repeated Quit cannot bypass or duplicate native cleanup
+    (app as typeof app & { isQuitting?: boolean }).isQuitting = true;
+    quitWork = Promise.allSettled([
+      ptyHost.shutdown(),
+      withTimeout(Promise.resolve(linkService?.dispose()), 5_000, 'link shutdown'),
+    ]).then((results) => {
+      for (const result of results) if (result.status === 'rejected') console.error('DevDeck: shutdown incomplete', result.reason);
+      quitReady = true;
+      app.quit();
+    });
+  });
   app.on('will-quit', () => globalShortcut.unregisterAll());
 }

@@ -1,3 +1,5 @@
+import { withTimeout } from '../shared/withTimeout';
+
 export interface PtyProcess {
   pid: number;
   onData(cb: (data: string) => void): void;
@@ -85,6 +87,9 @@ interface Session {
 
 export class PtyHost {
   private sessions = new Map<string, Session>();
+  private pendingExits = new Set<Promise<void>>();
+  private stopping = false;
+  private shutdownWork: Promise<void> | null = null;
   constructor(private readonly spawn: PtySpawn) {}
 
   create(
@@ -92,7 +97,12 @@ export class PtyHost {
     onData: (data: string) => void, onExit: (e: { exitCode: number }) => void,
     info?: Partial<Omit<PtySessionInfo, 'id'>> & { internal?: boolean },
   ): void {
+    if (this.stopping) throw new Error('Terminals are shutting down');
+    if (this.sessions.has(id)) throw new Error(`Terminal already exists: ${id}`);
     const proc = this.spawn(file, args, { cwd, cols, rows });
+    let exited!: () => void;
+    const exit = new Promise<void>((resolve) => { exited = resolve; });
+    this.pendingExits.add(exit);
     const session: Session = {
       proc,
       cols,
@@ -111,7 +121,12 @@ export class PtyHost {
     };
     this.sessions.set(id, session);
     proc.onData((data) => { this.remember(session, data); onData(data); });
-    proc.onExit((e) => { this.sessions.delete(id); onExit(e); });
+    proc.onExit((e) => {
+      if (this.sessions.get(id) === session) this.sessions.delete(id);
+      this.pendingExits.delete(exit);
+      exited();
+      onExit(e);
+    });
   }
 
   private remember(session: Session, data: string): void {
@@ -193,6 +208,25 @@ export class PtyHost {
     session.proc.resize(cols, rows);
     return true;
   }
-  kill(id: string): void { const s = this.sessions.get(id); if (s) { s.proc.kill(); this.sessions.delete(id); } }
-  killAll(): void { for (const s of this.sessions.values()) s.proc.kill(); this.sessions.clear(); }
+  kill(id: string): void {
+    const s = this.sessions.get(id);
+    if (!s) return;
+    this.sessions.delete(id);
+    s.proc.kill();
+  }
+  killAll(): void {
+    for (const id of [...this.sessions.keys()]) {
+      try { this.kill(id); } catch (error) { console.error('DevDeck: terminal close failed', error); }
+    }
+  }
+
+  /** Drain native exit callbacks while Electron's Node environment is still alive. */
+  shutdown(timeoutMs = 5_000): Promise<void> {
+    if (this.shutdownWork) return this.shutdownWork;
+    this.stopping = true;
+    const exits = [...this.pendingExits]; // also includes terminals already closing
+    this.killAll();
+    this.shutdownWork = withTimeout(Promise.all(exits), timeoutMs, 'terminal shutdown').then(() => {});
+    return this.shutdownWork;
+  }
 }

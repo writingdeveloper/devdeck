@@ -1,4 +1,5 @@
 {
+  "common.save_failed": "Could not save. Your change has not been confirmed. Please retry.",
   "proj.new": "New project",
   "proj.display": "Display",
   "proj.show_hidden": "Show hidden projects",

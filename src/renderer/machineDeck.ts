@@ -43,6 +43,8 @@ export interface DeckFacade {
 }
 
 let selected = LOCAL_MACHINE_ID;
+let selectionVersion = 0;
+const selectionListeners = new Set<() => void>();
 let machines: MachineStatus[] = [];
 const listeners = new Set<() => void>();
 
@@ -90,10 +92,17 @@ export function deckFor(machineId: string): DeckFacade {
 }
 
 export function selectedMachineId(): string { return selected; }
+export function machineSelectionVersion(): number { return selectionVersion; }
+export function onMachineSelected(listener: () => void): () => void {
+  selectionListeners.add(listener);
+  return () => selectionListeners.delete(listener);
+}
 
 export function selectMachine(machineId: string): void {
   if (machineId === selected) return;
   selected = machineId;
+  selectionVersion++;
+  for (const listener of selectionListeners) listener();
   emit();
 }
 
@@ -122,17 +131,20 @@ function emit(): void { for (const listener of listeners) listener(); }
  * If the machine currently being viewed disappears (it was forgotten in Settings), the deck falls
  * back to this one rather than showing an empty view of a machine that is no longer known.
  */
+let refreshVersion = 0;
 export async function refreshMachines(): Promise<void> {
+  const version = ++refreshVersion;
   let next: MachineStatus[] = [];
   try {
     next = await window.devdeck.link.machines();
   } catch {
-    next = []; // the link is unavailable on this machine; there is simply nothing to switch to
+    return; // a failed read does not mean the user forgot every paired machine
   }
+  if (version !== refreshVersion) return;
   const before = JSON.stringify(machines);
   const wasConnected = new Set(machines.filter((m) => m.state === 'connected').map((m) => m.machineId));
   machines = next;
-  if (selected !== LOCAL_MACHINE_ID && !next.some((m) => m.machineId === selected)) selected = LOCAL_MACHINE_ID;
+  if (selected !== LOCAL_MACHINE_ID && !next.some((m) => m.machineId === selected)) selectMachine(LOCAL_MACHINE_ID);
   // The moment a machine comes up, ask what it is already running. Connecting to a machine that is
   // mid-work and being shown nothing is the thing this exists to prevent — and it has to happen on
   // every transition INTO connected, not just the first, because a reconnect is how a laptop that

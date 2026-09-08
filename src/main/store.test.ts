@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from './store';
@@ -15,6 +15,31 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })); // retry: Windows file-handle release race → ENOTEMPTY
 
 describe('Store', () => {
+  it('rejects a failed write, rolls back memory, and persists a later retry across restart', () => {
+    const store = new Store(file);
+    store.setNote('repo', 'saved');
+    // A directory occupying the temporary filename deterministically fails on every OS.
+    mkdirSync(file + '.tmp');
+    expect(() => store.setNote('repo', 'unsaved')).toThrow();
+    expect(store.get('repo').note).toBe('saved');
+    expect(new Store(file).get('repo').note).toBe('saved');
+    rmSync(file + '.tmp', { recursive: true });
+    store.setNote('repo', 'retried');
+    expect(new Store(file).get('repo').note).toBe('retried');
+  });
+
+  it.each([
+    [], { projects: [] }, { projects: {}, settings: [] },
+    { projects: {}, settings: { folders: 'broken' } },
+    { projects: {}, settings: { folders: [null] } },
+  ])('recovers a valid backup when the JSON parses but has an invalid state shape: %j', (bad) => {
+    new Store(file).setNote('repo', 'keep me');
+    writeFileSync(file, JSON.stringify(bad));
+    const recovered = new Store(file);
+    expect(recovered.get('repo').note).toBe('keep me');
+    expect(recovered.getFolders()).toEqual([]);
+  });
+
   it('returns a default entry for an unknown project', () => {
     const s = new Store(file);
     expect(s.get('C:\\g\\x')).toEqual({

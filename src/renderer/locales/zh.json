@@ -1,4 +1,5 @@
 {
+  "common.save_failed": "无法保存，尚未确认更改已保存。请重试。",
   "proj.new": "新建项目",
   "proj.display": "显示",
   "proj.show_hidden": "显示已隐藏项目",

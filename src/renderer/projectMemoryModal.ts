@@ -9,7 +9,8 @@ import { toast } from './loadError';
 import { snapshotRows, timelineRows, type MemoryAction } from './projectMemoryPresentation';
 import { memorySurfaceMode } from './projectMemorySurface';
 import { createIcon } from './icons';
-import { deckFor, selectedMachineId } from './machineDeck';
+import { deckFor, selectedMachineId, onMachineSelected } from './machineDeck';
+import { withTimeout } from '../shared/withTimeout';
 
 let currentOverlay: HTMLElement | null = null;
 let closeCurrent: (() => void) | null = null;
@@ -25,6 +26,7 @@ function button(label: string, className = 'chip'): HTMLButtonElement {
 
 export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLElement): void {
   closeCurrent?.();
+  const machine = selectedMachineId();
   const overlay = document.createElement('div'); overlay.className = 'pm-overlay';
   const modal = document.createElement('section'); modal.className = 'pm-modal loading';
   modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-labelledby', 'pm-title');
@@ -66,6 +68,7 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
     if (currentOverlay !== overlay) return;
     document.removeEventListener('keydown', onKey, true);
     window.removeEventListener('resize', applySurfaceMode);
+    unsubscribeSelection();
     overlay.remove(); currentOverlay = null;
     closeCurrent = null;
     const focusTarget = trigger.isConnected
@@ -75,6 +78,7 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
     focusTarget?.focus();
   };
   closeCurrent = close;
+  const unsubscribeSelection = onMachineSelected(close);
   const focusable = (): HTMLElement[] => Array.from(
     modal.querySelectorAll<HTMLElement>('button, [href], [tabindex]:not([tabindex="-1"])'),
   ).filter((item) => {
@@ -184,8 +188,12 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
     if (fresh) { modal.classList.add('loading'); body.replaceChildren(loading); }
     // The snapshot is assembled from git, transcripts and stored notes that all live on the machine
     // holding the project — reading it here would describe unrelated local work.
-    try { render(await deckFor(selectedMachineId()).projectMemory(project.path, fresh)); }
+    try {
+      const memory = await withTimeout(deckFor(machine).projectMemory(project.path, fresh), 90_000, 'project memory');
+      if (currentOverlay === overlay) render(memory);
+    }
     catch {
+      if (currentOverlay !== overlay) return;
       modal.classList.remove('loading'); body.replaceChildren();
       const error = document.createElement('div'); error.className = 'pm-error'; error.textContent = tr('memory.load_failed');
       const retry = button(tr('memory.retry')); retry.addEventListener('click', () => void load(true)); error.appendChild(retry); body.appendChild(error);

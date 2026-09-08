@@ -11,7 +11,7 @@ See every repository, live agent session, next task, local usage estimate, and r
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-43-47848F)
-![Tests](https://img.shields.io/badge/tests-1166%20passing-3fb950)
+![Tests](https://img.shields.io/badge/tests-1254%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 </div>
@@ -161,7 +161,12 @@ npm test
 npm run build
 npm run qa
 npm run qa:audit
+npm run qa:resilience
 ```
+
+CI runs the multilingual journeys and failure/recovery checks as well as unit tests and accessibility audits.
+Tagged releases wait for those checks and all OS builds, then exercise the packaged Windows app before publication.
+See the [quality review and regression-testing guide](docs/quality-review-1.37.5.md) for coverage and remaining risks.
 
 ## How it works
 

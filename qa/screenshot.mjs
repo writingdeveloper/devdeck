@@ -1,12 +1,23 @@
 // AI-QA screenshot harness: launches DevDeck via Playwright's Electron support,
 // drives each view across all 4 languages, captures screenshots + console errors.
 import { _electron as electron } from 'playwright';
-import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { closeElectron } from './electron-lifecycle.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+// Never resume a conversation in the checkout running QA. Give all project actions a disposable
+// repository with a stable old commit (also makes the neglected-filter journey deterministic).
+const projectRoot = mkdtempSync(join(tmpdir(), 'devdeck-screenshot-fixture-'));
+writeFileSync(join(projectRoot, 'README.md'), '# QA fixture\n');
+execFileSync('git', ['init', '-q', '-b', 'qa-fixture'], { cwd: projectRoot });
+execFileSync('git', ['add', '.'], { cwd: projectRoot });
+execFileSync('git', ['-c', 'user.name=QA', '-c', 'user.email=qa@devdeck', 'commit', '-qm', 'fixture'], {
+  cwd: projectRoot, env: { ...process.env, GIT_AUTHOR_DATE: '2025-01-01T00:00:00Z', GIT_COMMITTER_DATE: '2025-01-01T00:00:00Z' },
+});
 const out = join(root, 'qa', 'shots');
 mkdirSync(out, { recursive: true });
 
@@ -20,12 +31,13 @@ const qaUserData = mkdtempSync(join(tmpdir(), 'devdeck-qa-'));
 writeFileSync(join(qaUserData, 'state.json'), JSON.stringify({
   projects: {},
   settings: {
-    folders: [{ path: root, kind: 'repo' }],
+    language: 'ko',
+    folders: [{ path: projectRoot, kind: 'repo' }],
     viewMode: 'list',
     cockpitSessions: [
-      { projectPath: root, name: 'devdeck', sessionId: null, agentId: 'claude', label: 'Legacy id-less A' },
-      { projectPath: root, name: 'devdeck', sessionId: null, agentId: 'claude', label: 'Legacy id-less B' },
-      { projectPath: root, name: 'devdeck', sessionId: 'qa-conversation-is-gone', agentId: 'claude', label: 'Missing conversation' },
+      { projectPath: projectRoot, name: 'devdeck', sessionId: null, agentId: 'claude', label: 'Legacy id-less A' },
+      { projectPath: projectRoot, name: 'devdeck', sessionId: null, agentId: 'claude', label: 'Legacy id-less B' },
+      { projectPath: projectRoot, name: 'devdeck', sessionId: 'qa-conversation-is-gone', agentId: 'claude', label: 'Missing conversation' },
     ],
   },
 }, null, 2));
@@ -35,7 +47,12 @@ const app = await electron.launch({
   // shows X" assertion reads an empty element. The WebGL path is exercised by qa/perf.mjs.
   args: ['.', `--user-data-dir=${qaUserData}`, '--no-sandbox', '--disable-gpu'],
   cwd: root,
+  env: { ...process.env, CLAUDE_CODE_SSE_PORT: '', CLAUDECODE: '', CLAUDE_CODE_ENTRYPOINT: '' },
 });
+async function closeApp() {
+  await closeElectron(app);
+}
+try {
 const win = await app.firstWindow();
 win.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 win.on('pageerror', (e) => pageErrors.push(String(e)));
@@ -56,15 +73,11 @@ await app.evaluate(({ ipcMain }, projectPath) => {
     }],
     daily: [], byProvider: [],
   }));
-}, root);
+}, projectRoot);
 
 // The tray guard turns window close into hide-to-tray (and window-all-closed keeps the app alive),
 // so Playwright's bare app.close() waits forever and leaks a zombie harness instance. Mark the quit
 // intent in main (same flag the tray's own Quit item sets) and quit explicitly.
-async function closeApp() {
-  await app.evaluate(({ app: a }) => { a.isQuitting = true; setImmediate(() => a.quit()); }).catch(() => {});
-  await app.close().catch(() => {});
-}
 
 async function shot(name) {
   await win.waitForTimeout(400);
@@ -126,7 +139,7 @@ async function injectLocalUsage() {
 }
 
 // wait for first project render (skeleton -> cards), generous for git scan
-await win.waitForSelector('#cards .card, #cards .empty', { timeout: 30000 }).catch(() => {});
+await win.waitForSelector('#cards .card, #cards .prow, #cards .empty', { timeout: 30000 });
 const cockpitAvailable = await win.evaluate(() => !document.getElementById('shell-session-section')?.classList.contains('hidden'));
 
 // The internal Cockpit route must never regain a user-facing rail destination, including on platforms
@@ -134,7 +147,7 @@ const cockpitAvailable = await win.evaluate(() => !document.getElementById('shel
 const cockpitDestinationCount = await win.locator('.rail-item[data-view="cockpit"]').count();
 if (cockpitDestinationCount !== 0) {
   console.error(`QA FAILED — expected zero standalone Cockpit destinations, found ${cockpitDestinationCount}`);
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // The expanded command-center sidebar must not inherit the old 36px icon-rail geometry.
@@ -154,7 +167,7 @@ console.log('shell navigation geometry:', JSON.stringify(shellNavGeometry));
 // what must never happen is the rail inheriting the old 36px icon-rail geometry or clipping a label.
 if (!shellNavGeometry.present || shellNavGeometry.width < 180 || shellNavGeometry.width > 460 || shellNavGeometry.overflow) {
   console.error('QA FAILED — expanded shell navigation is clipped:', JSON.stringify(shellNavGeometry));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 
@@ -170,7 +183,7 @@ const shellGeometry = await win.evaluate(() => {
 });
 if (!shellGeometry.present || !shellGeometry.contained || shellGeometry.overlap) {
   console.error('QA FAILED — shared shell geometry is invalid:', JSON.stringify(shellGeometry));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // Previous-session management must live in the shared shell before the hidden compatibility list.
@@ -193,7 +206,7 @@ if (cockpitAvailable) {
   });
   if (previousShell.count !== 3 || previousShell.uniqueKeys !== 3 || !previousShell.restoreAll || !previousShell.restoreCopy || !previousShell.warningVisible || !previousShell.menus) {
     console.error('QA FAILED — shared-shell previous-session controls are incomplete:', JSON.stringify(previousShell));
-    await closeApp(); process.exit(1);
+    await closeApp(); throw new Error('QA assertion failed; see preceding output');
   }
 
   const firstPrevious = win.locator('.shell-session-wrap[data-previous="true"]').first();
@@ -215,7 +228,7 @@ if (cockpitAvailable) {
   const afterForget = await win.locator('.shell-session-wrap[data-previous="true"]').count();
   if (!pinPersisted || afterForget !== beforeForget - 1) {
     console.error('QA FAILED — shared-shell pin/forget did not route through Cockpit handlers:', JSON.stringify({ pinPersisted, beforeForget, afterForget }));
-    await closeApp(); process.exit(1);
+    await closeApp(); throw new Error('QA assertion failed; see preceding output');
   }
 }
 
@@ -260,7 +273,7 @@ const arrowsOk = quickOpen.matched >= 2 && quickOpen.initial === 0 && quickOpen.
 if (!arrowsOk || !quickOpen.listbox
   || !quickOpen.empty.message || !quickOpen.empty.sectionsHidden || !quickOpen.empty.restoreAllHidden || !quickOpen.restored) {
   console.error('QA FAILED — Quick Open is not keyboard-navigable or leaves stale sections behind:', JSON.stringify(quickOpen));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // Search had to be reached with the mouse, and from inside a terminal there was no way to it at all.
@@ -278,7 +291,7 @@ const chord = await win.evaluate(() => ({
 console.log('quick open chord:', JSON.stringify(chord));
 if (!chord.focused || !chord.reExpanded || !chord.hinted) {
   console.error('QA FAILED — Ctrl+Shift+P does not reach Quick Open:', JSON.stringify(chord));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // The language control was the bare glyph 文 — only legible to someone who already reads CJK, and it
@@ -298,7 +311,7 @@ const langControl = await win.evaluate(() => {
 console.log('language control:', JSON.stringify(langControl));
 if (!langControl.hasIcon || !langControl.showsEndonym || !langControl.labelled || !langControl.noBareGlyph) {
   console.error('QA FAILED — the language control is not self-explanatory:', JSON.stringify(langControl));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // Its menu opened OUTSIDE a rail that clips its overflow, so the popup was invisible and focusing its
@@ -323,7 +336,7 @@ await win.keyboard.press('Escape');
 console.log('language menu:', JSON.stringify(langMenu));
 if (!langMenu.open || !langMenu.inside || !langMenu.railNotScrolled || !langMenu.focusInMenu) {
   console.error('QA FAILED — the language menu opens outside the rail or shifts it:', JSON.stringify(langMenu));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // The rail is user-sized: 224px could never fit "master ✎1 · Claude · Opus 4.8 · 35%". The handle has
@@ -365,7 +378,7 @@ if (resize.wider <= resize.start || resize.narrower >= resize.wider || resize.ma
   || Math.abs(resize.reset - 300) > 1 || resize.stored !== "300"
   || !resize.grabbable || !resize.tracksRail || !resize.labelled || !resize.valued) {
   console.error('QA FAILED — the sidebar cannot be resized or the handle is unreachable:', JSON.stringify(resize));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // The title bar right above already shows the logo and "DevDeck"; a second wordmark in the rail read
@@ -386,7 +399,7 @@ const chrome = await win.evaluate(() => {
 console.log('chrome:', JSON.stringify(chrome));
 if (!chrome.matches || !chrome.neutralTopbar || !chrome.neutralCanvas || !chrome.singleWordmark) {
   console.error('QA FAILED — the app chrome is tinted or duplicates the wordmark:', JSON.stringify(chrome));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // The project list is the other unbounded one (100+ repos here). Its header must carry the same
@@ -406,7 +419,7 @@ if (!projectSection.before.visible || projectSection.before.expanded !== 'true' 
   || projectSection.folded.visible || projectSection.folded.expanded !== 'false'
   || projectSection.folded.count !== projectSection.before.count || !projectSection.reopened) {
   console.error('QA FAILED — the project section header does not fold/count correctly:', JSON.stringify(projectSection));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 await win.click('#shell-collapse');
@@ -422,7 +435,7 @@ const collapsedShell = await win.evaluate(() => {
 await shot('shell-collapsed');
 if (!collapsedShell.collapsed || collapsedShell.width !== 52 || !collapsedShell.labelsHidden) {
   console.error('QA FAILED — collapsed shell geometry is invalid:', JSON.stringify(collapsedShell));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.click('#shell-collapse');
 await win.waitForTimeout(180);
@@ -471,7 +484,7 @@ console.log('local usage analytics:', JSON.stringify({ usageAll, usageCodex }));
 if (usageAll.cards !== 3 || usageAll.values.join() !== '~$8.75,~$3.25,~$5.50' || !usageAll.logosLoaded || usageAll.overflow
   || usageCodex.cards !== 3 || usageCodex.selected !== 'true' || usageCodex.rows.some((name) => name.includes('claude-only')) || !usageCodex.rows.some((name) => name.includes('codex-only'))) {
   console.error('QA FAILED — combined local usage cards/provider filtering/geometry regressed.');
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await shot('usage-combined-provider-costs');
 
@@ -512,11 +525,8 @@ await win.waitForTimeout(300);
 // not wipe + rebuild the whole deck. Tag every card, refresh, and confirm the nodes survive.
 // The old full-replaceChildren behavior would leave 0 survivors.
 //
-// With the SAME answer. The scanned folder is this checkout, and an agent working in it — the one
-// running this harness, typically — appends to its transcript continuously, so the project list's
-// session timestamps move between two loads and the card is rebuilt for a real change. That is the
-// deck being right, not the reconciler being wrong: the check freezes the list at its current answer
-// for the duration of the refresh, then hands the channel back to the real handler.
+// With the SAME answer: freeze the list during this check so even a timestamp crossing a staleness
+// boundary cannot turn a legitimate changed card into a reconciliation failure.
 const frozenList = await win.evaluate(() => window.devdeck.listProjects());
 await app.evaluate(({ ipcMain }, list) => {
   ipcMain.removeHandler('projects:list');
@@ -545,7 +555,7 @@ console.log(`refresh reuse: ${reuse.survived}/${reuse.total} card nodes reused $
 if (reuse.total > 0 && reuse.survived === 0) {
   console.error(`QA FAILED — deck refresh wiped all ${reuse.total} cards instead of reconciling in place`);
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // Narrow window to check responsive card grid. Switch language at desktop width first because the
@@ -588,7 +598,7 @@ for (const target of LANGS) {
 console.log('narrow Display menu geometry:', JSON.stringify(displayMenuGeometry));
 if (displayMenuGeometry.some((entry) => entry.toolbarOverflow || !entry.menuContained || !entry.menuOverflow || entry.listOverflow || !entry.rowContained || !entry.stateVisible || !entry.openVisible || !entry.shellDetailLocalized)) {
   console.error('QA FAILED — narrow Display controls overflow:', JSON.stringify(displayMenuGeometry));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.click('#project-display');
 await shot('projects-display-menu-narrow');
@@ -617,7 +627,7 @@ for (const width of [1280, 1360, 1440, 1600, 1920]) {
 console.log('project list row columns:', JSON.stringify(rowCollisions));
 if (rowCollisions.some((entry) => entry.collisions.length > 0 || entry.rowOverflow)) {
   console.error('QA FAILED — project list columns overlap:', JSON.stringify(rowCollisions));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
 await win.waitForTimeout(200);
@@ -663,7 +673,7 @@ if (cockpitAvailable) {
   }));
   if (!mobileOpen.open || !mobileOpen.expanded || !mobileOpen.count || !mobileOpen.rowVisible || !mobileOpen.headingsVisible || !mobileOpen.resizerHidden || !mobileEscaped || !mobileSelected.closed || !mobileSelected.cockpit) {
     console.error('QA FAILED — narrow shared-session drawer is not keyboard/pointer reachable:', JSON.stringify({ mobileOpen, mobileEscaped, mobileSelected }));
-    await closeApp(); process.exit(1);
+    await closeApp(); throw new Error('QA assertion failed; see preceding output');
   }
   // Undo the simulated desktop fold so the later wide-viewport scenes see the normal sidebar.
   await win.evaluate(() => document.getElementById('app-sidebar')?.classList.remove('collapsed'));
@@ -685,15 +695,15 @@ const maximizeLabels = {
 if (!maximizeLabels || maximizeBefore.title !== maximizeLabels[0] || maximizeBefore.aria !== maximizeBefore.title
   || maximizeAfter.title !== maximizeLabels[1] || maximizeAfter.aria !== maximizeAfter.title) {
   console.error('QA FAILED — maximize title/aria-label is stale:', JSON.stringify({ maximizeBefore, maximizeAfter, maximizeLabels }));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // Next task board: seed one isolated-profile task so the provider-aware split Open control is rendered.
 await app.evaluate(({ dialog }, p) => {
   dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] });
-}, root);
+}, projectRoot);
 await win.evaluate(async () => window.devdeck.pickFolder());
-await win.evaluate(async (p) => window.devdeck.addFolder(p), root);
+await win.evaluate(async (p) => window.devdeck.addFolder(p), projectRoot);
 const taskSeeded = await win.evaluate(async () => {
   const project = (await window.devdeck.listProjects())[0];
   if (!project) return false;
@@ -708,7 +718,7 @@ const taskSeeded = await win.evaluate(async () => {
 // path. A replace-children implementation would detach the button and lose keyboard focus.
 if (!taskSeeded) {
   console.error('QA FAILED — unable to seed a project for shell refresh reconciliation.');
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await showView('projects');
 await win.click('#refresh');
@@ -725,7 +735,7 @@ const shellRefresh = await win.evaluate(async () => {
 console.log(`shell refresh reuse: sameNode=${shellRefresh.sameNode} focused=${shellRefresh.focused}`);
 if (!shellRefresh.sameNode || !shellRefresh.focused) {
   console.error('QA FAILED — shell refresh replaced or defocused an unchanged project row.');
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // Project Memory: the same real allowed checkout supplies recent commits and the seeded task. Capture
@@ -746,7 +756,7 @@ const populatedProjectGeometry = await win.evaluate(() => {
 });
 if (populatedProjectGeometry.overflow || !populatedProjectGeometry.rowContained) {
   console.error('QA FAILED — populated project row overflows the command-center content:', JSON.stringify(populatedProjectGeometry));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await shot('projects-populated');
 const memoryTrigger = win.locator('.project-memory-button').first();
@@ -790,7 +800,7 @@ const memoryStillOpenAfterInnerEscape = await win.locator('.pm-modal').count() =
 if (!memoryEscapePriority.drawerOpen || !memoryEscapePriority.providerClosed || !memoryEscapePriority.focusReturned
   || !memoryForwardWrap || !memoryReverseWrap || !memoryStillOpenAfterInnerEscape) {
   console.error('QA FAILED — Project Memory nested provider focus/Escape containment regressed:', JSON.stringify({ memoryEscapePriority, memoryForwardWrap, memoryReverseWrap, memoryStillOpenAfterInnerEscape }));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
 await win.waitForTimeout(150);
@@ -810,13 +820,13 @@ if (memoryWide.surface !== 'drawer' || !memoryWide.rightAligned || JSON.stringif
   || !memoryGeometry.present || memoryGeometry.surface !== 'sheet' || !memoryGeometry.fullWidth || !memoryGeometry.contained
   || memoryGeometry.overflow || memoryGeometry.events < 1) {
   console.error('QA FAILED — Project Memory drawer/sheet geometry regressed:', JSON.stringify({ memoryWide, memoryGeometry, contentBeforeMemory }));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.keyboard.press('Escape');
 const memoryFocusReturned = await memoryTrigger.evaluate((el) => document.activeElement === el).catch(() => false);
 if (!memoryFocusReturned) {
   console.error('QA FAILED — Project Memory did not return focus to its trigger after Escape.');
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.setViewportSize({ width: 1000, height: 720 }).catch(() => {});
 await showView('next');
@@ -826,7 +836,7 @@ const nextAdd = await win.evaluate(() => !!document.querySelector('#view-next .t
 console.log('next task-board add form present:', nextAdd);
 if (!taskSeeded) {
   console.error('QA FAILED — no project was available to seed the provider-open task.');
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.click('#view-next .provider-open-menu-button');
 await win.waitForSelector('#view-next .provider-open-menu:not(.hidden)', { timeout: 3000 });
@@ -844,7 +854,7 @@ const providerOpenGeo = await win.evaluate(() => {
 console.log('provider open geometry:', JSON.stringify(providerOpenGeo));
 if (!providerOpenGeo.present || !providerOpenGeo.controlInRow || !providerOpenGeo.menuInViewport) {
   console.error('QA FAILED — provider Open control or menu escaped its row/viewport.');
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.keyboard.press('Escape');
 // Calendar mode: toggle to the month grid, click a day, capture (exercises buildMonthGrid + Intl render).
@@ -879,7 +889,7 @@ console.log(`cockpit fill: main=${ckFill.main}px content=${ckFill.content}px rat
 if (ckFill.ratio < 0.8) {
   console.error(`QA FAILED — cockpit pane collapsed (main ${ckFill.main}px of content ${ckFill.content}px); the embedded terminal would render tiny.`);
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // Cockpit structure intact after the multi-session changes (the + New session button only appears
@@ -890,7 +900,7 @@ const ckOk = await win.evaluate(() => {
     && !!newBtn && newBtn.disabled === true; // + New session present and disabled with no live session
 });
 console.log(`cockpit structure + new-session button present: ${ckOk}`);
-if (!ckOk) { console.error('QA FAILED — cockpit structure / + New session button missing'); await closeApp(); process.exit(1); }
+if (!ckOk) { console.error('QA FAILED — cockpit structure / + New session button missing'); await closeApp(); throw new Error('QA assertion failed; see preceding output'); }
 
 // Unified session navigation: long names/details must stay inside the shared 224px sidebar and
 // the old nested Cockpit sidebar must not consume any terminal width. The harness cannot spawn a
@@ -944,7 +954,7 @@ console.log(`unified session sidebar: width=${sidebar.sidebarWidth}px namesInsid
 if (sidebar.sidebarWidth < 180 || sidebar.sidebarWidth > 460 || !sidebar.inside || !sidebar.detailInside || sidebar.signals !== 2 || !sidebar.selected || !sidebar.reused || !sidebar.semanticGroups || !sidebar.sessionStatusNames || !sidebar.nestedHidden || !sidebar.mainFillsWrap) {
   console.error('QA FAILED — unified session navigation overflowed or the legacy Cockpit list still consumes terminal width.');
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 // The full session row must be reachable by keyboard in the shared sidebar.
 const tooltip = await win.evaluate(async () => {
@@ -958,7 +968,7 @@ console.log(`session navigation keyboard: focusable=${tooltip.focused} labelled=
 if (!tooltip.focused || !tooltip.labelled) {
   console.error('QA FAILED — the unified session row is not keyboard reachable or labelled.');
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // A LIVE session must keep the row controls it had in the old cockpit list (pin / rename / close),
@@ -992,7 +1002,7 @@ if (!liveRowControls.triggersVisible
   || !liveRowControls.workingAnimated || !liveRowControls.distinctShapes || !liveRowControls.summaryShown) {
   console.error('QA FAILED — a live session row lost its pin/rename/close menu or its non-color status mark.');
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // The sidebar has to stay legible when the lists get LONG — this user runs a dozen concurrent
@@ -1046,7 +1056,7 @@ const scaleOk =
 await shot('sidebar-at-scale');
 if (!scaleOk) {
   console.error('QA FAILED — the sidebar does not stay legible at scale (order, per-group cut, or foldable headers):', JSON.stringify(atScale));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 
 // Unpinning must say WHERE the row went and offer a way back — with neither, it reads as a delete,
@@ -1076,7 +1086,7 @@ const unpinFeedback = await win.evaluate(async () => {
 console.log('unpin feedback:', JSON.stringify(unpinFeedback));
 if (!unpinFeedback.shown || !unpinFeedback.polite || !unpinFeedback.namesRow || !unpinFeedback.namesDestination || !unpinFeedback.undoable) {
   console.error('QA FAILED — unpinning gives no destination or no undo:', JSON.stringify(unpinFeedback));
-  await closeApp(); process.exit(1);
+  await closeApp(); throw new Error('QA assertion failed; see preceding output');
 }
 await win.evaluate(() => { document.querySelectorAll('#toast-host .toast-info').forEach((t) => t.remove()); });
 }
@@ -1099,7 +1109,7 @@ console.log(`usage bar fill: fillWidth=${usageFill.fillWidth}px of track=${usage
 if (usageFill.fillWidth <= 0 || usageFill.trackWidth <= 0) {
   console.error(`QA FAILED — usage bar fill has no width (fill=${usageFill.fillWidth}px track=${usageFill.trackWidth}px); the meter would look empty (the inline-span bug).`);
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // All-provider usage dialog. window.devdeck is a frozen contextBridge object and CI has no provider
@@ -1158,7 +1168,7 @@ if (footer.claude.values.join() !== '42%,76%,91%' || footer.codex.values.join() 
   || footer.antigravity.values.length !== 0 || footer.claude.height !== 26) {
   console.error(`QA FAILED — usage footer does not show every window of the reported provider: ${JSON.stringify(footer)}`);
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // A reading that is NOT current has to look it. Numbers frozen behind an expired sign-in carried the
@@ -1169,7 +1179,7 @@ console.log('usage footer staleness:', JSON.stringify({ codex: footer.codex.stal
 if (!footer.codex.stale || !footer.codex.stale.actionable || !/\d/.test(footer.codex.stale.text) || footer.claude.stale !== null) {
   console.error(`QA FAILED — stale usage must be dated and, when fixable, actionable: ${JSON.stringify({ codex: footer.codex.stale, claude: footer.claude.stale })}`);
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // Whatever xterm is opened into must report to FitAddon exactly what is drawable.
@@ -1203,7 +1213,7 @@ for (const [where, surplus] of Object.entries(hostBoxes)) {
   if (surplus !== null && surplus > 0) {
     console.error(`QA FAILED — the ${where} terminal host reports ${surplus}px more than it can draw in; the last row will be clipped`);
     await closeApp();
-    process.exit(1);
+    throw new Error('QA assertion failed; see preceding output');
   }
 }
 
@@ -1227,7 +1237,7 @@ for (const [where, surplus] of Object.entries(hostBoxes)) {
   if (!(after > before)) {
     console.error(`QA FAILED — resuming from sleep must reset the idle clock, or the machine shuts down on wake: ${JSON.stringify({ before, after })}`);
     await closeApp();
-    process.exit(1);
+    throw new Error('QA assertion failed; see preceding output');
   }
 }
 
@@ -1260,7 +1270,7 @@ console.log(`usage modal: open=${modal.open} role=${modal.role} ariaModal=${moda
 if (!modal.open || modal.role !== 'dialog' || modal.modal !== 'true' || !modal.labelled || !modal.closeLabelled || modal.sections !== 3 || modal.limits !== 5 || modal.commands !== 3 || !modal.focusOnClose) {
   console.error('QA FAILED — all-provider usage dialog structure/accessibility regressed.');
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // Keyboard: Tab wraps inside the dialog, Escape closes it, and focus returns to the page.
@@ -1281,19 +1291,19 @@ console.log(`usage modal keyboard: tabWrap=${keyboard.wrappedForward} shiftTabWr
 if (!keyboard.wrappedForward || !keyboard.wrappedBack || !keyboard.closed) {
   console.error('QA FAILED — usage dialog is not fully keyboard-operable (Tab wrap / Escape).');
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 console.log(`usage modal geometry: unchangedWhileOpen=${same(beforeGeo, openGeo)} unchangedAfterClose=${same(beforeGeo, afterGeo)} footerHeight=${beforeGeo.footer ? beforeGeo.footer[3] : 'hidden'}`);
 if (!same(beforeGeo, openGeo) || !same(beforeGeo, afterGeo)) {
   console.error(`QA FAILED — opening the usage dialog changed layout geometry (a terminal resize storm). before=${JSON.stringify(beforeGeo)} open=${JSON.stringify(openGeo)} after=${JSON.stringify(afterGeo)}`);
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 if (beforeGeo.footer && beforeGeo.footer[3] !== 26) {
   console.error(`QA FAILED — usage footer must stay 26px (got ${beforeGeo.footer[3]}px); it would steal terminal height.`);
   await closeApp();
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 
 // Opening a session must give the user ONE terminal, and it must be the one receiving the output.
@@ -1328,7 +1338,7 @@ if (cockpitAvailable) {
   if (terminals.total !== 1 || terminals.shown !== 1 || !terminals.topShownHasOutput) {
     console.error(`QA FAILED — opening one session must leave exactly one visible terminal showing its output: ${JSON.stringify(terminals)}`);
     await closeApp();
-    process.exit(1);
+    throw new Error('QA assertion failed; see preceding output');
   }
   // ...and the terminal has to FIT the box it is drawn in.
   //
@@ -1357,7 +1367,7 @@ if (cockpitAvailable) {
   if (!boxFit || boxFit.overflowBottom > 0 || boxFit.overflowRight > 0) {
     console.error(`QA FAILED — the terminal must fit inside its tile; anything past it is clipped mid-row: ${JSON.stringify(boxFit)}`);
     await closeApp();
-    process.exit(1);
+    throw new Error('QA assertion failed; see preceding output');
   }
   await shot('cockpit-live-session');
 
@@ -1408,7 +1418,7 @@ if (cockpitAvailable) {
     if (dragResizes < 1 || dragResizes > tileCount || churn.switchResizes > 0 || tileRows.length !== 1) {
       console.error(`QA FAILED — a settling pane must resize each pty at most once and switching sessions none at all: ${JSON.stringify(churnReport)}`);
       await closeApp();
-      process.exit(1);
+      throw new Error('QA assertion failed; see preceding output');
     }
   } else {
     console.log('terminal resize churn: skipped (a second session did not open)');
@@ -1430,7 +1440,7 @@ if (cockpitAvailable) {
   if (ptyBackends.length !== 1 || ptyBackends[0] !== wantBackend) {
     console.error(`QA FAILED — every terminal must declare the pty it is attached to (expected ${wantBackend}): ${JSON.stringify(ptyBackends)}`);
     await closeApp();
-    process.exit(1);
+    throw new Error('QA assertion failed; see preceding output');
   }
 
   const liveIds = await win.evaluate(async () => (await window.devdeck.cockpit.liveSessions()).map((s) => s.id));
@@ -1481,7 +1491,7 @@ if (cockpitAvailable) {
       || after.cols !== before.cols - 17 || after.rows !== before.rows - 3) {
       console.error(`QA FAILED — a machine's remembered screen must say which size it was drawn for, and an unchanged resize must not disturb it: ${JSON.stringify(geometry)}`);
       await closeApp();
-      process.exit(1);
+      throw new Error('QA assertion failed; see preceding output');
     }
   } else {
     console.log('pty screen carries its geometry: skipped (no live session)');
@@ -1516,7 +1526,7 @@ if (cockpitAvailable) {
     if (repair.reassertedFor < openTiles || !repair.toast) {
       console.error(`QA FAILED — Refresh must put every open terminal's own size back on its pty and say so: ${JSON.stringify(repair)}`);
       await closeApp();
-      process.exit(1);
+      throw new Error('QA assertion failed; see preceding output');
     }
   } else {
     console.log('refresh repairs the terminal: skipped (no live session)');
@@ -1548,7 +1558,7 @@ if (cockpitAvailable) {
   if (!confirmDialog || confirmDialog.role !== 'dialog' || confirmDialog.modal !== 'true' || !confirmDialog.labelled || !confirmDialog.focusInside) {
     console.error(`QA FAILED — the close confirmation must be an announced, focused dialog: ${JSON.stringify(confirmDialog)}`);
     await closeApp();
-    process.exit(1);
+    throw new Error('QA assertion failed; see preceding output');
   }
 
   // Restarting ONE session must ask, and must come back to the SAME conversation.
@@ -1589,7 +1599,7 @@ if (cockpitAvailable) {
   if (!restart.asked || !restart.confirmLabel || !restart.cancelKeptTiles || !restart.sameConversations) {
     console.error(`QA FAILED — restarting a session must ask first and resume that same conversation: ${JSON.stringify(restart)}`);
     await closeApp();
-    process.exit(1);
+    throw new Error('QA assertion failed; see preceding output');
   }
 
 }
@@ -1602,6 +1612,11 @@ await closeApp();
 if (consoleErrors.length > 0 || pageErrors.length > 0) {
   console.error('QA FAILED — console/page errors detected:');
   console.error(JSON.stringify({ consoleErrors, pageErrors }, null, 2));
-  process.exit(1);
+  throw new Error('QA assertion failed; see preceding output');
 }
 console.log('done');
+} finally {
+  await closeApp();
+  // Both paths were created by this harness, never supplied by the user.
+  for (const dir of [qaUserData, projectRoot]) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+}

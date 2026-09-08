@@ -225,20 +225,20 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // handler uses — a compromised renderer must not be able to write store entries (10KB notes, todo
   // lists) for arbitrary paths outside any scanned folder and grow state.json unboundedly.
   invoke('project:setNote', allow('write'), (path: string, note: string) => {
-    if (!isAllowedPath(effFolders(), path)) return;
+    if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
     cfg.store.setNote(path, String(note).slice(0, 10000));
   });
   invoke('project:setTodos', allow('write'), (path: string, todos: unknown) => {
-    if (!isAllowedPath(effFolders(), path)) return;
+    if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
     // store.setTodos sanitizes (drops junk, caps text + list length), so an untrusted array is safe.
     cfg.store.setTodos(path, sanitizeTodos(todos));
   });
   invoke('project:setPinned', allow('write'), (path: string, pinned: boolean) => {
-    if (!isAllowedPath(effFolders(), path)) return;
+    if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
     cfg.store.setPinned(path, pinned);
   });
   invoke('project:setHidden', allow('write'), (path: string, hidden: boolean) => {
-    if (!isAllowedPath(effFolders(), path)) return;
+    if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
     cfg.store.setHidden(path, hidden);
   });
 
