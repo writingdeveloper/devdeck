@@ -351,9 +351,12 @@ const resize = await win.evaluate(async () => {
   const sidebar = document.getElementById('app-sidebar');
   const handle = document.getElementById('shell-resizer');
   const width = () => Math.round(sidebar.getBoundingClientRect().width);
-  const key = (k, shift = false) => {
+  const key = async (k, shift = false) => {
     handle.dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey: shift, bubbles: true, cancelable: true }));
-    return new Promise((r) => setTimeout(r, 120));
+    // A fixed 120ms sampled a still-moving sidebar on slower Linux runners. Wait for the actual
+    // width transition, preserving the same geometric assertions at its settled state.
+    sidebar.getBoundingClientRect();
+    await Promise.all(sidebar.getAnimations().map((animation) => animation.finished.catch(() => {})));
   };
   const start = width();
   const handleBox = handle.getBoundingClientRect();
