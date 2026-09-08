@@ -144,7 +144,9 @@ async function injectLocalUsage() {
 
 // wait for first project render (skeleton -> cards), generous for git scan
 await win.waitForSelector('#cards .card, #cards .prow, #cards .empty', { timeout: 30000 });
-const cockpitAvailable = await win.evaluate(() => !document.getElementById('shell-session-section')?.classList.contains('hidden'));
+const qaSettings = await win.evaluate(() => window.devdeck.getSettings());
+const cockpitAvailable = qaSettings.platform === 'win32' && qaSettings.ptyAvailable;
+if (qaSettings.platform === 'win32' && !cockpitAvailable) throw new Error('Required Windows terminal binding is unavailable');
 
 // The internal Cockpit route must never regain a user-facing rail destination, including on platforms
 // where embedded PTYs are unavailable.
@@ -582,7 +584,7 @@ for (const target of LANGS) {
   await win.setViewportSize({ width: 520, height: 760 }).catch(() => {});
   await win.waitForTimeout(180); // wait for the sidebar's width transition before measuring content geometry
   await win.click('#project-display');
-  const geometry = await win.evaluate((restoreLabel) => {
+  const geometry = await win.evaluate(({ restoreLabel, cockpitAvailable }) => {
     const toolbar = document.querySelector('#view-projects .view-toolbar');
     const menu = document.getElementById('project-display-menu');
     const rect = menu?.getBoundingClientRect();
@@ -596,9 +598,9 @@ for (const target of LANGS) {
       rowContained: Array.from(document.querySelectorAll('.prow')).every((row) => row.getBoundingClientRect().left >= 0 && row.getBoundingClientRect().right <= innerWidth + 1),
       stateVisible: document.querySelectorAll('.prow-state').length === document.querySelectorAll('.prow').length && Array.from(document.querySelectorAll('.prow-state')).every((state) => state.getClientRects().length > 0 && !!state.querySelector('.prow-state-text')?.textContent?.trim() && !!state.querySelector('.prow-state-shape')),
       openVisible: Array.from(document.querySelectorAll('.prow .provider-open-primary')).every((button) => button.getClientRects().length > 0 && !!button.querySelector('.provider-open-primary-text')?.textContent?.trim()),
-      shellDetailLocalized: !!previousDetail?.textContent?.includes(restoreLabel),
+      shellDetailLocalized: cockpitAvailable ? !!previousDetail?.textContent?.includes(restoreLabel) : !previousDetail,
     };
-  }, RESTORE_LABELS[target]);
+  }, { restoreLabel: RESTORE_LABELS[target], cockpitAvailable });
   displayMenuGeometry.push(geometry);
   await win.keyboard.press('Escape');
 }
