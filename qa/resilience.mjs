@@ -17,7 +17,7 @@ const bin = join(sandbox, 'bin');
 const out = join(root, 'qa', 'shots', 'resilience');
 for (const p of [repo, userData, out, bin]) mkdirSync(p, { recursive: true });
 // Exercise ConPTY without depending on a logged-in provider or starting another agent.
-for (const name of ['claude', 'codex', 'antigravity']) writeFileSync(join(bin, name + '.cmd'), '@echo off\r\necho DEVDECK_QA_PTY_READY\r\n');
+for (const name of ['claude', 'codex', 'antigravity']) writeFileSync(join(bin, name + '.cmd'), '@echo off\r\necho DEVDECK_QA_HISTORY_START\r\nfor /L %%i in (1,1,1500) do @echo History line %%i\r\necho DEVDECK_QA_PTY_READY\r\n');
 execFileSync('git', ['init', '-q', '-b', 'qa-fixture'], { cwd: repo });
 const stateFile = join(userData, 'state.json');
 writeFileSync(stateFile, JSON.stringify({ projects: {}, settings: { language: 'en', viewMode: 'cards', folders: [{ path: repo, kind: 'repo' }] } }));
@@ -127,6 +127,27 @@ try {
     await win.click('#cards .provider-open-primary');
     await win.waitForFunction(() => [...document.querySelectorAll('.ck-term')].some((e) => e.textContent.includes('DEVDECK_QA_PTY_READY')));
     assert.equal(await win.locator('.ck-term.show').count(), 1);
+    await win.locator('.ck-term.show .xterm-helper-textarea').press('Control+f');
+    await win.fill('.ck-find-input', 'DEVDECK_QA_HISTORY_START');
+    await win.waitForFunction(() => document.querySelector('.ck-term.show .xterm-rows')?.textContent.includes('DEVDECK_QA_HISTORY_START'));
+    await win.locator('.ck-find-input').press('Escape');
+    await win.screenshot({ path: join(out, 'terminal-history.png') });
+    // Navigate from a scrolled long view, then focus/search the terminal and resize the window.
+    // Measure the top as well as bottom: fitting inside a tile alone misses an off-screen tile.
+    await view('settings');
+    await win.evaluate(() => { document.getElementById('content').scrollTop = 600; });
+    await win.locator('#shell-session-groups .shell-session').first().click();
+    for (const size of [[800, 600], [1280, 800]]) {
+      await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(...size), size);
+      await win.waitForFunction(() => {
+        const content = document.getElementById('content').getBoundingClientRect();
+        const header = document.getElementById('ck-header').getBoundingClientRect();
+        const tile = document.querySelector('.ck-term.show').getBoundingClientRect();
+        const screen = document.querySelector('.ck-term.show .xterm-screen').getBoundingClientRect();
+        return header.top >= content.top && tile.top >= header.bottom && screen.top >= tile.top
+          && screen.bottom <= content.bottom && screen.right <= content.right;
+      });
+    }
     await view('projects');
   });
 
@@ -158,16 +179,41 @@ try {
   await check('machine switch immediately removes old actionable rows; A → B → A ignores old success', async () => {
     await win.click('#refresh'); await pending('local-projects');
     await win.selectOption('#machine-switch', 'qa-remote'); await pending('remote-projects');
+    assert.match(await win.locator('#project-load-status').innerText(), /Loading projects from QA Remote/);
+    assert.equal(await win.locator('#cards').getAttribute('aria-busy'), 'true');
+    await win.waitForFunction(() => document.querySelector('#project-load-status')?.textContent.includes('longer than usual'), { }, { timeout: 12_000 });
+    await win.screenshot({ path: join(out, 'slow-machine-loading.png') });
     assert.equal(await win.locator('#cards .card').count(), 0);
     assert.equal(await win.locator('#shell-projects .shell-project').count(), 0);
     await win.selectOption('#machine-switch', 'local'); await pending('local-projects', 2);
+    assert.match(await win.locator('#project-load-status').innerText(), /Loading projects from This PC/);
+    // An obsolete answer must not clear the current machine's loading indication.
+    await answer('remote-projects', { fail: true });
+    assert.equal(await win.locator('#cards').getAttribute('aria-busy'), 'true');
     await answer('local-projects', { index: 1, name: 'Newest local' });
     await win.waitForFunction(() => document.querySelector('#cards')?.textContent.includes('Newest local'));
     await answer('local-projects', { name: 'Obsolete local' });
-    await answer('remote-projects', { fail: true });
+    assert.equal(await win.locator('#project-load-status').isVisible(), false);
+    assert.equal(await win.locator('#cards').getAttribute('aria-busy'), 'false');
     assert.ok((await win.locator('#cards').innerText()).includes('Newest local'));
     assert.ok(!(await win.locator('#cards').innerText()).includes('Obsolete local'));
     assert.equal(await win.locator('#cards .load-error').count(), 0);
+  });
+
+  await check('failed machine load ends the busy state and retry shows progress through success', async () => {
+    await win.selectOption('#machine-switch', 'qa-remote');
+    await answer('remote-projects', { fail: true });
+    await win.waitForSelector('#cards .load-error-retry');
+    assert.equal(await win.locator('#project-load-status').isVisible(), false);
+    assert.equal(await win.locator('#cards').getAttribute('aria-busy'), 'false');
+    await win.click('#cards .load-error-retry');
+    await pending('remote-projects');
+    assert.equal(await win.locator('#project-load-status').isVisible(), true);
+    await answer('remote-projects', { name: 'Recovered remote' });
+    await win.waitForFunction(() => document.querySelector('#cards')?.textContent.includes('Recovered remote'));
+    assert.equal(await win.locator('#project-load-status').isVisible(), false);
+    await win.selectOption('#machine-switch', 'local');
+    await answer('local-projects', { name: 'Returned local' });
   });
 
   await check('task board ignores both obsolete success and obsolete failure after repeated navigation', async () => {

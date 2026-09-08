@@ -652,7 +652,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   el.classList.add('show');
   // No cursor blink: it is a repaint twice a second per visible terminal for the life of the app,
   // and the spinner beside the input already says whether the agent is busy.
-  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: false, windowsPty });
+  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: false, scrollback: 10_000, windowsPty });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
   const webgl = attachWebgl(term);
   el.dataset.termRenderer = webgl ? 'webgl' : 'dom'; // which renderer this tile got — read by the perf harness and by anyone debugging a slow machine

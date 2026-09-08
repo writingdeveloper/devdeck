@@ -184,3 +184,16 @@
   border-color: var(--dd-accent, var(--dd-border-strong));
   font-weight: 560;
 }
+.project-load-status {
+  display: flex; flex-basis: 100%; align-items: center; gap: 10px; padding: 12px 14px;
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  color: var(--text-dim); background: var(--surface); overflow-wrap: anywhere;
+}
+.project-load-status.hidden { display: none; }
+.project-load-status::before {
+  content: ''; flex: 0 0 14px; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--border-strong); border-top-color: var(--accent-hover);
+  animation: project-load-spin .8s linear infinite;
+}
+@keyframes project-load-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .project-load-status::before { animation: none; } }

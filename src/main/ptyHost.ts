@@ -83,6 +83,8 @@ interface Session {
   /** Chunks, oldest first, trimmed from the front once the total passes the cap. */
   chunks: string[];
   bufferedLength: number;
+  /** Only a truncated prefix needs discarding through the next complete line. */
+  prefixTruncated: boolean;
 }
 
 export class PtyHost {
@@ -118,6 +120,7 @@ export class PtyHost {
       internal: info?.internal === true,
       chunks: [],
       bufferedLength: 0,
+      prefixTruncated: false,
     };
     this.sessions.set(id, session);
     proc.onData((data) => { this.remember(session, data); onData(data); });
@@ -134,12 +137,14 @@ export class PtyHost {
     session.bufferedLength += data.length;
     while (session.bufferedLength > SCROLLBACK_BYTES && session.chunks.length > 1) {
       session.bufferedLength -= session.chunks.shift()!.length;
+      session.prefixTruncated = true;
     }
     // A single chunk larger than the cap still has to shrink, and it is cut from the FRONT so the most
     // recent output — the part a viewer actually needs to see — is what survives.
     if (session.bufferedLength > SCROLLBACK_BYTES && session.chunks.length === 1) {
       session.chunks[0] = session.chunks[0].slice(-SCROLLBACK_BYTES);
       session.bufferedLength = session.chunks[0].length;
+      session.prefixTruncated = true;
     }
   }
 
@@ -171,15 +176,19 @@ export class PtyHost {
   /**
    * Recent output, for repainting a terminal that is being attached to mid-flight.
    *
-   * Trimmed to the first line boundary: the cut point is arbitrary, and starting a replay in the
-   * middle of an escape sequence makes xterm render the tail of it as literal text.
+   * Only a buffer that exceeded the cap is trimmed to a safe boundary. Discarding a first line from
+   * an intact buffer loses real output (and the cursor-positioning prefix of a ConPTY repaint).
    */
   buffer(id: string): PtyScreen {
     const session = this.sessions.get(id);
     if (!session) return { data: '', cols: 0, rows: 0 };
     const joined = session.chunks.join('');
     const firstBreak = joined.indexOf('\n');
-    const data = firstBreak >= 0 && firstBreak < joined.length - 1 ? joined.slice(firstBreak + 1) : joined;
+    // Full-screen TUIs can repaint using cursor addresses without any newline. Resume at an escape
+    // boundary in that case, instead of returning a blank screen for the rest of their lifetime.
+    const firstEscape = joined.indexOf('\x1b');
+    const data = !session.prefixTruncated ? joined : firstBreak >= 0 ? joined.slice(firstBreak + 1)
+      : firstEscape >= 0 ? joined.slice(firstEscape) : '';
     return { data, cols: session.cols, rows: session.rows };
   }
 
@@ -205,6 +214,7 @@ export class PtyHost {
     session.rows = rows;
     session.chunks = [];
     session.bufferedLength = 0;
+    session.prefixTruncated = false;
     session.proc.resize(cols, rows);
     return true;
   }

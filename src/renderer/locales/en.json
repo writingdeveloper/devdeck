@@ -1,4 +1,6 @@
 {
+  "proj.loading": "Loading projects from {machine}…",
+  "proj.loading_slow": "Still loading projects from {machine}. This is taking longer than usual. You can switch to another PC while you wait.",
   "common.save_failed": "Could not save. Your change has not been confirmed. Please retry.",
   "proj.new": "New project",
   "proj.display": "Display",

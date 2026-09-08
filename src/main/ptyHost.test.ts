@@ -122,7 +122,7 @@ describe('what a machine can say about its own sessions', () => {
     host.create('s', 'pwsh', [], 'C:\repo', 80, 24, () => {}, () => {});
     f.emit('first line\nbuilding…\n');
     f.emit('done\n');
-    expect(host.buffer('s').data).toContain('done');
+    expect(host.buffer('s').data).toBe('first line\nbuilding…\ndone\n');
   });
 
   it('drops the OLDEST output when the buffer fills — the recent part is what matters', () => {
@@ -144,6 +144,21 @@ describe('what a machine can say about its own sessions', () => {
     host.create('s', 'pwsh', [], 'C:/repo', 120, 40, () => {}, () => {});
     f.emit('first\nhello\n');
     expect(host.buffer('s')).toEqual({ data: expect.stringContaining('hello'), cols: 120, rows: 40 });
+  });
+
+  it('does not replay a truncated escape prefix until a complete line boundary exists', () => {
+    const f = fake();
+    const host = new PtyHost(() => f.proc);
+    host.create('s', 'pwsh', [], 'C:/repo', 80, 24, () => {}, () => {});
+    f.emit('x'.repeat(300_000));
+    expect(host.buffer('s').data).toBe('');
+    f.emit('\x1b[Hfull screen repaint');
+    expect(host.buffer('s').data).toBe('\x1b[Hfull screen repaint');
+    f.emit('\ncomplete line\n');
+    expect(host.buffer('s').data).toBe('complete line\n');
+    host.resize('s', 100, 30);
+    f.emit('\x1b[Hfirst repaint row\nsecond row\n');
+    expect(host.buffer('s').data).toBe('\x1b[Hfirst repaint row\nsecond row\n');
   });
 
   it('forgets output drawn at the old size when the size changes', () => {

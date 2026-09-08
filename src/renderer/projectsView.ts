@@ -30,6 +30,18 @@ const DECK_TIMEOUT_MS = 150_000;
 /** The machine whose project list is on the wire right now, or null. One load per machine at a time. */
 let loadInFlight: number | null = null;
 let loadVersion = 0;
+let loadingMachine: string | null = null;
+let loadIsSlow = false;
+
+function renderProjectLoadStatus(): void {
+  const el = document.getElementById('project-load-status');
+  if (!el) return;
+  el.classList.toggle('hidden', loadingMachine === null);
+  el.textContent = loadingMachine === null ? '' : tr(loadIsSlow ? 'proj.loading_slow' : 'proj.loading', {
+    machine: loadingMachine === LOCAL_MACHINE_ID ? tr('link.this_pc') : machineName(loadingMachine),
+  });
+  cardsEl.setAttribute('aria-busy', String(loadingMachine !== null));
+}
 
 type ProjectViewModel = Awaited<ReturnType<Window['devdeck']['listProjects']>>[number];
 
@@ -728,6 +740,7 @@ function reconcileChildren(container: HTMLElement, ordered: HTMLElement[]): void
 }
 
 function showSkeleton(): void {
+  cardsEl.removeAttribute('role');
   cardsEl.replaceChildren();
   for (let i = 0; i < 6; i++) { const s = document.createElement('div'); s.className = 'skeleton'; cardsEl.appendChild(s); }
 }
@@ -793,7 +806,16 @@ async function reload(): Promise<void> {
   loadInFlight = selection;
   const version = ++loadVersion;
   const current = () => selection === machineSelectionVersion() && version === loadVersion;
-  try { await reloadFor(forMachine, current); } finally { if (loadInFlight === selection) loadInFlight = null; }
+  loadingMachine = forMachine; loadIsSlow = false;
+  renderProjectLoadStatus();
+  const slowTimer = setTimeout(() => {
+    if (current()) { loadIsSlow = true; renderProjectLoadStatus(); }
+  }, 8_000);
+  try { await reloadFor(forMachine, current); } finally {
+    clearTimeout(slowTimer);
+    if (current()) { loadingMachine = null; renderProjectLoadStatus(); }
+    if (loadInFlight === selection) loadInFlight = null;
+  }
 }
 
 async function reloadFor(forMachine: string, current: () => boolean): Promise<void> {
@@ -821,6 +843,7 @@ async function reloadFor(forMachine: string, current: () => boolean): Promise<vo
     // deck that cannot be read says so and offers a retry, whether or not something was drawn before.
     if (!hasRenderedOnce || forMachine !== LOCAL_MACHINE_ID) {
       projects = [];
+      cardsEl.removeAttribute('role');
       renderLoadError(cardsEl, () => { loadInFlight = null; void reload(); });
       hasRenderedOnce = false; // the next successful load re-renders from scratch rather than reconciling
     }
@@ -1053,6 +1076,8 @@ export function mountProjects(): void {
 
 export function renderProjects(): void {
   applyProjectLabels();
+  renderProjectLoadStatus();
+  renderMachineSwitch();
   cardCache.clear(); // locale changed — card text is baked at build time, so rebuild every card
   render();
 }

@@ -1,4 +1,6 @@
 {
+  "proj.loading": "{machine}のプロジェクトを読み込み中…",
+  "proj.loading_slow": "{machine}のプロジェクトを引き続き読み込んでいます。通常より時間がかかっています。待機中も別のPCに切り替えられます。",
   "common.save_failed": "保存できませんでした。変更の保存を確認できません。もう一度お試しください。",
   "proj.new": "新規プロジェクト",
   "proj.display": "表示",
