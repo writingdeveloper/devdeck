@@ -53,6 +53,8 @@ jobs:
       # Electron/Chromium sandbox before a window ever appears — firstWindow() then times out.
       - name: Allow unprivileged user namespaces for the Electron sandbox
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Install a window manager for real maximize and restore journeys
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends openbox
       # The audit verifies cockpit.gitInfo resolves the repo's branch. actions/checkout leaves the repo
       # in detached HEAD (no current branch), so that check would fail for an environment reason unrelated
       # to the app — put the checkout on a real branch first. (Local `npm run qa:audit` is already on one.)
@@ -65,7 +67,7 @@ jobs:
         env:
           DEBUG: 'pw:browser' # if launch fails again, the electron process's own stderr lands in the log
       - name: Run the multilingual user journeys
-        run: xvfb-run -a node qa/screenshot.mjs
+        run: xvfb-run -a sh -c 'openbox --sm-disable >/tmp/devdeck-openbox.log 2>&1 & node qa/screenshot.mjs'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
