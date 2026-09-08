@@ -12,6 +12,10 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 // Never resume a conversation in the checkout running QA. Give all project actions a disposable
 // repository with a stable old commit (also makes the neglected-filter journey deterministic).
 const projectRoot = mkdtempSync(join(tmpdir(), 'devdeck-screenshot-fixture-'));
+// Linux has no embedded previous sessions, so Quick Open needs two actual projects to exercise
+// arrow navigation instead of accidentally relying on Windows-only session rows.
+const companion = join(projectRoot, 'fixture-two');
+mkdirSync(companion);
 writeFileSync(join(projectRoot, 'README.md'), '# QA fixture\n');
 execFileSync('git', ['init', '-q', '-b', 'qa-fixture'], { cwd: projectRoot });
 execFileSync('git', ['add', '.'], { cwd: projectRoot });
@@ -32,7 +36,7 @@ writeFileSync(join(qaUserData, 'state.json'), JSON.stringify({
   projects: {},
   settings: {
     language: 'ko',
-    folders: [{ path: projectRoot, kind: 'repo' }],
+    folders: [{ path: projectRoot, kind: 'repo' }, { path: companion, kind: 'repo' }],
     viewMode: 'list',
     cockpitSessions: [
       { projectPath: projectRoot, name: 'devdeck', sessionId: null, agentId: 'claude', label: 'Legacy id-less A' },

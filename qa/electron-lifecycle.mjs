@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
+const closing = new WeakMap();
 
 /** A passing UI run with a crashing main process is a failed run. */
-export async function closeElectron(app) {
+export function closeElectron(app) {
+  const existing = closing.get(app);
+  if (existing) return existing;
+  const work = closeOnce(app);
+  closing.set(app, work);
+  return work;
+}
+
+async function closeOnce(app) {
   const proc = app.process();
   const exit = proc.exitCode !== null || proc.signalCode !== null
     ? Promise.resolve({ code: proc.exitCode, signal: proc.signalCode })
