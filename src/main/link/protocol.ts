@@ -61,6 +61,8 @@ export type LinkErrorCode =
   | 'permission-denied'
   /** The method does not exist, or exists but may never be called remotely. */
   | 'method-not-available'
+  /** An existing handler failed, for example because its disk write failed. */
+  | 'operation-failed'
   /** Too many requests, or too many pairing attempts. */
   | 'rate-limited'
   /** The host is refusing new connections (host mode turned off mid-session). */

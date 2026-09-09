@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   listProjects: () => ipcRenderer.invoke('projects:list'),
   projectMemory: (path: string, fresh?: boolean) => ipcRenderer.invoke('project:memory', path, fresh === true),
   setNote: (path: string, note: string) => ipcRenderer.invoke('project:setNote', path, note),
-  setTodos: (path: string, todos: unknown) => ipcRenderer.invoke('project:setTodos', path, todos),
+  setTodos: (path: string, todos: unknown, revision: number) => ipcRenderer.invoke('project:saveTodos', path, todos, revision),
   setPinned: (path: string, pinned: boolean) => ipcRenderer.invoke('project:setPinned', path, pinned),
   setHidden: (path: string, hidden: boolean) => ipcRenderer.invoke('project:setHidden', path, hidden),
   open: (items: import('../shared/types').ProjectOpenIntent[]) => ipcRenderer.invoke('projects:open', items),
@@ -84,11 +84,13 @@ contextBridge.exposeInMainWorld('devdeck', {
     sessionScreen: (id: string) => ipcRenderer.invoke('cockpit:sessionScreen', id),
     /** Tell the machine running a session what the user named it — routed by tile id like input(). */
     noteLabel: (id: string, label: string | null) => ipcRenderer.send('cockpit:noteLabel', id, label),
+    renameSession: (id: string, label: string | null, version: import('../shared/sessionLabel').SessionLabelVersion) => ipcRenderer.invoke('cockpit:renameSession', id, label, version),
     /** What is running on a machine, announced whenever it changes rather than polled. */
     onSessions: (cb: (p: { id: string; projectPath: string; sessionId: string | null; agentId: string; startedAtMs: number; label: string | null }[]) => void) =>
       ipcRenderer.on('cockpit:sessions', (_e, p) => cb(p)),
     loadSessions: () => ipcRenderer.invoke('cockpit:loadSessions'),
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
+    persistSessions: (list: unknown) => ipcRenderer.invoke('cockpit:persistSessions', list),
     sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId, agentId, wantAi),
     sessionIds: (projectPath: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath, agentId),
     sessionsExist: (items: { projectPath: string; sessionId: string | null; agentId?: string }[]) => ipcRenderer.invoke('cockpit:sessionsExist', items),
@@ -149,7 +151,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     listProjects: () => ipcRenderer.invoke('link:call', machineId, 'projects:list', []),
     projectMemory: (path: string, fresh?: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:memory', [path, fresh === true]),
     setNote: (path: string, note: string) => ipcRenderer.invoke('link:call', machineId, 'project:setNote', [path, note]),
-    setTodos: (path: string, todos: unknown) => ipcRenderer.invoke('link:call', machineId, 'project:setTodos', [path, todos]),
+    setTodos: (path: string, todos: unknown, revision: number) => ipcRenderer.invoke('link:call', machineId, 'project:saveTodos', [path, todos, revision]),
     setPinned: (path: string, pinned: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:setPinned', [path, pinned]),
     setHidden: (path: string, hidden: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:setHidden', [path, hidden]),
     usageReport: (sinceMs: number) => ipcRenderer.invoke('link:call', machineId, 'usage:report', [sinceMs]),

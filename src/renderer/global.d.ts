@@ -6,7 +6,7 @@ declare global {
       listProjects(): Promise<ProjectViewModel[]>;
       projectMemory(path: string, fresh?: boolean): Promise<import('../shared/types').ProjectMemory>;
       setNote(path: string, note: string): Promise<void>;
-      setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
+      setTodos(path: string, todos: import('../shared/tasks').Todo[], revision: number): Promise<import('../shared/tasks').TodoSaveResult>;
       setPinned(path: string, pinned: boolean): Promise<void>;
       setHidden(path: string, hidden: boolean): Promise<void>;
       open(items: import('../shared/types').ProjectOpenIntent[]): Promise<void>;
@@ -45,7 +45,7 @@ declare global {
         listProjects(): Promise<ProjectViewModel[]>;
         projectMemory(path: string, fresh?: boolean): Promise<import('../shared/types').ProjectMemory>;
         setNote(path: string, note: string): Promise<void>;
-        setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
+        setTodos(path: string, todos: import('../shared/tasks').Todo[], revision: number): Promise<import('../shared/tasks').TodoSaveResult>;
         setPinned(path: string, pinned: boolean): Promise<void>;
         setHidden(path: string, hidden: boolean): Promise<void>;
         usageReport(sinceMs: number): Promise<import('../shared/types').UsageReport>;
@@ -130,9 +130,11 @@ declare global {
         sessionBuffer(id: string): Promise<string>;
           sessionScreen(id: string): Promise<{ data: string; cols: number; rows: number }>;
         noteLabel(id: string, label: string | null): void;
+        renameSession(id: string, label: string | null, version: import('../shared/sessionLabel').SessionLabelVersion): Promise<import('../shared/sessionLabel').SessionLabelResult>;
         onSessions(cb: (p: import('../main/ptyHost').PtySessionInfo[]) => void): void;
         loadSessions(): Promise<import('../shared/cockpitPersist').PersistedSession[]>;
         saveSessions(list: import('../shared/cockpitPersist').PersistedSession[]): void;
+        persistSessions(list: import('../shared/cockpitPersist').PersistedSession[]): Promise<void>;
         sessionMeta(projectPath: string, sessionId: string, agentId?: import('../shared/types').AgentId, wantAi?: boolean): Promise<{ model: string | null; activeMs: number; contextTokens: number; contextWindow: number; summary: string | null; summarySource: import('../shared/sessionSummary').SummarySource | null }>;
         sessionIds(projectPath: string, agentId?: import('../shared/types').AgentId): Promise<string[]>;
         /** Parallel array: does each saved entry's conversation still exist on disk? Unverifiable → true. */

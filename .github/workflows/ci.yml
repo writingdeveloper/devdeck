@@ -23,14 +23,15 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version-file: '.nvmrc'
           cache: npm
       - run: npm ci
       - run: npm run build
       - run: npm test
+      - run: npm run check:docs
       # Verify the macOS launcher's generated AppleScript compiles on a real Mac (no GUI needed).
       - name: Validate generated AppleScript compiles
         if: runner.os == 'macOS'
@@ -42,10 +43,10 @@ jobs:
     name: qa audit (a11y + ipc, linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version-file: '.nvmrc'
           cache: npm
       - run: npm ci
       - run: npm run build
@@ -68,7 +69,7 @@ jobs:
           DEBUG: 'pw:browser' # if launch fails again, the electron process's own stderr lands in the log
       - name: Run the multilingual user journeys
         run: xvfb-run -a sh -c 'openbox --sm-disable >/tmp/devdeck-openbox.log 2>&1 & node qa/screenshot.mjs'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: qa-audit-and-journeys
@@ -83,15 +84,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version-file: '.nvmrc'
           cache: npm
       - run: npm ci
       - name: Check dependency advisories
         if: runner.os == 'Linux'
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=moderate
       - run: npm run build
       - name: Allow Electron sandbox
         if: runner.os == 'Linux'
@@ -102,8 +103,20 @@ jobs:
       - name: Run Windows failure and recovery journeys
         if: runner.os == 'Windows'
         run: node qa/resilience.mjs
-      - uses: actions/upload-artifact@v4
+      - name: Run Linux maintenance regressions
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node qa/maintenance.mjs
+      - name: Run Windows maintenance regressions
+        if: runner.os == 'Windows'
+        run: node qa/maintenance.mjs
+      - name: Verify host and two viewers agree on committed session titles
+        if: runner.os == 'Windows'
+        run: node qa/session-sync.mjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: qa-resilience-${{ matrix.os }}
-          path: qa/shots/resilience/
+          path: |
+            qa/shots/resilience/
+            qa/shots/maintenance/
+            qa/shots/session-sync/

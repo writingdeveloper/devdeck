@@ -460,5 +460,19 @@
   "link.dial_other": "接続できませんでした",
   "link.advice_no-ipv6-here": "別のネットワークから到達できるアドレスは IPv6 のみですが、この端末には IPv6 の経路がありません。相手側の設定では解決できません — この端末が IPv6 を使えるネットワークにいるか、両端に Tailscale のようなオーバーレイが必要です。",
   "link.advice_far-side-blocking": "IPv6 アドレスへの経路はありますが、応答がありません。相手側のルーターが受信接続を遮断しているか、その端末がスリープしています。",
-  "link.advice_same-network-only": "提示されたアドレスはすべて、その端末自身のネットワーク内でしか使えません。外部から到達できるアドレスがありませんでした。"
+  "link.advice_same-network-only": "提示されたアドレスはすべて、その端末自身のネットワーク内でしか使えません。外部から到達できるアドレスがありませんでした。",
+  "common.saving": "保存中…",
+  "common.saved": "保存済み",
+  "set.invalid_thresholds": "正の整数で入力してください：最近 ≤ 注意 ≤ 放置。この値は保存されていません。",
+  "tasks.upgrade_required": "編集前に両方の端末のDevDeckを更新してください。このホストは競合を防ぐ保存に対応していません。",
+  "tasks.conflict": "別の端末でタスクが変更されました。今回の変更は保存されていません。一覧はホストの最新状態です。未保存の変更を下に残しました。必要な内容をコピーし、一覧を確認してから再度変更してください。",
+  "tasks.unsaved_change": "未保存の変更",
+  "tasks.reviewed": "最新のタスクを確認しました",
+  "cockpit.rename_update": "名前の変更を確認するには両方の端末を更新してください。",
+  "cockpit.rename_conflict": "別の端末で名前が変更されました。入力は保持されています。確認してEnterで再保存するか、Escapeでホストの名前を使用してください。",
+  "cockpit.rename_missing": "このセッションは終了しました。名前は変更されていません。",
+  "cockpit.rename_failed": "名前の変更を確認できませんでした。入力は保持されています。接続や権限を確認して再試行してください。",
+  "cockpit.rename_hint": "Enterで保存 · Escapeでキャンセル",
+  "cockpit.rename_save": "名前を保存",
+  "cockpit.rename_cancel": "キャンセル"
 }

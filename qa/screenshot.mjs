@@ -719,7 +719,7 @@ const taskSeeded = await win.evaluate(async () => {
   await window.devdeck.setTodos(project.path, [{
     id: 'qa-provider-open', text: 'Provider open QA', done: false, due: null,
     createdAt: new Date().toISOString(),
-  }]);
+  }], project.todosRevision);
   return true;
 });
 

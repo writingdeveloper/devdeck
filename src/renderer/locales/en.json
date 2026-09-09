@@ -460,5 +460,19 @@
   "link.dial_other": "could not connect",
   "link.advice_no-ipv6-here": "The only addresses reachable from another network are IPv6, and this machine has no IPv6 route. No setting on the other machine can fix that — this one needs a network with IPv6, or an overlay such as Tailscale at both ends.",
   "link.advice_far-side-blocking": "There IS a route to the IPv6 address and nothing answered on it. The other machine's router is blocking inbound connections, or that machine is asleep.",
-  "link.advice_same-network-only": "Every address offered only works inside that machine's own network. It had no address to give that reaches it from outside."
+  "link.advice_same-network-only": "Every address offered only works inside that machine's own network. It had no address to give that reaches it from outside.",
+  "common.saving": "Saving…",
+  "common.saved": "Saved",
+  "set.invalid_thresholds": "Use positive whole days: fresh ≤ warning ≤ neglected. This value has not been saved.",
+  "tasks.upgrade_required": "Update DevDeck on both devices before editing tasks. This host does not support conflict-safe saves.",
+  "tasks.conflict": "Another device changed these tasks. Your change was NOT saved. The list now shows the latest host version. Your attempted change is below. Copy any text you need, review the list, then make the change again.",
+  "tasks.unsaved_change": "Your unsaved change",
+  "tasks.reviewed": "I reviewed the latest tasks",
+  "cockpit.rename_update": "Update both machines to use confirmed session renames.",
+  "cockpit.rename_conflict": "Another device changed the title. Your text is kept; review it and press Enter again, or Escape to use the host title.",
+  "cockpit.rename_missing": "This session has ended. The title was not changed.",
+  "cockpit.rename_failed": "The rename could not be confirmed. Your text is kept. Check the connection or permission, then retry.",
+  "cockpit.rename_hint": "Enter to save · Escape to cancel",
+  "cockpit.rename_save": "Save title",
+  "cockpit.rename_cancel": "Cancel"
 }

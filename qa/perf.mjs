@@ -12,13 +12,18 @@
 //
 // Run: node qa/perf.mjs [sessionCount]   (after npm run build)
 import { _electron as electron } from 'playwright';
+import assert from 'node:assert/strict';
+import { closeElectron } from './electron-lifecycle.mjs';
+import { requireWorkload, requireCpuSamples } from './perf-validity.mjs';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const SESSIONS = Math.max(1, Number(process.argv[2] ?? 4) | 0);
+const SESSIONS = Number(process.argv[2] ?? 4);
+assert.ok(Number.isInteger(SESSIONS) && SESSIONS >= 1 && SESSIONS <= 16, 'request 1–16 sessions');
+if (!process.argv.includes('--allow-live-agents')) throw new Error('Manual live-agent benchmark. Pass --allow-live-agents explicitly; do not run unattended.');
 const IDLE_MS = 10_000;
 
 const qaUserData = mkdtempSync(join(tmpdir(), 'devdeck-perf-'));
@@ -26,7 +31,9 @@ writeFileSync(join(qaUserData, 'state.json'), JSON.stringify({
   projects: {}, settings: { folders: [{ path: root, kind: 'repo' }], viewMode: 'list', cockpitSessions: [] },
 }, null, 2));
 
-const app = await electron.launch({
+let app;
+try {
+app = await electron.launch({
   args: ['.', `--user-data-dir=${qaUserData}`, '--no-sandbox'],
   cwd: root,
   // A nested agent must not inherit this session's identity, or it writes into the transcript of the
@@ -38,7 +45,7 @@ await win.setViewportSize?.({ width: 1500, height: 950 }).catch(() => {});
 await win.waitForTimeout(2500);
 
 if (!(await win.evaluate(() => window.devdeck.cockpit != null))) {
-  console.log('SKIP: no pty on this platform'); await quit(); process.exit(0);
+  throw new Error('Native-terminal benchmark requires Windows PTY');
 }
 
 // ---- open N real sessions ------------------------------------------------------------------
@@ -72,6 +79,7 @@ const state = await win.evaluate(() => {
     painted: shown.map((t) => (t.innerText ?? '').replace(/\s+/g, ' ').trim().length),
   };
 });
+requireWorkload({ requested: SESSIONS, opened: opened.length, visible: state.shown });
 console.log(`view=${state.view} tiles=${state.tiles} shown=${state.shown} sizes=${state.sizes.join(',')} renderers=${state.renderers.join(',')} paintedChars=${state.painted.join(',')}`);
 
 // ---- instrument the UI thread -------------------------------------------------------------
@@ -141,6 +149,7 @@ async function processCpu(label, body) {
     if (m.seconds === null || !prev || prev.seconds === null) continue;
     byType.set(m.type, (byType.get(m.type) ?? 0) + ((m.seconds - prev.seconds) / wall) * 100);
   }
+  requireCpuSamples(byType);
   const total = [...byType.values()].reduce((a, b) => a + b, 0);
   const parts = [...byType.entries()].filter(([, v]) => v >= 0.05).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}%`).join(' · ');
   console.log(`\n===== PROCESS CPU · ${label} (${Date.now() - t0}ms) =====\ntotal ${total.toFixed(1)}% of one core · ${parts}`);
@@ -163,6 +172,7 @@ if (opened.length) {
   await processCpu('STREAM 20k lines into one visible terminal', () => profile('STREAM 20k lines into one visible terminal', async () => {
     await win.evaluate((i) => window.devdeck.cockpit.input(i, "1..20000 | % { 'perf line ' + $_ + ' ' + ('x' * 60) }\r"), id).catch(() => {});
     await win.waitForTimeout(15_000);
+    assert.ok((await win.evaluate(i => window.devdeck.cockpit.sessionBuffer(i), id)).includes('perf line 20000 '), 'stream must complete');
   }));
 }
 
@@ -181,6 +191,7 @@ if (opened.length) {
   const loop = "$e=[char]27; $f='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'.ToCharArray(); $i=0; $end=(Get-Date).AddSeconds(13); while((Get-Date) -lt $end){ $i++; $rows = 1..38 | % { \"row $_ · frame $i · \" + ('x' * 90) }; Write-Host -NoNewline ($e + '[H' + ($rows -join \"" + BT + "n\") + \"" + BT + "n\" + $f[$i % 10] + ' Thinking… (' + $i + ') esc to interrupt'); Start-Sleep -Milliseconds 100 }\r";
   await win.evaluate(({ i, cmd }) => window.devdeck.cockpit.input(i, cmd), { i: id, cmd: loop }).catch(() => {});
   await win.waitForTimeout(1500);
+  assert.match(await win.evaluate(i => window.devdeck.cockpit.sessionBuffer(i), id), /row 38 · frame [0-9]+ · x/, 'spinner must actually repaint');
   spinnerCpu = await processCpu('WORKING 10s · one tile repainting its whole screen at 10fps', () => win.waitForTimeout(10_000));
   await win.waitForTimeout(2500);
   // The same load with every CSS animation frozen: what the sidebar's spinning "working" marks and
@@ -224,10 +235,6 @@ const SPINNER_CPU_MAX = 18; // measured 11.9% after the stepped spinners; 28.6% 
 const spinnerTotal = [...spinnerCpu.values()].reduce((a, b) => a + b, 0);
 const verdict = idleTotal <= IDLE_CPU_MAX && spinnerTotal <= SPINNER_CPU_MAX ? 'PASS' : 'FAIL';
 console.log(`\n${verdict}: idle app CPU ${idleTotal.toFixed(1)}% (limit ${IDLE_CPU_MAX}%) · one working tile ${spinnerTotal.toFixed(1)}% (limit ${SPINNER_CPU_MAX}%) of one core`);
-await quit();
-if (verdict === 'FAIL') process.exit(1);
+if (verdict === 'FAIL') process.exitCode = 1;
 
-async function quit() {
-  await app.evaluate(({ app: a }) => { a.isQuitting = true; setImmediate(() => a.quit()); }).catch(() => {});
-  await app.close().catch(() => {});
-}
+} finally { if (app) await closeElectron(app); }

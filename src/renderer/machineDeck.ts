@@ -27,7 +27,7 @@ export interface DeckFacade {
    */
   projectMemory: (path: string, fresh?: boolean) => Promise<import('../shared/types').ProjectMemory>;
   setNote: (path: string, note: string) => Promise<void>;
-  setTodos: (path: string, todos: import('../shared/tasks').Todo[]) => Promise<void>;
+  setTodos: typeof window.devdeck.setTodos;
   setPinned: (path: string, pinned: boolean) => Promise<void>;
   setHidden: (path: string, hidden: boolean) => Promise<void>;
   usageReport: (sinceMs: number) => Promise<import('../shared/types').UsageReport>;
@@ -61,7 +61,7 @@ export function deckFor(machineId: string): DeckFacade {
       listProjects: () => window.devdeck.listProjects(),
       projectMemory: (path, fresh) => window.devdeck.projectMemory(path, fresh),
       setNote: (path, note) => window.devdeck.setNote(path, note),
-      setTodos: (path, todos) => window.devdeck.setTodos(path, todos),
+      setTodos: (path, todos, revision) => window.devdeck.setTodos(path, todos, revision),
       setPinned: (path, pinned) => window.devdeck.setPinned(path, pinned),
       setHidden: (path, hidden) => window.devdeck.setHidden(path, hidden),
       usageReport: (sinceMs) => window.devdeck.usageReport(sinceMs),
@@ -73,7 +73,7 @@ export function deckFor(machineId: string): DeckFacade {
     listProjects: () => remote.listProjects(),
     projectMemory: (path, fresh) => remote.projectMemory(path, fresh),
     setNote: (path, note) => remote.setNote(path, note),
-    setTodos: (path, todos) => remote.setTodos(path, todos),
+    setTodos: (path, todos, revision) => remote.setTodos(path, todos, revision),
     setPinned: (path, pinned) => remote.setPinned(path, pinned),
     setHidden: (path, hidden) => remote.setHidden(path, hidden),
     usageReport: (sinceMs) => remote.usageReport(sinceMs),

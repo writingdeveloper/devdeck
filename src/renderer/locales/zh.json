@@ -460,5 +460,19 @@
   "link.dial_other": "无法连接",
   "link.advice_no-ipv6-here": "唯一能从其他网络到达的地址是 IPv6，而这台设备所在的网络没有 IPv6 路由。对方设备的任何设置都无法解决 — 需要这台设备接入支持 IPv6 的网络，或在两端使用 Tailscale 之类的覆盖网络。",
   "link.advice_far-side-blocking": "到该 IPv6 地址是有路由的，但没有任何响应。对方设备的路由器正在阻止入站连接，或者那台设备处于睡眠状态。",
-  "link.advice_same-network-only": "提供的所有地址都只能在该设备自己的网络内使用，没有一个能从外部到达。"
+  "link.advice_same-network-only": "提供的所有地址都只能在该设备自己的网络内使用，没有一个能从外部到达。",
+  "common.saving": "正在保存…",
+  "common.saved": "已保存",
+  "set.invalid_thresholds": "请输入正整数：最近 ≤ 警告 ≤ 搁置。此值尚未保存。",
+  "tasks.upgrade_required": "编辑前请更新两台设备上的 DevDeck。此主机不支持防冲突保存。",
+  "tasks.conflict": "另一台设备已修改任务。本次更改未保存。列表已显示主机的最新状态，未保存的更改保留在下方。请复制所需内容，检查列表后重新修改。",
+  "tasks.unsaved_change": "未保存的更改",
+  "tasks.reviewed": "我已检查最新任务",
+  "cockpit.rename_update": "请更新两台设备以确认会话重命名。",
+  "cockpit.rename_conflict": "另一台设备已更改名称。输入已保留。检查后按Enter重新保存，或按Escape使用主机名称。",
+  "cockpit.rename_missing": "此会话已结束。名称未更改。",
+  "cockpit.rename_failed": "无法确认名称更改。输入已保留。请检查连接或权限后重试。",
+  "cockpit.rename_hint": "Enter保存 · Escape取消",
+  "cockpit.rename_save": "保存名称",
+  "cockpit.rename_cancel": "取消"
 }

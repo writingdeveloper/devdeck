@@ -1,7 +1,7 @@
 {
   "name": "devdeck",
-  "version": "1.37.7",
-  "description": "Project command deck — at-a-glance state + Claude Code, Codex, and Antigravity resume",
+  "version": "1.37.8",
+  "description": "Project command deck \u2014 at-a-glance state + Claude Code, Codex, and Antigravity resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
   "license": "MIT",
@@ -35,7 +35,10 @@
     "qa:audit": "npm run build && node qa/audit.mjs",
     "qa:link": "npm run build && node qa/link.mjs",
     "qa:resilience": "npm run build && node qa/resilience.mjs",
-    "qa:perf": "npm run build && node qa/perf.mjs"
+    "qa:perf": "npm run build && node qa/perf.mjs",
+    "qa:maintenance": "npm run build && node qa/maintenance.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "qa:session-sync": "npm run build && node qa/session-sync.mjs"
   },
   "build": {
     "appId": "com.soursea.devdeck",
@@ -110,7 +113,7 @@
     "esbuild": "^0.28.1",
     "playwright": "^1.62.1",
     "typescript": "^5.5.0",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",

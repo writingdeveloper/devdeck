@@ -1,5 +1,7 @@
 # PC 전환 진행 표시와 터미널 상단 확인
 
+> Historical validation snapshot. Counts and audit results apply to this version at the time of review. For current operating checks and remaining work, see [Quality](quality.md) and [Backlog](backlog.md).
+
 ## 확인 및 개선
 
 | 항목 | 확인한 원인 | 처리 |

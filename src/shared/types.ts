@@ -95,6 +95,8 @@ export interface StoreEntry {
   hidden: boolean;
   lastOpened: string | null; // ISO timestamp
   todos: Todo[];
+  /** Missing in old state files / hosts. New stores expose zero initially. */
+  todosRevision?: number;
 }
 
 export interface ResumeCue {
@@ -125,6 +127,8 @@ export interface ProjectViewModel {
   /** Browsable GitHub URL, or null when the repo has no github.com remote. */
   repoUrl: string | null;
   todos: Todo[];
+  /** Missing in old state files / hosts. New stores expose zero initially. */
+  todosRevision?: number;
 }
 
 export interface RecentCommit {
