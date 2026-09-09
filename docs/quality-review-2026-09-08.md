@@ -26,7 +26,7 @@ Performance QA refuses absent/invisible terminals, missing CPU measurements, inc
 | Node.js 24.20.0 unit suite (Windows, temporary npx toolchain) | 1,289 passed, 1 pre-existing skip |
 | Actual Windows 1.37.8 unpacked executable | Maintenance 5/5 and resilience 9/9 passed, normal exit |
 | Current documentation checks | 8 documents, 21 local links and script/CI assertions passed |
-| All-OS CI | Consult candidate PR/checks; local Windows results do not establish macOS/Linux results |
+| Initial candidate all-OS CI and packaging | CI `34315556132` and Release dry-run `34315556248` passed at `24e3eb7`; publication skipped (PR, no tag) |
 | Human visual acceptance, installer wizard, extended real network testing | Not performed by this review |
 
 Evidence locations: `qa/shots/maintenance/`, `qa/shots/resilience/`, and CI artifacts. Full logs stay local/attached, not committed. Tests use disposable profiles and synthetic tasks. Autostart and paid-summary settings are tested only on the failing-save path, before any operating-system/provider side effect; QA does not enable them.
@@ -48,3 +48,7 @@ Finish publication gates and review; migrate manual performance/Link harnesses t
 - [js-yaml advisory](https://github.com/advisories/GHSA-2883-xcg3-v3hh)
 - [Vitest advisory](https://github.com/vitest-dev/vitest/security/advisories/GHSA-82fw-gwwq-j7x9)
 - [Node release support](https://nodejs.org/en/about/previous-releases)
+
+## Action-runtime maintenance follow-up
+
+The first all-green workflow emitted Node20 deprecation warnings for the action runtimes, despite the project itself using Node24. Official action metadata confirmed Node24 and retained required inputs for checkout 7.0.1, setup-node 7.0.0, upload-artifact 7.0.1 and download-artifact 8.0.1. These are now pinned to verified commit SHAs. The final PR checks must validate this workflow-only follow-up; earlier green runs do not automatically certify a later SHA.

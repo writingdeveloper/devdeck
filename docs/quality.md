@@ -36,3 +36,5 @@ CI builds/tests on Windows, macOS and Linux using Node.js 24. Linux runs accessi
 Tagged publication waits for the reusable quality workflow and all OS packages. The actual unpacked Windows executable must pass both regression harnesses before assets are published. This verifies the packaged layout, not the NSIS installer wizard, OS trust dialogs, macOS signing/notarization or every in-place upgrade scenario.
 
 A version bump or passing local checks does not publish a release. Record the exact commit, OS/toolchain, commands, counts, failures and skipped/manual scope in a dated review. Dependency audit results can change without a code change; the scheduled audit checks that case. See the [documentation index](README.md) for the current candidate review and historical evidence.
+
+Official checkout/setup-node/artifact actions use verified Node24-native releases pinned to full commit SHAs. Dependabot can propose reviewed updates; build-tool Node selection and the action runtime are separate concerns.
