@@ -460,5 +460,12 @@
   "link.dial_other": "연결 실패",
   "link.advice_no-ipv6-here": "다른 망에서 닿을 수 있는 주소는 IPv6뿐인데, 지금 이 PC의 네트워크에 IPv6 경로가 없습니다. 상대 기기 설정으로는 해결되지 않습니다 — 이 PC가 IPv6를 쓸 수 있는 망에 있거나, 양쪽에 Tailscale 같은 오버레이가 필요합니다.",
   "link.advice_far-side-blocking": "IPv6 주소까지는 경로가 있는데 응답이 없습니다. 상대 기기의 공유기가 인바운드를 막고 있거나 그 기기가 절전 중입니다.",
-  "link.advice_same-network-only": "받은 주소가 전부 같은 망 안에서만 쓸 수 있는 것들입니다. 상대 기기가 외부에서 닿을 주소를 알려주지 못했습니다."
+  "link.advice_same-network-only": "받은 주소가 전부 같은 망 안에서만 쓸 수 있는 것들입니다. 상대 기기가 외부에서 닿을 주소를 알려주지 못했습니다.",
+  "common.saving": "저장 중…",
+  "common.saved": "저장됨",
+  "set.invalid_thresholds": "양의 정수로 입력하세요: 최근 ≤ 주의 ≤ 방치. 이 값은 저장되지 않았습니다.",
+  "tasks.upgrade_required": "작업을 편집하려면 두 PC의 DevDeck을 업데이트하세요. 이 호스트는 충돌 방지 저장을 지원하지 않습니다.",
+  "tasks.conflict": "다른 기기에서 작업을 변경했습니다. 이번 변경은 저장되지 않았습니다. 목록은 호스트의 최신 상태이며, 저장하지 못한 변경은 아래에 보관했습니다. 필요한 내용을 복사하고 목록을 검토한 뒤 다시 변경하세요.",
+  "tasks.unsaved_change": "저장하지 못한 변경",
+  "tasks.reviewed": "최신 작업을 확인했습니다"
 }

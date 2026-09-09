@@ -6,7 +6,7 @@ declare global {
       listProjects(): Promise<ProjectViewModel[]>;
       projectMemory(path: string, fresh?: boolean): Promise<import('../shared/types').ProjectMemory>;
       setNote(path: string, note: string): Promise<void>;
-      setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
+      setTodos(path: string, todos: import('../shared/tasks').Todo[], revision: number): Promise<import('../shared/tasks').TodoSaveResult>;
       setPinned(path: string, pinned: boolean): Promise<void>;
       setHidden(path: string, hidden: boolean): Promise<void>;
       open(items: import('../shared/types').ProjectOpenIntent[]): Promise<void>;
@@ -45,7 +45,7 @@ declare global {
         listProjects(): Promise<ProjectViewModel[]>;
         projectMemory(path: string, fresh?: boolean): Promise<import('../shared/types').ProjectMemory>;
         setNote(path: string, note: string): Promise<void>;
-        setTodos(path: string, todos: import('../shared/tasks').Todo[]): Promise<void>;
+        setTodos(path: string, todos: import('../shared/tasks').Todo[], revision: number): Promise<import('../shared/tasks').TodoSaveResult>;
         setPinned(path: string, pinned: boolean): Promise<void>;
         setHidden(path: string, hidden: boolean): Promise<void>;
         usageReport(sinceMs: number): Promise<import('../shared/types').UsageReport>;

@@ -311,3 +311,11 @@ describe('receiving a pasted image from another machine', () => {
     expect(written).toMatch(/devdeck-paste-[0-9a-f-]{36}\.png$/);
   });
 });
+
+
+it('allows revision-checked task saves only to write-authorized devices', () => {
+  expect(mayCallRemotely(api['project:saveTodos'], ['observe'])).toBe(false);
+  expect(mayCallRemotely(api['project:saveTodos'], ['write'])).toBe(true);
+  expect(() => api['project:setTodos'].handler(ALLOWED_ROOT, [])).toThrow('TASKS_CLIENT_OUTDATED');
+  expect(() => api['project:saveTodos'].handler(join(process.cwd(), 'outside'), [], 0)).toThrow('allowed folders');
+});

@@ -344,3 +344,8 @@ body .um-provider {
   overflow-x: auto; white-space: nowrap;
 }
 .about-diag-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.set-save-status { grid-column: 1 / -1; font-size: 12px; color: var(--dd-text-muted); }
+.set-row:has([aria-invalid="true"]) .set-save-status { color: var(--dd-destructive); }
+.tk-conflict { padding: 12px; margin: 12px 0; border: 1px solid var(--dd-border-strong); border-radius: 8px; }
+.tk-conflict-draft { display: block; width: 100%; min-height: 64px; margin: 8px 0; font: inherit; color: inherit; background: var(--dd-surface); }

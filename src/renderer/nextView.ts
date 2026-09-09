@@ -1,6 +1,6 @@
 import { tr, localeTag } from './i18n-runtime';
 import { openInTerminal } from './openRouter';
-import { renderLoadError, reportSaveError } from './loadError';
+import { renderLoadError, reportSaveError, toast } from './loadError';
 import { withTimeout } from '../shared/withTimeout';
 import { buildMonthGrid, toDateStr, type DayCell } from '../shared/calendar';
 import {
@@ -15,11 +15,13 @@ import type { AgentId } from '../shared/types';
 import { deckFor, selectedMachineId, machineSelectionVersion, onMachineSelected } from './machineDeck';
 
 let viewEl: HTMLElement;
-interface Proj { path: string; name: string; todos: Todo[]; agentIds: AgentId[]; }
+interface Proj { path: string; name: string; todos: Todo[]; revision: number | undefined; agentIds: AgentId[]; }
 let projects: Proj[] = [];
 let loadVersion = 0;
 let loadedSelection = -1;
 let pendingWrite: symbol | null = null;
+let addDraft = { project: '', text: '', due: '' };
+let conflictDraft: string | null = null;
 
 // Board filters (view-local; reset only by explicit user action, so a re-render keeps them).
 let filterProject: string | null = null;
@@ -54,15 +56,22 @@ async function load(): Promise<void> {
   }
   if (!current()) return;
   loadedSelection = selection;
-  projects = list.map((p) => ({ path: p.path, name: p.name, todos: p.todos ?? [], agentIds: p.agentIds ?? [] }));
+  projects = list.map((p) => ({ path: p.path, name: p.name, todos: p.todos ?? [], revision: p.todosRevision, agentIds: p.agentIds ?? [] }));
   render();
 }
 
 async function mutate(path: string, fn: (todos: Todo[]) => Todo[]): Promise<boolean> {
-  if (pendingWrite || loadedSelection !== machineSelectionVersion()) return false;
+  if (conflictDraft !== null || pendingWrite || loadedSelection !== machineSelectionVersion()) {
+    viewEl.querySelectorAll<HTMLInputElement>('.tk-check').forEach(cb => { cb.checked = cb.defaultChecked; });
+    return false;
+  }
   const p = projects.find((x) => x.path === path);
   if (!p) return false;
+  if (p.revision === undefined) { viewEl.querySelectorAll<HTMLInputElement>('.tk-check').forEach(cb => { cb.checked = cb.defaultChecked; }); toast(tr('tasks.upgrade_required')); return false; }
   const next = fn(p.todos);
+  const attempted = next.filter(t => JSON.stringify(t) !== JSON.stringify(p.todos.find(b => b.id === t.id)))
+    .map(t => `${t.done ? '[x]' : '[ ]'} ${t.text}${t.due ? ' — ' + t.due : ''}`);
+  for (const t of p.todos) if (!next.some(n => n.id === t.id)) attempted.push(`${tr('tasks.delete')}: ${t.text}`);
   const api = deckFor(selectedMachineId());
   const selection = machineSelectionVersion();
   const token = pendingWrite = Symbol();
@@ -73,8 +82,15 @@ async function mutate(path: string, fn: (todos: Todo[]) => Todo[]): Promise<bool
   controls.forEach((c) => { c.disabled = true; });
   viewEl.setAttribute('aria-busy', 'true');
   try {
-    await api.setTodos(path, next);
-    if (selection === machineSelectionVersion()) { p.todos = next; render(); }
+    const result = await api.setTodos(path, next, p.revision);
+    if (selection !== machineSelectionVersion()) return result.ok;
+    p.todos = result.todos; p.revision = result.revision;
+    if (!result.ok) {
+      conflictDraft = `${p.name}\n${attempted.join('\n')}`;
+      render(); // latest host data + retained new-task draft + explicit review
+      return false;
+    }
+    render();
     return true;
   } catch (error) {
     reportSaveError(error);
@@ -180,9 +196,16 @@ function addControls(bar: HTMLElement): void {
   const text = document.createElement('input'); text.className = 'tk-add-text'; text.placeholder = tr('tasks.add_ph');
   const dueI = document.createElement('input'); dueI.type = 'date'; dueI.className = 'tk-add-due'; dueI.title = tr('tasks.due');
   const btn = document.createElement('button'); btn.className = 'primary tk-add-btn'; btn.textContent = tr('tasks.add');
-  const submit = (): void => {
+  sel.value = projects.some(p => p.path === addDraft.project) ? addDraft.project : (sel.options[0]?.value ?? '');
+  text.value = addDraft.text; dueI.value = addDraft.due;
+  const remember = () => { addDraft = { project: sel.value, text: text.value, due: dueI.value }; };
+  for (const c of [sel, text, dueI]) { c.addEventListener('input', remember); c.addEventListener('change', remember); }
+  const submit = async (): Promise<void> => {
     if (!sel.value || !text.value.trim()) return;
-    mutate(sel.value, (ts) => addTodo(ts, text.value, crypto.randomUUID(), new Date().toISOString(), dueI.value || null));
+    const selection = machineSelectionVersion();
+    if (await mutate(sel.value, (ts) => addTodo(ts, text.value, crypto.randomUUID(), new Date().toISOString(), dueI.value || null))) {
+      if (selection === machineSelectionVersion()) { addDraft = { project: sel.value, text: '', due: '' }; render(); }
+    }
   };
   btn.addEventListener('click', submit);
   text.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
@@ -244,7 +267,7 @@ function filterControls(bar: HTMLElement): void {
       for (const p of [...projects]) {
         if (selection !== machineSelectionVersion()) break;
         if (!p.todos.some((t) => t.done)) continue;
-        await mutate(p.path, clearDone);
+        if (!await mutate(p.path, clearDone)) break;
       }
     });
     bar.appendChild(clear);
@@ -271,6 +294,15 @@ function render(): void {
   filterControls(bar);
   bar.appendChild(viewToggle());
   viewEl.append(head, bar);
+  if (conflictDraft !== null) {
+    const notice = document.createElement('section'); notice.className = 'tk-conflict'; notice.setAttribute('role', 'alert');
+    const msg = document.createElement('p'); msg.textContent = tr('tasks.conflict');
+    const draft = document.createElement('textarea'); draft.className = 'tk-conflict-draft'; draft.readOnly = true;
+    draft.setAttribute('aria-label', tr('tasks.unsaved_change')); draft.value = conflictDraft;
+    const reviewed = document.createElement('button'); reviewed.className = 'chip tk-conflict-reviewed'; reviewed.textContent = tr('tasks.reviewed');
+    reviewed.addEventListener('click', () => { conflictDraft = null; render(); });
+    notice.append(msg, draft, reviewed); viewEl.appendChild(notice);
+  }
 
   const visible = filterTaskItems(items, { project: filterProject, q: filterText });
   if (boardView === 'calendar') { renderCalendar(visible, now); return; }
@@ -383,6 +415,7 @@ export function mountNext(): void {
   viewEl = document.getElementById('view-next')!;
   onMachineSelected(() => {
     ++loadVersion; loadedSelection = -1; projects = []; pendingWrite = null;
+    conflictDraft = null; addDraft = { project: '', text: '', due: '' };
     filterProject = null; viewEl.replaceChildren(); viewEl.inert = false; viewEl.removeAttribute('aria-busy');
     if (viewEl.classList.contains('active')) void load();
   });

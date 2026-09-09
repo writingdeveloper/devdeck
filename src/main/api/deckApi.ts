@@ -26,6 +26,7 @@ import { combineLocalUsageScans } from '../localUsageReport';
 import { PASTE_IMAGE_PREFIX } from '../tempClean';
 import { listClaudeProjectDirs } from '../usageProjectsScan';
 import { classifyUsageProjects } from '../../shared/usageProjects';
+import { validThresholds } from '../../shared/settingsValidation';
 import { sanitizeTodos } from '../../shared/tasks';
 import { getClaudeUsage, readClaudeCredentials, fetchUsageApi } from '../claudeUsage';
 import { getCodexUsage, spawnCodexAppServer } from '../codexUsage';
@@ -228,10 +229,15 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
     cfg.store.setNote(path, String(note).slice(0, 10000));
   });
-  invoke('project:setTodos', allow('write'), (path: string, todos: unknown) => {
+  // Keep the old channel only to explain the upgrade, never to accept unversioned writes.
+  invoke('project:setTodos', allow('write'), (path: string) => {
     if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
-    // store.setTodos sanitizes (drops junk, caps text + list length), so an untrusted array is safe.
-    cfg.store.setTodos(path, sanitizeTodos(todos));
+    throw new Error('TASKS_CLIENT_OUTDATED: Update DevDeck on both devices before editing tasks');
+  });
+  // A distinct method prevents older hosts from silently ignoring a revision argument.
+  invoke('project:saveTodos', allow('write'), (path: string, todos: unknown, expectedRevision: number) => {
+    if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
+    return cfg.store.saveTodos(path, todos, expectedRevision);
   });
   invoke('project:setPinned', allow('write'), (path: string, pinned: boolean) => {
     if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
@@ -377,12 +383,10 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   });
   invoke('settings:setThresholds', localOnly, (t: { freshDays: number; warnDays: number; neglectedDays: number }) => {
     const { freshDays, warnDays, neglectedDays } = t ?? {};
-    if (
-      typeof freshDays === 'number' && typeof warnDays === 'number' && typeof neglectedDays === 'number' &&
-      freshDays > 0 && freshDays <= warnDays && warnDays <= neglectedDays
-    ) {
-      cfg.store.setThresholds({ freshDays, warnDays, neglectedDays });
+    if (!validThresholds(t)) {
+      throw new Error('SETTINGS_INVALID_THRESHOLDS: use positive whole days in increasing order');
     }
+    cfg.store.setThresholds({ freshDays, warnDays, neglectedDays });
   });
   invoke('settings:pickFolder', blocked('opens a native dialog on the host screen - nobody is sitting there'), async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] });
