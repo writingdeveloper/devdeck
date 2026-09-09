@@ -30,7 +30,7 @@ import { fingerprintsMatch } from './selfSignedCert';
 import { findPairedDevice, upsertPairedDevice, type PairedDevice } from './devices';
 import { tokensMatch } from './inviteCode';
 import { LINK_FEATURES, LINK_PROTOCOL, peerSupports, protocolMatches, type LinkErrorCode, type LinkMessage } from './protocol';
-import { sanitizeMachineName } from '../../shared/link/machine';
+import { sanitizeMachineName, isValidMachineId } from '../../shared/link/machine';
 import { sanitizePermissions, type LinkPermission } from '../../shared/link/permissions';
 import type { LinkIdentity } from './identity';
 
@@ -155,6 +155,8 @@ interface Session {
   connectedAtMs: number;
   pairAttempts: number;
   helloSeen: boolean;
+  /** Display metadata only: authentication always uses the pinned certificate and pairing token. */
+  peerIdentity?: { machineId: string; machineName: string };
   requests: TokenBucket;
   lastRefusalLogMs: number;
   /** What the client's hello announced it can do. */
@@ -272,6 +274,10 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
           return;
         }
         session.helloSeen = true;
+        session.peerIdentity = {
+          machineId: isValidMachineId(message.machineId) ? message.machineId : fingerprint.slice(0, 8),
+          machineName: sanitizeMachineName(message.machineName, ''),
+        };
         session.peerPings = peerSupports(message, 'ping');
         if (session.device) { sendReady(session, fingerprint); return; }
         // Unknown device. It has just told us whether it is about to redeem a code, so the refusal can
@@ -320,7 +326,7 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
           .then(
             (value) => session.connection.send({ t: 'res', id: message.id, ok: true, value: value ?? null }),
             (err: unknown) => session.connection.send({
-              t: 'res', id: message.id, ok: false, code: 'method-not-available',
+              t: 'res', id: message.id, ok: false, code: 'operation-failed',
               error: err instanceof Error ? err.message : String(err),
             }),
           ));
@@ -427,15 +433,15 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
     }
 
     const device: PairedDevice = {
-      machineId: session.device?.machineId ?? fingerprint.slice(0, 8),
-      machineName: session.device?.machineName ?? '',
+      machineId: session.peerIdentity?.machineId ?? fingerprint.slice(0, 8),
+      machineName: session.peerIdentity?.machineName ?? '',
       fingerprint,
       permissions: sanitizePermissions(invite.permissions),
       pairedAtMs: now,
       lastSeenMs: now,
     };
-    session.device = device;
     options.savePairedDevices(upsertPairedDevice(options.pairedDevices(), device));
+    session.device = device;
     // Single use. A code that stays valid after it worked is a code that is still valid when it is
     // pasted into the wrong window later.
     options.consumeInvite();

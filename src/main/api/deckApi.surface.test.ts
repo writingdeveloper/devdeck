@@ -140,7 +140,7 @@ describe('remote exposure policy', () => {
     // The host validates that argument before dispatch: a `link:`-qualified id from a paired machine
     // is a request to relay into a third machine, and an unannounced id is the OAuth login shell.
     // A method that routes by id without declaring it would skip both checks.
-    for (const name of ['cockpit:input', 'cockpit:resize', 'cockpit:close', 'cockpit:noteLabel',
+    for (const name of ['cockpit:input', 'cockpit:resize', 'cockpit:close', 'cockpit:renameSession',
       'cockpit:sessionBuffer', 'cockpit:sessionScreen', 'cockpit:liveAgent']) {
       expect(sessionIdArgOf(api[name]), name).toBe(0);
     }
@@ -226,48 +226,27 @@ describe('opening a conversation this machine already runs', () => {
   });
 });
 
-describe('naming a session on the machine that runs it', () => {
-  const MACHINE = '3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b';
-
-  it('sends a rename of a remote tile to that machine, under the id it minted', () => {
-    // Renaming a session the deck is only VIEWING has to reach the machine holding it; recording it
-    // here would leave every other deck — including the one sitting in front of it — on the folder name.
-    notifyCalls.length = 0;
-    api['cockpit:noteLabel'].handler(`link:${MACHINE}:C:\\repo#3`, 'release prep');
-    expect(notifyCalls).toEqual([{ machineId: MACHINE, method: 'cockpit:noteLabel', args: ['C:\\repo#3', 'release prep'] }]);
+describe('confirmed session metadata contract', () => {
+  it('requires reply-bearing rename, control permission and a local host session id', () => {
+    expect(api['cockpit:renameSession'].channel).toBe('invoke');
+    expect(mayCallRemotely(api['cockpit:renameSession'], ['observe'])).toBe(false);
+    expect(mayCallRemotely(api['cockpit:renameSession'], ['control'])).toBe(true);
+    expect(sessionIdArgOf(api['cockpit:renameSession'])).toBe(0);
   });
-
-  it('records a local rename and announces it, so connected machines see the new name', () => {
+  it('keeps membership persistence local and acknowledged', () => {
+    expect(api['cockpit:persistSessions'].channel).toBe('invoke');
+    expect(mayCallRemotely(api['cockpit:persistSessions'], EVERY_PERMISSION)).toBe(false);
+  });
+  it('cannot bypass conflict checks using the legacy notification route', () => {
     noteCalls.length = 0;
-    const seen: { channel: string }[] = [];
-    const stop = events.subscribe((channel) => { seen.push({ channel }); });
-    api['cockpit:noteLabel'].handler('C:\\repo#1', '  release prep  ');
-    stop();
-    expect(noteCalls).toEqual([{ id: 'C:\\repo#1', patch: { label: 'release prep' } }]); // trimmed
-    expect(seen.map((e) => e.channel)).toContain('cockpit:sessions');
+    api['cockpit:noteLabel'].handler('C:\\repo#1', 'unconfirmed');
+    expect(noteCalls).toEqual([]);
+    expect(mayCallRemotely(api['cockpit:noteLabel'], EVERY_PERMISSION)).toBe(false);
   });
-
-  it('does not announce a rename that changed nothing', () => {
-    const seen: string[] = [];
-    const stop = events.subscribe((channel) => { seen.push(channel); });
-    api['cockpit:noteLabel'].handler('C:\\repo#1', 'already-set'); // fake host reports "unchanged"
-    stop();
-    expect(seen).not.toContain('cockpit:sessions');
-  });
-
-  it('normalizes a cleared name to null and bounds what a machine can be made to display', () => {
-    noteCalls.length = 0;
-    api['cockpit:noteLabel'].handler('C:\\repo#1', '   ');
-    api['cockpit:noteLabel'].handler('C:\\repo#1', 'x'.repeat(500));
-    api['cockpit:noteLabel'].handler('C:\\repo#1', { evil: true });
-    expect(noteCalls[0].patch.label).toBeNull();
-    expect((noteCalls[1].patch.label as string).length).toBe(60);
-    expect(noteCalls[2].patch.label).toBeNull(); // a non-string is a cleared name, never "[object Object]"
-  });
-
-  it('needs the permission that drives a session, not mere observation', () => {
-    expect(mayCallRemotely(api['cockpit:noteLabel'], ['observe'])).toBe(false);
-    expect(mayCallRemotely(api['cockpit:noteLabel'], ['control'])).toBe(true);
+  it('returns a remote rename response to its initiating caller', async () => {
+    const machineId = '3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b';
+    const result = await api['cockpit:renameSession'].handler(`link:${machineId}:C:\\repo#3`, 'release', { instanceId: 'fixture', labelRevision: 0 });
+    expect(result).toEqual({ machineId, method: 'cockpit:renameSession' });
   });
 });
 

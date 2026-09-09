@@ -7,6 +7,8 @@ The README describes the product. This directory separates current operating gui
 | [Quality and release checks](quality.md) | Required commands, isolated QA, release gates, evidence rules |
 | [Privacy and network boundaries](privacy.md) | Local processing, optional AI calls, Link transport, diagnostics |
 | [Maintenance review: 2026-09-08](quality-review-2026-09-08.md) | Changes in the 1.37.8 candidate and verification status |
+| [State ownership and consistency](state-consistency.md) | Shared metadata contracts, identity, failure and synchronization rules |
+| [Session synchronization review](session-sync-review-2026-09-08.md) | Reproduced title bug, root fixes and multi-app evidence |
 | [Backlog](backlog.md) | Unfinished work, priority and acceptance criteria |
 | [Contributing](../CONTRIBUTING.md) | Development setup and review requirements |
 | [Security](../SECURITY.md) | Private vulnerability reporting and supported fixes |

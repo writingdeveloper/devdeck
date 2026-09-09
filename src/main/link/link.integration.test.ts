@@ -142,6 +142,7 @@ describe('pairing', () => {
 
     expect(paired).toHaveLength(1);
     expect(paired[0].fingerprint).toBe(clientIdentity.fingerprint);
+    expect(paired[0]).toMatchObject({ machineId: CLIENT_ID, machineName: 'laptop' });
     expect(invite).toBeNull(); // single use
     expect(log.map((l) => l.kind)).toContain('paired');
     dialed.link.close();

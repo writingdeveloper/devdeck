@@ -35,3 +35,5 @@ Task saves use `project:saveTodos` with an expected revision. Do not fall back t
 Include the changed behavior, regression command/results, compatibility impact and outstanding validation. Keep generated QA logs/screenshots in `qa/shots/` or CI artifacts, not in source control. Never commit credentials, pairing codes, private keys, personal transcripts or full diagnostic bundles.
 
 Update [current documentation](docs/README.md) when behavior changes. Preserve dated reviews as historical evidence and add a new review instead of rewriting old test results. Publishing a tag is a separate release action, not an automatic consequence of a merged fix.
+
+For shared metadata changes, follow [state ownership and consistency](docs/state-consistency.md). Exercise a host, the writer and another observer; an IPC handler test alone cannot establish UI/disk convergence. Run `npm run qa:session-sync` on Windows.

@@ -1,3 +1,4 @@
+import { createSessionLabels } from '../sessionLabels';
 import { dialog, shell, app, clipboard, type BrowserWindow } from 'electron';
 import { homedir, release, tmpdir } from 'node:os';
 import path, { join } from 'node:path';
@@ -577,7 +578,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
         : undefined;
       if (running) {
         cfg.diagnostics?.write('info', 'pty', `open reused ${running.id} conversation=${resolved.sessionId} (already running here)`);
-        return { id: running.id, agentId: a.id, sessionId: running.sessionId, adopted: true };
+        return { id: running.id, agentId: a.id, sessionId: running.sessionId, label: running.label, labelRevision: running.labelRevision, instanceId: running.instanceId, adopted: true };
       }
       warnIfCliMissing(resolved.command);
       const shellPath = resolveShellPath();
@@ -600,7 +601,8 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       cfg.diagnostics?.write('info', 'pty', `open ${id} agent=${a.id} mode=${req.mode ?? 'auto'} conversation=${resolved.sessionId ?? '-'} cmd=${resolved.command}`);
       publishSessions();
       cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
-      return { id, agentId: a.id, sessionId: resolved.sessionId };
+      const started = cfg.ptyHost.list().find(s => s.id === id);
+      return { id, agentId: a.id, sessionId: resolved.sessionId, label: started?.label ?? null, labelRevision: started?.labelRevision, instanceId: started?.instanceId };
     } catch (err) {
       const error = `Could not open session in ${req.projectPath}: ${err instanceof Error ? err.message : String(err)}`;
       cfg.diagnostics?.write('warn', 'pty', `open failed: ${error}`);
@@ -651,12 +653,31 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
 
   // Cockpit session persistence: remember the open sessions so a quit/crash doesn't lose them.
   // The store sanitizes on read & write, so a corrupted state.json can't inject bad data.
-  invoke('cockpit:loadSessions', localOnly, () => cfg.store.getCockpitSessions());
-  send('cockpit:saveSessions', localOnly, (list: PersistedSession[]) => cfg.store.setCockpitSessions(Array.isArray(list) ? list : []));
+  const labels = createSessionLabels({
+    list: () => cfg.ptyHost.list(), load: () => cfg.store.getCockpitSessions(),
+    save: (entries) => cfg.store.setCockpitSessions(entries),
+    note: (id, patch) => cfg.ptyHost.note(id, patch), announce: () => publishSessions(),
+  });
+  invoke('cockpit:loadSessions', localOnly, () => labels.reconcile(cfg.store.getCockpitSessions()));
+  send('cockpit:saveSessions', localOnly, (list: PersistedSession[]) => {
+    try { cfg.store.setCockpitSessions(labels.reconcile(list)); }
+    catch (error) { cfg.sendError('Could not save session layout'); }
+  });
+  invoke('cockpit:persistSessions', localOnly, (list: PersistedSession[]) => cfg.store.setCockpitSessions(labels.reconcile(list)));
+  invoke('cockpit:renameSession', allowSession('control'), (id: string, label: unknown, version: unknown) => {
+    const target = String(id);
+    if (isRemoteId(target)) {
+      if (refuseRelay(target, 'cockpit:renameSession')) throw new Error('Session relay is not permitted');
+      const { machineId, hostId } = parseRemoteId(target);
+      // Unlike terminal keystrokes, metadata writes must return success/failure to the originating UI.
+      return linkOrThrow().call(machineId, 'cockpit:renameSession', [hostId, label, version]);
+    }
+    return labels.rename(target, label, version);
+  });
 
   // Seamless update: the renderer records the live sessions right before quitAndInstall; the next
   // launch consumes (reads + clears) them to auto-restore. store.* sanitize, so untrusted input is safe.
-  invoke('update:setPendingAutoRestore', localOnly, (list: PersistedSession[]) => cfg.store.setPendingAutoRestore(Array.isArray(list) ? list : []));
+  invoke('update:setPendingAutoRestore', localOnly, (list: PersistedSession[]) => cfg.store.setPendingAutoRestore(labels.reconcile(list)));
   invoke('update:consumeAutoRestore', localOnly, () => cfg.store.consumePendingAutoRestore());
 
   // Per-session model + active working time (read from the Claude session log) for the cockpit header/list.
@@ -725,22 +746,9 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // and falls back to the buffer, so either build can pair with either.
   invoke('cockpit:sessionBuffer', allowSession('control'), (id: string) => cfg.ptyHost.buffer(String(id)).data);
   invoke('cockpit:sessionScreen', allowSession('control'), (id: string) => cfg.ptyHost.buffer(String(id)));
-  /**
-   * Record the name the user gave a session, on the machine that RUNS it.
-   *
-   * A rename lives in the deck that made it, which is enough while one deck is the only one looking.
-   * Over a link it is not: the viewer would show every session on a repository under that repository's
-   * folder name, so two sessions the user deliberately named apart become indistinguishable rows.
-   * Routed by tile id like input/resize/close, so renaming a remote session reaches its own machine.
-   */
-  send('cockpit:noteLabel', allowSession('control'), (id: string, label: unknown) => {
-    const target = String(id);
-    // A label is shown verbatim in another machine's session list; bound it there rather than trusting
-    // the sender, and normalize "cleared" to null so it does not travel as an empty string.
-    const text = typeof label === 'string' ? label.trim().slice(0, 60) : '';
-    const next = text || null;
-    if (isRemoteId(target)) { remote(target, (link, machineId, hostId) => link.notify(machineId, 'cockpit:noteLabel', [hostId, next])); return; }
-    if (cfg.ptyHost.note(target, { label: next })) publishSessions();
+  // Old fire-and-forget metadata writes cannot bypass the revision check. Input/resize remain streams.
+  send('cockpit:noteLabel', blocked('Unversioned renames are unsupported; update both machines'), () => {
+    cfg.sendError('Update both machines to use confirmed session renames');
   });
 
   // ALL of the project's on-disk session ids (mtime-desc) — the restore resolver needs the full set so

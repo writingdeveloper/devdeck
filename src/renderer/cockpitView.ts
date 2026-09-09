@@ -1,3 +1,6 @@
+import { SessionReadGate } from '../shared/sessionReadGate';
+import { conversationKey, sameScope } from '../shared/sessionIdentity';
+import { hasLabelVersion, acceptsLabelVersion, normalizeSessionLabel, type SessionLabelVersion } from '../shared/sessionLabel';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -14,7 +17,7 @@ import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId
 import { toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
-import { toast } from './loadError';
+import { toast, reportSaveError } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 import { createIcon, type IconName } from './icons';
@@ -34,6 +37,7 @@ interface Live {
   webgl: WebglAddon | null;
   lastDataAt: number; lastInputAt: number; recentOutput: string;
   openedSessionId: string | null; openedAt: number; idCheckAt: number;
+  labelVersion: SessionLabelVersion | null;
   customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number;
   /**
    * Output held back while this tile is being repainted from the machine's scrollback, or null when
@@ -63,7 +67,7 @@ interface Live {
   ptyCap: TerminalDims | null;
 }
 /** The renderer's display metadata plus the explicit provider launch intent. */
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; instanceId?: string; labelRevision?: number; }
 
 const live = new Map<string, Live>();
 const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
@@ -80,6 +84,7 @@ let missingCheckedAt = 0;
 const prevKey = (r: PersistedSession): string => persistedSessionKey(r);
 let liveLabels = new Map<string, string>(); // live session id -> display label (#N when a project has several sessions)
 let lastListSig = ''; // signature of the last-rendered session list — renderList() skips a rebuild when nothing visible changed
+let renameDraft: { id: string; value: string; version: SessionLabelVersion | null; pending: boolean; error: string | null } | null = null;
 let editingId: string | null = null; // session being inline-renamed (rendered as an <input> in its row, so re-renders keep it)
 let selectedId: string | null = null;
 // Context window (tokens) for the header's per-session context % — set from settings at boot + on change.
@@ -194,9 +199,7 @@ export function mountCockpit(): void {
   // with no tile to look at — and would lose it entirely on the next restart, since only tiles are
   // persisted.
   window.devdeck.cockpit.onSessions((sessions) => { void adoptAnnounced(LOCAL_MACHINE_ID, sessions); });
-  void window.devdeck.cockpit.liveSessions()
-    .then((sessions) => adoptAnnounced(LOCAL_MACHINE_ID, sessions))
-    .catch(() => { /* nothing running, or the pty host is unavailable on this platform */ });
+  void pullMachineSessions(LOCAL_MACHINE_ID);
   // The same announcement from a paired machine. Its terminals appear here as they are started over
   // there, which is the whole point of connecting to a machine that is already working.
   try {
@@ -311,10 +314,10 @@ function closeFindBar(): void {
  *  so a crash/power-outage loses nothing. Dedupe by path: a live path is never also restorable. */
 function persist(): void {
   if (!restorableLoaded) return; // initial load not done — persisting now would overwrite the unread list
-  const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
   const fromLive = liveSessionsForPersist();
-  const rest = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId))); // keep siblings + null-id (antigravity) entries
-  window.devdeck.cockpit.saveSessions([...fromLive, ...rest]);
+  const liveIds = new Set(fromLive.map(conversationKey).filter((x): x is string => !!x));
+  const rest = restorable.filter((r) => !liveIds.has(conversationKey(r) ?? '')); // keep siblings + null-id (antigravity) entries
+  void window.devdeck.cockpit.persistSessions([...fromLive, ...rest]).catch(reportSaveError);
 }
 
 // Re-checking costs one pass over the flat Codex rollout store, so it is user-paced, not on a tick.
@@ -358,7 +361,7 @@ async function refreshMissingConversations(): Promise<void> {
 
 /** The currently-live sessions in PersistedSession form (for saving / update auto-restore). */
 export function liveSessionsForPersist(): PersistedSession[] {
-  return [...live.values()].map((l) => ({ tileId: l.tileId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned, lastActiveMs: liveActivityAt(l), machineId: l.machineId === LOCAL_MACHINE_ID ? undefined : l.machineId }));
+  return [...live.values()].map((l) => ({ tileId: l.tileId, runtimeId: l.labelVersion?.instanceId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned, lastActiveMs: liveActivityAt(l), machineId: l.machineId === LOCAL_MACHINE_ID ? undefined : l.machineId }));
 }
 /** How many cockpit sessions are live right now (for the update-restart button label). */
 export function liveSessionCount(): number { return live.size; }
@@ -378,8 +381,8 @@ function liveActivityAt(liveSession: Live): number {
 
 export function cockpitNavigationItems(): ShellSessionInput[] {
   const liveItems = [...live.values()];
-  const liveConversationIds = new Set(liveItems.map((item) => item.openedSessionId).filter((id): id is string => !!id));
-  const previousItems = restorable.filter((item) => !(item.sessionId && liveConversationIds.has(item.sessionId)));
+  const liveConversationIds = new Set(liveSessionsForPersist().map(conversationKey));
+  const previousItems = restorable.filter((item) => !item.sessionId || !liveConversationIds.has(conversationKey(item)));
   const union = [
     ...liveItems.map((item) => item.customLabel || item.session.name),
     ...previousItems.map((item) => item.label || item.name),
@@ -779,11 +782,11 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   const machineId = p.machineId ?? LOCAL_MACHINE_ID;
   // Main answers a failed open with id:'' (allowlist refusal / pty spawn error) — but guard the invoke
   // itself too, so a reject can't leak the terminal we already mounted or abort a restore-all loop.
-  let res: { id: string; agentId: AgentId; sessionId: string | null; error?: string; adopted?: boolean };
+  let res: { id: string; agentId: AgentId; sessionId: string | null; error?: string; adopted?: boolean; label?: string | null; labelRevision?: number; instanceId?: string };
   if (p.adoptId) {
     // Binding to a terminal that is already running — started by the person at that machine, or by
     // this one before a restart. Nothing is spawned; the tile simply takes ownership of the stream.
-    res = { id: p.adoptId, agentId: p.agentId, sessionId: p.sessionId ?? null };
+    res = { id: p.adoptId, agentId: p.agentId, sessionId: p.sessionId ?? null, label: p.label ?? null, instanceId: p.instanceId, labelRevision: p.labelRevision };
   } else {
     try {
       // The machine that owns the project opens it. A remote answer carries an id already qualified
@@ -826,7 +829,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   });
   // Consume the matching restorable entry (dedupe by session id, not path — siblings stay), inheriting
   // its pin + label when the open request has none (deck/board opens don't know about pins).
-  const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { tileId: p.tileId, label: p.label ?? null, pinned: !!p.pinned });
+  const adopted = adoptRestorableMatch(restorable, res.sessionId ?? null, { tileId: p.tileId, label: adopting ? res.label ?? null : p.label ?? null, pinned: !!p.pinned, authoritativeLabel: adopting, scope: { machineId, projectPath: p.path, agentId: res.agentId } });
   restorable = adopted.rest;
   // Whatever else reached this id loses its terminal here rather than being left stacked over this
   // one. A tile evicted from `live` can never be hidden again (hiding needs the map to find it) and
@@ -837,7 +840,8 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, webgl,
     lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '',
     openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(),
-    customLabel: adopted.label, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now(),
+    labelVersion: hasLabelVersion(res) ? { instanceId: res.instanceId, labelRevision: res.labelRevision } : null,
+    customLabel: adopting ? adopted.label : null, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now(),
     offline: false, detachedAt: null, offlineToldAt: 0,
     // A terminal we are BINDING to is already producing, and its screen has yet to be fetched. Hold
     // its output until the screen is under it (replayInto releases). A terminal we started has no
@@ -855,7 +859,12 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   if (adopting) void replayInto(res.id, machineId, term);
   // Tell the owning machine what this tile is called, so a deck on the OTHER side of a link shows the
   // session's name rather than re-deriving the repository folder.
-  if (adopted.label) noteLabelOnOwner(res.id, adopted.label);
+  if (!adopting && adopted.label && hasLabelVersion(res)) {
+    try {
+      const result = await window.devdeck.cockpit.renameSession(res.id, adopted.label, res);
+      if ('snapshot' in result) syncAdoptedLabel(machineId, res.id, result.snapshot.label, result.snapshot);
+    } catch (error) { reportSaveError(error); }
+  } // Attaching to an existing terminal is a READ, never a cached-title write-back.
   select(res.id);
   updateRailBadge();
   persist();
@@ -895,9 +904,12 @@ function onMachineQueue<T>(machineId: string, task: () => Promise<T>): Promise<T
  * Serialized per machine. Two announcements arriving close together (a session opens while another
  * exits) would otherwise both see the same "unknown" id and each create a tile for it.
  */
-function adoptAnnounced(machineId: string, sessions: readonly RunningSession[]): Promise<void> {
+const sessionReads = new SessionReadGate();
+function adoptAnnounced(machineId: string, sessions: readonly RunningSession[], token = sessionReads.begin(machineId)): Promise<void> {
   return onMachineQueue(machineId, async () => {
+    if (!sessionReads.current(machineId, token)) return;
     const adopted = await syncMachineSessions(machineId, sessions);
+    if (!sessionReads.current(machineId, token)) return;
     noteSessionsGone(machineId, sessions.map((info) => info.id));
     if (adopted > 0 && machineId !== LOCAL_MACHINE_ID) {
       toast(tr('cockpit.adopted_remote', { n: adopted, machine: machineName(machineId) }));
@@ -919,6 +931,7 @@ function markMachineReachability(): void {
     const offline = machineState(l.machineId) !== 'connected';
     if (offline === l.offline) continue;
     l.offline = offline;
+    if (offline) sessionReads.begin(l.machineId);
     // An exited tile goes through the disconnect too: its final screen is worth keeping while the
     // machine is away, but once the machine is back that terminal is gone for good, and the tile is
     // reconciled like any other — rebound if the conversation returned, retired if not.
@@ -938,6 +951,7 @@ function rebindTile(l: Live, newId: string): void {
   const oldId = l.session.id;
   live.delete(oldId);
   l.session.id = newId;
+  l.labelVersion = null;
   l.session.status = 'running';
   l.session.activity = 'idle';
   l.offline = false;
@@ -963,13 +977,14 @@ function retireToPrevious(l: Live): void {
 
 /** Ask a machine what it is running, then reconcile. Used when a link comes up. */
 export async function pullMachineSessions(machineId: string): Promise<void> {
+  const token = sessionReads.begin(machineId);
   let sessions: RunningSession[] = [];
   try {
     sessions = machineId === LOCAL_MACHINE_ID
       ? await window.devdeck.cockpit.liveSessions()
       : await window.devdeck.machine(machineId).cockpit.liveSessions();
   } catch { return; }
-  await adoptAnnounced(machineId, sessions);
+  if (sessionReads.current(machineId, token)) await adoptAnnounced(machineId, sessions, token);
 }
 
 /**
@@ -991,20 +1006,22 @@ export async function syncMachineSessions(machineId: string, sessions: readonly 
     const id = info.id; // already qualified by the link when it came from another machine
     if (known.has(id)) {
       const held = live.get(id);
-      if (held) held.detachedAt = null; // the terminal is still there; nothing to reconcile
-      syncAdoptedLabel(machineId, id, info.label ?? null);
+      if (held && info.instanceId && held.labelVersion && info.instanceId !== held.labelVersion.instanceId) rebindTile(held, id);
+      if (held) { held.detachedAt = null; held.openedSessionId = info.sessionId; held.session.agentId = toAgentId(info.agentId) ?? held.session.agentId; }
+      syncAdoptedLabel(machineId, id, info.label ?? null, info);
       continue;
     }
     // The same conversation, already held here as a tile whose terminal went away with its machine:
     // the machine restarted and restored it under a new id. Rebind rather than add a second tile next
     // to a dead one — that pair, per conversation, was what a host restart left behind.
     const stale = info.sessionId
-      ? [...live.values()].find((l) => l.machineId === machineId && l.detachedAt !== null && l.openedSessionId === info.sessionId)
+      ? [...live.values()].find((l) => sameScope({ machineId: l.machineId, projectPath: l.session.projectPath, agentId: l.session.agentId }, { ...info, machineId }) && l.detachedAt !== null && l.openedSessionId === info.sessionId)
       : undefined;
-    if (stale) { rebindTile(stale, id); syncAdoptedLabel(machineId, id, info.label ?? null); continue; }
+    if (stale) { rebindTile(stale, id); syncAdoptedLabel(machineId, id, info.label ?? null, info); continue; }
     // A tile this deck is still holding as "previous" for the same conversation should become live
     // rather than sit next to it as a stale duplicate.
-    const saved = restorable.find((r) => r.sessionId && r.sessionId === info.sessionId);
+    const saved = restorable.find((r) => sameScope(r, { ...info, machineId }) &&
+      (!!r.sessionId && r.sessionId === info.sessionId || !!info.instanceId && r.runtimeId === info.instanceId));
     const ok = await createSession({
       path: info.projectPath,
       name: saved?.name ?? basename(info.projectPath),
@@ -1018,7 +1035,8 @@ export async function syncMachineSessions(machineId: string, sessions: readonly 
       // What the machine running it calls the session. Without this every session on one repository
       // arrives under that repository's folder name, so sessions the user deliberately named apart
       // are indistinguishable here — the exact problem adoption was supposed to solve.
-      label: info.label ?? saved?.label ?? null,
+      label: info.label ?? null,
+      instanceId: info.instanceId, labelRevision: info.labelRevision,
       pinned: saved?.pinned,
     });
     if (ok) adopted += 1;
@@ -1026,20 +1044,20 @@ export async function syncMachineSessions(machineId: string, sessions: readonly 
   return adopted;
 }
 
-/**
- * Follow a rename made on the machine that runs the session.
- *
- * Only for tiles belonging to ANOTHER machine: for a local one this deck is the source of truth and
- * the announcement is merely the echo of its own write, which would otherwise race a rename the user
- * is still typing. Renaming a remote session from here writes through to its machine
- * (`noteLabelOnOwner`), so both decks converge on the same name either way.
- */
-function syncAdoptedLabel(machineId: string, id: string, label: string | null): void {
-  if (machineId === LOCAL_MACHINE_ID || editingId === id) return;
+/** Every deck, including the host window, follows the owner. Draft input is separate from committed state. */
+function syncAdoptedLabel(machineId: string, id: string, label: string | null, version?: unknown): void {
   const l = live.get(id);
-  if (!l || l.customLabel === label) return;
-  l.customLabel = label;
-  persist(); renderList(); renderHeader();
+  if (!l || l.machineId !== machineId) return;
+  if (hasLabelVersion(version)) {
+    if (!acceptsLabelVersion(l.labelVersion, version)) return;
+    l.labelVersion = { instanceId: version.instanceId, labelRevision: version.labelRevision };
+  } else if (l.labelVersion) return;
+  const next = normalizeSessionLabel(label);
+  if (l.customLabel === next) return;
+  l.customLabel = next;
+  persist();
+  // Do not replace a user's input while another device commits. Escape reveals the latest owner value.
+  if (editingId !== id) { renderList(); renderHeader(); }
 }
 
 /** Mark a tile whose terminal is gone on the machine that owned it. */
@@ -1521,10 +1539,10 @@ function renderAll(): void { renderList(); renderHeader(); }
 function renderList(): void {
   const search = (searchEl?.value ?? '').toLowerCase();
   const liveSessions = [...live.values()].map((l) => l.session);
-  const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
+  const liveIds = new Set(liveSessionsForPersist().map(conversationKey));
   // Previous (restorable) sessions, excluding any whose specific session id is currently live (siblings of
   // the same project stay — dedupe is per session id, not per path).
-  const prev = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId))
+  const prev = restorable.filter((r) => !(r.sessionId && liveIds.has(conversationKey(r)))
     && (r.name.toLowerCase().includes(search) || (r.label ?? '').toLowerCase().includes(search)));
 
   // Display name = custom label (if renamed) else folder name; then #N only where two would read alike.
@@ -2023,10 +2041,10 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     // a FRESH one under the same name. Never a substitute: this tile carries the user's own label and
     // pin, and handing it someone else's conversation is what made a renamed tile come back showing
     // unrelated work (and silently ate the entry that really owned that conversation).
-    const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
+    const liveIds = new Set(liveSessionsForPersist().filter(l => sameScope(l, entry)).map(l => l.sessionId).filter((x): x is string => !!x));
     // Conversations the other not-yet-restored entries are waiting for — an id-less entry must not
     // take one of those out from under them.
-    const reserved = new Set(restorable.map((r) => r.sessionId).filter((x): x is string => !!x));
+    const reserved = new Set(restorable.filter(r => sameScope(r, entry)).map((r) => r.sessionId).filter((x): x is string => !!x));
     // A saved entry names a project by PATH, and the same path exists on both machines — so the
     // conversation list has to come from the machine the tile actually ran on. Reading it locally
     // would resolve the tile against unrelated work that happens to live at the same path.
@@ -2049,11 +2067,11 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     if (machineId !== LOCAL_MACHINE_ID && entry.sessionId) {
       let running: RunningSession[] = [];
       try { running = await window.devdeck.machine(machineId).cockpit.liveSessions(); } catch { running = []; }
-      const theirs = running.find((s) => s.sessionId === entry.sessionId && !live.has(s.id));
+      const theirs = running.find((s) => s.sessionId === entry.sessionId && sameScope({ ...s, machineId }, entry) && !live.has(s.id));
       if (theirs) {
         const ok = await createSession({
           path: theirs.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0,
-          tileId: entry.tileId, sessionId: theirs.sessionId, mode: 'auto', label: entry.label ?? theirs.label ?? null,
+          tileId: entry.tileId, sessionId: theirs.sessionId, mode: 'auto', label: theirs.label ?? null, instanceId: theirs.instanceId, labelRevision: theirs.labelRevision,
           pinned: entry.pinned, agentId: toAgentId(theirs.agentId) ?? owner, machineId, adoptId: theirs.id,
         });
         window.devdeck.logDiagnostic(`restore ${entry.label || entry.name} on ${machineName(machineId)}: saved=${entry.sessionId} -> adopt ${theirs.id} (already running there) ok=${ok}`, 'info', 'restore');
@@ -2092,48 +2110,76 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
   persist(); renderList();
 }
 
-/** Set a live session's custom name (empty → revert to the auto label); persist so it survives restart. */
-function renameSession(id: string, label: string): void {
+/** Rename drafts never count as committed metadata. Only an owner ACK or announcement can change the title. */
+function beginRename(id: string): void {
+  if (renameDraft?.pending) return;
   const l = live.get(id); if (!l) return;
-  l.customLabel = label.trim() || null;
-  noteLabelOnOwner(id, l.customLabel);
-  persist(); renderList(); renderHeader();
+  renameDraft = { id, value: l.customLabel ?? l.session.name, version: l.labelVersion ? { ...l.labelVersion } : null, pending: false, error: null };
+  editingId = id; renderList(); renderHeader();
 }
-
-/**
- * Carry a session's name to the machine that RUNS it.
- *
- * The name is what tells two sessions on one repository apart, so a deck that only knows its own
- * renames shows a remote machine's sessions as several identical folder-name rows. The owning machine
- * keeps the name with the session, and hands it to every deck that asks what it is running — including
- * this one after a restart. Fire-and-forget: a name is worth nothing to block a rename on.
- */
-function noteLabelOnOwner(id: string, label: string | null): void {
-  try { window.devdeck.cockpit.noteLabel(id, label); } catch { /* older main process, or no pty host */ }
+function cancelRename(): void {
+  if (renameDraft?.pending) return;
+  editingId = null; renameDraft = null; renderList(); renderHeader();
 }
-
-// Editing is RENDER STATE (editingId), not a mutated DOM node: a list rebuild (e.g. row click → select)
-// would otherwise orphan a captured <input> and the editor would silently never appear.
-function beginRename(id: string): void { editingId = id; renderList(); renderHeader(); }
-function cancelRename(): void { editingId = null; renderList(); renderHeader(); }
-function commitRename(id: string, value: string): void { editingId = null; renameSession(id, value); }
-
-/** Build the inline rename <input> rendered into the editing row's name slot. */
-function renameInput(id: string, current: string): HTMLInputElement {
+async function commitRename(id: string, value: string): Promise<void> {
+  const draft = renameDraft, l = live.get(id);
+  if (!draft || draft.id !== id || draft.pending || !l) return;
+  draft.value = value;
+  if (!draft.version) { draft.error = tr('cockpit.rename_update'); renderHeader(); return; }
+  draft.pending = true; draft.error = null; renderHeader();
+  try {
+    const result = await window.devdeck.cockpit.renameSession(id, normalizeSessionLabel(value), draft.version);
+    if (live.get(id) !== l || renameDraft !== draft) return;
+    if ('snapshot' in result) syncAdoptedLabel(l.machineId, id, result.snapshot.label, result.snapshot);
+    if (!result.ok) {
+      draft.version = l.labelVersion ? { ...l.labelVersion } : null;
+      draft.error = tr(result.reason === 'conflict' ? 'cockpit.rename_conflict' : 'cockpit.rename_missing');
+      return;
+    }
+    editingId = null; renameDraft = null; persist();
+  } catch (error) {
+    if (renameDraft === draft) draft.error = tr('cockpit.rename_failed');
+    reportSaveError(error);
+    // A timeout is an unknown outcome, not permission to silently retry a metadata write.
+    void pullMachineSessions(l.machineId);
+  } finally {
+    draft.pending = false;
+    renderList(); renderHeader();
+  }
+}
+function renameInput(id: string, current: string): HTMLElement {
+  const draft = renameDraft;
+  const wrap = document.createElement('span'); wrap.className = 'ck-rename-editor';
   const input = document.createElement('input');
-  input.type = 'text'; input.className = 'ck-rename-input'; input.value = current; input.maxLength = 60;
-  const stop = (e: Event) => e.stopPropagation(); // don't let editing leak to row-select
-  input.addEventListener('click', stop); input.addEventListener('dblclick', stop);
+  input.type = 'text'; input.className = 'ck-rename-input'; input.value = draft?.id === id ? draft.value : current; input.maxLength = 60;
+  input.disabled = !!draft?.pending; input.setAttribute('aria-label', tr('cockpit.rename'));
+  input.addEventListener('input', () => { if (renameDraft === draft && draft) draft.value = input.value; });
+  const status = document.createElement('span'); status.className = 'ck-rename-status'; status.setAttribute('role', 'status');
+  status.textContent = draft?.pending ? tr('common.saving') : draft?.error ?? tr('cockpit.rename_hint');
+  if (draft?.error) input.setAttribute('aria-invalid', 'true');
+  wrap.append(input, status);
+  const stop = (e: Event) => e.stopPropagation();
+  wrap.addEventListener('click', stop); wrap.addEventListener('dblclick', stop);
   let done = false;
-  const finish = (commit: boolean) => { if (done) return; done = true; if (commit) commitRename(id, input.value); else cancelRename(); };
+  const finish = (commit: boolean) => {
+    if (done || draft?.pending || renameDraft !== draft) return;
+    done = true; if (commit) void commitRename(id, input.value); else cancelRename();
+  };
   input.addEventListener('keydown', (e) => {
     e.stopPropagation();
     if (e.key === 'Enter') { e.preventDefault(); finish(true); }
     else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
   });
-  input.addEventListener('blur', () => finish(true));
-  requestAnimationFrame(() => { input.focus(); input.select(); }); // focus after it's in the rebuilt DOM
-  return input;
+  // UI reconciliation can blur an input. A blur is not consent to overwrite another device.
+  const save = document.createElement('button'); save.type = 'button'; save.className = 'chip';
+  save.textContent = tr('cockpit.rename_save'); save.disabled = !!draft?.pending;
+  save.addEventListener('click', () => finish(true));
+  const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'chip';
+  cancel.textContent = tr('cockpit.rename_cancel'); cancel.disabled = !!draft?.pending;
+  cancel.addEventListener('click', () => finish(false));
+  const actions = document.createElement('span'); actions.className = 'ck-rename-actions'; actions.append(save, cancel); wrap.append(actions);
+  requestAnimationFrame(() => { if (!input.disabled && input.isConnected) { input.focus(); input.select(); } });
+  return wrap;
 }
 
 async function restoreAll(): Promise<void> {

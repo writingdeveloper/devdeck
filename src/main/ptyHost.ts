@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { withTimeout } from '../shared/withTimeout';
 
 export interface PtyProcess {
@@ -43,10 +44,13 @@ export interface PtySessionInfo {
    * Kept here rather than only in the deck that renamed it, because a name is the ONLY thing telling
    * two sessions on the same repository apart — and a machine that cannot say what its sessions are
    * called leaves every viewer to fall back on the folder name, which is identical for all of them.
-   * The deck holding the tile is the source of truth and writes it here (`note`); this is its copy,
-   * so that the answer travels with the session rather than with the deck.
+   * The host-owned title transaction persists and updates this value. All renderers, including
+   * the host window, consume that committed snapshot rather than owning separate titles.
    */
   label: string | null;
+  /** Absent on older hosts. Changes whenever the terminal is recreated. */
+  instanceId?: string;
+  labelRevision?: number;
 }
 
 /**
@@ -116,6 +120,8 @@ export class PtyHost {
         agentId: info?.agentId ?? 'claude',
         startedAtMs: info?.startedAtMs ?? Date.now(),
         label: info?.label ?? null,
+        instanceId: randomUUID(),
+        labelRevision: 0,
       },
       internal: info?.internal === true,
       chunks: [],
@@ -158,10 +164,10 @@ export class PtyHost {
 
   /**
    * Update what is known about a session — the live drift detector re-resolves the conversation id,
-   * and the deck holding the tile writes back the name the user gave it.
+   * and the host-owned title transaction updates the committed label.
    *
    * Returns whether anything actually changed, so a caller does not announce a no-op to every
-   * connected machine (renaming is typed one character at a time on commit paths that re-send).
+   * connected machine. Label changes follow an explicit confirmed rename.
    */
   note(id: string, patch: Partial<Pick<PtySessionInfo, 'sessionId' | 'agentId' | 'label'>>): boolean {
     const session = this.sessions.get(id);
@@ -169,7 +175,7 @@ export class PtyHost {
     let changed = false;
     if (patch.sessionId !== undefined && patch.sessionId !== session.info.sessionId) { session.info.sessionId = patch.sessionId; changed = true; }
     if (patch.agentId !== undefined && patch.agentId !== session.info.agentId) { session.info.agentId = patch.agentId; changed = true; }
-    if (patch.label !== undefined && patch.label !== session.info.label) { session.info.label = patch.label; changed = true; }
+    if (patch.label !== undefined && patch.label !== session.info.label) { session.info.label = patch.label; session.info.labelRevision = (session.info.labelRevision ?? 0) + 1; changed = true; }
     return changed;
   }
 

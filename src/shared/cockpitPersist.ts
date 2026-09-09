@@ -1,8 +1,11 @@
+import { sameScope, conversationKey, type SessionScope } from './sessionIdentity';
 import { basename } from './paths';
 import { LOCAL_MACHINE_ID, isValidMachineId } from './link/machine';
 
 /** A cockpit session remembered across restarts, enough to re-open it via the agent's resume command. */
 export interface PersistedSession {
+  /** Opaque host terminal incarnation; distinguishes id-less live sessions for title persistence. */
+  runtimeId?: string;
   tileId: string;           // opaque tile identity; independent of the conversation/provider identity
   projectPath: string;
   name: string;
@@ -74,7 +77,7 @@ export function removeAutoRestoreMatches(
     let index = remaining.findIndex((candidate) => persistedSessionKey(candidate) === persistedSessionKey(item));
     if (index < 0) {
       const legacy = legacyCockpitNavigationId(item);
-      index = remaining.findIndex((candidate) => legacyCockpitNavigationId(candidate) === legacy);
+      index = remaining.findIndex((candidate) => sameScope(candidate, item) && legacyCockpitNavigationId(candidate) === legacy);
     }
     if (index >= 0) remaining.splice(index, 1);
   }
@@ -232,14 +235,15 @@ export function pickAdoptedSessionId(
 export function adoptRestorableMatch(
   restorable: PersistedSession[],
   sessionId: string | null,
-  req: { tileId?: string; label: string | null; pinned: boolean },
+  req: { tileId?: string; label: string | null; pinned: boolean; scope?: SessionScope; authoritativeLabel?: boolean },
 ): { rest: PersistedSession[]; tileId: string | undefined; label: string | null; pinned: boolean } {
-  if (!sessionId) return { rest: restorable, tileId: req.tileId, label: req.label, pinned: req.pinned };
-  const match = restorable.find((r) => r.sessionId === sessionId);
+  const matches = (r: PersistedSession) => (sessionId ? r.sessionId === sessionId : !!req.tileId && r.tileId === req.tileId)
+    && (!req.scope || sameScope(r, req.scope));
+  const match = restorable.find(matches);
   return {
-    rest: restorable.filter((r) => r.sessionId !== sessionId),
+    rest: restorable.filter((r) => !matches(r)),
     tileId: req.tileId ?? match?.tileId,
-    label: req.label ?? match?.label ?? null,
+    label: req.authoritativeLabel ? req.label : req.label ?? match?.label ?? null,
     pinned: req.pinned || match?.pinned === true,
   };
 }
@@ -280,7 +284,7 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
     const label = typeof o.label === 'string' && o.label.trim() ? o.label.trim().slice(0, MAX_LABEL) : null;
     if (typeof o.sessionId === 'string' && o.sessionId) {
       const machine = isValidMachineId(o.machineId) && o.machineId !== LOCAL_MACHINE_ID ? o.machineId : LOCAL_MACHINE_ID;
-      const key = `${machine}\u0000${o.sessionId}`;
+      const key = conversationKey({ machineId: machine, projectPath: o.projectPath, agentId: o.agentId === 'codex' || o.agentId === 'antigravity' ? o.agentId : 'claude', sessionId: o.sessionId })!;
       const first = seen.get(key);
       if (first) {
         if (!first.label && label) first.label = label;
@@ -293,6 +297,7 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
       ? o.lastActiveMs : undefined;
     out.push({
       tileId: uniqueTileId(o.tileId),
+      ...(typeof o.runtimeId === 'string' && o.runtimeId.length <= 128 ? { runtimeId: o.runtimeId } : {}),
       projectPath: o.projectPath,
       name: typeof o.name === 'string' && o.name ? o.name : basename(o.projectPath),
       sessionId: typeof o.sessionId === 'string' ? o.sessionId : null,
@@ -306,7 +311,7 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
       machineId: isValidMachineId(o.machineId) && o.machineId !== LOCAL_MACHINE_ID ? o.machineId : undefined,
     });
     const entry = out[out.length - 1];
-    if (entry.sessionId) seen.set(`${entry.machineId ?? LOCAL_MACHINE_ID}\u0000${entry.sessionId}`, entry);
+    if (entry.sessionId) seen.set(conversationKey(entry)!, entry);
     if (out.length >= MAX_PERSISTED) break;
   }
   return out;

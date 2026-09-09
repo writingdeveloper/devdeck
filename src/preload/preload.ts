@@ -84,11 +84,13 @@ contextBridge.exposeInMainWorld('devdeck', {
     sessionScreen: (id: string) => ipcRenderer.invoke('cockpit:sessionScreen', id),
     /** Tell the machine running a session what the user named it — routed by tile id like input(). */
     noteLabel: (id: string, label: string | null) => ipcRenderer.send('cockpit:noteLabel', id, label),
+    renameSession: (id: string, label: string | null, version: import('../shared/sessionLabel').SessionLabelVersion) => ipcRenderer.invoke('cockpit:renameSession', id, label, version),
     /** What is running on a machine, announced whenever it changes rather than polled. */
     onSessions: (cb: (p: { id: string; projectPath: string; sessionId: string | null; agentId: string; startedAtMs: number; label: string | null }[]) => void) =>
       ipcRenderer.on('cockpit:sessions', (_e, p) => cb(p)),
     loadSessions: () => ipcRenderer.invoke('cockpit:loadSessions'),
     saveSessions: (list: unknown) => ipcRenderer.send('cockpit:saveSessions', list),
+    persistSessions: (list: unknown) => ipcRenderer.invoke('cockpit:persistSessions', list),
     sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) => ipcRenderer.invoke('cockpit:sessionMeta', projectPath, sessionId, agentId, wantAi),
     sessionIds: (projectPath: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionIds', projectPath, agentId),
     sessionsExist: (items: { projectPath: string; sessionId: string | null; agentId?: string }[]) => ipcRenderer.invoke('cockpit:sessionsExist', items),
