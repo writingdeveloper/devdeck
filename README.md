@@ -11,14 +11,13 @@ See every repository, live agent session, next task, local usage estimate, and r
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6)
 ![Built with Electron](https://img.shields.io/badge/Electron-43-47848F)
-![Tests](https://img.shields.io/badge/tests-1257%20passing-3fb950)
 ![CI](https://github.com/writingdeveloper/devdeck/actions/workflows/ci.yml/badge.svg)
 
 </div>
 
 ## What DevDeck solves
 
-AI coding work gets fragmented quickly: one repository is waiting for a response, another has uncommitted work, and a third has a conversation you meant to resume. DevDeck keeps those contexts together without uploading your project or transcript data.
+AI coding work gets fragmented quickly: one repository is waiting for a response, another has uncommitted work, and a third has a conversation you meant to resume. DevDeck keeps those contexts together with local processing by default. Optional AI summaries and explicitly launched coding agents can send activity to their provider; see [privacy boundaries](docs/privacy.md).
 
 The interface is organized as one command center:
 
@@ -90,6 +89,8 @@ The command-center UI is also exercised in Electron at desktop and 520px widths 
 
 ## Working across machines
 
+**Task editing compatibility:** revision-checked task saves require DevDeck **1.37.8 or newer on both devices**. On a conflict, the latest host list is shown together with the unsaved change for review. Older unversioned clients are refused rather than allowed to overwrite newer work. This applies to the 1.37.8 candidate; check Releases for the currently published version.
+
 DevDeck Link connects two DevDeck installs so one can open and drive the other's sessions. It exists
 because the alternative — screen sharing — ships an entire desktop as video to move what is really
 just terminal text, which pins the remote machine's GPU exactly when you need it for something else.
@@ -147,10 +148,12 @@ Not yet supported across machines: opening a remote file or folder in a local ap
 
 ## Build from source
 
+Use **Node.js 24 LTS** (see `.nvmrc`) and Git.
+
 ```bash
 git clone https://github.com/writingdeveloper/devdeck.git
 cd devdeck
-npm install
+npm ci
 npm start
 ```
 
@@ -162,11 +165,13 @@ npm run build
 npm run qa
 npm run qa:audit
 npm run qa:resilience
+npm run qa:maintenance
+npm run check:docs
 ```
 
 CI runs the multilingual journeys and failure/recovery checks as well as unit tests and accessibility audits.
 Tagged releases wait for those checks and all OS builds, then exercise the packaged Windows app before publication.
-See the [quality review and regression-testing guide](docs/quality-review-1.37.6.md) for coverage and remaining risks.
+See the [quality and release guide](docs/quality.md), [documentation index](docs/README.md), and [prioritized backlog](docs/backlog.md) for coverage and remaining risks.
 
 ## How it works
 
@@ -178,7 +183,7 @@ DevDeck scans only the folders you authorize, reads Git state, and correlates lo
 
 Project scanning, transcript parsing, Git calls, terminal processes, and provider usage checks stay in the Electron main process. The sandboxed renderer receives normalized view models through guarded IPC. New agents plug in behind the existing provider interface.
 
-Outbound traffic is limited to first-party update or supported usage endpoints. DevDeck has no account system and no telemetry. Codex credentials are never read by DevDeck; its official app server owns its authentication.
+Network-enabled features include updates, provider usage checks, explicitly launched agents, optional AI summaries, and opt-in direct machine connections. Link host setup can also communicate with the local gateway. See [privacy and network boundaries](docs/privacy.md). DevDeck has no account system and no telemetry. Codex credentials are never read by DevDeck; its official app server owns its authentication.
 
 ## Tech
 
@@ -186,7 +191,7 @@ Electron 43 · TypeScript · esbuild · Vitest · Playwright · axe-core · elec
 
 ## Contributing
 
-Issues and pull requests are welcome. Code signing for Windows and macOS remains a priority because it removes first-run security friction and enables a smoother release path.
+Issues and pull requests are welcome. See [Contributing](CONTRIBUTING.md) for isolated QA and [Security](SECURITY.md) for private vulnerability reporting. Code signing for Windows and macOS remains a priority because it removes first-run security friction and enables a smoother release path.
 
 ## License
 
