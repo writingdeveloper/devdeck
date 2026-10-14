@@ -10,7 +10,7 @@ import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
-import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, partitionBulkRestore, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, partitionLaunchRestore, takeLaunchRestoreCandidates, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import { toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
@@ -237,12 +237,14 @@ export function mountCockpit(): void {
   // then persist once to capture any such session in the correct union.
   window.devdeck.cockpit.loadSessions()
     .then(async (list) => {
-      restorable = sanitizePersistedList(list); restorableLoaded = true; renderList(); publishSessionsLoaded(); if (live.size > 0) persist();
+      const { saved, candidates } = takeLaunchRestoreCandidates(sanitizePersistedList(list));
+      restorable = saved; restorableLoaded = true; renderList(); publishSessionsLoaded(); if (live.size > 0) persist();
       void refreshMissingConversations(); // mark entries whose conversation is gone before they're clicked
       // Seamless update: if this launch is the relaunch after an update, auto-restore the sessions that
       // were live at restart (consume clears the marker so a later normal launch won't re-trigger).
       const pending = await window.devdeck.consumeAutoRestore().catch(() => [] as PersistedSession[]);
       if (pending.length) await autoRestoreAfterUpdate(pending);
+      else await autoRestoreAtLaunch(candidates);
     })
     .catch(() => { restorableLoaded = true; publishSessionsLoaded(); });
 }
@@ -262,20 +264,39 @@ async function autoRestoreAfterUpdate(pending: PersistedSession[]): Promise<void
     return false;
   });
   for (const [machineId, n] of offlineByMachine) toast(tr('cockpit.restore_machine_offline_n', { n: String(n), machine: machineName(machineId) }));
-  // Live at the restart is not the same as in use: a tile left idle for days was live too. Those stay
-  // in the saved list (they were never removed from it) instead of each costing an agent process.
-  const { reopen, leave } = partitionBulkRestore(now, Date.now());
-  noteIdleLeftSaved(leave.length);
-  restorable = removeAutoRestoreMatches(restorable, reopen);
+  restorable = removeAutoRestoreMatches(restorable, now);
   renderList();
-  for (const entry of reopen) await restoreSession(entry);
+  for (const entry of now) await restoreSession(entry);
 }
 
-/** Say that a bulk restore left idle entries saved — otherwise "Restore all" reads as half broken. */
-function noteIdleLeftSaved(n: number): void {
-  if (n === 0) return;
-  toast(tr('cockpit.restore_idle_left', { n: String(n) }));
-  window.devdeck.logDiagnostic(`bulk restore left ${n} idle entr${n === 1 ? 'y' : 'ies'} saved`, 'info', 'restore');
+/**
+ * Any other launch — after a reboot, a sign-in, a quit — puts back the tiles that were open when the
+ * cockpit was last saved, as long as their conversation was used recently (partitionLaunchRestore).
+ *
+ * This used to bring back nothing: every tile became a saved entry, and the person found an empty
+ * cockpit and pressed Restore all — which reopened every saved entry, conversations idle for days
+ * included, each a whole agent process. A machine restoring its OWN tiles is also what gives a paired
+ * deck its tiles back: it adopts them when this machine announces them.
+ */
+async function autoRestoreAtLaunch(candidates: PersistedSession[]): Promise<void> {
+  if (!candidates.length) return;
+  let usedAt: (number | null)[] = [];
+  try {
+    usedAt = await window.devdeck.cockpit.conversationsLastUsed(candidates.map((e) => ({ projectPath: e.projectPath, sessionId: e.sessionId, agentId: e.agentId })));
+  } catch { usedAt = []; } // unanswered → every entry's use is unknown → all stay saved
+  // Antigravity keeps no per-conversation transcript; its tile's own last activity is all there is.
+  const used = candidates.map((e, i) => usedAt[i] ?? (e.agentId === 'antigravity' ? e.lastActiveMs ?? null : null));
+  const { reopen, leave } = partitionLaunchRestore(candidates, used, Date.now());
+  window.devdeck.logDiagnostic(`launch restore reopen=${reopen.length} left=${leave.length}`, 'info', 'restore');
+  if (leave.length) toast(tr('cockpit.restore_idle_left', { n: String(leave.length) }));
+  restorable = removeAutoRestoreMatches(restorable, reopen);
+  renderList();
+  persist(); // decided — what this left saved must not come back by itself on the next launch
+  for (const entry of reopen) {
+    // The remembered selection may have reopened this one while the list was being read.
+    if (entry.sessionId && [...live.values()].some((l) => l.openedSessionId === entry.sessionId)) continue;
+    await restoreSession(entry);
+  }
 }
 
 // ---- in-terminal find (Ctrl+F over the selected session's scrollback) ----
@@ -323,7 +344,7 @@ function closeFindBar(): void {
 function persist(): void {
   if (!restorableLoaded) return; // initial load not done — persisting now would overwrite the unread list
   const liveIds = new Set([...live.values()].map((l) => l.openedSessionId).filter((x): x is string => !!x));
-  const fromLive = liveSessionsForPersist();
+  const fromLive = liveSessionsForPersist().map((entry) => ({ ...entry, wasLive: true }));
   const rest = restorable.filter((r) => !(r.sessionId && liveIds.has(r.sessionId))); // keep siblings + null-id (antigravity) entries
   window.devdeck.cockpit.saveSessions([...fromLive, ...rest]);
 }
@@ -2148,9 +2169,7 @@ function renameInput(id: string, current: string): HTMLInputElement {
 }
 
 async function restoreAll(): Promise<void> {
-  const { reopen, leave } = partitionBulkRestore(restorable, Date.now());
-  noteIdleLeftSaved(leave.length);
-  for (const entry of reopen) await restoreSession(entry);
+  for (const entry of [...restorable]) await restoreSession(entry);
 }
 
 function forgetSession(entry: PersistedSession): void {

@@ -437,7 +437,7 @@
   "cockpit.prev_machine_offline": "离线 — 连接后恢复",
   "cockpit.machine_offline_input": "{machine} 已离线 — 重新连接前输入不会送达",
   "cockpit.restore_machine_offline_n": "{machine} 上的 {n} 个会话将在连接后恢复",
-  "cockpit.restore_idle_left": "超过一天未使用的 {n} 个会话保留在以前的会话中 — 点击即可打开",
+  "cockpit.restore_idle_left": "超过两天未使用的 {n} 个会话保留在以前的会话中 — 点击即可打开",
   "cockpit.stale_to_previous": "{machine} 上已不再运行的 {n} 个会话已移至以前的会话",
   "cockpit.remote_file_unavailable": "该文件位于 {machine}，而不是这台电脑上。",
   "cockpit.redrawn": "已从会话重绘 {count} 个终端。",
