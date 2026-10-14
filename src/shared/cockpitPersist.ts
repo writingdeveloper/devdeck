@@ -81,6 +81,39 @@ export function removeAutoRestoreMatches(
   return remaining;
 }
 
+/**
+ * How long a saved entry may sit untouched and still come back in a BULK restore (Restore all, or
+ * the relaunch after an update).
+ *
+ * Every restored entry is a whole agent process on its machine — ~1 GB for Claude alone, plus one
+ * copy of every MCP server it is configured with. Bulk restore used to reopen everything saved, so a
+ * paired deck restoring a host after its reboot brought back conversations nobody had touched for
+ * days; measured 2026-10-13 on SIHYEONG-4080: 8 resumed tiles holding ~2.4 GB each, two of them idle
+ * since the restore before. Entries past this stay saved — one click still opens any of them.
+ */
+export const BULK_RESTORE_MAX_IDLE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Split a bulk restore into what to reopen now and what to leave saved.
+ *
+ * Pinned entries always come back: the pin is the user saying this one matters. An entry with no
+ * recorded activity (state from before v1.32) is left saved — its age is unknown, and leaving it costs
+ * a click while reopening a stale one costs a process.
+ */
+export function partitionBulkRestore(
+  entries: readonly PersistedSession[],
+  nowMs: number,
+  maxIdleMs: number = BULK_RESTORE_MAX_IDLE_MS,
+): { reopen: PersistedSession[]; leave: PersistedSession[] } {
+  const reopen: PersistedSession[] = [];
+  const leave: PersistedSession[] = [];
+  for (const entry of entries) {
+    const recent = entry.lastActiveMs !== undefined && nowMs - entry.lastActiveMs <= maxIdleMs;
+    (entry.pinned || recent ? reopen : leave).push(entry);
+  }
+  return { reopen, leave };
+}
+
 /** Translate the runtime ID carried by a notification into the shell's current navigation identity. */
 export function cockpitNavigationIdForRuntime(entries: readonly CockpitNavigationIdentity[], runtimeId: string): string | null {
   const entry = entries.find((item) => item.runtimeId === runtimeId);

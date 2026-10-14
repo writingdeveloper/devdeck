@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cockpitNavigationId, cockpitNavigationIdForRuntime, persistedSessionKey, removeAutoRestoreMatches, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, persistedSessionKey, partitionBulkRestore, BULK_RESTORE_MAX_IDLE_MS, removeAutoRestoreMatches, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
 
 describe('cockpit navigation identity', () => {
   it('keeps a live session context addressable after it becomes a persisted session', () => {
@@ -66,6 +66,44 @@ describe('auto-restore de-duplication', () => {
       [entry('migrated-a', 'first'), entry('migrated-b', 'second')],
       [entry('independent-migration', 'second')],
     )).toHaveLength(1);
+  });
+});
+
+describe('partitionBulkRestore', () => {
+  const NOW = Date.UTC(2026, 9, 12, 3, 33);
+  const HOUR = 60 * 60 * 1000;
+  const entry = (tileId: string, extra: Partial<PersistedSession> = {}): PersistedSession =>
+    ({ tileId, projectPath: `C:/p/${tileId}`, name: tileId, sessionId: `s-${tileId}`, agentId: 'claude', ...extra });
+
+  it('reopens recently active entries and leaves days-idle ones saved', () => {
+    // The 2026-10-12 host restore: six tiles in use that day, two untouched since 10-07.
+    const recent = entry('recent', { lastActiveMs: NOW - 2 * HOUR });
+    const stale = entry('stale', { lastActiveMs: NOW - 5 * 24 * HOUR });
+    const { reopen, leave } = partitionBulkRestore([recent, stale], NOW);
+    expect(reopen).toEqual([recent]);
+    expect(leave).toEqual([stale]);
+  });
+
+  it('treats the limit itself as still recent', () => {
+    const edge = entry('edge', { lastActiveMs: NOW - BULK_RESTORE_MAX_IDLE_MS });
+    expect(partitionBulkRestore([edge], NOW).reopen).toEqual([edge]);
+  });
+
+  it('always reopens pinned entries, however old', () => {
+    const pinned = entry('pinned', { pinned: true, lastActiveMs: NOW - 30 * 24 * HOUR });
+    expect(partitionBulkRestore([pinned], NOW).reopen).toEqual([pinned]);
+  });
+
+  it('leaves entries with no recorded activity saved', () => {
+    const legacy = entry('legacy');
+    expect(partitionBulkRestore([legacy], NOW)).toEqual({ reopen: [], leave: [legacy] });
+  });
+
+  it('keeps the original order within each side', () => {
+    const a = entry('a', { lastActiveMs: NOW - HOUR });
+    const b = entry('b', { lastActiveMs: NOW - 3 * 24 * HOUR });
+    const c = entry('c', { lastActiveMs: NOW - 2 * HOUR });
+    expect(partitionBulkRestore([a, b, c], NOW, 24 * HOUR).reopen.map((e) => e.tileId)).toEqual(['a', 'c']);
   });
 });
 

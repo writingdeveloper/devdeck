@@ -437,6 +437,7 @@
   "cockpit.prev_machine_offline": "offline — restores when it connects",
   "cockpit.machine_offline_input": "{machine} is offline — nothing you type reaches it until it reconnects",
   "cockpit.restore_machine_offline_n": "{n} sessions on {machine} will restore when it connects",
+  "cockpit.restore_idle_left": "{n} sessions idle for over a day stay in previous sessions — click one to open it",
   "cockpit.stale_to_previous": "{n} sessions are no longer running on {machine} — moved to previous sessions",
   "cockpit.remote_file_unavailable": "That file is on {machine}, not on this computer.",
   "cockpit.redrawn": "Redrew {count} terminal(s) from their sessions.",

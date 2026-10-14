@@ -10,7 +10,7 @@ import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
-import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, partitionBulkRestore, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import { toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
@@ -262,9 +262,20 @@ async function autoRestoreAfterUpdate(pending: PersistedSession[]): Promise<void
     return false;
   });
   for (const [machineId, n] of offlineByMachine) toast(tr('cockpit.restore_machine_offline_n', { n: String(n), machine: machineName(machineId) }));
-  restorable = removeAutoRestoreMatches(restorable, now);
+  // Live at the restart is not the same as in use: a tile left idle for days was live too. Those stay
+  // in the saved list (they were never removed from it) instead of each costing an agent process.
+  const { reopen, leave } = partitionBulkRestore(now, Date.now());
+  noteIdleLeftSaved(leave.length);
+  restorable = removeAutoRestoreMatches(restorable, reopen);
   renderList();
-  for (const entry of now) await restoreSession(entry);
+  for (const entry of reopen) await restoreSession(entry);
+}
+
+/** Say that a bulk restore left idle entries saved — otherwise "Restore all" reads as half broken. */
+function noteIdleLeftSaved(n: number): void {
+  if (n === 0) return;
+  toast(tr('cockpit.restore_idle_left', { n: String(n) }));
+  window.devdeck.logDiagnostic(`bulk restore left ${n} idle entr${n === 1 ? 'y' : 'ies'} saved`, 'info', 'restore');
 }
 
 // ---- in-terminal find (Ctrl+F over the selected session's scrollback) ----
@@ -2137,7 +2148,9 @@ function renameInput(id: string, current: string): HTMLInputElement {
 }
 
 async function restoreAll(): Promise<void> {
-  for (const entry of [...restorable]) await restoreSession(entry);
+  const { reopen, leave } = partitionBulkRestore(restorable, Date.now());
+  noteIdleLeftSaved(leave.length);
+  for (const entry of reopen) await restoreSession(entry);
 }
 
 function forgetSession(entry: PersistedSession): void {
