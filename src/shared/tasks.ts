@@ -139,3 +139,6 @@ export function sanitizeTodos(raw: unknown): Todo[] {
   }
   return out;
 }
+
+/** Host committed snapshot on both success and conflict. */
+export interface TodoSaveResult { ok: boolean; todos: Todo[]; revision: number; }

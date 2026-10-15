@@ -45,3 +45,10 @@
   outline: 2px solid var(--dd-focus);
   outline-offset: -2px;
 }
+
+.ck-rename-editor { display: flex; flex-direction: column; min-width: 0; max-width: 100%; gap: 4px; }
+.ck-rename-status { font-size: var(--dd-fs-meta); color: var(--dd-attention); white-space: normal; line-height: 1.4; }
+.ck-rename-status:empty { display: none; }
+.ck-rename-input[aria-invalid="true"] { border-color: var(--dd-attention); }
+
+.ck-rename-actions { display: flex; gap: 8px; }

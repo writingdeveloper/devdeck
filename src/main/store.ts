@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
 import type { StoreEntry, Folder } from '../shared/types';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
-import { sanitizeTodos, type Todo } from '../shared/tasks';
+import { sanitizeTodos, type Todo, type TodoSaveResult } from '../shared/tasks';
 import { sanitizeWindowBounds, type WindowBounds } from '../shared/windowBounds';
 import { LOCAL_MACHINE_ID, isValidMachineId, sanitizeMachineName } from '../shared/link/machine';
 import { sanitizeKnownHosts, sanitizePairedDevices, type KnownHost, type PairedDevice } from './link/devices';
@@ -84,7 +84,7 @@ export class Store {
 
   get(path: string): StoreEntry {
     const e = { ...EMPTY, ...this.state.projects[path] };
-    return { ...e, todos: sanitizeTodos(e.todos) }; // never hand out unvalidated on-disk todos
+    return { ...e, todos: sanitizeTodos(e.todos), todosRevision: Number.isSafeInteger(e.todosRevision) && e.todosRevision! >= 0 ? e.todosRevision : 0 }; // never hand out unvalidated on-disk todos
   }
 
   private mutate(path: string, patch: Partial<StoreEntry>): void {
@@ -269,7 +269,19 @@ export class Store {
 
   setNote(path: string, note: string): void { this.mutate(path, { note }); }
   getTodos(path: string): Todo[] { return this.get(path).todos; }
-  setTodos(path: string, todos: Todo[]): void { this.mutate(path, { todos: sanitizeTodos(todos) }); }
+  /** Compare and persist without yielding: local and Link callers share this Store. */
+  saveTodos(path: string, todos: unknown, expectedRevision: number): TodoSaveResult {
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('TASKS_INVALID_REVISION');
+    if (!Array.isArray(todos) || todos.length > 200) throw new Error('TASKS_INVALID_LIST: maximum 200 tasks');
+    const current = this.get(path);
+    const revision = current.todosRevision ?? 0;
+    if (revision !== expectedRevision) return { ok: false, todos: current.todos, revision };
+    const clean = sanitizeTodos(todos);
+    if (JSON.stringify(clean) === JSON.stringify(current.todos)) return { ok: true, todos: clean, revision };
+    if (revision >= Number.MAX_SAFE_INTEGER) throw new Error('TASKS_REVISION_EXHAUSTED');
+    this.mutate(path, { todos: clean, todosRevision: revision + 1 });
+    return { ok: true, todos: clean, revision: revision + 1 };
+  }
   setPinned(path: string, pinned: boolean): void { this.mutate(path, { pinned }); }
   setHidden(path: string, hidden: boolean): void { this.mutate(path, { hidden }); }
   setLastOpened(path: string, iso: string): void { this.mutate(path, { lastOpened: iso }); }

@@ -5,10 +5,15 @@ import { IDLE_HOLD_CHOICES } from '../shared/shutdownIdle';
 import { basename, parentLabel } from '../shared/paths';
 import { createIcon } from './icons';
 import { renderLinkSettings } from './settingsLink';
+import { bindSetting, bindCheck, bindChoice } from './settingsSave';
+import { validThresholds } from '../shared/settingsValidation';
+import { renderLoadError, reportSaveError } from './loadError';
+import { withTimeout } from '../shared/withTimeout';
 
 let host: HTMLElement;
 let onChangedCb: () => void = () => {};
 let uid = 0;
+let renderVersion = 0;
 
 function field(labelKey: string, control: HTMLElement, forEl?: HTMLElement): HTMLElement {
   const row = document.createElement('div'); row.className = 'set-row ui-row';
@@ -18,209 +23,164 @@ function field(labelKey: string, control: HTMLElement, forEl?: HTMLElement): HTM
 }
 
 async function render(): Promise<void> {
-  const s = await window.devdeck.getSettings();
-  host.replaceChildren();
-  const title = document.createElement('h2'); title.className = 'set-title'; title.textContent = tr('nav.settings');
-  host.appendChild(title);
-
-  const folders = await window.devdeck.getFolders();
-  const list = document.createElement('div'); list.className = 'folder-list';
-  const renderRow = (f: Folder) => {
-    const row = document.createElement('div'); row.className = 'folder-row';
-    // Name first, location second. The old single-span path ellipsised on the RIGHT, which is where
-    // the folder's own name lives — the row was cut down to a shared prefix like "C:\Users\me\App…".
-    const path = document.createElement('span'); path.className = 'folder-path'; path.title = f.path;
-    const name = document.createElement('span'); name.className = 'folder-name'; name.textContent = basename(f.path);
-    const parent = document.createElement('span'); parent.className = 'folder-parent'; parent.textContent = parentLabel(f.path);
-    path.append(name, parent);
-    // Read-only label, not an editable control: 'repo' → 'root' would widen the path allowlist to
-    // every descendant, and the ONE invariant here is that the allowlist only ever changes through
-    // the native picker (which a compromised renderer can't confirm on its own). To switch a folder's
-    // kind, add it again with the other button — store.addFolder updates the existing entry in place.
-    const kind = document.createElement('span'); kind.className = 'folder-kind';
-    kind.textContent = tr(f.kind === 'repo' ? 'set.kind_repo' : 'set.kind_root');
-    const rm = document.createElement('button'); rm.className = 'folder-rm'; rm.appendChild(createIcon('close'));
-    rm.setAttribute('aria-label', tr('set.remove_folder'));
-    rm.addEventListener('click', async () => { await window.devdeck.removeFolder(f.path); render(); onChangedCb(); });
-    row.append(path, kind, rm); return row;
-  };
-  for (const f of folders) list.appendChild(renderRow(f));
-
-  // Two explicit buttons instead of one auto-detecting "+ Add folder": which kind you get was
-  // previously decided by whether the picked folder happened to contain a `.git`, so there was no way
-  // to add a single non-git folder as a project, nor to scan a folder that is itself a repo.
-  const addBtn = (labelKey: string, kind: Folder['kind']) => {
-    const b = document.createElement('button'); b.className = 'chip'; b.textContent = tr(labelKey);
-    b.addEventListener('click', async () => {
-      const p = await window.devdeck.pickFolder();
-      if (p) { await window.devdeck.addFolder(p, kind); render(); onChangedCb(); }
-    });
-    return b;
-  };
-  const adds = document.createElement('div'); adds.className = 'folder-adds';
-  adds.append(addBtn('set.add_scan_root', 'root'), addBtn('set.add_project_folder', 'repo'));
-  const hint = document.createElement('p'); hint.className = 'set-hint'; hint.textContent = tr('set.folder_hint');
-  const listWrap = document.createElement('div'); listWrap.append(list, adds, hint);
-  host.appendChild(field('set.scan_locations', listWrap));
-
-  const mk = (v: number) => { const n = document.createElement('input'); n.type = 'number'; n.min = '1'; n.className = 'set-num'; n.value = String(v); return n; };
-  const f = mk(s.thresholds.freshDays), w = mk(s.thresholds.warnDays), g = mk(s.thresholds.neglectedDays);
-  const save = async () => { await window.devdeck.setThresholds({ freshDays: +f.value, warnDays: +w.value, neglectedDays: +g.value }); onChangedCb(); };
-  [f, w, g].forEach((n) => n.addEventListener('change', save));
-  const tWrap = document.createElement('div'); tWrap.className = 'set-inline';
-  for (const [key, el] of [['set.fresh', f], ['set.warn', w], ['set.neglected', g]] as [string, HTMLInputElement][]) {
-    const grp = document.createElement('span'); grp.className = 'set-thr';
-    const l = document.createElement('label'); l.textContent = tr(key);
-    if (!el.id) el.id = `set-f${uid++}`; l.htmlFor = el.id;
-    grp.append(l, el); tWrap.appendChild(grp);
-  }
-  host.appendChild(field('set.thresholds', tWrap));
-
-  const sel = document.createElement('select'); sel.className = 'set-input';
-  for (const lng of SUPPORTED) { const o = document.createElement('option'); o.value = lng; o.textContent = languageName(lng); if (lng === s.language) o.selected = true; sel.appendChild(o); }
-  sel.addEventListener('change', async () => { await window.devdeck.setLanguage(sel.value); setRuntimeLang(sel.value); render(); onChangedCb(); });
-  host.appendChild(field('nav.language', sel, sel));
-
-  if (s.platform === 'win32') {
-    const chk = document.createElement('input'); chk.type = 'checkbox'; chk.className = 'set-check';
-    chk.checked = s.openAtLogin;
-    chk.addEventListener('change', () => void window.devdeck.setOpenAtLogin(chk.checked));
-    host.appendChild(field('set.open_at_login', chk, chk));
-
-    // Tray attention alert: redden the tray icon when a cockpit session needs you.
-    const tray = document.createElement('select'); tray.className = 'set-input';
-    for (const [val, key] of [['attention', 'set.tray_alert_attention'], ['all', 'set.tray_alert_all'], ['off', 'set.tray_alert_off']] as [string, string][]) {
-      const o = document.createElement('option'); o.value = val; o.textContent = tr(key); if (val === s.trayAlert) o.selected = true; tray.appendChild(o);
-    }
-    tray.addEventListener('change', () => {
-      const mode = tray.value as 'off' | 'attention' | 'all';
-      void window.devdeck.setTrayAlert(mode);
-      setCockpitTrayAlert(mode); // the same setting gates the attention OS notification
-    });
-    host.appendChild(field('set.tray_alert', tray, tray));
-
-    // Context window basis for the cockpit's per-session context % (Claude's 1M beta vs the 200k default).
-    const ctxWin = document.createElement('select'); ctxWin.className = 'set-input';
-    for (const val of [1_000_000, 200_000]) {
-      const o = document.createElement('option'); o.value = String(val); o.textContent = val === 1_000_000 ? '1M' : '200K'; if (val === s.contextWindow) o.selected = true; ctxWin.appendChild(o);
-    }
-    ctxWin.addEventListener('change', () => { const w = Number(ctxWin.value); void window.devdeck.setContextWindow(w); setCockpitContextWindow(w); });
-    host.appendChild(field('set.context_window', ctxWin, ctxWin));
-
-    // Per-session summary line in the cockpit sidebar, and its opt-in AI refinement. The AI box is
-    // disabled while the line itself is off — there would be nothing for it to refine.
-    const sum = document.createElement('input'); sum.type = 'checkbox'; sum.className = 'set-check';
-    sum.checked = s.sessionSummary;
-    const ai = document.createElement('input'); ai.type = 'checkbox'; ai.className = 'set-check';
-    ai.checked = s.aiSessionSummary; ai.disabled = !s.sessionSummary;
-    sum.addEventListener('change', () => {
-      void window.devdeck.setSessionSummary(sum.checked);
-      setCockpitSessionSummary(sum.checked);
-      ai.disabled = !sum.checked;
-    });
-    ai.addEventListener('change', () => {
-      void window.devdeck.setAiSessionSummary(ai.checked);
-      setCockpitAiSummary(ai.checked);
-    });
-    host.appendChild(field('set.session_summary', sum, sum));
-    const aiWrap = document.createElement('div'); aiWrap.className = 'set-inline';
-    const aiHint = document.createElement('span'); aiHint.className = 'set-hint'; aiHint.textContent = tr('set.ai_summary_hint');
-    aiWrap.append(ai, aiHint);
-    host.appendChild(field('set.ai_summary', aiWrap, ai));
-
-    // Idle-shutdown: hold duration + history (feature itself is armed from the 🌙 topbar/tray menu).
-    const hold = document.createElement('select'); hold.className = 'set-input';
-    for (const m of IDLE_HOLD_CHOICES) {
-      const o = document.createElement('option'); o.value = String(m); o.textContent = `${m}`;
-      if (m === s.shutdownIdleMinutes) o.selected = true; hold.appendChild(o);
-    }
-    hold.addEventListener('change', () => void window.devdeck.shutdown.setIdleMinutes(Number(hold.value)));
-    host.appendChild(field('shutdown.idle_minutes', hold, hold));
-
-    // The history was the one thing here the user could read but never act on: it only ever grew, and
-    // with more than ten entries it never even said how many were behind the ten on screen.
-    const hist = document.createElement('div'); hist.className = 'shutdown-hist';
-    const SHOWN = 10;
-    const renderHistory = async (): Promise<void> => {
-      hist.replaceChildren();
-      const records = await window.devdeck.shutdown.history();
-      if (!records.length) {
-        const empty = document.createElement('div'); empty.className = 'shutdown-hist-empty'; empty.textContent = tr('shutdown.hist_empty');
-        hist.appendChild(empty);
-        return;
-      }
-      for (const r of records.slice(0, SHOWN)) {
-        const row = document.createElement('div'); row.className = 'shutdown-hist-row';
-        const when = new Date(r.scheduledAt).toLocaleString();
-        const kind = tr(r.kind === 'auto' ? 'shutdown.hist_auto' : 'shutdown.hist_manual');
-        const state = r.status === 'cancelled' ? ` · ${tr('shutdown.hist_cancelled')}` : '';
-        row.textContent = `⏻ ${when} · ${kind}${state}`;
-        hist.appendChild(row);
-      }
-      const foot = document.createElement('div'); foot.className = 'shutdown-hist-foot';
-      const count = document.createElement('span'); count.className = 'shutdown-hist-count';
-      count.textContent = records.length > SHOWN
-        ? tr('shutdown.hist_more', { shown: SHOWN, total: records.length })
-        : tr('shutdown.hist_count', { total: records.length });
-      const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'chip';
-      clear.textContent = tr('shutdown.hist_clear');
-      clear.addEventListener('click', async () => {
-        clear.disabled = true;
-        await window.devdeck.shutdown.clearHistory();
-        await renderHistory();
+  const version = ++renderVersion;
+  try {
+    const [s, folders, info] = await withTimeout(Promise.all([
+      window.devdeck.getSettings(), window.devdeck.getFolders(), window.devdeck.getAppInfo(),
+    ]), 15_000, 'settings');
+    if (version !== renderVersion) return;
+    // Build off-screen; only the most recent complete read may replace the current form.
+    const content = document.createElement('div');
+    const title = document.createElement('h2'); title.className = 'set-title'; title.textContent = tr('nav.settings');
+    content.appendChild(title);
+    const list = document.createElement('div'); list.className = 'folder-list';
+    const renderRow = (folder: Folder) => {
+      const row = document.createElement('div'); row.className = 'folder-row';
+      const path = document.createElement('span'); path.className = 'folder-path'; path.title = folder.path;
+      const name = document.createElement('span'); name.className = 'folder-name'; name.textContent = basename(folder.path);
+      const parent = document.createElement('span'); parent.className = 'folder-parent'; parent.textContent = parentLabel(folder.path);
+      path.append(name, parent);
+      // Folder kind stays read-only: widening an allowlist requires the native picker.
+      const kind = document.createElement('span'); kind.className = 'folder-kind';
+      kind.textContent = tr(folder.kind === 'repo' ? 'set.kind_repo' : 'set.kind_root');
+      const rm = document.createElement('button'); rm.className = 'folder-rm'; rm.appendChild(createIcon('close'));
+      rm.setAttribute('aria-label', tr('set.remove_folder'));
+      rm.addEventListener('click', async () => {
+        rm.disabled = true;
+        try { await window.devdeck.removeFolder(folder.path); await render(); onChangedCb(); }
+        catch (error) { reportSaveError(error); }
+        finally { rm.disabled = false; }
       });
-      foot.append(count, clear);
-      hist.appendChild(foot);
+      row.append(path, kind, rm); return row;
     };
-    await renderHistory();
-    host.appendChild(field('shutdown.history', hist));
-  }
+    for (const folder of folders) list.appendChild(renderRow(folder));
+    const addBtn = (labelKey: string, kind: Folder['kind']) => {
+      const b = document.createElement('button'); b.className = 'chip'; b.textContent = tr(labelKey);
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        try {
+          const picked = await window.devdeck.pickFolder();
+          if (picked) { await window.devdeck.addFolder(picked, kind); await render(); onChangedCb(); }
+        } catch (error) { reportSaveError(error); }
+        finally { b.disabled = false; }
+      });
+      return b;
+    };
+    const adds = document.createElement('div'); adds.className = 'folder-adds';
+    adds.append(addBtn('set.add_scan_root', 'root'), addBtn('set.add_project_folder', 'repo'));
+    const hint = document.createElement('p'); hint.className = 'set-hint'; hint.textContent = tr('set.folder_hint');
+    const listWrap = document.createElement('div'); listWrap.append(list, adds, hint);
+    content.appendChild(field('set.scan_locations', listWrap));
 
-  const info = await window.devdeck.getAppInfo();
-  // DevDeck Link. Rendered before About because it is a thing you configure, not a thing you read;
-  // absent entirely when the link could not start, rather than present and inert.
-  const linkSection = await renderLinkSettings(() => { void render(); });
-  if (linkSection) host.appendChild(field('link.section', linkSection));
+    const mk = (v: number) => { const n = document.createElement('input'); n.type = 'number'; n.min = '1'; n.step = '1'; n.className = 'set-num'; n.value = String(v); return n; };
+    const f = mk(s.thresholds.freshDays), w = mk(s.thresholds.warnDays), g = mk(s.thresholds.neglectedDays);
+    bindSetting([f, w, g], {
+      read: () => ({ freshDays: +f.value, warnDays: +w.value, neglectedDays: +g.value }),
+      restore: v => { f.value = String(v.freshDays); w.value = String(v.warnDays); g.value = String(v.neglectedDays); },
+      validate: v => validThresholds(v) ? null : 'set.invalid_thresholds',
+      write: v => window.devdeck.setThresholds(v), apply: () => onChangedCb(),
+    });
+    const tWrap = document.createElement('div'); tWrap.className = 'set-inline';
+    for (const [key, el] of [['set.fresh', f], ['set.warn', w], ['set.neglected', g]] as [string, HTMLInputElement][]) {
+      const grp = document.createElement('span'); grp.className = 'set-thr';
+      const l = document.createElement('label'); l.textContent = tr(key);
+      el.id = `set-f${uid++}`; l.htmlFor = el.id;
+      grp.append(l, el); tWrap.appendChild(grp);
+    }
+    content.appendChild(field('set.thresholds', tWrap));
 
-  const about = document.createElement('div'); about.className = 'about';
-  const aTitle = document.createElement('h3'); aTitle.className = 'about-title'; aTitle.textContent = tr('about.title');
-  const ver = document.createElement('div'); ver.className = 'about-ver'; ver.textContent = `DevDeck v${info.version}`;
-  const rt = document.createElement('span'); rt.className = 'about-rt'; rt.textContent = ` (Electron ${info.electron})`;
-  ver.appendChild(rt);
-  const links = document.createElement('div'); links.className = 'about-links';
-  const link = (labelKey: string, url: string) => {
-    const b = document.createElement('button'); b.className = 'chip'; b.textContent = tr(labelKey);
-    b.addEventListener('click', () => void window.devdeck.openExternal(url));
-    return b;
-  };
-  links.append(
-    link('about.github', info.repoUrl),
-    link('about.releases', info.repoUrl + '/releases/latest'),
-    link('about.license', info.repoUrl + '/blob/main/LICENSE'),
-    link('about.report_issue', info.repoUrl + '/issues'),
-  );
-  const upd = document.createElement('div'); upd.className = 'about-upd';
-  const chk = document.createElement('button'); chk.className = 'chip'; chk.textContent = tr('about.check_updates');
-  const status = document.createElement('span'); status.id = 'about-update-status'; status.className = 'about-status'; status.setAttribute('aria-live', 'polite');
-  if (info.packaged) {
-    chk.addEventListener('click', () => void window.devdeck.checkForUpdates());
-  } else {
-    chk.disabled = true; status.textContent = tr('about.updates_dev');
+    const sel = document.createElement('select'); sel.className = 'set-input';
+    for (const lng of SUPPORTED) { const o = document.createElement('option'); o.value = lng; o.textContent = languageName(lng); o.selected = lng === s.language; sel.appendChild(o); }
+    bindChoice(sel, v => window.devdeck.setLanguage(v), v => { setRuntimeLang(v); void render(); onChangedCb(); });
+    content.appendChild(field('nav.language', sel, sel));
+
+    if (s.platform === 'win32') {
+      const chk = document.createElement('input'); chk.type = 'checkbox'; chk.className = 'set-check'; chk.checked = s.openAtLogin;
+      bindCheck(chk, v => window.devdeck.setOpenAtLogin(v));
+      content.appendChild(field('set.open_at_login', chk, chk));
+      const tray = document.createElement('select'); tray.className = 'set-input';
+      for (const [val, key] of [['attention', 'set.tray_alert_attention'], ['all', 'set.tray_alert_all'], ['off', 'set.tray_alert_off']]) {
+        const o = document.createElement('option'); o.value = val; o.textContent = tr(key); o.selected = val === s.trayAlert; tray.appendChild(o);
+      }
+      bindChoice<'off' | 'attention' | 'all'>(tray, v => window.devdeck.setTrayAlert(v), setCockpitTrayAlert);
+      content.appendChild(field('set.tray_alert', tray, tray));
+      const ctxWin = document.createElement('select'); ctxWin.className = 'set-input';
+      for (const val of [1_000_000, 200_000]) {
+        const o = document.createElement('option'); o.value = String(val); o.textContent = val === 1_000_000 ? '1M' : '200K'; o.selected = val === s.contextWindow; ctxWin.appendChild(o);
+      }
+      bindChoice(ctxWin, v => window.devdeck.setContextWindow(Number(v)), v => setCockpitContextWindow(Number(v)));
+      content.appendChild(field('set.context_window', ctxWin, ctxWin));
+      const sum = document.createElement('input'); sum.type = 'checkbox'; sum.className = 'set-check'; sum.checked = s.sessionSummary;
+      const ai = document.createElement('input'); ai.type = 'checkbox'; ai.className = 'set-check'; ai.checked = s.aiSessionSummary; ai.disabled = !s.sessionSummary;
+      bindCheck(sum, v => window.devdeck.setSessionSummary(v), v => { setCockpitSessionSummary(v); ai.disabled = !v; }, [sum, ai]);
+      bindCheck(ai, v => window.devdeck.setAiSessionSummary(v), setCockpitAiSummary, [sum, ai]);
+      content.appendChild(field('set.session_summary', sum, sum));
+      const aiWrap = document.createElement('div'); aiWrap.className = 'set-inline';
+      const aiHint = document.createElement('span'); aiHint.className = 'set-hint'; aiHint.textContent = tr('set.ai_summary_hint');
+      aiWrap.append(ai, aiHint); content.appendChild(field('set.ai_summary', aiWrap, ai));
+      const hold = document.createElement('select'); hold.className = 'set-input';
+      for (const m of IDLE_HOLD_CHOICES) {
+        const o = document.createElement('option'); o.value = String(m); o.textContent = String(m); o.selected = m === s.shutdownIdleMinutes; hold.appendChild(o);
+      }
+      bindChoice(hold, v => window.devdeck.shutdown.setIdleMinutes(Number(v)));
+      content.appendChild(field('shutdown.idle_minutes', hold, hold));
+      const hist = document.createElement('div'); hist.className = 'shutdown-hist';
+      const SHOWN = 10;
+      const renderHistory = async (): Promise<void> => {
+        const records = await withTimeout(window.devdeck.shutdown.history(), 15_000, 'shutdown history');
+        hist.replaceChildren();
+        if (!records.length) {
+          const empty = document.createElement('div'); empty.className = 'shutdown-hist-empty'; empty.textContent = tr('shutdown.hist_empty'); hist.appendChild(empty); return;
+        }
+        for (const r of records.slice(0, SHOWN)) {
+          const row = document.createElement('div'); row.className = 'shutdown-hist-row';
+          const kind = tr(r.kind === 'auto' ? 'shutdown.hist_auto' : 'shutdown.hist_manual');
+          row.textContent = `⏻ ${new Date(r.scheduledAt).toLocaleString()} · ${kind}${r.status === 'cancelled' ? ' · ' + tr('shutdown.hist_cancelled') : ''}`;
+          hist.appendChild(row);
+        }
+        const foot = document.createElement('div'); foot.className = 'shutdown-hist-foot';
+        const count = document.createElement('span'); count.className = 'shutdown-hist-count';
+        count.textContent = records.length > SHOWN ? tr('shutdown.hist_more', { shown: SHOWN, total: records.length }) : tr('shutdown.hist_count', { total: records.length });
+        const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'chip'; clear.textContent = tr('shutdown.hist_clear');
+        clear.addEventListener('click', async () => {
+          clear.disabled = true;
+          try { await window.devdeck.shutdown.clearHistory(); await renderHistory(); }
+          catch (error) { reportSaveError(error); }
+          finally { clear.disabled = false; }
+        });
+        foot.append(count, clear); hist.appendChild(foot);
+      };
+      await renderHistory(); content.appendChild(field('shutdown.history', hist));
+    }
+
+    const linkSection = await withTimeout(renderLinkSettings(() => { void render(); }), 15_000, 'link settings');
+    if (linkSection) content.appendChild(field('link.section', linkSection));
+    const about = document.createElement('div'); about.className = 'about';
+    const aTitle = document.createElement('h3'); aTitle.className = 'about-title'; aTitle.textContent = tr('about.title');
+    const ver = document.createElement('div'); ver.className = 'about-ver'; ver.textContent = `DevDeck v${info.version}`;
+    const rt = document.createElement('span'); rt.className = 'about-rt'; rt.textContent = ` (Electron ${info.electron})`; ver.appendChild(rt);
+    const links = document.createElement('div'); links.className = 'about-links';
+    const link = (labelKey: string, url: string) => {
+      const b = document.createElement('button'); b.className = 'chip'; b.textContent = tr(labelKey);
+      b.addEventListener('click', () => void window.devdeck.openExternal(url)); return b;
+    };
+    links.append(link('about.github', info.repoUrl), link('about.releases', info.repoUrl + '/releases/latest'), link('about.license', info.repoUrl + '/blob/main/LICENSE'), link('about.report_issue', info.repoUrl + '/issues'));
+    const upd = document.createElement('div'); upd.className = 'about-upd';
+    const check = document.createElement('button'); check.className = 'chip'; check.textContent = tr('about.check_updates');
+    const status = document.createElement('span'); status.id = 'about-update-status'; status.className = 'about-status'; status.setAttribute('aria-live', 'polite');
+    if (info.packaged) check.addEventListener('click', () => void window.devdeck.checkForUpdates());
+    else { check.disabled = true; status.textContent = tr('about.updates_dev'); }
+    upd.append(check, status);
+    const meta = document.createElement('div'); meta.className = 'about-meta'; meta.textContent = 'MIT · © Si Hyeong Lee';
+    about.append(aTitle, ver, links, upd, buildDiagnostics(), meta); content.appendChild(about);
+    if (version === renderVersion) host.replaceChildren(...Array.from(content.childNodes));
+  } catch (error) {
+    if (version === renderVersion) renderLoadError(host, () => void render());
+    console.error('DevDeck: settings load failed', error);
   }
-  upd.append(chk, status);
-  const meta = document.createElement('div'); meta.className = 'about-meta'; meta.textContent = 'MIT · © Si Hyeong Lee';
-  about.append(aTitle, ver, links, upd, buildDiagnostics(), meta);
-  host.appendChild(about);
 }
 
-/**
- * Where this machine's log is, and two ways to get at it.
- *
- * DevDeck runs on more than one computer and the interesting failures happen on the one nobody is
- * looking at. Until there was a log there was nothing to look at either — so this exists to make the
- * file findable by someone who does not know it exists: reveal it in the file manager to hand the
- * path to an agent, or copy the tail straight into a message.
- */
+/** Local diagnostic tail only; copying is an explicit user action. */
 function buildDiagnostics(): HTMLElement {
   const wrap = document.createElement('div'); wrap.className = 'about-diag';
   const label = document.createElement('div'); label.className = 'about-diag-label'; label.textContent = tr('diag.title');
@@ -233,19 +193,15 @@ function buildDiagnostics(): HTMLElement {
   copy.addEventListener('click', async () => {
     const text = await window.devdeck.diagnosticsTail(400).catch(() => '');
     if (!text) { status.textContent = tr('diag.empty'); return; }
-    window.devdeck.clipboard.writeText(text);
-    status.textContent = tr('diag.copied', { n: String(text.split('\n').length) });
+    window.devdeck.clipboard.writeText(text); status.textContent = tr('diag.copied', { n: String(text.split('\n').length) });
   });
   acts.append(reveal, copy, status);
-  void window.devdeck.diagnosticsInfo().then((info) => {
+  void window.devdeck.diagnosticsInfo().then(info => {
     if (!info.path) { wrap.classList.add('hidden'); return; }
-    path.textContent = info.path;
-    path.title = info.path;
-    // The size is the honest signal that anything is being recorded at all.
+    path.textContent = info.path; path.title = info.path;
     label.textContent = `${tr('diag.title')} · ${(info.bytes / 1024).toFixed(0)} KB`;
   }).catch(() => wrap.classList.add('hidden'));
-  wrap.append(label, path, acts);
-  return wrap;
+  wrap.append(label, path, acts); return wrap;
 }
 
 export function mountSettings(onChanged: () => void): void { host = document.getElementById('settings-form')!; onChangedCb = onChanged; }

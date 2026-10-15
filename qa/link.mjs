@@ -403,7 +403,7 @@ try {
   const renamed = 'link-named-' + Date.now();
   await host.win.evaluate(async (label) => {
     const running = await window.devdeck.cockpit.liveSessions();
-    if (running[0]) window.devdeck.cockpit.noteLabel(running[0].id, label);
+    if (running[0]) await window.devdeck.cockpit.renameSession(running[0].id, label, running[0]);
   }, renamed);
   result.viewerSeesHostRename = await viewer.win.evaluate(async (label) => {
     const deadline = Date.now() + 15000;
@@ -423,7 +423,7 @@ try {
   const fromViewer = 'viewer-named-' + Date.now();
   await viewer.win.evaluate(async ([machineId, label]) => {
     const running = await window.devdeck.machine(machineId).cockpit.liveSessions();
-    if (running[0]) window.devdeck.cockpit.noteLabel(running[0].id, label);
+    if (running[0]) await window.devdeck.cockpit.renameSession(running[0].id, label, running[0]);
   }, [remoteId, fromViewer]);
   result.hostSeesViewerRename = await host.win.evaluate(async (label) => {
     const deadline = Date.now() + 15000;

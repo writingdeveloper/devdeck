@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible user-visible defect
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: "Use SECURITY.md for private security reports. Remove credentials, pairing codes and private transcripts from public evidence."
+  - type: input
+    id: version
+    attributes:
+      label: DevDeck version and operating system
+      description: For Link, include both host and viewer versions and systems.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps, expected behavior and actual result
+      description: Include whether the problem survives restart.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Review logs and screenshots before sharing. Do not attach full state files or transcripts.

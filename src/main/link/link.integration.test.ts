@@ -7,6 +7,11 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as tls from 'node:tls';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Store } from '../store';
+import type { TodoSaveResult } from '../../shared/tasks';
 import { makeMethodTable, allow, allowSession, blocked, localOnly, type DeckApi } from '../api/methods';
 import { makeEventHub, type EventHub } from '../api/events';
 import type { DeckApiBundle } from '../api/deckApi';
@@ -137,6 +142,7 @@ describe('pairing', () => {
 
     expect(paired).toHaveLength(1);
     expect(paired[0].fingerprint).toBe(clientIdentity.fingerprint);
+    expect(paired[0]).toMatchObject({ machineId: CLIENT_ID, machineName: 'laptop' });
     expect(invite).toBeNull(); // single use
     expect(log.map((l) => l.kind)).toContain('paired');
     dialed.link.close();
@@ -609,5 +615,34 @@ describe('host control', () => {
     const before = activity;
     await dialed.link.request('projects:list', []);
     expect(activity).toBeGreaterThan(before); // browsing counts, with nothing attached
+  });
+});
+
+
+describe('task concurrency over the actual TLS transport', () => {
+  it('keeps the first committed change when two paired clients write the same revision', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'devdeck-tls-tasks-'));
+    const store = new Store(join(dir, 'state.json'));
+    const initial = ['A', 'B'].map(id => ({ id, text: id, done: false, due: null, createdAt: '2026-09-08T00:00:00Z' }));
+    store.saveTodos('repo', initial, 0);
+    const host = await startHost();
+    methods['project:saveTodos'] = { channel: 'invoke', remote: allow('write'), handler: (path, todos, revision) => store.saveTodos(path, todos, revision) };
+    let first: ConnectedLink | null = null, second: ConnectedLink | null = null;
+    try {
+      const token1 = createPairingToken(); invite = { token: token1, expiresAtMs: now + 300_000, permissions: ['observe', 'write'] };
+      const a = await connect(host.port, { pairingToken: token1 });
+      expect(a.ok).toBe(true); if (!a.ok) throw new Error('first client did not connect'); first = a.link;
+      const token2 = createPairingToken(); invite = { token: token2, expiresAtMs: now + 300_000, permissions: ['observe', 'write'] };
+      const b = await connect(host.port, { pairingToken: token2, identity: identityOf('second-client'), machineId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' });
+      expect(b.ok).toBe(true); if (!b.ok) throw new Error('second client did not connect'); second = b.link;
+      const saved = await first.request('project:saveTodos', ['repo', [{ ...initial[0], done: true }, initial[1]], 1]) as TodoSaveResult;
+      const conflict = await second.request('project:saveTodos', ['repo', [initial[0], { ...initial[1], done: true }], 1]) as TodoSaveResult;
+      expect(saved.ok).toBe(true); expect(conflict.ok).toBe(false);
+      expect(conflict.todos.map(t => t.done)).toEqual([true, false]);
+      expect(new Store(join(dir, 'state.json')).getTodos('repo').map(t => t.done)).toEqual([true, false]);
+    } finally {
+      first?.close(); second?.close();
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
   });
 });

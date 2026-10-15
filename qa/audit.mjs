@@ -54,7 +54,7 @@ ipc.providerOpen = await win.evaluate(async (p) => {
   await window.devdeck.setTodos(p, [{
     id: 'qa-open', text: 'Provider open QA', done: false, due: null,
     createdAt: new Date().toISOString(),
-  }]);
+  }], (await window.devdeck.listProjects()).find(x => x.path === p).todosRevision);
   document.querySelector('.rail-item[data-view="next"]')?.click();
   await new Promise((resolve) => setTimeout(resolve, 700));
   const control = document.querySelector('#view-next .provider-open');

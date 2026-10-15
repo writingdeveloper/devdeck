@@ -1,5 +1,7 @@
 # 실사용 버그 예방 검토 — 1.37.6
 
+> Historical validation snapshot. Counts and audit results apply to this version at the time of review. For current operating checks and remaining work, see [Quality](quality.md) and [Backlog](backlog.md).
+
 ## 결론
 
 2026-09-07 검토 시작 시 기존 테스트는 **1,242개 통과, 1개 생략**이었다. 그러나 비동기 응답의 순서, 화면 수명, 저장 성공 여부를 결합한 실제 사용 시나리오에는 결함이 있었다. 테스트 수를 늘리는 것보다 **사용자 행동 → 실제 IPC → 저장/네이티브 기능 → 화면 결과 → 재시작 후 결과**를 검증하는 것이 중요하다.
