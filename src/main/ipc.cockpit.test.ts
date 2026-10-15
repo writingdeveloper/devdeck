@@ -70,6 +70,7 @@ beforeAll(() => {
     store: {
       getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getAgent: () => storedAgent,
       getSessionSummary: () => true, getAiSessionSummary: () => false,
+      getThresholds: () => null,
     },
     sendError: vi.fn(),
     defaultLanguage: 'en',
@@ -372,5 +373,21 @@ describe('cockpit:conversationsLastUsed', () => {
     ]);
     expect(claudeStats).toHaveBeenCalledTimes(1);
     expect(await lastUsed(null, null)).toEqual([]);
+  });
+});
+
+// The deck gives up on a slow list after 150s and asks again, but giving up does not stop the walk in
+// the main process. Each retry used to start ANOTHER full walk on top of the first — on a machine that
+// had just booted, none of them ever finished.
+describe('projects:list', () => {
+  it('shares the build already under way instead of starting another', async () => {
+    const list = handlers.get('projects:list')!;
+    const first = list(null);
+    const second = list(null);
+    expect(second).toBe(first);
+    await first;
+    const third = list(null);
+    expect(third).not.toBe(first); // once it has landed, the next ask builds fresh
+    await third;
   });
 });
