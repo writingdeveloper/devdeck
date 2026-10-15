@@ -1,6 +1,6 @@
 # Prioritized backlog
 
-Updated 2026-09-08. The 1.37.9 maintenance candidate is not a published release. Implementation and evidence: [review](quality-review-2026-09-08.md).
+Updated 2026-09-08. The 1.37.9 maintenance work was released on 2026-10-15. Implementation and evidence: [review](quality-review-2026-09-08.md).
 
 | Priority | Work | Acceptance criteria |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Updated 2026-09-08. The 1.37.9 maintenance candidate is not a published release.
 | P2 | Note concurrency | Notes remain last-write-wins across devices; add revision checks while preserving drafts |
 | P2 | Focused module extraction | Terminal lifecycle/rendering boundaries protected by regression tests; no rewrite solely for file length |
 
-## Implemented in the candidate
+## Implemented in 1.37.9
 
 Revision-checked task writes, legacy refusal, conflict review with retained attempted change, settings save rollback and inline validation, js-yaml/Vitest advisory fixes, Node24 CI, maintenance regression gates, fail-closed performance preconditions, and current documentation/maintenance configuration. See the candidate review for evidence and limits.
 
