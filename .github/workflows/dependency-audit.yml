@@ -16,5 +16,5 @@ jobs:
           node-version-file: '.nvmrc'
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm audit --audit-level=moderate
+      - run: npm audit --audit-level=high
       - run: npm audit --omit=dev --audit-level=moderate

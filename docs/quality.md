@@ -9,7 +9,7 @@ npm ci
 npm run build
 npm test
 npm run check:docs
-npm audit --audit-level=moderate
+npm audit --audit-level=high
 npm audit --omit=dev --audit-level=moderate
 npm run qa:maintenance
 npm run qa:resilience
@@ -17,6 +17,8 @@ npm run qa:session-sync
 npm run qa:audit
 npm run qa
 ```
+
+Shipped dependencies are held to moderate. The full tree, including build and test tools, is held to high: electron-builder (through `roarr`) and Vitest (through `sprintf-js`) carry moderate advisories that have no fixed release yet.
 
 Run Electron harnesses sequentially. On headless Linux use `xvfb-run`; the multilingual window journeys also need a window manager (CI uses Openbox). Windows-only controls and native PTY checks are explicitly scoped to Windows.
 

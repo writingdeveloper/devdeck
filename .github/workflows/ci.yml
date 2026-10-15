@@ -92,7 +92,9 @@ jobs:
       - run: npm ci
       - name: Check dependency advisories
         if: runner.os == 'Linux'
-        run: npm audit --audit-level=moderate
+        run: |
+          npm audit --audit-level=high
+          npm audit --omit=dev --audit-level=moderate
       - run: npm run build
       - name: Allow Electron sandbox
         if: runner.os == 'Linux'
