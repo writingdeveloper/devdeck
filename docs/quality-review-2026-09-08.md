@@ -1,6 +1,6 @@
 # Maintenance review — 2026-09-08
 
-Status: **1.37.9 candidate, not released**. Baseline: `83b27b3` / 1.37.7. Branch: `fix/reliability-docs-20260908`.
+Status: **released as 1.37.9** on 2026-10-15 ([notes](releases/1.37.9.md)). Baseline: `83b27b3` / 1.37.7. Branch: `fix/reliability-docs-20260908`.
 
 ## Fixed and checked
 
@@ -27,6 +27,7 @@ Performance QA refuses absent/invisible terminals, missing CPU measurements, inc
 | Actual Windows unpacked executable (built as the 1.37.9 candidate, before renumbering) | Maintenance 5/5 and resilience 9/9 passed, normal exit |
 | Current documentation checks | 8 documents, 21 local links and script/CI assertions passed |
 | Initial candidate all-OS CI and packaging | CI `34315556132` and Release dry-run `34315556248` passed at `24e3eb7`; publication skipped (PR, no tag) |
+| Merged with 1.37.8 and the project-list fix (2026-10-15) | 1,321 unit tests passed; all-OS CI and packaging passed on `5b520a7`. The full-tree advisory gate is high and the shipped-dependency gate moderate: electron-builder and Vitest carry moderate advisories with no fixed release |
 | Human visual acceptance, installer wizard, extended real network testing | Not performed by this review |
 
 Evidence locations: `qa/shots/maintenance/`, `qa/shots/resilience/`, and CI artifacts. Full logs stay local/attached, not committed. Tests use disposable profiles and synthetic tasks. Autostart and paid-summary settings are tested only on the failing-save path, before any operating-system/provider side effect; QA does not enable them.
