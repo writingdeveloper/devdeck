@@ -340,3 +340,37 @@ describe('cockpit:sessionsExist', () => {
     expect(((await sessionsExist(null, many)) as boolean[]).length).toBe(200);
   });
 });
+
+// The launch restore decides what comes back by when each conversation was last WRITTEN. The tile's
+// own last-output time cannot answer that — a terminal prints on every redraw.
+describe('cockpit:conversationsLastUsed', () => {
+  const projectPath = join(ALLOWED_ROOT, 'project');
+
+  it('answers each transcript mtime, null where there is nothing to read', async () => {
+    const lastUsed = handlers.get('cockpit:conversationsLastUsed')!;
+    claudeStats.mockImplementation(((p: string) => (p === projectPath ? [{ id: 'kept', mtimeMs: 111, birthtimeMs: 1 }] : [])) as never);
+    codexIndex.mockReturnValue(new Map([[cwdKey(projectPath), [{ id: 'cx-kept', mtimeMs: 222, firstMessage: null }]]]));
+
+    expect(await lastUsed(null, [
+      { projectPath, sessionId: 'kept', agentId: 'claude' },
+      { projectPath, sessionId: 'deleted', agentId: 'claude' },
+      { projectPath, sessionId: 'cx-kept', agentId: 'codex' },
+      { projectPath, sessionId: 'whatever', agentId: 'antigravity' },
+      { projectPath: join(process.cwd(), 'outside'), sessionId: 'kept', agentId: 'claude' },
+      { projectPath, sessionId: null, agentId: 'claude' },
+      'not an entry',
+    ])).toEqual([111, null, 222, null, null, null, null]);
+  });
+
+  it('stats each Claude project once and tolerates a non-array payload', async () => {
+    const lastUsed = handlers.get('cockpit:conversationsLastUsed')!;
+    claudeStats.mockClear();
+    claudeStats.mockImplementation(() => []);
+    await lastUsed(null, [
+      { projectPath, sessionId: 'a', agentId: 'claude' },
+      { projectPath, sessionId: 'b', agentId: 'claude' },
+    ]);
+    expect(claudeStats).toHaveBeenCalledTimes(1);
+    expect(await lastUsed(null, null)).toEqual([]);
+  });
+});

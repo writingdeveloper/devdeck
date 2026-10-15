@@ -16,7 +16,7 @@ See what needs attention, resume the right conversation, and work on a paired PC
 
 </div>
 
-> **Candidate documentation:** this branch contains the unreleased **1.37.8 reliability candidate**, including confirmed session renames and task conflict protection. The [published releases](https://github.com/writingdeveloper/devdeck/releases/latest), not this version number or a green build, determine what users can install. Use matching updated builds on both machines for the new write protocol. See [the candidate review](docs/quality-review-2026-09-08.md) and [session synchronization review](docs/session-sync-review-2026-09-08.md).
+> **Candidate documentation:** this branch contains the unreleased **1.37.9 reliability candidate**, including confirmed session renames and task conflict protection. The [published releases](https://github.com/writingdeveloper/devdeck/releases/latest), not this version number or a green build, determine what users can install. Use matching updated builds on both machines for the new write protocol. See [the candidate review](docs/quality-review-2026-09-08.md) and [session synchronization review](docs/session-sync-review-2026-09-08.md).
 
 <div align="center">
 <img src="docs/screenshots/projects.png" width="820" alt="DevDeck project overview with repository and session navigation" />
@@ -83,7 +83,7 @@ Both machines must be reachable, for example on the same LAN, through an existin
 | Application settings | Belong to the PC whose Settings screen you are using. |
 | Terminal screen | The host provides bounded recent output for reconstruction, not an unlimited durable archive. |
 
-**Compatibility:** confirmed titles and task editing need compatible 1.37.8-or-newer builds on both ends. During candidate testing, use the same build, not an earlier candidate with the same version number. The app checks title-version support and refuses unversioned writes rather than silently treating a viewer-only rename as shared success. Titles of disconnected or ended sessions cannot be remotely committed.
+**Compatibility:** confirmed titles and task editing need compatible 1.37.9-or-newer builds on both ends. During candidate testing, use the same build, not an earlier candidate with the same version number. The app checks title-version support and refuses unversioned writes rather than silently treating a viewer-only rename as shared success. Titles of disconnected or ended sessions cannot be remotely committed.
 
 Reconnecting reads the host's current title; it must not send an old cached title back. Clearing a custom title is an explicit change to the default project name, not an invitation to restore the old name. See [state ownership and consistency](docs/state-consistency.md) for the implementation contract and remaining gaps.
 

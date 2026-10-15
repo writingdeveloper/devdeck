@@ -1,6 +1,6 @@
 # Prioritized backlog
 
-Updated 2026-09-08. The 1.37.8 maintenance candidate is not a published release. Implementation and evidence: [review](quality-review-2026-09-08.md).
+Updated 2026-09-08. The 1.37.9 maintenance candidate is not a published release. Implementation and evidence: [review](quality-review-2026-09-08.md).
 
 | Priority | Work | Acceptance criteria |
 | --- | --- | --- |

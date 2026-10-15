@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cockpitNavigationId, cockpitNavigationIdForRuntime, persistedSessionKey, removeAutoRestoreMatches, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, persistedSessionKey, partitionLaunchRestore, takeLaunchRestoreCandidates, LAUNCH_RESTORE_MAX_IDLE_MS, removeAutoRestoreMatches, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
 
 describe('cockpit navigation identity', () => {
   it('keeps a live session context addressable after it becomes a persisted session', () => {
@@ -66,6 +66,72 @@ describe('auto-restore de-duplication', () => {
       [entry('migrated-a', 'first'), entry('migrated-b', 'second')],
       [entry('independent-migration', 'second')],
     )).toHaveLength(1);
+  });
+});
+
+describe('partitionLaunchRestore', () => {
+  const NOW = Date.UTC(2026, 9, 12, 3, 33);
+  const HOUR = 60 * 60 * 1000;
+  const entry = (tileId: string, extra: Partial<PersistedSession> = {}): PersistedSession =>
+    ({ tileId, projectPath: `C:/p/${tileId}`, name: tileId, sessionId: `s-${tileId}`, agentId: 'claude', ...extra });
+
+  it('reopens recently used conversations and leaves days-idle ones saved', () => {
+    // The 2026-10-12 host reboot: six conversations in use that day, two untouched for 4–5 days.
+    const recent = entry('recent');
+    const stale = entry('stale');
+    const { reopen, leave } = partitionLaunchRestore([recent, stale], [NOW - 2 * HOUR, NOW - 5 * 24 * HOUR], NOW);
+    expect(reopen).toEqual([recent]);
+    expect(leave).toEqual([stale]);
+  });
+
+  it('judges by the conversation, not the tile — a fresh lastActiveMs does not make it recent', () => {
+    // Measured 2026-10-14: every open tile saved lastActiveMs within the hour, idle ones included.
+    const redrawn = entry('redrawn', { lastActiveMs: NOW - 60_000 });
+    expect(partitionLaunchRestore([redrawn], [NOW - 4 * 24 * HOUR], NOW).leave).toEqual([redrawn]);
+  });
+
+  it('treats the limit itself as still recent', () => {
+    const edge = entry('edge');
+    expect(partitionLaunchRestore([edge], [NOW - LAUNCH_RESTORE_MAX_IDLE_MS], NOW).reopen).toEqual([edge]);
+  });
+
+  it('always reopens pinned entries, however old or unknown', () => {
+    const old = entry('old', { pinned: true });
+    const unknown = entry('unknown', { pinned: true });
+    expect(partitionLaunchRestore([old, unknown], [NOW - 30 * 24 * HOUR, null], NOW).reopen).toEqual([old, unknown]);
+  });
+
+  it('leaves entries whose use is unknown saved', () => {
+    const gone = entry('gone');
+    const unanswered = entry('unanswered');
+    expect(partitionLaunchRestore([gone, unanswered], [null], NOW)).toEqual({ reopen: [], leave: [gone, unanswered] });
+  });
+
+  it('keeps the original order within each side', () => {
+    const [a, b, c] = [entry('a'), entry('b'), entry('c')];
+    expect(partitionLaunchRestore([a, b, c], [NOW - HOUR, NOW - 3 * 24 * HOUR, NOW - 2 * HOUR], NOW, 24 * HOUR).reopen.map((e) => e.tileId)).toEqual(['a', 'c']);
+  });
+});
+
+describe('takeLaunchRestoreCandidates', () => {
+  const entry = (tileId: string, extra: Partial<PersistedSession> = {}): PersistedSession =>
+    ({ tileId, projectPath: `C:/p/${tileId}`, name: tileId, sessionId: `s-${tileId}`, agentId: 'claude', ...extra });
+
+  it("offers only this machine's tiles that were open, and strips the flag from the saved list", () => {
+    const open = entry('open', { wasLive: true });
+    const previous = entry('previous');
+    const remote = entry('remote', { wasLive: true, machineId: 'm-0123456789abcdef' });
+    const { saved, candidates } = takeLaunchRestoreCandidates([open, previous, remote]);
+    expect(candidates.map((e) => e.tileId)).toEqual(['open']);
+    expect(saved.map((e) => e.tileId)).toEqual(['open', 'previous', 'remote']);
+    expect(saved.some((e) => 'wasLive' in e)).toBe(false);
+  });
+
+  it('survives sanitizing, so a saved list round-trips the flag', () => {
+    const [kept] = sanitizePersistedList([{ projectPath: 'C:/p/x', sessionId: 's-x', wasLive: true }]);
+    expect(kept.wasLive).toBe(true);
+    const [plain] = sanitizePersistedList([{ projectPath: 'C:/p/y', sessionId: 's-y', wasLive: 'yes' }]);
+    expect(plain.wasLive).toBeUndefined();
   });
 });
 

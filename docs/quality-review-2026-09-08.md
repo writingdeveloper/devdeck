@@ -1,6 +1,6 @@
 # Maintenance review — 2026-09-08
 
-Status: **1.37.8 candidate, not released**. Baseline: `83b27b3` / 1.37.7. Branch: `fix/reliability-docs-20260908`.
+Status: **1.37.9 candidate, not released**. Baseline: `83b27b3` / 1.37.7. Branch: `fix/reliability-docs-20260908`.
 
 ## Fixed and checked
 
@@ -8,7 +8,7 @@ The baseline review reproduced failed setting writes that appeared applied, inva
 
 Tasks are saved with a persistent expected revision. The host compares and writes synchronously in one Store instance. A stale writer receives the current committed snapshot without writing. The UI shows the latest list and retains the attempted change for review; new-task text remains available for a deliberate retry. Two separately paired clients through real loopback TLS exercise the same Store behavior. This is not evidence of two-physical-PC field validation.
 
-The protocol method changed to `project:saveTodos`, rather than appending an ignored argument to the old method. New viewers recognize hosts without revision metadata; new hosts refuse old `project:setTodos` calls with an update message. Both host and viewer need 1.37.8 or a later compatible version for task editing. Notes remain last-write-wins and are tracked separately.
+The protocol method changed to `project:saveTodos`, rather than appending an ignored argument to the old method. New viewers recognize hosts without revision metadata; new hosts refuse old `project:setTodos` calls with an update message. Both host and viewer need 1.37.9 or a later compatible version for task editing. Notes remain last-write-wins and are tracked separately.
 
 `js-yaml` was updated from 4.3.1 to 4.3.2 and Vitest from 3.2.7 to 4.1.11. Full and production advisory checks must be rerun when preparing publication. Node24 is selected by `.nvmrc` for CI. No global Node/npm installation was changed.
 
@@ -24,7 +24,7 @@ Performance QA refuses absent/invisible terminals, missing CPU measurements, inc
 | Existing resilience Electron journeys | 9 passed, normal shutdown |
 | Dependency audit after upgrades | 0 known vulnerabilities at time of check |
 | Node.js 24.20.0 unit suite (Windows, temporary npx toolchain) | 1,289 passed, 1 pre-existing skip |
-| Actual Windows 1.37.8 unpacked executable | Maintenance 5/5 and resilience 9/9 passed, normal exit |
+| Actual Windows unpacked executable (built as the 1.37.9 candidate, before renumbering) | Maintenance 5/5 and resilience 9/9 passed, normal exit |
 | Current documentation checks | 8 documents, 21 local links and script/CI assertions passed |
 | Initial candidate all-OS CI and packaging | CI `34315556132` and Release dry-run `34315556248` passed at `24e3eb7`; publication skipped (PR, no tag) |
 | Human visual acceptance, installer wizard, extended real network testing | Not performed by this review |

@@ -1,6 +1,6 @@
 # Session title synchronization: 2026-09-08
 
-Status: implemented in the unreleased 1.37.8 candidate on PR #33. This review extends the [earlier maintenance pass](quality-review-2026-09-08.md); it is not evidence that the installed/public 1.37.7 application has been replaced.
+Status: implemented in the unreleased 1.37.9 candidate on PR #33. This review extends the [earlier maintenance pass](quality-review-2026-09-08.md); it is not evidence that the installed/public 1.37.7 application has been replaced.
 
 ## Reproduced defect
 

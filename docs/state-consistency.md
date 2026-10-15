@@ -1,6 +1,6 @@
 # State ownership and consistency
 
-This is the implementation/review contract for the 1.37.8 candidate. It is not a claim that every mutable field has already migrated to one state framework.
+This is the implementation/review contract for the 1.37.9 candidate. It is not a claim that every mutable field has already migrated to one state framework.
 
 ## Why locally correct code still failed in use
 

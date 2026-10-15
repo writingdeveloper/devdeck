@@ -28,7 +28,7 @@ For a bug fix, describe the observed user-visible failure and add a regression t
 
 Run GUI harnesses sequentially. `qa:maintenance` and `qa:resilience` use isolated profiles and fixture projects. Do not run QA against a user's current conversation. The older `qa:link` can launch installed real provider CLIs; it remains a supervised manual harness. `qa:perf` also requires the explicit `--allow-live-agents` flag and must not be run unattended. A future deterministic performance fixture is tracked in the backlog.
 
-Task saves use `project:saveTodos` with an expected revision. Do not fall back to the unversioned method for compatibility: that would recreate silent data loss. Host and viewer must both support this protocol (1.37.8+). Conflicts require review; no automatic replay of a stale array.
+Task saves use `project:saveTodos` with an expected revision. Do not fall back to the unversioned method for compatibility: that would recreate silent data loss. Host and viewer must both support this protocol (1.37.9+). Conflicts require review; no automatic replay of a stale array.
 
 ## Pull requests
 
