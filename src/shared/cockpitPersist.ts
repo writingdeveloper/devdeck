@@ -13,6 +13,9 @@ export interface PersistedSession {
   /** Epoch ms of the tile's last activity. The sidebar orders by it, so it has to outlive the restart
    *  that turned the tile back into a saved entry — absent (pre-v1.32 state.json) sorts last by name. */
   lastActiveMs?: number;
+  /** The tile was open in the cockpit (not just listed as previous) when this was saved. Read once, at
+   *  launch, to decide what comes back by itself — see takeLaunchRestoreCandidates. */
+  wasLive?: boolean;
   /**
    * Which machine the terminal actually ran on; absent means this one.
    *
@@ -79,6 +82,63 @@ export function removeAutoRestoreMatches(
     if (index >= 0) remaining.splice(index, 1);
   }
   return remaining;
+}
+
+/**
+ * How long a conversation may sit unused and still come back by itself when the app launches.
+ *
+ * A plain launch (after a reboot, a sign-in, a quit) used to bring back nothing: every tile became a
+ * saved entry, and the person found an empty cockpit and pressed Restore all — which reopened
+ * everything, including conversations nobody had touched for days. Every restored entry is a whole
+ * agent process on its machine — ~1 GB for Claude alone, plus one copy of every MCP server it is
+ * configured with; measured 2026-10-13 on SIHYEONG-4080: 8 resumed tiles holding ~2.4 GB each, two of
+ * them idle for 4–5 days. Entries past this stay saved — one click still opens any of them.
+ */
+export const LAUNCH_RESTORE_MAX_IDLE_MS = 48 * 60 * 60 * 1000;
+
+/**
+ * The tiles that were open in the cockpit when the list was last saved — the ones a launch puts
+ * back — split from the list the "Previous" sidebar shows. The returned list carries no `wasLive`:
+ * once this launch has decided, an entry it left saved is an ordinary saved entry, and must not come
+ * back by itself on the launch after.
+ *
+ * Only this machine's tiles are candidates. A remote tile's terminal belongs to its own machine, which
+ * restores it on ITS launch; this deck adopts it when that machine announces it.
+ */
+export function takeLaunchRestoreCandidates(list: readonly PersistedSession[]): { saved: PersistedSession[]; candidates: PersistedSession[] } {
+  const saved: PersistedSession[] = [];
+  const candidates: PersistedSession[] = [];
+  for (const { wasLive, ...entry } of list) {
+    saved.push(entry);
+    if (wasLive && !entry.machineId) candidates.push(entry);
+  }
+  return { saved, candidates };
+}
+
+/**
+ * Split a launch restore into what to reopen now and what to leave saved, by when each conversation
+ * was last USED — `usedAtMs[i]` for `entries[i]`, normally its transcript's mtime.
+ *
+ * Not `lastActiveMs`: that is the tile's last output, and a terminal prints on every redraw, so a tile
+ * left open for days still reads as active the minute the list was saved. The transcript only changes
+ * when the conversation does. Pinned entries always come back: the pin is the user saying this one
+ * matters. An entry whose use is unknown is left saved — leaving it costs a click, reopening a stale
+ * one costs a process.
+ */
+export function partitionLaunchRestore(
+  entries: readonly PersistedSession[],
+  usedAtMs: readonly (number | null | undefined)[],
+  nowMs: number,
+  maxIdleMs: number = LAUNCH_RESTORE_MAX_IDLE_MS,
+): { reopen: PersistedSession[]; leave: PersistedSession[] } {
+  const reopen: PersistedSession[] = [];
+  const leave: PersistedSession[] = [];
+  entries.forEach((entry, i) => {
+    const used = usedAtMs[i];
+    const recent = typeof used === 'number' && Number.isFinite(used) && nowMs - used <= maxIdleMs;
+    (entry.pinned || recent ? reopen : leave).push(entry);
+  });
+  return { reopen, leave };
 }
 
 /** Translate the runtime ID carried by a notification into the shell's current navigation identity. */
@@ -300,6 +360,7 @@ export function sanitizePersistedList(raw: unknown, createTileId: () => string =
       label,
       pinned: o.pinned === true ? true : undefined, // omit when not pinned (keeps state.json minimal)
       lastActiveMs,
+      wasLive: o.wasLive === true ? true : undefined,
       // Narrowed here rather than trusted: an unreadable id must mean "this machine", never "some
       // machine" — resolving it to a remote would send a project path to a host that has different
       // work at that path.

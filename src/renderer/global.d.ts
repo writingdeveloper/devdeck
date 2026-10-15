@@ -137,6 +137,8 @@ declare global {
         sessionIds(projectPath: string, agentId?: import('../shared/types').AgentId): Promise<string[]>;
         /** Parallel array: does each saved entry's conversation still exist on disk? Unverifiable → true. */
         sessionsExist(items: { projectPath: string; sessionId: string | null; agentId?: string }[]): Promise<boolean[]>;
+        /** Parallel array: each saved entry's transcript mtime (epoch ms), null where there is nothing to read. */
+        conversationsLastUsed(items: { projectPath: string; sessionId: string | null; agentId?: string }[]): Promise<(number | null)[]>;
         liveSessionId(projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: import('../shared/types').AgentId }): Promise<string | null>;
         liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;
         gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;

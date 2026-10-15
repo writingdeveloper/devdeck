@@ -779,6 +779,37 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       return ids.has(sessionId);
     });
   });
+  /**
+   * When each saved entry's conversation was last written — its transcript's mtime — answered as a
+   * parallel array, null where there is nothing to read (no id, an Antigravity entry, a denied path,
+   * a transcript that is gone). The launch restore reads this rather than the tile's last output,
+   * which a terminal refreshes on every redraw. Batched the same way as sessionsExist, for the same
+   * reasons.
+   */
+  invoke('cockpit:conversationsLastUsed', allow('observe'), async (items: unknown) => {
+    const list = (Array.isArray(items) ? items : []).slice(0, 200);
+    const folders = effFolders();
+    const claudeStats = new Map<string, Map<string, number>>();
+    const wantsCodex = list.some((raw) => agentFor((raw as { agentId?: unknown })?.agentId).id === 'codex');
+    const codexByCwd = wantsCodex ? await indexCodexSessionsByCwd(CODEX_SESSIONS) : null;
+    return list.map((raw): number | null => {
+      const it = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const projectPath = typeof it.projectPath === 'string' ? it.projectPath : '';
+      const sessionId = typeof it.sessionId === 'string' ? it.sessionId : '';
+      if (!sessionId || !projectPath || !isAllowedPath(folders, projectPath)) return null;
+      const owner = agentFor(it.agentId).id;
+      if (owner === 'antigravity') return null;
+      if (owner === 'codex') {
+        return (codexByCwd?.get(cwdKey(projectPath)) ?? []).find((s) => s.id === sessionId)?.mtimeMs ?? null;
+      }
+      let stats = claudeStats.get(projectPath);
+      if (!stats) {
+        stats = new Map(listSessionStats(projectPath, CLAUDE_PROJECTS).map((s) => [s.id, s.mtimeMs]));
+        claudeStats.set(projectPath, stats);
+      }
+      return stats.get(sessionId) ?? null;
+    });
+  });
   // Live session-id drift check (/clear starts a brand-new session id in the same terminal — the
   // open-time id then goes stale and a restart would restore the PAST conversation). The renderer
   // sends the tile's timing evidence; this stats the project's session files and adopts a new id only
