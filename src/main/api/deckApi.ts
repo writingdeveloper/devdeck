@@ -63,6 +63,8 @@ export interface DeckApiBundle {
 }
 
 const CLAUDE_PROJECTS = join(homedir(), '.claude', 'projects');
+/** A project list slower than this is logged with where its time went (see projects:list). */
+const SLOW_PROJECT_LIST_MS = 20_000;
 const CLAUDE_TASKS = join(homedir(), '.claude', 'tasks');
 const CODEX_SESSIONS = join(homedir(), '.codex', 'sessions');
 const ANTIGRAVITY_DIR = join(homedir(), '.gemini', 'antigravity');
@@ -203,17 +205,40 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     lastUserMessage: (p, session) => getProvider(session.agentId).lastUserMessage(p, session.id),
     entry: (p) => cfg.store.get(p),
   });
-  invoke('projects:list', allow('observe'), async () => {
+  // ONE build at a time, shared by every caller. The deck gives up on an answer after 150s and asks
+  // again on its next refresh, but giving up does not stop the walk here — so on a machine that had
+  // just booted (cold disk, every repository's git and the whole Codex store still to read) each retry
+  // started a second and third walk on top of the first, and none finished: SIHYEONG-4080 logged five
+  // 150s timeouts in a row on 2026-10-12. A late caller now joins the walk already under way.
+  let projectListInFlight: ReturnType<typeof buildProjectList> | null = null;
+  invoke('projects:list', allow('observe'), () => {
+    if (projectListInFlight) return projectListInFlight;
     const scan = makeDeckScan();
-    return buildProjectList({
-      nowMs: Date.now(),
+    // Where a slow build spent its time, summed per stage across the worker pool — the only way to
+    // tell git from the transcript stores after the fact on a machine nobody was watching.
+    const spent = { scan: 0, git: 0, sessions: 0, cue: 0 };
+    const timed = async <T>(stage: keyof typeof spent, work: () => Promise<T> | T): Promise<T> => {
+      const t = Date.now();
+      try { return await work(); } finally { spent[stage] += Date.now() - t; }
+    };
+    const started = Date.now();
+    let count = 0;
+    projectListInFlight = buildProjectList({
+      nowMs: started,
       thresholds: effThresholds(),
-      scan: memoScan,
-      git: (dir) => getGitInfo(dir),
-      sessions: (p) => scan.sessions(p),
-      resumeCue: (p, session) => getProvider(session.agentId).lastUserMessage(p, session.id),
+      scan: () => timed('scan', memoScan),
+      git: (dir) => timed('git', () => getGitInfo(dir)),
+      sessions: (p) => timed('sessions', () => scan.sessions(p)),
+      resumeCue: (p, session) => timed('cue', () => getProvider(session.agentId).lastUserMessage(p, session.id)),
       getEntry: (p) => cfg.store.get(p),
+    }).then((list) => { count = list.length; return list; }).finally(() => {
+      projectListInFlight = null;
+      const ms = Date.now() - started;
+      if (ms >= SLOW_PROJECT_LIST_MS) {
+        cfg.diagnostics?.write('warn', 'deck', `projects:list took ${ms}ms for ${count} projects (summed: scan=${spent.scan} git=${spent.git} sessions=${spent.sessions} cue=${spent.cue}ms)`);
+      }
     });
+    return projectListInFlight;
   });
   invoke('project:memory', allow('observe'), (projectPath: string, fresh?: boolean) => {
     const projectPathString = String(projectPath);
