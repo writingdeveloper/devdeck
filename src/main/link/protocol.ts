@@ -174,6 +174,13 @@ export interface DecodedFrame {
   payload: Buffer;
 }
 
+/**
+ * The ceiling for a connection that has not been let in yet. Before `ready`, a peer may only say
+ * `hello` and `pair` — a few hundred bytes — and anyone who can reach the port can open one, so the
+ * full ceiling would let each of them park megabytes in this process for the grace period.
+ */
+export const PRE_AUTH_MAX_FRAME_BYTES = 64 * 1024;
+
 export interface FrameDecoder {
   /**
    * Feed one socket chunk; returns whatever complete frames it completed.
@@ -183,43 +190,92 @@ export interface FrameDecoder {
   push(chunk: Buffer): DecodedFrame[];
   /** Bytes held back waiting for the rest of a frame — a stall diagnostic, not a protocol feature. */
   readonly pending: number;
+  /** The largest frame this decoder accepts; never above MAX_FRAME_BYTES. Checked as each header is read. */
+  maxFrameBytes: number;
 }
 
 /**
  * TCP gives a byte stream, not messages: a frame arrives split across chunks, several frames arrive in
  * one chunk, and a header itself can straddle the boundary. That is where framing bugs live, so this
- * is a plain buffer-and-slice loop with no fast paths.
+ * stays a plain loop with no fast paths.
+ *
+ * Chunks are held as a LIST and only joined once a whole frame is there. Gluing every chunk onto
+ * the buffer as it arrived (and re-copying the tail after each frame) copied a large frame once per
+ * chunk — an 8 MB replay arriving in 64 KB reads was a quadratic number of bytes moved on the
+ * thread that serves every live terminal.
  */
-export function makeFrameDecoder(): FrameDecoder {
-  let buffer = Buffer.alloc(0);
+export function makeFrameDecoder(options: { maxFrameBytes?: number } = {}): FrameDecoder {
+  const chunks: Buffer[] = [];
+  let length = 0;
+  let limit = clampLimit(options.maxFrameBytes);
+
+  /** The first `n` bytes, without consuming them. Only ever asked for a header's worth. */
+  const peek = (n: number): Buffer => {
+    if (chunks[0].length >= n) return chunks[0];
+    const out = Buffer.allocUnsafe(n);
+    let filled = 0;
+    for (const c of chunks) {
+      filled += c.copy(out, filled, 0, Math.min(c.length, n - filled));
+      if (filled >= n) break;
+    }
+    return out;
+  };
+
+  /** Remove exactly `n` bytes from the front, into a buffer of their own. */
+  const take = (n: number): Buffer => {
+    // Its own allocation, never a slice of a chunk: a slice would pin that chunk, and through it the
+    // bytes of whatever it was read alongside, for as long as the payload lives.
+    const out = Buffer.allocUnsafe(n);
+    let filled = 0;
+    while (filled < n) {
+      const head = chunks[0];
+      const want = n - filled;
+      if (head.length <= want) {
+        head.copy(out, filled);
+        filled += head.length;
+        chunks.shift();
+      } else {
+        head.copy(out, filled, 0, want);
+        filled += want;
+        chunks[0] = head.subarray(want);
+      }
+    }
+    length -= n;
+    return out;
+  };
+
   return {
     push(chunk) {
       // Copy the incoming chunk rather than adopting it: the socket's buffer is reused, and holding a
       // reference to it across ticks is how a decoder starts reading bytes from a later read.
-      buffer = buffer.length === 0 ? Buffer.from(chunk) : Buffer.concat([buffer, chunk]);
+      if (chunk.length > 0) { chunks.push(Buffer.from(chunk)); length += chunk.length; }
       const frames: DecodedFrame[] = [];
       for (;;) {
-        if (buffer.length < FRAME_HEADER_BYTES) break;
-        const declared = buffer.readUInt32BE(0);
+        if (length < FRAME_HEADER_BYTES) break;
+        const header = peek(FRAME_HEADER_BYTES);
+        const declared = header.readUInt32BE(0);
         // A zero-length frame carries not even a kind byte; a huge one is a peer we cannot follow.
-        if (declared < 1 || declared > MAX_FRAME_BYTES) {
+        if (declared < 1 || declared > limit) {
           throw new Error(`link: refusing a frame of ${declared} bytes`);
         }
         const total = 4 + declared;
-        if (buffer.length < total) break;
-        const kind = buffer.readUInt8(4);
+        if (length < total) break;
+        const kind = header.readUInt8(4);
         if (kind !== FrameKind.Json && kind !== FrameKind.Pty) {
           throw new Error(`link: unknown frame kind ${kind}`);
         }
-        // Copy rather than subarray: the slice would pin the whole concatenated buffer alive, which for
-        // a long-lived terminal stream means holding every chunk it was ever glued to.
-        frames.push({ kind, payload: Buffer.from(buffer.subarray(FRAME_HEADER_BYTES, total)) });
-        buffer = Buffer.from(buffer.subarray(total));
+        frames.push({ kind, payload: take(total).subarray(FRAME_HEADER_BYTES) });
       }
       return frames;
     },
-    get pending() { return buffer.length; },
+    get pending() { return length; },
+    get maxFrameBytes() { return limit; },
+    set maxFrameBytes(value: number) { limit = clampLimit(value); },
   };
+}
+
+function clampLimit(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 ? Math.min(Math.floor(value), MAX_FRAME_BYTES) : MAX_FRAME_BYTES;
 }
 
 /**

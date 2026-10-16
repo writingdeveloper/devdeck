@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  FrameKind, FRAME_HEADER_BYTES, LINK_PROTOCOL, MAX_FRAME_BYTES,
+  FrameKind, FRAME_HEADER_BYTES, LINK_PROTOCOL, MAX_FRAME_BYTES, PRE_AUTH_MAX_FRAME_BYTES,
   encodeJsonFrame, encodePtyFrame, decodePtyPayload, makeFrameDecoder, parseLinkMessage, protocolMatches,
 } from './protocol';
 
@@ -122,5 +122,50 @@ describe('protocolMatches', () => {
     expect(protocolMatches(LINK_PROTOCOL)).toBe(true);
     expect(protocolMatches('devdeck-link/2')).toBe(false);
     expect(protocolMatches(undefined)).toBe(false);
+  });
+});
+
+describe('makeFrameDecoder limits and large frames', () => {
+  it('reassembles a large frame fed in small chunks, byte-identical', () => {
+    // A scrollback replay is the largest real frame and arrives in socket-sized reads. Gluing every
+    // read onto the buffer as it came copied the frame once per read — quadratic in its size.
+    const body = Buffer.alloc(4 * 1024 * 1024);
+    for (let i = 0; i < body.length; i++) body[i] = (i * 31) & 0xff;
+    const frame = encodePtyFrame('big', body);
+    const decoder = makeFrameDecoder();
+    const out = [];
+    const started = Date.now();
+    for (let i = 0; i < frame.length; i += 16 * 1024) out.push(...decoder.push(frame.subarray(i, i + 16 * 1024)));
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(out).toHaveLength(1);
+    expect(decodePtyPayload(out[0].payload)!.bytes.equals(body)).toBe(true);
+    expect(decoder.pending).toBe(0);
+  });
+
+  it('keeps frames that share a chunk with the tail of a previous one intact', () => {
+    const a = encodeJsonFrame({ t: 'detach', sessionId: 'a' });
+    const b = encodeJsonFrame({ t: 'detach', sessionId: 'b' });
+    const c = encodeJsonFrame({ t: 'detach', sessionId: 'c' });
+    const all = Buffer.concat([a, b, c]);
+    const decoder = makeFrameDecoder();
+    const split = a.length + 2; // the second header straddles the boundary
+    const frames = [...decoder.push(all.subarray(0, split)), ...decoder.push(all.subarray(split))];
+    expect(frames.map((f) => (decodeJson(f.payload) as { sessionId: string }).sessionId)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('refuses a frame over a lowered ceiling, and accepts it once the ceiling is raised', () => {
+    // Before a peer is let in, nothing it may say is bigger than a hello.
+    const frame = encodePtyFrame('s', Buffer.alloc(PRE_AUTH_MAX_FRAME_BYTES + 10));
+    expect(() => makeFrameDecoder({ maxFrameBytes: PRE_AUTH_MAX_FRAME_BYTES }).push(frame)).toThrow(/refusing a frame/);
+    const decoder = makeFrameDecoder({ maxFrameBytes: PRE_AUTH_MAX_FRAME_BYTES });
+    decoder.maxFrameBytes = MAX_FRAME_BYTES;
+    expect(decoder.push(frame)).toHaveLength(1);
+  });
+
+  it('never lets a ceiling be raised past the protocol maximum', () => {
+    const decoder = makeFrameDecoder({ maxFrameBytes: MAX_FRAME_BYTES * 4 });
+    expect(decoder.maxFrameBytes).toBe(MAX_FRAME_BYTES);
+    decoder.maxFrameBytes = Number.NaN;
+    expect(decoder.maxFrameBytes).toBe(MAX_FRAME_BYTES);
   });
 });

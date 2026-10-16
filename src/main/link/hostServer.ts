@@ -22,14 +22,17 @@
 import * as tls from 'node:tls';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { DeckApiBundle } from '../api/deckApi';
-import { mayCallRemotely, sessionIdArgOf } from '../api/methods';
+import { mayCallRemotely, sessionIdArgOf, type ApiMethod } from '../api/methods';
 import { attachConnection, type HeartbeatOptions, type LinkConnection } from './connection';
 import { makeTokenBucket, type TokenBucket } from './tokenBucket';
 import { isRemoteId } from '../../shared/link/machine';
 import { fingerprintsMatch } from './selfSignedCert';
-import { findPairedDevice, upsertPairedDevice, type PairedDevice } from './devices';
+import { findPairedDevice, upsertPairedDeviceReporting, type PairedDevice } from './devices';
 import { tokensMatch } from './inviteCode';
-import { LINK_FEATURES, LINK_PROTOCOL, peerSupports, protocolMatches, type LinkErrorCode, type LinkMessage } from './protocol';
+import {
+  LINK_FEATURES, LINK_PROTOCOL, MAX_FRAME_BYTES, PRE_AUTH_MAX_FRAME_BYTES, peerSupports, protocolMatches,
+  type LinkErrorCode, type LinkMessage,
+} from './protocol';
 import { sanitizeMachineName, isValidMachineId } from '../../shared/link/machine';
 import { sanitizePermissions, type LinkPermission } from '../../shared/link/permissions';
 import type { LinkIdentity } from './identity';
@@ -93,6 +96,10 @@ export interface HostServerOptions {
   sessionIds: () => string[] | null;
   /** Requests a connection may make: `capacity` at once, refilling at `refillPerMs`. */
   rateLimit?: { capacity: number; refillPerMs: number };
+  /** The same, for fire-and-forget calls other than keystrokes (see the `notify` case). */
+  notifyRateLimit?: { capacity: number; refillPerMs: number };
+  /** Connections not yet let in that may be open at once (see MAX_UNAUTHENTICATED_CONNECTIONS). */
+  maxUnauthenticated?: number;
   heartbeat?: HeartbeatOptions;
 }
 
@@ -144,8 +151,39 @@ const MAX_ATTACHED_PER_CONNECTION = 64;
 /** Sixty requests in hand, six a second after that — a deck refresh is a handful, a runaway loop is not. */
 const DEFAULT_RATE_LIMIT = { capacity: 60, refillPerMs: 6 / 1000 };
 
+/**
+ * Fire-and-forget calls other than keystrokes: resizes, closes. A window drag or a "close all" is a
+ * burst of dozens, which this must absorb; a loop sending thousands a second is not something any
+ * viewer does.
+ */
+const DEFAULT_NOTIFY_RATE_LIMIT = { capacity: 60, refillPerMs: 30 / 1000 };
+
+/**
+ * Connections that have not been let in yet, open at once. Each is cheap but not free — a TLS
+ * session, a socket, a grace timer — and anyone who can reach the port can open them. A person
+ * pairing a machine needs one.
+ */
+const MAX_UNAUTHENTICATED_CONNECTIONS = 8;
+
+/** TLS handshakes that never finish are bounded too; the default would hold each for two minutes. */
+const TLS_HANDSHAKE_TIMEOUT_MS = 15_000;
+
 /** A refusal is logged at most this often per connection, so the limiter cannot itself fill the log. */
 const REFUSAL_LOG_INTERVAL_MS = 10_000;
+
+/**
+ * Rows a device that was never let in may write to the audit log: a burst, then one a minute. The log
+ * keeps its newest 500 rows, so without this anyone who can reach the port could push a month of
+ * real history out of it by connecting in a loop. What is held back is counted on the next row.
+ */
+const PRE_AUTH_LOG_BURST = 20;
+const PRE_AUTH_LOG_REFILL_PER_MS = 1 / 60_000;
+
+/**
+ * The only event channels a paired machine is sent. The hub carries whatever this process publishes,
+ * and a channel added for the local window later must not start leaking to every paired device.
+ */
+const REMOTE_EVENT_CHANNELS = new Set(['cockpit:data', 'cockpit:exit', 'cockpit:resized', 'cockpit:sessions']);
 
 interface Session {
   connection: LinkConnection;
@@ -158,7 +196,10 @@ interface Session {
   /** Display metadata only: authentication always uses the pinned certificate and pairing token. */
   peerIdentity?: { machineId: string; machineName: string };
   requests: TokenBucket;
+  notifies: TokenBucket;
   lastRefusalLogMs: number;
+  /** Refusals the throttle held back since the last one it logged. */
+  suppressedRefusals: number;
   /** What the client's hello announced it can do. */
   peerPings: boolean;
 }
@@ -184,6 +225,24 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
     session.connection.close(code);
   };
 
+  const preAuthLog = makeTokenBucket({ capacity: PRE_AUTH_LOG_BURST, refillPerMs: PRE_AUTH_LOG_REFILL_PER_MS, now: options.now });
+  let preAuthSuppressed = 0;
+
+  /**
+   * Every audit row goes through here. A paired device's rows are written as they come (its own
+   * refusals are throttled per connection, below); a peer that was never let in shares one budget
+   * across ALL such peers, because opening another connection is free.
+   */
+  const record = (session: Session | null, entry: HostLogEntry): void => {
+    if (session?.device) { options.log(entry); return; }
+    if (!preAuthLog.take()) { preAuthSuppressed += 1; return; }
+    if (preAuthSuppressed > 0) {
+      entry = { ...entry, detail: `${entry.detail} (+${preAuthSuppressed} more from unpaired peers)` };
+      preAuthSuppressed = 0;
+    }
+    options.log(entry);
+  };
+
   const server = tls.createServer({
     key: options.identity.keyPem,
     cert: options.identity.certPem,
@@ -193,6 +252,7 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
     requestCert: true,
     rejectUnauthorized: false,
     minVersion: 'TLSv1.3',
+    handshakeTimeout: TLS_HANDSHAKE_TIMEOUT_MS,
   });
 
   server.on('secureConnection', (socket) => {
@@ -201,9 +261,21 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
 
     // No certificate at all: nothing to identify, nothing to pair. Refuse before reading a byte.
     if (!fingerprint) {
-      options.log({ at: options.now(), kind: 'rejected', machineName: '', fingerprint: '', detail: 'no client certificate' });
+      record(null, { at: options.now(), kind: 'rejected', machineName: '', fingerprint: '', detail: 'no client certificate' });
       socket.destroy();
       return;
+    }
+
+    // A paired device is never turned away by this — only strangers count against it, and a stranger
+    // over the limit is dropped before it costs a timer or a frame.
+    if (!known) {
+      let waiting = 0;
+      for (const s of sessions) if (!s.device) waiting += 1;
+      if (waiting >= (options.maxUnauthenticated ?? MAX_UNAUTHENTICATED_CONNECTIONS)) {
+        record(null, { at: options.now(), kind: 'rejected', machineName: '', fingerprint, detail: 'too many unpaired connections' });
+        socket.destroy();
+        return;
+      }
     }
 
     const session: Session = {
@@ -214,7 +286,9 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       pairAttempts: 0,
       helloSeen: false,
       requests: makeTokenBucket({ ...(options.rateLimit ?? DEFAULT_RATE_LIMIT), now: options.now }),
+      notifies: makeTokenBucket({ ...(options.notifyRateLimit ?? DEFAULT_NOTIFY_RATE_LIMIT), now: options.now }),
       lastRefusalLogMs: 0,
+      suppressedRefusals: 0,
       peerPings: false,
     };
 
@@ -230,13 +304,15 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       onClose: () => {
         if (session.unauthenticatedTimer) clearTimeout(session.unauthenticatedTimer);
         sessions.delete(session);
-        options.log({
+        record(session, {
           at: options.now(), kind: 'disconnected',
           machineName: session.device?.machineName ?? '', fingerprint, detail: '',
         });
         announce();
       },
-    }, options.heartbeat);
+      // Until `ready`, nothing this peer may say is larger than a hello; the full ceiling is granted
+      // in sendReady.
+    }, options.heartbeat, { maxFrameBytes: PRE_AUTH_MAX_FRAME_BYTES });
 
     sessions.add(session);
     // An unknown device that connects and then says nothing must not sit here holding a socket. This
@@ -287,26 +363,30 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
         // expired code ends up reported as "not paired" and sends someone to check their firewall.
         if (message.wantsPairing !== true) {
           fail(session, 'unpaired', 'This machine is not paired. Generate a connection code on the host.');
-          options.log({ at: options.now(), kind: 'rejected', machineName: '', fingerprint, detail: 'unpaired device' });
+          record(session, { at: options.now(), kind: 'rejected', machineName: '', fingerprint, detail: 'unpaired device' });
         }
         return;
       }
       case 'pair': {
         if (!session.helloSeen) { fail(session, 'protocol-mismatch', 'pair before hello'); return; }
+        // Already paired: it was let in on its certificate the moment it said hello. Redeeming a code
+        // now would spend an invite the person made for some OTHER machine, and swap this device's
+        // permissions for that invite's — a change nobody approved for it.
+        if (session.device) return;
         pair(session, message.token, fingerprint);
         return;
       }
       case 'req': {
         if (!session.helloSeen) { fail(session, 'protocol-mismatch', 'request before hello'); return; }
-        const method = options.api.methods[message.method];
+        const method = methodNamed(message.method);
         const args = Array.isArray(message.args) ? message.args : [];
-        if (!authorized(session, message.method)) {
+        if (!method || !authorized(session, message.method)) {
           session.connection.send({
             t: 'res', id: message.id, ok: false,
             code: method ? 'permission-denied' : 'method-not-available',
             error: method ? `not permitted: ${message.method}` : `no such method: ${message.method}`,
           });
-          denied(session, fingerprint, message.method);
+          deniedThrottled(session, fingerprint, String(message.method).slice(0, 80));
           return;
         }
         if (!sessionArgAllowed(session, fingerprint, message.method, args)) {
@@ -335,12 +415,29 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       case 'notify': {
         if (!session.helloSeen) { fail(session, 'protocol-mismatch', 'request before hello'); return; }
         const args = Array.isArray(message.args) ? message.args : [];
-        if (!authorized(session, message.method)) { denied(session, fingerprint, message.method); return; }
+        const method = methodNamed(message.method);
+        if (!method || !authorized(session, message.method)) { deniedThrottled(session, fingerprint, String(message.method).slice(0, 80)); return; }
+        // A notify is a `send` method's transport and nothing else. Without this it was a way to run
+        // any `invoke` method — a project scan, a session spawn — with no reply and outside the
+        // request budget, because notifies are deliberately not counted against that budget.
+        if (method.channel !== 'send') { deniedThrottled(session, fingerprint, `notify:${message.method}`); return; }
         if (!sessionArgAllowed(session, fingerprint, message.method, args)) return;
-        // Not rate-limited: these are keystrokes and resizes, bursty by nature, and a dropped keystroke
-        // is worse than a slow scan. The output backlog guard below bounds what they can cost.
+        // Keystrokes are never limited: they are bursty by nature (a paste is hundreds at once), and a
+        // dropped keystroke is worse than a slow scan. Everything else — resizes, closes — gets a
+        // budget generous enough for a window drag, so a runaway loop cannot spin a handler forever.
+        if (message.method !== 'cockpit:input' && !session.notifies.take()) {
+          deniedThrottled(session, fingerprint, `rate-limited:${message.method}`);
+          return;
+        }
         try {
-          remoteCallContext.run('remote', () => { options.api.methods[message.method].handler(...args); });
+          remoteCallContext.run('remote', () => {
+            const result = method.handler(...args) as unknown;
+            // An async `send` handler that rejects has nobody to reject to. Left alone it becomes an
+            // unhandled rejection in the main process, on a call another machine can repeat at will.
+            if (result && typeof (result as PromiseLike<unknown>).then === 'function') {
+              Promise.resolve(result).catch(() => { /* fire-and-forget: nowhere to report it */ });
+            }
+          });
         } catch { /* a fire-and-forget call has nowhere to report to; the global trap logs it */ }
         return;
       }
@@ -348,10 +445,13 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
         if (!session.helloSeen) { fail(session, 'protocol-mismatch', 'request before hello'); return; }
         // Watching a session's output is reading it, and resizing it is driving it — so attach needs
         // both, and asks through the same methods a local viewer would.
-        if (!authorized(session, 'cockpit:resize')) { denied(session, fingerprint, 'attach'); return; }
+        if (!authorized(session, 'cockpit:resize')) { deniedThrottled(session, fingerprint, 'attach'); return; }
         const sessionId = message.sessionId;
         if (!isLocalSessionId(sessionId)) { deniedThrottled(session, fingerprint, `attach:${String(sessionId).slice(0, 80)}`); return; }
-        if (!session.attached.has(sessionId) && session.attached.size >= MAX_ATTACHED_PER_CONNECTION) {
+        // A viewer re-sends attach on every resize. Only a NEW one changes who is watching, and
+        // announcing each repeat sent the whole connection list to the window per resize frame.
+        if (session.attached.has(sessionId)) return;
+        if (session.attached.size >= MAX_ATTACHED_PER_CONNECTION) {
           deniedThrottled(session, fingerprint, 'attach:too-many');
           return;
         }
@@ -360,8 +460,10 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
         return;
       }
       case 'detach': {
-        session.attached.delete(String(message.sessionId));
-        announce();
+        // Same gate as attach: a peer that was never let in has nothing to detach, and must not be
+        // able to make this machine re-announce its connections by asking.
+        if (!session.helloSeen || !session.device) return;
+        if (session.attached.delete(String(message.sessionId))) announce();
         return;
       }
       default:
@@ -369,9 +471,20 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
     }
   }
 
+  /**
+   * The table entry for a name a peer sent, own properties only. A bare index would hand back
+   * `Object.prototype` members for names like `constructor`, and the policy check reading `.remote`
+   * off a function throws — inside the socket's data callback.
+   */
+  function methodNamed(name: unknown): ApiMethod | undefined {
+    return typeof name === 'string' && Object.prototype.hasOwnProperty.call(options.api.methods, name)
+      ? options.api.methods[name]
+      : undefined;
+  }
+
   function authorized(session: Session, methodName: string): boolean {
     if (!session.device) return false;
-    return mayCallRemotely(options.api.methods[methodName], session.device.permissions);
+    return mayCallRemotely(methodNamed(methodName), session.device.permissions);
   }
 
   /**
@@ -388,29 +501,30 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
 
   /** The session-id argument check for a method that declares one; refusals are audited. */
   function sessionArgAllowed(session: Session, fingerprint: string, methodName: string, args: unknown[]): boolean {
-    const index = sessionIdArgOf(options.api.methods[methodName]);
+    const index = sessionIdArgOf(methodNamed(methodName));
     if (index === null) return true;
     if (isLocalSessionId(args[index])) return true;
     deniedThrottled(session, fingerprint, `${methodName}:${String(args[index]).slice(0, 80)}`);
     return false;
   }
 
-  function denied(session: Session, fingerprint: string, methodName: string): void {
-    options.log({
-      at: options.now(), kind: 'denied',
-      machineName: session.device?.machineName ?? '', fingerprint, detail: methodName,
-    });
-  }
-
   /**
-   * `denied`, at most once per interval per connection. A keystroke aimed at a session that just
-   * exited, or a viewer over its request budget, would otherwise write a log row per attempt.
+   * A refusal, logged at most once per interval per connection, with a count of what was held back.
+   * Every refusal goes through here: a keystroke aimed at a session that just exited, a viewer over
+   * its budget, or a peer spraying method names would otherwise write a row per attempt — and the log
+   * keeps only its newest 500, so a flood of junk is a way to erase the rows that mattered.
    */
   function deniedThrottled(session: Session, fingerprint: string, detail: string): void {
     const t = options.now();
-    if (t - session.lastRefusalLogMs < REFUSAL_LOG_INTERVAL_MS) return;
+    if (t - session.lastRefusalLogMs < REFUSAL_LOG_INTERVAL_MS) { session.suppressedRefusals += 1; return; }
     session.lastRefusalLogMs = t;
-    denied(session, fingerprint, detail);
+    const held = session.suppressedRefusals;
+    session.suppressedRefusals = 0;
+    record(session, {
+      at: t, kind: 'denied',
+      machineName: session.device?.machineName ?? '', fingerprint,
+      detail: held > 0 ? `${detail} (+${held} more)` : detail,
+    });
   }
 
   function pair(session: Session, token: unknown, fingerprint: string): void {
@@ -418,12 +532,12 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
     const now = options.now();
     if (!invite || invite.expiresAtMs <= now) {
       fail(session, 'token-expired', 'That connection code has expired. Generate a new one on the host.');
-      options.log({ at: now, kind: 'rejected', machineName: '', fingerprint, detail: 'expired invite' });
+      record(session, { at: now, kind: 'rejected', machineName: '', fingerprint, detail: 'expired invite' });
       return;
     }
     if (typeof token !== 'string' || !tokensMatch(invite.token, token)) {
       session.pairAttempts += 1;
-      options.log({ at: now, kind: 'rejected', machineName: '', fingerprint, detail: 'bad token' });
+      record(session, { at: now, kind: 'rejected', machineName: '', fingerprint, detail: 'bad token' });
       if (session.pairAttempts >= MAX_PAIR_ATTEMPTS) {
         fail(session, 'rate-limited', 'Too many attempts.');
         return;
@@ -440,12 +554,22 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       pairedAtMs: now,
       lastSeenMs: now,
     };
-    options.savePairedDevices(upsertPairedDevice(options.pairedDevices(), device));
+    const { devices, evicted } = upsertPairedDeviceReporting(options.pairedDevices(), device);
+    options.savePairedDevices(devices);
     session.device = device;
     // Single use. A code that stays valid after it worked is a code that is still valid when it is
     // pasted into the wrong window later.
     options.consumeInvite();
     options.log({ at: now, kind: 'paired', machineName: device.machineName, fingerprint, detail: device.permissions.join(',') });
+    // The ledger is capped, so pairing past it un-pairs the oldest device. That is a machine losing
+    // access without anyone pressing "revoke" — it is said in the log, and it takes effect now, the
+    // same as a revoke would.
+    for (const gone of evicted) {
+      options.log({ at: now, kind: 'rejected', machineName: gone.machineName, fingerprint: gone.fingerprint, detail: 'unpaired: paired-device limit reached' });
+      for (const s of [...sessions]) {
+        if (s !== session && fingerprintsMatch(s.device?.fingerprint, gone.fingerprint)) s.connection.close('unpaired');
+      }
+    }
     sendReady(session, fingerprint);
   }
 
@@ -453,6 +577,7 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
     const device = session.device;
     if (!device) return;
     if (session.unauthenticatedTimer) { clearTimeout(session.unauthenticatedTimer); session.unauthenticatedTimer = undefined; }
+    session.connection.maxFrameBytes = MAX_FRAME_BYTES;
     session.connection.send({
       t: 'ready',
       machineId: options.machineId,
@@ -478,10 +603,19 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
    * binary frame; everything else goes to any connection allowed to observe.
    */
   const unsubscribe = options.api.events.subscribe((channel, payload) => {
-    if (sessions.size === 0) return;
+    if (sessions.size === 0 || !REMOTE_EVENT_CHANNELS.has(channel)) return;
     const sessionId = channel === 'cockpit:data' || channel === 'cockpit:exit' || channel === 'cockpit:resized'
       ? String((payload as { id?: unknown })?.id ?? '')
       : null;
+    // An exited session is not being watched any more, whoever was attached to it. Kept in the set,
+    // its id held `hasRemoteViewers()` true for good — vetoing idle shutdown and sleep for a viewer
+    // looking at a terminal that no longer exists. Released after the exit itself is delivered.
+    const releaseExited = (): void => {
+      if (channel !== 'cockpit:exit' || !sessionId) return;
+      let released = false;
+      for (const s of sessions) if (s.attached.delete(sessionId)) released = true;
+      if (released) announce();
+    };
     for (const session of sessions) {
       if (!session.device || session.connection.closed) continue;
       if (sessionId !== null) {
@@ -502,6 +636,7 @@ export function startHostServer(options: HostServerOptions): Promise<HostServer>
       }
       session.connection.send({ t: 'evt', ch: channel, payload });
     }
+    releaseExited();
   });
 
   return new Promise<HostServer>((resolve, reject) => {

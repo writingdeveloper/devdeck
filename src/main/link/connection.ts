@@ -40,6 +40,8 @@ export interface LinkConnection {
   probe(deadlineMs: number): void;
   /** When something last arrived from the peer, by this connection's clock. */
   readonly lastFrameAt: number;
+  /** The largest frame accepted from the peer. A host keeps it small until the peer is let in. */
+  maxFrameBytes: number;
 }
 
 export interface HeartbeatOptions {
@@ -54,8 +56,13 @@ export interface HeartbeatOptions {
 
 export const DEFAULT_HEARTBEAT: HeartbeatOptions = { idleMs: 15_000, timeoutMs: 45_000 };
 
-export function attachConnection(socket: Duplex, handlers: ConnectionHandlers, heartbeat: HeartbeatOptions = DEFAULT_HEARTBEAT): LinkConnection {
-  const decoder = makeFrameDecoder();
+export function attachConnection(
+  socket: Duplex,
+  handlers: ConnectionHandlers,
+  heartbeat: HeartbeatOptions = DEFAULT_HEARTBEAT,
+  limits: { maxFrameBytes?: number } = {},
+): LinkConnection {
+  const decoder = makeFrameDecoder({ maxFrameBytes: limits.maxFrameBytes });
   let closed = false;
   const now = heartbeat.now ?? Date.now;
   let lastFrameAt = now();
@@ -183,6 +190,8 @@ export function attachConnection(socket: Duplex, handlers: ConnectionHandlers, h
       if (!probeTicker) { probeTicker = setInterval(() => tick(true), 50); probeTicker.unref?.(); }
     },
     get lastFrameAt() { return lastFrameAt; },
+    get maxFrameBytes() { return decoder.maxFrameBytes; },
+    set maxFrameBytes(value: number) { decoder.maxFrameBytes = value; },
     sendPty(sessionId, chunk) {
       try {
         write(encodePtyFrame(sessionId, chunk));

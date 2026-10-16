@@ -646,3 +646,268 @@ describe('task concurrency over the actual TLS transport', () => {
     }
   });
 });
+
+describe('hardening', () => {
+  const pairedAs = (permissions: LinkPermission[]): void => {
+    paired = [{ machineId: CLIENT_ID, machineName: 'laptop', fingerprint: clientIdentity.fingerprint, permissions, pairedAtMs: now, lastSeenMs: null }];
+  };
+  const settle = (ms = 60) => new Promise((r) => setTimeout(r, ms));
+  type RawConn = ReturnType<typeof attachConnection>;
+
+  /** A client driven at the frame level, for what a well-behaved ConnectedLink would never send. */
+  const raw = (port: number, identity: LinkIdentity, script: { onHello?: (conn: RawConn) => void } = {}) =>
+    new Promise<{ conn: RawConn; closed: Promise<void> }>((resolve) => {
+      let markClosed: () => void = () => undefined;
+      const closed = new Promise<void>((r) => { markClosed = r; });
+      const socket = tls.connect({
+        host: '127.0.0.1', port,
+        key: identity.keyPem, cert: identity.certPem,
+        rejectUnauthorized: false, checkServerIdentity: () => undefined, minVersion: 'TLSv1.3',
+      }, () => {
+        const conn = attachConnection(socket, {
+          onMessage: (message) => { if (message.t === 'hello') script.onHello?.(conn); },
+          onPty: () => undefined,
+          onClose: () => markClosed(),
+        });
+        resolve({ conn, closed });
+      });
+      socket.on('error', () => markClosed());
+    });
+  const hello = (conn: RawConn, over: Record<string, unknown> = {}) =>
+    conn.send({ t: 'hello', protocol: LINK_PROTOCOL, appVersion: '1.34.1', machineId: CLIENT_ID, machineName: 'laptop', ...over } as never);
+  const closedWithin = (closed: Promise<void>, ms: number) =>
+    Promise.race([closed.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+
+  it('runs only `send` methods as a notify — never an invoke method, with no reply and no budget', async () => {
+    pairedAs(['observe', 'control', 'spawn']);
+    const host = await startHost();
+    const dialed = await connect(host.port);
+    if (!dialed.ok) throw new Error('expected a connection');
+    dialed.link.notify('cockpit:open', [{ projectPath: 'C:\\repo' }]);
+    dialed.link.notify('projects:list', []);
+    await settle();
+    expect(openedProjects).toEqual([]);
+    expect(log.some((l) => l.kind === 'denied' && l.detail === 'notify:cockpit:open')).toBe(true);
+    // And the same method still works the way it is meant to be called.
+    await expect(dialed.link.request('cockpit:open', [{ projectPath: 'C:\\repo' }])).resolves.toMatchObject({ id: 'sess-1' });
+    dialed.link.close();
+  });
+
+  it('budgets resizes and closes, but never keystrokes', async () => {
+    pairedAs(['observe', 'control']);
+    const host = await startHost({ notifyRateLimit: { capacity: 3, refillPerMs: 0 } });
+    let resized = 0;
+    methods['cockpit:resize'] = { channel: 'send', remote: allowSession('control'), handler: () => { resized += 1; } };
+    const dialed = await connect(host.port);
+    if (!dialed.ok) throw new Error('expected a connection');
+    for (let i = 0; i < 10; i++) dialed.link.notify('cockpit:resize', ['sess-1', 80, 24]);
+    for (let i = 0; i < 200; i++) dialed.link.notify('cockpit:input', ['sess-1', 'x']);
+    await settle(120);
+    expect(resized).toBe(3);
+    expect(typed).toHaveLength(200);
+    expect(dialed.link.closed).toBe(false);
+    dialed.link.close();
+  });
+
+  it('swallows a rejecting fire-and-forget handler instead of leaving an unhandled rejection', async () => {
+    pairedAs(['observe', 'control']);
+    const host = await startHost();
+    methods['cockpit:resize'] = { channel: 'send', remote: allowSession('control'), handler: async () => { throw new Error('async send failed'); } };
+    const unhandled: unknown[] = [];
+    const trap = (reason: unknown): void => { unhandled.push(reason); };
+    process.on('unhandledRejection', trap);
+    try {
+      const dialed = await connect(host.port);
+      if (!dialed.ok) throw new Error('expected a connection');
+      dialed.link.notify('cockpit:resize', ['sess-1', 80, 24]);
+      await settle(100);
+      expect(unhandled).toEqual([]);
+      dialed.link.close();
+    } finally {
+      process.off('unhandledRejection', trap);
+    }
+  });
+
+  it('does not trip over a method name that is an Object.prototype member', async () => {
+    pairedAs(['observe', 'control']);
+    const host = await startHost();
+    const dialed = await connect(host.port);
+    if (!dialed.ok) throw new Error('expected a connection');
+    await expect(dialed.link.request('constructor', [])).rejects.toThrow(/no such method: constructor/);
+    dialed.link.notify('__proto__', []);
+    await expect(dialed.link.request('projects:list', [])).resolves.toBeTruthy();
+    dialed.link.close();
+  });
+
+  it('sends a paired machine only the session channels, whatever else the hub carries', async () => {
+    pairedAs(['observe', 'control']);
+    const host = await startHost();
+    const seen: string[] = [];
+    const dialed = await connect(host.port, { onEvent: (ch) => { seen.push(ch); } });
+    if (!dialed.ok) throw new Error('expected a connection');
+    events.publish('settings:changed', { secret: true });
+    events.publish('cockpit:sessions', []);
+    await settle();
+    expect(seen).toEqual(['cockpit:sessions']);
+    dialed.link.close();
+  });
+
+  it('turns strangers away past a small number waiting, but never a paired device', async () => {
+    pairedAs(['observe']);
+    const host = await startHost({ maxUnauthenticated: 2 });
+    const stranger = () => raw(host.port, identityOf('stranger'));
+    const a = await stranger();
+    const b = await stranger();
+    await settle(30);
+    const c = await stranger();
+    expect(await closedWithin(c.closed, 1_000)).toBe(true);
+    expect(await closedWithin(a.closed, 50)).toBe(false);
+    const dialed = await connect(host.port);
+    expect(dialed.ok).toBe(true);
+    if (dialed.ok) dialed.link.close();
+    a.conn.close(); b.conn.close();
+  });
+
+  it('drops a peer that sends a large frame before it is let in, and serves large ones after', async () => {
+    const host = await startHost();
+    const big = 'x'.repeat(200 * 1024);
+    const unpaired = await raw(host.port, identityOf('stranger'), {
+      onHello: (conn) => { hello(conn, { wantsPairing: true, machineName: big }); },
+    });
+    expect(await closedWithin(unpaired.closed, 1_000)).toBe(true);
+
+    pairedAs(['observe']);
+    const dialed = await connect(host.port);
+    if (!dialed.ok) throw new Error('expected a connection');
+    await expect(dialed.link.request('projects:list', [big])).resolves.toBeTruthy();
+    dialed.link.close();
+  });
+
+  it('ignores a detach from a peer that was never let in', async () => {
+    let announced = 0;
+    await startHost({ onConnectionsChanged: () => { announced += 1; } });
+    const stranger = await raw(server!.port, identityOf('stranger'), {
+      onHello: (conn) => {
+        hello(conn, { wantsPairing: true });
+        for (let i = 0; i < 20; i++) conn.send({ t: 'detach', sessionId: 'sess-1' });
+      },
+    });
+    await settle(100);
+    expect(announced).toBe(0);
+    stranger.conn.close();
+  });
+
+  it('keeps strangers from pushing the audit history out with refusals', async () => {
+    const host = await startHost();
+    // One connection spraying calls it may not make...
+    const sprayer = await raw(host.port, identityOf('sprayer'), {
+      onHello: (conn) => {
+        hello(conn, { wantsPairing: true });
+        for (let i = 0; i < 100; i++) conn.send({ t: 'req', id: i, method: `junk:${i}`, args: [] });
+        for (let i = 0; i < 100; i++) conn.send({ t: 'notify', method: `junk:${i}`, args: [] });
+      },
+    });
+    await settle(150);
+    sprayer.conn.close();
+    // ...and a loop of connections that are each turned away.
+    for (let i = 0; i < 30; i++) await connect(host.port);
+    await settle(100);
+    const fromStrangers = log.length;
+    expect(fromStrangers).toBeLessThanOrEqual(20);
+    // A paired device's history is still written in full.
+    pairedAs(['observe']);
+    const dialed = await connect(host.port);
+    if (!dialed.ok) throw new Error('expected a connection');
+    expect(log.slice(fromStrangers).some((l) => l.kind === 'connected')).toBe(true);
+    dialed.link.close();
+  });
+
+  it("throttles a paired device's own refusals and counts what it held back", async () => {
+    pairedAs(['observe']);
+    const host = await startHost();
+    const dialed = await connect(host.port);
+    if (!dialed.ok) throw new Error('expected a connection');
+    for (let i = 0; i < 50; i++) dialed.link.notify('cockpit:input', ['sess-1', 'x']);
+    await settle(80);
+    expect(log.filter((l) => l.kind === 'denied')).toHaveLength(1);
+    now += 11_000;
+    dialed.link.notify('cockpit:input', ['sess-1', 'x']);
+    await settle(80);
+    const denials = log.filter((l) => l.kind === 'denied');
+    expect(denials).toHaveLength(2);
+    expect(denials[1].detail).toBe('cockpit:input (+49 more)');
+    expect(host.connections).toHaveLength(1);
+    dialed.link.close();
+  });
+
+  it('gives up on a host that finishes TLS and then says nothing', async () => {
+    // TLS completes, so the connect timeout is already cleared; the heartbeat only starts at `ready`.
+    const silent = tls.createServer({ key: hostIdentity.keyPem, cert: hostIdentity.certPem, requestCert: true, rejectUnauthorized: false, minVersion: 'TLSv1.3' }, () => undefined);
+    await new Promise<void>((r) => silent.listen(0, '127.0.0.1', () => r()));
+    try {
+      const port = (silent.address() as { port: number }).port;
+      const started = Date.now();
+      const dialed = await connect(port, { handshakeTimeoutMs: 200 });
+      expect(Date.now() - started).toBeLessThan(2_000);
+      expect(dialed).toEqual({ ok: false, failure: expect.objectContaining({ kind: 'unreachable', attempts: [{ address: '127.0.0.1', reason: 'timed-out' }] }) });
+    } finally {
+      await new Promise<void>((r) => silent.close(() => r()));
+    }
+  });
+
+  it('releases an exited session from everyone attached to it, after telling them it exited', async () => {
+    pairedAs(['observe', 'control']);
+    let announced = 0;
+    const host = await startHost({ onConnectionsChanged: () => { announced += 1; } });
+    const exits: unknown[] = [];
+    const dialed = await connect(host.port, { onEvent: (ch, payload) => { if (ch === 'cockpit:exit') exits.push(payload); } });
+    if (!dialed.ok) throw new Error('expected a connection');
+    dialed.link.attach('sess-1', 80, 24);
+    await settle(40);
+    const afterFirst = announced;
+    // Re-sent on every resize; only the first one changes who is watching.
+    for (let i = 0; i < 10; i++) dialed.link.attach('sess-1', 100 + i, 30);
+    await settle(40);
+    expect(announced).toBe(afterFirst);
+    expect(host.connections[0].attachedSessions).toEqual(['sess-1']);
+
+    events.publish('cockpit:exit', { id: 'sess-1', exitCode: 0 });
+    await settle(60);
+    expect(exits).toEqual([{ id: 'sess-1', exitCode: 0 }]);
+    expect(host.connections[0].attachedSessions).toEqual([]);
+    expect(announced).toBe(afterFirst + 1);
+    dialed.link.close();
+  });
+
+  it('lets an already-paired device keep its permissions and leaves the invite unspent', async () => {
+    pairedAs(['observe']);
+    const token = createPairingToken();
+    invite = { token, expiresAtMs: now + 300_000, permissions: ['observe', 'control', 'spawn', 'write', 'power'] };
+    const host = await startHost();
+    const dialed = await connect(host.port, { pairingToken: token });
+    if (!dialed.ok) throw new Error('expected a connection');
+    await settle(80);
+    expect(invite).not.toBeNull();
+    expect(paired).toHaveLength(1);
+    expect(paired[0].permissions).toEqual(['observe']);
+    await expect(dialed.link.request('cockpit:open', [{ projectPath: 'C:\\repo' }])).rejects.toThrow(/not permitted/);
+    dialed.link.close();
+  });
+
+  it('says so in the log when pairing past the cap un-pairs the oldest device', async () => {
+    const fp = (i: number): string => (i.toString(16).toUpperCase().padStart(2, '0').repeat(32).match(/../g) ?? []).join(':');
+    paired = Array.from({ length: 32 }, (_, i) => ({
+      machineId: `m-${i}`, machineName: `old-${i}`, fingerprint: fp(i + 1),
+      permissions: ['observe'] as LinkPermission[], pairedAtMs: now - 1000 + i, lastSeenMs: null,
+    }));
+    const token = createPairingToken();
+    invite = { token, expiresAtMs: now + 300_000, permissions: ['observe'] };
+    const host = await startHost();
+    const dialed = await connect(host.port, { pairingToken: token });
+    if (!dialed.ok) throw new Error('expected a connection');
+    expect(paired).toHaveLength(32);
+    expect(paired.some((d) => d.machineName === 'old-0')).toBe(false);
+    expect(log.some((l) => l.kind === 'rejected' && l.machineName === 'old-0' && l.detail.includes('limit'))).toBe(true);
+    dialed.link.close();
+  });
+});

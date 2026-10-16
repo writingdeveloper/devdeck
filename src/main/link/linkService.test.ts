@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import * as tls from 'node:tls';
 
 const clipboardText = { value: '' };
 vi.mock('electron', () => ({
@@ -20,6 +21,9 @@ import { makeEventHub, type EventHub } from '../api/events';
 import type { DeckApiBundle } from '../api/deckApi';
 import type { SafeStorageLike } from './identity';
 import type { KnownHost, PairedDevice } from './devices';
+import { attachConnection } from './connection';
+import { generateMachineCertificate } from './selfSignedCert';
+import { LINK_PROTOCOL } from './protocol';
 
 const safeStorage: SafeStorageLike = {
   isEncryptionAvailable: () => true,
@@ -53,6 +57,7 @@ interface Fixture {
 
 const dirs: string[] = [];
 const services: LinkService[] = [];
+const fakes: tls.Server[] = [];
 
 function makeApi(opened: string[]): { bundle: DeckApiBundle; events: EventHub } {
   const table = makeMethodTable();
@@ -109,6 +114,7 @@ async function waitFor(cond: () => boolean, timeoutMs = 4_000): Promise<void> {
 beforeEach(() => { clipboardText.value = ''; });
 afterEach(async () => {
   for (const s of services.splice(0)) await s.dispose();
+  for (const f of fakes.splice(0)) await new Promise<void>((r) => f.close(() => r()));
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
@@ -373,5 +379,131 @@ describe('the audit log', () => {
     const entries = host.service.auditLog();
     expect(entries.map((e) => e.kind)).toContain('paired');
     expect(entries.map((e) => e.kind)).toContain('connected');
+  });
+});
+
+describe('removing a machine', () => {
+  it('stays removed — its closing link does not redial and save it back', async () => {
+    const host = makeService('host');
+    const viewer = makeService('viewer', { machineId: '11111111-2222-4333-8444-555555555555', reconnectStepsMs: [50] });
+    const code = (await host.service.createInvite()).invite!.code;
+    const added = await viewer.service.addMachine(code);
+    if (!added.ok) throw new Error('expected pairing');
+    viewer.service.removeMachine(added.machine.machineId);
+    expect(viewer.service.machines()).toEqual([]);
+
+    await new Promise((r) => setTimeout(r, 400)); // several retry steps' worth
+    expect(viewer.service.machines()).toEqual([]);
+    expect(host.service.hostStatus().connections).toEqual([]);
+  });
+
+  it('forgets the known host for good, across the retry the close used to arm', async () => {
+    const store = memoryStore(0);
+    const host = makeService('host');
+    const remote: string[] = [];
+    const viewer = makeService('viewer', {
+      machineId: '11111111-2222-4333-8444-555555555555', reconnectStepsMs: [50], store,
+      onRemoteEvent: (ch) => { remote.push(ch); },
+    });
+    const code = (await host.service.createInvite()).invite!.code;
+    const added = await viewer.service.addMachine(code);
+    if (!added.ok) throw new Error('expected pairing');
+    viewer.service.removeMachine(added.machine.machineId);
+    expect(store.getKnownHosts()).toEqual([]);
+    await new Promise((r) => setTimeout(r, 400));
+    host.events.publish('cockpit:sessions', [{ id: 'after-removal' }]);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(store.getKnownHosts()).toEqual([]);
+    expect(remote).toEqual([]);
+  });
+
+  it('drops a dial that was still in flight when the machine was removed', async () => {
+    const store = memoryStore(0);
+    const host = makeService('host');
+    await host.service.setPort(await freePort());
+    const viewer = makeService('viewer', { machineId: '11111111-2222-4333-8444-555555555555', reconnectStepsMs: [50], store });
+    const code = (await host.service.createInvite()).invite!.code;
+    const added = await viewer.service.addMachine(code);
+    if (!added.ok) throw new Error('expected pairing');
+    await host.service.setHostMode(false);
+    await waitFor(() => viewer.service.machines()[0]?.state !== 'connected');
+    await host.service.setHostMode(true);
+    const redial = viewer.service.reconnect(added.machine.machineId); // in flight
+    viewer.service.removeMachine(added.machine.machineId);
+    await redial;
+    await new Promise((r) => setTimeout(r, 200));
+    expect(store.getKnownHosts()).toEqual([]);
+    expect(viewer.service.machines()).toEqual([]);
+    expect(host.service.hostStatus().connections).toEqual([]);
+  });
+});
+
+describe('what a host may push', () => {
+  /** A host speaking the protocol by hand, so it can send what a real host never would. */
+  async function fakeHost(push: (conn: ReturnType<typeof attachConnection>) => void) {
+    const identity = generateMachineCertificate({ commonName: 'fake-host' });
+    const machineId = '99999999-8888-4777-8666-555555555555';
+    const server = tls.createServer({ key: identity.keyPem, cert: identity.certPem, requestCert: true, rejectUnauthorized: false, minVersion: 'TLSv1.3' }, (socket) => {
+      const conn = attachConnection(socket, {
+        onMessage: (message) => {
+          if (message.t !== 'hello') return;
+          conn.send({ t: 'ready', machineId, machineName: 'fake', appVersion: '1.34.1', permissions: ['observe'], addresses: ['127.0.0.1'], port, features: ['ping'] });
+          setTimeout(() => push(conn), 30);
+        },
+        onPty: () => undefined,
+        onClose: () => undefined,
+      });
+      conn.send({ t: 'hello', protocol: LINK_PROTOCOL, appVersion: '1.34.1', machineId, machineName: 'fake', features: ['ping'] });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    const port = (server.address() as { port: number }).port;
+    fakes.push(server);
+    const known: KnownHost = { machineId, machineName: 'fake', fingerprint: identity.fingerprint, addresses: ['127.0.0.1'], port, lastAddress: null, lastSeenMs: null };
+    return { machineId, known };
+  }
+
+  it('forwards only session channels, and never a channel this process writes itself', async () => {
+    const { machineId, known } = await fakeHost((conn) => {
+      conn.send({ t: 'evt', ch: 'link:sessions', payload: { machineId: 'local', sessions: [{ id: 'forged' }] } });
+      conn.send({ t: 'evt', ch: 'link:error', payload: { t: 'error', code: 'unpaired', message: 'forged' } });
+      conn.send({ t: 'evt', ch: 'settings:changed', payload: {} });
+      conn.send({ t: 'evt', ch: 'cockpit:exit', payload: { id: 's1', exitCode: 0 } });
+      conn.send({ t: 'evt', ch: 'cockpit:sessions', payload: [{ id: 's1' }] });
+      // A real refusal on an established link still reaches the window, as it always did.
+      conn.send({ t: 'error', code: 'rate-limited', message: 'output backlog exceeded' });
+    });
+    const store = memoryStore(0);
+    store.setKnownHosts([known]);
+    const remote: { ch: string; payload: unknown }[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      makeService('viewer', {
+        machineId: '11111111-2222-4333-8444-555555555555', store,
+        onRemoteEvent: (ch, payload) => { remote.push({ ch, payload }); },
+      });
+      await waitFor(() => remote.length >= 3);
+      await new Promise((r) => setTimeout(r, 80));
+    } finally {
+      warn.mockRestore();
+    }
+    expect(remote).toEqual([
+      { ch: 'cockpit:exit', payload: { id: `link:${machineId}:s1`, exitCode: 0 } },
+      { ch: 'link:sessions', payload: { machineId, sessions: [{ id: `link:${machineId}:s1` }] } },
+      { ch: 'link:error', payload: { t: 'error', code: 'rate-limited', message: 'output backlog exceeded' } },
+    ]);
+  });
+});
+
+describe('remote viewers', () => {
+  it('counts only viewers of sessions that are still running', async () => {
+    let live = ['C:\\remote-repo#1'];
+    const host = makeService('host', { liveSessionIds: () => live });
+    const viewer = makeService('viewer', { machineId: '11111111-2222-4333-8444-555555555555' });
+    const code = (await host.service.createInvite()).invite!.code;
+    await viewer.service.addMachine(code);
+    viewer.service.attach(`link:${host.service.hostStatus().machineId}:C:\\remote-repo#1`, 80, 24);
+    await waitFor(() => host.service.hasRemoteViewers());
+    live = [];
+    expect(host.service.hasRemoteViewers()).toBe(false);
   });
 });
