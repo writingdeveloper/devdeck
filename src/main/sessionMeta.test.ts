@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readClaudeSessionMeta, emptySessionMeta } from './sessionMeta';
+import { readClaudeSessionMeta, emptySessionMeta, _cachedTimestampCount } from './sessionMeta';
 import { encodeProjectPath } from '../shared/paths';
 
 describe('readClaudeSessionMeta', () => {
@@ -62,6 +62,22 @@ describe('readClaudeSessionMeta over an append-only log', () => {
     // the field a bounded tail read could not have produced.
     expect(second).toMatchObject({ model: 'claude-sonnet-5', contextTokens: 4200, assistantText: 'Migration written' });
     expect(second.activeMs).toBe(4 * 60_000);
+  });
+
+  it('two reads of the same grown log at once fold the appended lines once, not twice', async () => {
+    // The cockpit tick and a paired machine's poll ask about the same session concurrently; both
+    // used to resume from the one cached state and append the same lines to it.
+    writeFileSync(file, `${userLine('start', 0)}
+`);
+    await read();
+    let tail = '';
+    for (let i = 1; i <= 500; i++) tail += `${asstLine(`step ${i}`, i % 50, 'claude-opus-5', i)}
+`;
+    append(tail);
+    const [a, b] = await Promise.all([read(), read()]);
+    expect(a).toEqual(b);
+    expect(a).toMatchObject({ contextTokens: 500, assistantText: 'step 500' });
+    expect(_cachedTimestampCount(file)).toBe(501);
   });
 
   it('never consumes a half-written last line, and reads it once the rest lands', async () => {

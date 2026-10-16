@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { uptime, homedir, tmpdir } from 'node:os';
 import { Store } from './store';
 import { registerIpc } from './ipc';
-import { PtyHost, type PtySpawn } from './ptyHost';
+import { PtyHost, taskkillTree, withTreeKill, type PtyProcess, type PtySpawn } from './ptyHost';
 import { setupTray } from './tray';
 import { registerUpdater } from './updater';
 import { applyOpenAtLogin } from './autostart';
@@ -35,7 +35,7 @@ try { nodePty = require('@homebridge/node-pty-prebuilt-multiarch') as NodePty; }
 const realSpawn: PtySpawn = (file, args, opts) => {
   if (!nodePty) throw new Error('node-pty native binding unavailable — embedded terminals need Windows (or a matching prebuilt)');
   const p = nodePty.spawn(file, args, { name: 'xterm-256color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows });
-  return {
+  const proc: PtyProcess = {
     pid: p.pid,
     onData: (cb) => { p.onData(cb); },
     onExit: (cb) => { p.onExit((e) => cb({ exitCode: e.exitCode })); },
@@ -43,6 +43,9 @@ const realSpawn: PtySpawn = (file, args, opts) => {
     resize: (c, r) => p.resize(c, r),
     kill: () => p.kill(),
   };
+  // Closing a tile has to end what the agent started too (MCP servers, hidden dev servers), which
+  // node-pty's console-only kill leaves running on Windows — see withTreeKill.
+  return process.platform === 'win32' ? withTreeKill(proc, (pid) => taskkillTree(pid)) : proc;
 };
 const ptyHost = new PtyHost(realSpawn);
 
@@ -130,11 +133,11 @@ if (!gotLock) {
     // render-process-gone / child-process-gone fire on `app`, not `process` — a renderer or GPU
     // crash previously left zero trace anywhere (no log entry, no Windows crash event either,
     // since Crashpad intercepts it before the OS's own crash reporting sees it).
-    // On a renderer crash the recovery also reaps the now-ownerless ptys and reloads the window,
-    // which restores the sessions from the persisted list (fresh ptys) instead of leaking the old ones.
+    // On a renderer crash the recovery reloads the window, which re-adopts the project sessions that
+    // are still running; only the internal login shells, which nothing re-adopts, are reaped.
     installAppCrashHandlers(app, makeCrashRecovery({
       log: (kind, detail) => logLine(`[${kind}] ${JSON.stringify(detail)}`),
-      reapPtys: () => ptyHost.killAll(),
+      reapInternalPtys: () => ptyHost.killInternal(),
       reloadWindow: () => { if (win && !win.isDestroyed()) win.webContents.reload(); },
     }));
     // Match the installer shortcut's AppUserModelID (electron-builder sets it to
@@ -171,18 +174,20 @@ if (!gotLock) {
         logLine(`[shutdown] ${msg}`);
         try { if (!w.isDestroyed()) w.webContents.send('devdeck:error', msg); } catch { /* renderer gone */ }
       };
-      const spawnShutdown = (args: string[]): void => {
+      const spawnShutdown = (args: string[], onFailed: (msg: string) => void = reportShutdownError): void => {
         // args array + windowsHide; an exec error must surface, not silently strand an "issued" record.
         const p = spawn('shutdown', args, { windowsHide: true, stdio: 'ignore' });
-        p.on('error', (e) => reportShutdownError(`shutdown.exe failed to spawn: ${e.message}`));
+        p.on('error', (e) => onFailed(`shutdown.exe failed to spawn: ${e.message}`));
         // error never fires for a clean spawn that FAILS (e.g. a shutdown already pending, policy denial)
         // — that's a non-zero exit, and it means the countdown the user is watching will never fire.
-        p.on('exit', (code) => { if (code !== null && code !== 0) reportShutdownError(`shutdown ${args[0]} exited with code ${code}`); });
+        p.on('exit', (code) => { if (code !== null && code !== 0) onFailed(`shutdown ${args[0]} exited with code ${code}`); });
       };
       shutdown = new ShutdownScheduler({
         log: shutdownLog,
         now: Date.now,
-        execShutdown: (sec) => spawnShutdown(['/s', '/f', '/t', String(sec), '/c', 'DevDeck idle auto-shutdown']),
+        // A failed issue goes back to the scheduler (which reports it and leaves the countdown), not
+        // straight to the user: otherwise the UI keeps counting down to a shutdown the OS never took.
+        execShutdown: (sec, onFailed) => spawnShutdown(['/s', '/f', '/t', String(sec), '/c', 'DevDeck idle auto-shutdown'], onFailed),
         execAbort: () => spawnShutdown(['/a']),
         transcriptMtime: () => latestTranscriptMtime(path.join(homedir(), '.claude', 'projects')),
         idleHoldMs: () => store.getShutdownIdleMinutes() * 60_000,

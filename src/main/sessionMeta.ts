@@ -26,6 +26,8 @@ const NEWLINE = 0x0a;
  * active session costs the few KB that turn wrote, not the whole log again.
  */
 const _metaCache = new Map<string, { mtimeMs: number; offset: number; state: SessionMetaState; meta: ClaudeSessionMeta }>();
+/** Test-only: how many line timestamps the cached state for this log holds (each line counted once). */
+export function _cachedTimestampCount(file: string): number { return _metaCache.get(file)?.state.timestamps.length ?? 0; }
 
 /**
  * Fold a log's bytes from `start` into `state`, stopping at the last complete line.
@@ -72,11 +74,26 @@ async function foldFrom(handle: FileHandle, start: number, size: number, state: 
   return pos - carry.length; // the trailing partial line is NOT consumed — it may still be being written
 }
 
+/**
+ * Reads in progress, by file. The same session is routinely asked about twice at once — this
+ * machine's cockpit tick and a paired machine polling it — and both used to resume from the one
+ * cached state, folding the same appended lines into it twice. A second caller now waits for the
+ * first and is answered from what it cached.
+ */
+const _reading = new Map<string, Promise<ClaudeSessionMeta>>();
+
 /** Read a Claude session's meta from its on-disk .jsonl (best-effort; an empty meta if missing). */
 export async function readClaudeSessionMeta(projectPath: string, sessionId: string, claudeProjectsDir: string): Promise<ClaudeSessionMeta> {
   // Guard the id before it touches a path — a crafted sessionId must not escape ~/.claude/projects (path traversal).
   if (!isValidSessionId(sessionId)) return emptySessionMeta();
   const file = join(claudeProjectsDir, encodeProjectPath(projectPath), sessionId + '.jsonl');
+  for (let inFlight = _reading.get(file); inFlight; inFlight = _reading.get(file)) await inFlight.catch(() => undefined);
+  const work = readMetaFile(file);
+  _reading.set(file, work);
+  try { return await work; } finally { if (_reading.get(file) === work) _reading.delete(file); }
+}
+
+async function readMetaFile(file: string): Promise<ClaudeSessionMeta> {
   let mtimeMs: number;
   let size: number;
   try { ({ mtimeMs, size } = await stat(file)); } catch { return emptySessionMeta(); }
@@ -87,7 +104,8 @@ export async function readClaudeSessionMeta(projectPath: string, sessionId: stri
   // shrank was rewritten, not appended to, and the state carried over would describe a file that is
   // no longer there — reparse from zero.
   const resume = cached && size >= cached.offset;
-  const state = resume ? cached.state : emptySessionMetaState();
+  // A copy, so a read that fails partway leaves the cached state exactly as it was committed.
+  const state = resume ? copyState(cached.state) : emptySessionMetaState();
   let handle: FileHandle;
   try { handle = await open(file, 'r'); } catch { return emptySessionMeta(); }
   let offset: number;
@@ -101,4 +119,8 @@ export async function readClaudeSessionMeta(projectPath: string, sessionId: stri
   const meta = { ...finalizeSessionMeta(state), mtimeMs };
   _metaCache.set(file, { mtimeMs, offset, state, meta });
   return meta;
+}
+
+function copyState(s: SessionMetaState): SessionMetaState {
+  return { ...s, timestamps: [...s.timestamps], edited: [...s.edited] };
 }

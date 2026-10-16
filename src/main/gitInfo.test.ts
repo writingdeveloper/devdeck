@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, _clearRemoteCache } from './gitInfo';
+import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, _clearRemoteCache, createGitRunner, gitEnv } from './gitInfo';
 
 beforeEach(() => _clearRemoteCache());
 
@@ -167,5 +167,26 @@ describe('the git command is bounded', () => {
       // the row loses its git information for having too MUCH to say.
       expect(options.maxBuffer as number).toBeGreaterThan(1024 * 1024);
     }
+  });
+});
+
+describe('the production git runner', () => {
+  // `git status` refreshes the index opportunistically under index.lock unless told not to, and that
+  // collides with the agent's own `git add`/`git commit` in the same repository.
+  it('runs every git call with optional locks and terminal prompts disabled', async () => {
+    const exec = vi.fn(async () => ({ stdout: 'out' }));
+    const run = createGitRunner(exec);
+    expect(await run(['-C', 'C:/g/x', 'status', '--porcelain'])).toBe('out');
+    const [file, args, opts] = exec.mock.calls[0] as unknown as [string, string[], { env: NodeJS.ProcessEnv; windowsHide: boolean; timeout: number }];
+    expect(file).toBe('git');
+    expect(args).toEqual(['-C', 'C:/g/x', 'status', '--porcelain']);
+    expect(opts.env.GIT_OPTIONAL_LOCKS).toBe('0');
+    expect(opts.env.GIT_TERMINAL_PROMPT).toBe('0');
+    expect(opts.windowsHide).toBe(true);
+    expect(opts.timeout).toBeGreaterThan(0);
+  });
+
+  it('keeps the rest of the environment (PATH, HOME) intact', () => {
+    expect(gitEnv({ PATH: '/bin', HOME: '/h', GIT_OPTIONAL_LOCKS: '1' })).toEqual({ PATH: '/bin', HOME: '/h', GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' });
   });
 });

@@ -138,6 +138,11 @@ export function resolveOpenSession(
     }
     return { command: a.buildCommand('new'), sessionId: null };
   }
-  if (typeof opts.sessionId === 'string') return { command: a.buildCommand('resume', opts.sessionId), sessionId: opts.sessionId };
+  if (typeof opts.sessionId === 'string') {
+    const command = a.buildCommand('resume', opts.sessionId);
+    // An id the provider refuses falls back to its "continue" command, which opens some OTHER
+    // conversation — so the tile must not be saved as holding the id it asked for.
+    return { command, sessionId: opts.sessionId && command.includes(opts.sessionId) ? opts.sessionId : null };
+  }
   return { command: a.buildCommand('continue'), sessionId: opts.latestId };
 }

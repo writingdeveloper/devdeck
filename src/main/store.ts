@@ -15,6 +15,36 @@ interface StateFile {
   settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
 }
 
+/** Error codes Windows returns while another process (AV scan, indexer, OneDrive) briefly holds the file. */
+const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const RENAME_ATTEMPTS = 5;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * renameSync, retried briefly on the errors a scanner or sync client holding the target causes.
+ *
+ * On Windows those are routine rather than exceptional: Defender, the search indexer and OneDrive
+ * all open freshly written files, and a rename onto a file someone has open fails with EPERM/EBUSY
+ * for a few milliseconds. Unretried, that one collision failed the whole save — a lost setting or
+ * task edit, reported to the user as an error. Five attempts over ~300 ms ride it out; anything
+ * else (or anything that outlasts that) still throws to the caller as before.
+ */
+export function renameWithRetry(
+  from: string, to: string,
+  rename: (from: string, to: string) => void = renameSync, sleep: (ms: number) => void = sleepSync,
+): void {
+  for (let attempt = 1; ; attempt++) {
+    try { rename(from, to); return; } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (attempt >= RENAME_ATTEMPTS || !code || !TRANSIENT_RENAME_CODES.has(code)) throw err;
+      sleep(20 * 2 ** (attempt - 1)); // 20, 40, 80, 160 ms
+    }
+  }
+}
+
 const EMPTY: StoreEntry = {
   note: '', pinned: false, hidden: false, lastOpened: null, todos: [],
 };
@@ -70,7 +100,7 @@ export class Store {
     try {
       const serialized = JSON.stringify(this.state, null, 2);
       writeFileSync(tmp, serialized, 'utf8');
-      renameSync(tmp, this.filePath);
+      renameWithRetry(tmp, this.filePath);
       this.committed = serialized;
       // Mirror the just-written good state to .bak so external corruption of the live file (disk error,
       // a sync tool, a manual edit) is recoverable on the next load instead of starting from empty.

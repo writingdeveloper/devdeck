@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { makeAiSummarizer, buildSummaryPrompt, normalizeAiSummary } from './aiSummary';
+import { describe, it, expect, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { makeAiSummarizer, buildSummaryPrompt, normalizeAiSummary, cliInvocation, killChildTree } from './aiSummary';
 
 const SID = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
 const OTHER = 'b0b1c2d3-e4f5-6789-abcd-ef0123456789';
@@ -71,12 +75,14 @@ describe('makeAiSummarizer', () => {
 
   it('caches a failure so a missing CLI is not retried every tick', async () => {
     let calls = 0;
-    const s = makeAiSummarizer({ runners: { claude: async () => { calls++; throw new Error('claude exited 1'); } } });
+    const failures: string[] = [];
+    const s = makeAiSummarizer({ runners: { claude: async () => { calls++; throw new Error('claude exited 1'); } }, onFailure: (m) => failures.push(m) });
     s.setEnabled(true);
     s.get(SID, 1, 'work'); await s.idle();
     expect(s.get(SID, 1, 'work')).toBeNull();
     await s.idle();
     expect(calls).toBe(1);
+    expect(failures).toEqual(['AI summary (claude) failed: claude exited 1']); // reported, once
   });
 
   it('never runs two generations at once', async () => {
@@ -160,5 +166,53 @@ describe('makeAiSummarizer', () => {
     s.get(SID, 1, 'work', { provider: 'codex' });
     await s.idle();
     expect(s.get(SID, 1, 'work', { provider: 'codex' })).toBe('codex만 있어도 동작');
+  });
+});
+
+describe('starting an agent CLI without shell: true', () => {
+  const CLAUDE_ARGS = ['-p', '--model', 'haiku', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}'];
+
+  it('starts a real executable directly, arguments untouched', () => {
+    expect(cliInvocation('C:\\Users\\me\\.local\\bin\\claude.exe', CLAUDE_ARGS, 'win32'))
+      .toEqual({ file: 'C:\\Users\\me\\.local\\bin\\claude.exe', args: CLAUDE_ARGS });
+    expect(cliInvocation('claude', CLAUDE_ARGS, 'darwin')).toEqual({ file: 'claude', args: CLAUDE_ARGS });
+  });
+
+  it('routes a .cmd shim through cmd.exe with every argument quoted, verbatim', () => {
+    const how = cliInvocation('C:\\npm\\claude.cmd', CLAUDE_ARGS, 'win32', 'C:\\Windows\\system32\\cmd.exe');
+    expect(how.file).toBe('C:\\Windows\\system32\\cmd.exe');
+    expect(how.windowsVerbatimArguments).toBe(true);
+    expect(how.args.slice(0, 3)).toEqual(['/d', '/s', '/c']);
+    // The JSON's quotes survive as \" inside a quoted argument, every cmd metacharacter ^-escaped.
+    expect(how.args[3]).toContain('^^^"{\\^^^"mcpServers\\^^^":{}}^^^"');
+  });
+
+  // The round trip that actually matters: through cmd.exe, through an npm-style shim that forwards
+  // %*, into a program — and out the other side byte for byte. `shell: true` turned the MCP config
+  // into `{mcpServers:{}}` on exactly this path.
+  it.runIf(process.platform === 'win32')('a shim receives the exact arguments (npm-style %* forwarding)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'devdeck cli '));
+    try {
+      const bin = join(dir, 'with space');
+      mkdirSync(bin);
+      writeFileSync(join(bin, 'echo.js'), 'process.stdout.write(JSON.stringify(process.argv.slice(2)))');
+      writeFileSync(join(bin, 'fake.cmd'), [
+        '@ECHO off', 'GOTO start', ':find_dp0', 'SET dp0=%~dp0', 'EXIT /b', ':start', 'SETLOCAL', 'CALL :find_dp0',
+        `"${process.execPath}" "%dp0%\\echo.js" %*`,
+      ].join('\r\n'));
+      const args = [...CLAUDE_ARGS, 'a b', 'x&y|z', '(paren)', 'say "hi"', 'trailing\\', ''];
+      const how = cliInvocation(join(bin, 'fake.cmd'), args);
+      const out = spawnSync(how.file, how.args, { windowsVerbatimArguments: how.windowsVerbatimArguments, windowsHide: true }).stdout.toString();
+      expect(JSON.parse(out)).toEqual(args);
+    } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  });
+
+  it('killChildTree: plain kill off Windows, and when there is no pid to walk from', () => {
+    const a = { pid: 10, kill: vi.fn() };
+    killChildTree(a, 'linux');
+    expect(a.kill).toHaveBeenCalledTimes(1);
+    const b = { pid: undefined, kill: vi.fn() };
+    killChildTree(b, 'win32');
+    expect(b.kill).toHaveBeenCalledTimes(1);
   });
 });

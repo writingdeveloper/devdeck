@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from './store';
+import { Store, renameWithRetry } from './store';
 import { sanitizeMachineName } from '../shared/link/machine';
 
 let dir: string;
@@ -357,5 +357,37 @@ describe('session summary settings', () => {
     // runners have 67-character ones) is trimmed for display, and asserting raw equality here passed
     // on a developer's short hostname and failed on the build machine.
     expect(store.getMachineName()).toBe(sanitizeMachineName(hostname(), 'DevDeck')); // empty falls back rather than showing a blank chip
+  });
+});
+
+describe('renameWithRetry (state.json commit on Windows)', () => {
+  const fsError = (code: string) => Object.assign(new Error(code), { code });
+
+  it('rides out a few transient EPERM/EBUSY/EACCES failures from AV / indexer / OneDrive', () => {
+    const failures = ['EPERM', 'EBUSY', 'EACCES'];
+    const rename = vi.fn(() => { const code = failures.shift(); if (code) throw fsError(code); });
+    const sleep = vi.fn();
+    renameWithRetry('a.tmp', 'a', rename, sleep);
+    expect(rename).toHaveBeenCalledTimes(4);
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([20, 40, 80]);
+  });
+
+  it('gives up after 5 attempts and throws the last error', () => {
+    const rename = vi.fn(() => { throw fsError('EBUSY'); });
+    expect(() => renameWithRetry('a.tmp', 'a', rename, () => {})).toThrow('EBUSY');
+    expect(rename).toHaveBeenCalledTimes(5);
+  });
+
+  it('does not retry an error that waiting cannot fix', () => {
+    const rename = vi.fn(() => { throw fsError('ENOSPC'); });
+    expect(() => renameWithRetry('a.tmp', 'a', rename, () => {})).toThrow('ENOSPC');
+    expect(rename).toHaveBeenCalledTimes(1);
+  });
+
+  it('the real sync sleep actually waits (Atomics.wait works on this thread)', () => {
+    const rename = vi.fn().mockImplementationOnce(() => { throw fsError('EPERM'); }).mockImplementationOnce(() => {});
+    const t0 = Date.now();
+    renameWithRetry('a.tmp', 'a', rename);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(15);
   });
 });

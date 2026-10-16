@@ -37,22 +37,27 @@ export interface AppCrashDetail { reason: string; exitCode: number; type?: strin
  */
 export interface CrashRecoveryDeps {
   log: (kind: AppCrashKind, detail: AppCrashDetail) => void;
-  reapPtys: () => void;
+  /** Kill only DevDeck's own terminals (provider-login shells) — never project sessions. */
+  reapInternalPtys: () => void;
   reloadWindow: () => void;
 }
 
 /**
  * What to actually DO when a crash event fires (installAppCrashHandlers only observes).
- * A dead renderer loses its in-memory session map while its node-pty conptys keep running in main
- * with no owner; the reload then restores sessions from the persisted list with FRESH ptys. Reap
- * the orphans first, or every renderer crash leaks — and double-runs — a full set of terminals.
+ *
+ * Project sessions are LEFT RUNNING. They used to be killed here, back when a reloaded renderer
+ * could only restore by spawning fresh ptys; it now asks main for the sessions already running
+ * (`cockpit:liveSessions`) and re-adopts them, and `cockpit:open` reuses a running conversation. So
+ * killing them bought nothing and destroyed whatever the agents were in the middle of — and the
+ * sessions a paired machine was watching along with them. Only the internal login shells are reaped:
+ * they are never listed, so nothing can re-adopt them and they would otherwise be orphaned for good.
  * A GPU/utility crash (`child-process-gone`) leaves the renderer alive, so it is log-only.
  */
 export function makeCrashRecovery(deps: CrashRecoveryDeps): (kind: AppCrashKind, detail: AppCrashDetail) => void {
   return (kind, detail) => {
     try { deps.log(kind, detail); } catch { /* logging is best-effort */ }
     if (kind !== 'render-process-gone') return;
-    try { deps.reapPtys(); } catch { /* a failed kill must not block the reload */ }
+    try { deps.reapInternalPtys(); } catch { /* a failed kill must not block the reload */ }
     try { deps.reloadWindow(); } catch { /* window may already be tearing down */ }
   };
 }

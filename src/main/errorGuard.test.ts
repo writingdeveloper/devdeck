@@ -72,28 +72,28 @@ describe('installAppCrashHandlers', () => {
 });
 
 describe('makeCrashRecovery', () => {
-  // A crashed renderer loses its `live` session map, but the node-pty conptys it owned keep
-  // running in main with no owner. On reload the renderer restores sessions from the persisted
-  // list and spawns FRESH ptys — so the orphans must be reaped first or every crash leaks
-  // (and double-runs) a full set of terminal processes.
+  // A crashed renderer loses its `live` session map, but the project ptys keep running in main and
+  // the reloaded renderer re-adopts them (`cockpit:liveSessions`). Only DevDeck's internal login
+  // shells — which nothing can re-adopt — are reaped; killing project sessions would destroy the
+  // agents' in-flight work (and sessions remote viewers are using) for nothing.
   const detail = { reason: 'crashed', exitCode: 11 };
 
-  it('render-process-gone: logs, reaps orphaned ptys, then reloads the window', () => {
+  it('render-process-gone: logs, reaps only the internal ptys, then reloads the window', () => {
     const calls: string[] = [];
     const respond = makeCrashRecovery({
       log: (kind) => calls.push(`log:${kind}`),
-      reapPtys: () => calls.push('reap'),
+      reapInternalPtys: () => calls.push('reap-internal'),
       reloadWindow: () => calls.push('reload'),
     });
     respond('render-process-gone', detail);
-    expect(calls).toEqual(['log:render-process-gone', 'reap', 'reload']);
+    expect(calls).toEqual(['log:render-process-gone', 'reap-internal', 'reload']);
   });
 
   it('child-process-gone (GPU/utility): logs only — the renderer and its sessions are still alive', () => {
     const calls: string[] = [];
     const respond = makeCrashRecovery({
       log: (kind) => calls.push(`log:${kind}`),
-      reapPtys: () => calls.push('reap'),
+      reapInternalPtys: () => calls.push('reap-internal'),
       reloadWindow: () => calls.push('reload'),
     });
     respond('child-process-gone', { type: 'GPU', reason: 'crashed', exitCode: 139 });
@@ -104,7 +104,7 @@ describe('makeCrashRecovery', () => {
     const calls: string[] = [];
     const respond = makeCrashRecovery({
       log: () => calls.push('log'),
-      reapPtys: () => { throw new Error('kill failed'); },
+      reapInternalPtys: () => { throw new Error('kill failed'); },
       reloadWindow: () => calls.push('reload'),
     });
     expect(() => respond('render-process-gone', detail)).not.toThrow();

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { spawn as spawnChild } from 'node:child_process';
 import { withTimeout } from '../shared/withTimeout';
 
 export interface PtyProcess {
@@ -63,6 +64,66 @@ export interface PtySessionInfo {
  */
 const SCROLLBACK_BYTES = 256 * 1024;
 
+/**
+ * The most project terminals this machine will run at once. Each one is a real agent process
+ * holding memory and quota, and the restore path has run away before — one bug opened 50 claude
+ * processes in a loop and froze the host. Far past any real working set; a refusal there is a
+ * readable error instead of a machine that stops responding. Internal terminals do not count.
+ */
+export const MAX_SESSIONS = 32;
+
+/** How long `taskkill` may take before the plain kill goes ahead without it. */
+const TREE_KILL_TIMEOUT_MS = 3_000;
+
+export type TreeKiller = (pid: number) => Promise<void>;
+
+/**
+ * `taskkill /PID <pid> /T /F`: end a Windows process AND everything it started. Never rejects —
+ * however it ends (killed, nothing to kill, taskkill missing, too slow), the caller carries on.
+ */
+export function taskkillTree(pid: number, spawnFn: typeof spawnChild = spawnChild, timeoutMs = TREE_KILL_TIMEOUT_MS): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (): void => { if (!done) { done = true; clearTimeout(timer); resolve(); } };
+    const timer = setTimeout(finish, timeoutMs);
+    if (!Number.isInteger(pid) || pid <= 0) { finish(); return; }
+    try {
+      const p = spawnFn('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+      p.once('error', finish);
+      p.once('exit', finish);
+    } catch { finish(); }
+  });
+}
+
+/**
+ * Make a pty's kill() take the shell's whole process tree, not only what is attached to its console.
+ *
+ * node-pty's Windows kill() ends the processes in the pseudoconsole's process list and closes it.
+ * An agent's own children that were started hidden or detached — MCP servers, a dev server it ran
+ * with Start-Process, anything spawned with windowsHide — are not in that list and outlive the tile,
+ * holding ports and files. `taskkill /T` walks the parent chain instead, so it has to run FIRST,
+ * while the shell still exists to walk from; the original kill() follows once it is done (or has
+ * timed out), so the pseudoconsole is always closed and node-pty's exit still fires.
+ */
+export function withTreeKill(proc: PtyProcess, killTree: TreeKiller): PtyProcess {
+  let killing = false;
+  return {
+    get pid() { return proc.pid; },
+    onData: (cb) => proc.onData(cb),
+    onExit: (cb) => proc.onExit(cb),
+    write: (d) => proc.write(d),
+    resize: (c, r) => proc.resize(c, r),
+    kill: () => {
+      if (killing) return;
+      killing = true;
+      const pid = proc.pid;
+      void killTree(pid).catch(() => { /* the plain kill below still runs */ }).then(() => {
+        try { proc.kill(); } catch (error) { console.error('DevDeck: terminal close failed', error); }
+      });
+    },
+  };
+}
+
 interface Session {
   /**
    * The size the pty is at right now — and therefore the size every byte in `chunks` was drawn for.
@@ -105,6 +166,9 @@ export class PtyHost {
   ): void {
     if (this.stopping) throw new Error('Terminals are shutting down');
     if (this.sessions.has(id)) throw new Error(`Terminal already exists: ${id}`);
+    if (info?.internal !== true && this.list().length >= MAX_SESSIONS) {
+      throw new Error(`Too many terminals open (${MAX_SESSIONS}). Close some sessions first.`);
+    }
     const proc = this.spawn(file, args, { cwd, cols, rows });
     let exited!: () => void;
     const exit = new Promise<void>((resolve) => { exited = resolve; });
@@ -232,6 +296,13 @@ export class PtyHost {
   }
   killAll(): void {
     for (const id of [...this.sessions.keys()]) {
+      try { this.kill(id); } catch (error) { console.error('DevDeck: terminal close failed', error); }
+    }
+  }
+  /** Kill only the terminals DevDeck opened for itself (provider logins), leaving project sessions running. */
+  killInternal(): void {
+    for (const [id, s] of [...this.sessions]) {
+      if (!s.internal) continue;
       try { this.kill(id); } catch (error) { console.error('DevDeck: terminal close failed', error); }
     }
   }

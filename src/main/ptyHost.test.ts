@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { PtyHost, type PtyProcess, type PtySpawn } from './ptyHost';
+import { EventEmitter } from 'node:events';
+import { PtyHost, MAX_SESSIONS, taskkillTree, withTreeKill, type PtyProcess, type PtySpawn } from './ptyHost';
 
 function fakeProc() {
   let dataCb: (d: string) => void = () => {};
@@ -250,5 +251,96 @@ describe('what a machine can say about its own sessions', () => {
     expect(host.note('s', { label: 'triage' })).toBe(false);
     expect(host.note('s', { sessionId: 'c1' })).toBe(false);
     expect(host.note('gone', { label: 'triage' })).toBe(false);
+  });
+});
+
+describe('limits and crash recovery', () => {
+  it(`refuses project terminal number ${MAX_SESSIONS + 1} with a readable error — internal ones do not count`, () => {
+    const host = new PtyHost(() => fakeProc());
+    for (let i = 0; i < MAX_SESSIONS; i++) host.create(`p${i}`, 'pwsh', [], '.', 80, 24, () => {}, () => {});
+    expect(() => host.create('one-too-many', 'pwsh', [], '.', 80, 24, () => {}, () => {}))
+      .toThrow(`Too many terminals open (${MAX_SESSIONS}). Close some sessions first.`);
+    expect(() => host.create('login', 'pwsh', [], '.', 80, 24, () => {}, () => {}, { internal: true })).not.toThrow();
+    host.kill('p0');
+    expect(() => host.create('room-again', 'pwsh', [], '.', 80, 24, () => {}, () => {})).not.toThrow();
+  });
+
+  it("killInternal() reaps only DevDeck's own login shells and leaves project sessions running", () => {
+    const login = fakeProc(), project = fakeProc();
+    const host = new PtyHost(vi.fn().mockReturnValueOnce(login).mockReturnValueOnce(project));
+    host.create('usage-login:claude:1', 'pwsh', [], '.', 80, 24, () => {}, () => {}, { internal: true });
+    host.create('C:\repo#1', 'pwsh', [], '.', 80, 24, () => {}, () => {});
+    host.killInternal();
+    expect(login.kill).toHaveBeenCalledTimes(1);
+    expect(project.kill).not.toHaveBeenCalled();
+    expect(host.list().map((s) => s.id)).toEqual(['C:\repo#1']);
+    expect(host.pid('usage-login:claude:1')).toBeNull();
+  });
+});
+
+describe('Windows process-tree kill', () => {
+  it('runs the tree kill FIRST (while the shell still exists) and the pty kill only after it settles', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const inner = fakeProc();
+    (inner.kill as ReturnType<typeof vi.fn>).mockImplementation(() => order.push('pty.kill'));
+    const wrapped = withTreeKill(inner, (pid) => { order.push(`taskkill ${pid}`); return new Promise<void>((r) => { release = r; }); });
+    wrapped.kill();
+    wrapped.kill(); // a second close while the first is in flight does not start another
+    expect(order).toEqual(['taskkill 1234']);
+    release();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(order).toEqual(['taskkill 1234', 'pty.kill']);
+  });
+
+  it('still closes the pty when the tree kill fails', async () => {
+    const inner = fakeProc();
+    const wrapped = withTreeKill(inner, () => Promise.reject(new Error('taskkill missing')));
+    wrapped.kill();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(inner.kill).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards everything else to the real pty', () => {
+    const inner = fakeProc();
+    const wrapped = withTreeKill(inner, async () => {});
+    wrapped.write('x'); wrapped.resize(100, 30);
+    expect(wrapped.pid).toBe(1234);
+    expect(inner.write).toHaveBeenCalledWith('x');
+    expect(inner.resize).toHaveBeenCalledWith(100, 30);
+  });
+
+  it('shutdown still drains: exit callbacks fire once the deferred pty kill has run', async () => {
+    const inner = fakeProc();
+    (inner.kill as ReturnType<typeof vi.fn>).mockImplementation(() => inner.emitExit(1));
+    const host = new PtyHost(() => withTreeKill(inner, async () => {}));
+    const onExit = vi.fn();
+    host.create('a', 'pwsh', [], '.', 80, 24, () => {}, onExit);
+    await host.shutdown(1_000);
+    expect(onExit).toHaveBeenCalledWith({ exitCode: 1 });
+  });
+
+  it('taskkillTree spawns `taskkill /PID <pid> /T /F` hidden and resolves when it exits', async () => {
+    const child = new EventEmitter();
+    const spawnFn = vi.fn(() => child);
+    const done = taskkillTree(4321, spawnFn as never, 1_000);
+    expect(spawnFn).toHaveBeenCalledWith('taskkill', ['/PID', '4321', '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    child.emit('exit', 0);
+    await expect(done).resolves.toBeUndefined();
+  });
+
+  it('taskkillTree gives up after its timeout instead of holding the close forever', async () => {
+    vi.useFakeTimers();
+    try {
+      const done = taskkillTree(4321, (() => new EventEmitter()) as never, 3_000);
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(done).resolves.toBeUndefined();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('taskkillTree does nothing for a pid it cannot trust', async () => {
+    const spawnFn = vi.fn();
+    await taskkillTree(0, spawnFn as never);
+    expect(spawnFn).not.toHaveBeenCalled();
   });
 });

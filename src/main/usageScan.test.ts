@@ -161,6 +161,21 @@ describe('scanUsage', () => {
       expect((await scan()).global.input).toBe(16);
     });
 
+    it('two scans resuming the same grown file at once each count the appended lines exactly once', async () => {
+      // The deck's all-time report and the usage view's last-N-days run concurrently. Both used to
+      // resume from the SAME cached digest and fold the tail into it in place — doubling it for good.
+      writeFileSync(file, asst('claude-opus-4-8', { input_tokens: 100 }) + '\n');
+      expect((await scan()).global.input).toBe(100);
+      let tail = '';
+      for (let i = 0; i < 2000; i++) tail += asst('claude-opus-4-8', { input_tokens: 100 }) + '\n';
+      appendFileSync(file, tail);
+      const since = Date.parse('2026-05-01T00:00:00.000Z');
+      const [all, recent] = await Promise.all([scan(), scanUsage([{ path: project, name: 'live' }], root, since)]);
+      expect(all.global.input).toBe(2001 * 100);
+      expect(recent.global.input).toBe(2001 * 100);
+      expect((await scan()).global.input).toBe(2001 * 100); // and the cache it left behind is right too
+    });
+
     it('re-reads from the beginning when the file was replaced rather than appended to', async () => {
       // A shorter file, or one born at a different moment, is not the file the digest describes.
       writeFileSync(file, [asst('claude-opus-4-8', { input_tokens: 10 }), asst('claude-opus-4-8', { input_tokens: 10 })].join('\n') + '\n');

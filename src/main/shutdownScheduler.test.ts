@@ -44,7 +44,7 @@ describe('ShutdownScheduler auto path', () => {
     expect(h.deps.log.append).toHaveBeenCalledTimes(1);
     expect(h.records[0]).toMatchObject({ kind: 'auto', status: 'issued', idleMinutes: 10, sessions: [{ project: 'devdeck', activity: 'attention' }] });
     expect(h.records[0].scheduledAt - h.records[0].at).toBe(60_000);
-    expect(h.deps.execShutdown).toHaveBeenCalledWith(60);
+    expect(h.deps.execShutdown).toHaveBeenCalledWith(60, expect.any(Function));
     expect(h.s.status().phase).toBe('countdown');
   });
 
@@ -130,7 +130,7 @@ describe('manual + cancel', () => {
   it('shutdownNow issues immediately with the 15s countdown, no arming needed', () => {
     const h = makeHarness();
     h.s.shutdownNow();
-    expect(h.deps.execShutdown).toHaveBeenCalledWith(15);
+    expect(h.deps.execShutdown).toHaveBeenCalledWith(15, expect.any(Function));
     expect(h.records[0]).toMatchObject({ kind: 'manual', status: 'issued' });
     expect(h.records[0].idleMinutes).toBeUndefined();
     expect(h.s.status().phase).toBe('countdown');
@@ -159,6 +159,39 @@ describe('manual + cancel', () => {
     h.s.cancel();
     const phases = vi.mocked(h.deps.onStatus).mock.calls.map((c) => c[0].phase);
     expect(phases).toEqual(['armed', 'disarmed', 'countdown', 'disarmed']);
+  });
+});
+
+describe('a shutdown command that fails', () => {
+  // shutdown.exe exiting non-zero (one already pending, policy denial) means there is no OS timer.
+  // Staying in 'countdown' showed a countdown to nothing and blocked re-arming until restart.
+  it('returns to disarmed, marks the record as not having happened, and reports it', () => {
+    const h = makeHarness();
+    h.s.shutdownNow();
+    const onFailed = (h.deps.execShutdown as ReturnType<typeof vi.fn>).mock.calls[0][1] as (m: string) => void;
+    onFailed('shutdown /s exited with code 1190');
+    expect(h.s.status()).toMatchObject({ phase: 'disarmed', scheduledAt: null, kind: null });
+    expect(h.records[0]).toMatchObject({ status: 'cancelled' });
+    expect(h.deps.onError).toHaveBeenCalledWith(expect.stringContaining('exited with code 1190'));
+    h.s.arm(); // and the user can arm again without restarting
+    expect(h.s.status().phase).toBe('armed');
+  });
+
+  it('a late failure from an EARLIER command cannot end a newer countdown', () => {
+    const h = makeHarness();
+    h.s.shutdownNow();
+    const stale = (h.deps.execShutdown as ReturnType<typeof vi.fn>).mock.calls[0][1] as (m: string) => void;
+    h.s.cancel();
+    h.s.shutdownNow();
+    stale('late');
+    expect(h.s.status().phase).toBe('countdown');
+  });
+
+  it('a command that throws while starting is handled the same way', () => {
+    const h = makeHarness({ execShutdown: vi.fn(() => { throw new Error('spawn EPERM'); }) });
+    h.s.shutdownNow();
+    expect(h.s.status().phase).toBe('disarmed');
+    expect(h.deps.onError).toHaveBeenCalledWith(expect.stringContaining('spawn EPERM'));
   });
 });
 

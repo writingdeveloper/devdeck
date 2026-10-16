@@ -169,9 +169,14 @@ async function foldDigest(
 ): Promise<FoldResult | null> {
   const resume = resumable(previous, size, birthtimeMs);
   const base = resume ? previous : emptyDigest(mtimeMs, size, birthtimeMs);
-  const rollup = new Map<string, DigestEntry>(base.entries.map((e) => [e.day + ' ' + e.model, e]));
-  const stamps = base.stamps;
-  const stampDayMs = base.stampDayMs;
+  // Fold into COPIES, never into the cached digest. Two scans can be resuming the same file at once
+  // (the deck's all-time report and the usage view's last-N-days, or a remote viewer asking too);
+  // folding in place had both add the same appended lines to the one shared rollup, doubling them in
+  // the cache until restart (200,100 tokens became 400,100). A read that fails halfway likewise left
+  // its partial sums behind. With copies, the cache only changes when a whole fold is committed.
+  const rollup = new Map<string, DigestEntry>(base.entries.map((e) => [e.day + ' ' + e.model, cloneEntry(e)]));
+  const stamps = [...base.stamps];
+  const stampDayMs = [...base.stampDayMs];
   let offset = resume ? base.offset : 0;
   if (offset >= size) {
     const settled = { ...base, mtimeMs, size, birthtimeMs, offset };
@@ -226,6 +231,35 @@ function cloneEntry(e: DigestEntry): DigestEntry {
   return { ...e, totals: { ...e.totals } };
 }
 
+/**
+ * Folds in progress, by file. A second scan reaching a file that is already being folded waits for
+ * that fold and then reads the cache it committed, instead of reading the same tail a second time.
+ * (Correctness does not depend on this — folds work on copies — it only avoids the duplicate read.)
+ */
+const _folding = new Map<string, Promise<unknown>>();
+
+/** The digest to count for one file: the cached one when nothing changed, else a fresh fold. */
+async function digestFor(full: string, fileMs: number, size: number, birthtimeMs: number): Promise<FileDigest | null> {
+  for (let inFlight = _folding.get(full); inFlight; inFlight = _folding.get(full)) await inFlight;
+  const cached = _fileCache.get(full);
+  // Nothing appended AND nothing left unread: the digest already answers for this file.
+  if (cached && cached.mtimeMs === fileMs && cached.size === size && cached.offset >= size) {
+    cacheTouch(full); // keep the hot file at the recent end of the LRU order
+    return cached;
+  }
+  const work = foldDigest(full, fileMs, fileMs, size, birthtimeMs, cached);
+  const settled = work.catch(() => null);
+  _folding.set(full, settled);
+  try {
+    const parsed = await settled;
+    if (!parsed) return null;
+    cacheSet(full, parsed.durable); // only what is aligned to a record boundary may be resumed
+    return parsed.view;             // what is counted includes a line still being written
+  } finally {
+    if (_folding.get(full) === settled) _folding.delete(full);
+  }
+}
+
 /** Aggregate token usage across the given repos' Claude sessions. sinceMs filters by day (Infinity = all). */
 export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sinceMs: number): Promise<ProviderUsageSlice> {
   const global = emptyTotals();
@@ -250,16 +284,8 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
         let size = 0;
         let birthtimeMs = 0;
         try { ({ mtimeMs: fileMs, size, birthtimeMs } = await stat(full)); } catch { /* keep defaults */ }
-        let digest = _fileCache.get(full);
-        // Nothing appended AND nothing left unread: the digest already answers for this file.
-        if (digest && digest.mtimeMs === fileMs && digest.size === size && digest.offset >= size) {
-          cacheTouch(full); // keep the hot file at the recent end of the LRU order
-        } else {
-          const parsed = await foldDigest(full, fileMs, fileMs, size, birthtimeMs, digest);
-          if (!parsed) continue; // unreadable — skip, don't poison the cache
-          cacheSet(full, parsed.durable); // only what is aligned to a record boundary may be resumed
-          digest = parsed.view;           // what is counted includes a line still being written
-        }
+        const digest = await digestFor(full, fileMs, size, birthtimeMs);
+        if (!digest) continue; // unreadable — skip, don't poison the cache
         let contributed = false;
         for (const e of digest.entries) {
           if (!inRange(e.dayMs)) continue;
@@ -275,7 +301,7 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
           webSearch += e.webSearch;
           webFetch += e.webFetch;
         }
-        const stampsInRange = sinceMs === Infinity ? digest.stamps : digest.stamps.filter((_, i) => digest!.stampDayMs[i] >= sinceMs);
+        const stampsInRange = sinceMs === Infinity ? digest.stamps : digest.stamps.filter((_, i) => digest.stampDayMs[i] >= sinceMs);
         projActiveMs += activeMsFromTimestamps(stampsInRange);
         // Count a session only when it had activity in the selected range (an in-range usage entry, or
         // any in-range message). Counting every file regardless of range let long-dead projects render
