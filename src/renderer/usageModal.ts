@@ -147,7 +147,9 @@ function providerSection(p: ProviderUsage): HTMLElement {
     const row = document.createElement('div'); row.className = 'um-guidance';
     const button = document.createElement('button'); button.type = 'button'; button.className = 'um-action';
     button.textContent = tr('usage.login_open');
-    button.addEventListener('click', () => { void openUsageLoginTerminal(p.providerId as 'claude' | 'codex'); });
+    // The login terminal is its own dialog. Left open underneath, this one's capture-phase key handler
+    // went on taking Escape (closing it from under the sign-in) and Shift+Tab (pulling focus out of it).
+    button.addEventListener('click', () => { closeUsageModal(); void openUsageLoginTerminal(p.providerId as 'claude' | 'codex'); });
     row.appendChild(button);
     // Signing in again is the heavy way. Claude Code refreshes this token itself whenever it runs —
     // which is exactly why the reported outage lasted 35 hours: the user had not run it. Say so, so

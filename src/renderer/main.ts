@@ -17,6 +17,7 @@ import { initializeAgentSelection, setSelectedAgent } from './agentSelection';
 import type { AgentId } from '../shared/types';
 import { createIcon } from './icons';
 import { maximizeActionPresentation } from '../shared/windowControls';
+import { selectedMachineId } from './machineDeck';
 
 let shellController: ShellController | null = null;
 let contextRestore: ContextRestoreCoordinator | null = null;
@@ -349,11 +350,11 @@ async function boot(): Promise<void> {
     applyRestore(contextRestore.sessionsLoaded(new Set()));
   }
   const syncShellProjects = (items: readonly import('../shared/types').ProjectViewModel[]): void => {
-    shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })));
+    shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })), selectedMachineId());
     applyRestore(contextRestore?.projectsLoaded(new Set(items.map((item) => item.path))) ?? null);
   };
   onProjectsChanged(syncShellProjects);
-  shellController.setProjects(currentProjects().filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })));
+  shellController.setProjects(currentProjects().filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })), selectedMachineId());
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
   const agentControl = document.getElementById('agent-select-control');

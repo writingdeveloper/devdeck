@@ -10,6 +10,7 @@
   "newproj.name": "Name",
   "newproj.name_ph": "project name",
   "newproj.add_location": "Add another location",
+  "newproj.err_is_repo": "That folder is already added as a single project. Pick the folder that contains it to create projects next to it.",
   "newproj.no_location": "Add a scan location first →",
   "newproj.create": "Create",
   "newproj.cancel": "Cancel",

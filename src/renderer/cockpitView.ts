@@ -68,11 +68,15 @@ interface Live {
   updateReady: boolean;
   /** The person asked for that restart while a turn was running; it happens when the turn ends. */
   updateWhenIdle: boolean;
+  /** When this terminal last changed size: the repaint that follows is not the agent doing anything. */
+  resizedAt: number;
 }
 /** The renderer's display metadata plus the explicit provider launch intent. */
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; instanceId?: string; labelRevision?: number; /** Picked up because a machine announced it, not because anybody here asked: build it without taking the screen or the keyboard. */ background?: boolean; }
 
 const live = new Map<string, Live>();
+/** How long after a size change a terminal's output is taken to be the repaint, not the agent. */
+const RESIZE_ECHO_MS = 700;
 /** Sessions closed here that their machine may still list for a moment — never adopted back. */
 const closedTiles = new CloseTombstones();
 /** Restart waits for the old terminal to be gone before resuming its conversation. */
@@ -134,6 +138,7 @@ export function refreshCockpitSidebar(): void {
   const expand = document.getElementById('ck-expand');
   if (collapse) { collapse.title = tr('cockpit.sidebar_hide'); collapse.setAttribute('aria-label', tr('cockpit.sidebar_hide')); collapse.setAttribute('aria-expanded', String(!sidebarCollapsed)); }
   if (expand) { expand.title = tr('cockpit.sidebar_show'); expand.setAttribute('aria-label', tr('cockpit.sidebar_show')); expand.setAttribute('aria-expanded', String(!sidebarCollapsed)); }
+  labelFindBar(); // built once at mount, so a language switch has to reach it here
 }
 /** Restore the persisted sidebar state (called from boot, after mountCockpit). */
 export function setCockpitSidebarCollapsed(collapsed: boolean): void { sidebarCollapsed = collapsed === true; refreshCockpitSidebar(); }
@@ -173,6 +178,10 @@ export function mountCockpit(): void {
     // Held back only while a repaint is in flight (see Live.replayPending) so the screen underneath
     // cannot land on top of newer output. Activity tracking is not gated: the session IS producing.
     if (l.replayPending) holdForReplay(l, chunk); else l.term.write(chunk);
+    // ConPTY answers every size change with a full repaint of the screen. Counted as output, one window
+    // resize (or the usage bar appearing) turned every idle session "working" and reshuffled the
+    // recency order; and the repainted screen's OLD text could read as a fresh prompt.
+    if (Date.now() - l.resizedAt < RESIZE_ECHO_MS) return;
     l.lastDataAt = Date.now();
     l.recentOutput = (l.recentOutput + stripAnsi(chunk)).slice(-4096);
   });
@@ -332,9 +341,9 @@ function buildFindBar(): void {
   findInput = document.createElement('input');
   findInput.className = 'ck-find-input'; findInput.placeholder = tr('cockpit.find_ph');
   findInput.setAttribute('aria-label', tr('cockpit.find_ph'));
-  const prev = document.createElement('button'); prev.className = 'ck-find-btn'; prev.textContent = '↑'; prev.title = tr('cockpit.find_prev');
-  const next = document.createElement('button'); next.className = 'ck-find-btn'; next.textContent = '↓'; next.title = tr('cockpit.find_next');
-  const close = document.createElement('button'); close.className = 'ck-find-btn'; close.textContent = '✕'; close.title = tr('cockpit.find_close');
+  const prev = document.createElement('button'); prev.className = 'ck-find-btn ck-find-prev'; prev.textContent = '↑';
+  const next = document.createElement('button'); next.className = 'ck-find-btn ck-find-next'; next.textContent = '↓';
+  const close = document.createElement('button'); close.className = 'ck-find-btn ck-find-close'; close.textContent = '✕';
   const sel = (): Live | undefined => (selectedId ? live.get(selectedId) : undefined);
   findInput.addEventListener('input', () => { const l = sel(); if (l && findInput!.value) l.search.findNext(findInput!.value, { incremental: true }); });
   findInput.addEventListener('keydown', (e) => {
@@ -346,7 +355,17 @@ function buildFindBar(): void {
   next.addEventListener('click', () => { const l = sel(); if (l && findInput!.value) l.search.findNext(findInput!.value); });
   close.addEventListener('click', closeFindBar);
   findBar.append(findInput, prev, next, close);
+  labelFindBar();
   termsEl.appendChild(findBar); // .ck-terms is position:relative — the bar floats over the terminal
+}
+
+function labelFindBar(): void {
+  if (!findBar || !findInput) return;
+  findInput.placeholder = tr('cockpit.find_ph'); findInput.setAttribute('aria-label', tr('cockpit.find_ph'));
+  for (const [cls, key] of [['ck-find-prev', 'cockpit.find_prev'], ['ck-find-next', 'cockpit.find_next'], ['ck-find-close', 'cockpit.find_close']] as const) {
+    const b = findBar.querySelector<HTMLButtonElement>(`.${cls}`);
+    if (b) { b.title = tr(key); b.setAttribute('aria-label', tr(key)); }
+  }
 }
 
 function openFindBar(): void {
@@ -550,15 +569,21 @@ export function activateCockpitSession(id: string): void {
   if (previous) void restoreSession(previous);
 }
 
-/** Per-project live status for the deck's summary + card stripes (no IPC — renderer-shared). */
-export function liveProjectActivity(): Map<string, 'attention' | 'working'> {
-  return foldProjectActivity([...live.values()].map((l) => ({ projectPath: l.session.projectPath, activity: l.session.activity })));
+/**
+ * Per-project live status for the deck's summary + card stripes (no IPC — renderer-shared).
+ *
+ * For ONE machine's projects. Two machines usually carry the same folder layout, so keyed by path
+ * alone a session working on this PC lit up the same-named project on the paired one's deck — badge,
+ * summary count and activity order included.
+ */
+export function liveProjectActivity(machineId: string = LOCAL_MACHINE_ID): Map<string, 'attention' | 'working'> {
+  return foldProjectActivity([...live.values()].filter((l) => l.machineId === machineId).map((l) => ({ projectPath: l.session.projectPath, activity: l.session.activity })));
 }
 
 /** Advisory provider presence for open-control copy; click-time routing still rechecks real history. */
-export function liveProjectProviders(projectPath: string): AgentId[] {
+export function liveProjectProviders(projectPath: string, machineId: string = LOCAL_MACHINE_ID): AgentId[] {
   return [...new Set([...live.values()]
-    .filter((l) => l.session.projectPath === projectPath && l.session.status !== 'exited')
+    .filter((l) => l.machineId === machineId && l.session.projectPath === projectPath && l.session.status !== 'exited')
     .map((l) => l.session.agentId))];
 }
 
@@ -690,7 +715,9 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   // question, and it cannot be read back off the screen — a row of text is as long as its content.
   const stampSize = (): void => { el.dataset.termSize = `${term.cols}x${term.rows}`; };
   stampSize();
-  term.onResize(stampSize);
+  // Found by element, not by id: a resize can land before this tile is registered, and after a rebind
+  // its id is a different one.
+  term.onResize(() => { stampSize(); for (const l of live.values()) if (l.el === el) { l.resizedAt = Date.now(); break; } });
   // Make http(s) links clickable → open via a scheme-guarded IPC. Custom provider instead of the
   // WebLinksAddon: Claude's renderer HARD-wraps long URLs at its own inner width (real newlines +
   // indentation), which the addon can't join — clicking then opened only the first fragment. Our
@@ -874,7 +901,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     // history to paint, so it writes through from the first byte.
     replayPending: adopting ? [] : null,
     ptyCap: null,
-    updateReady: false, updateWhenIdle: false,
+    updateReady: false, updateWhenIdle: false, resizedAt: 0,
   });
   // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
   // blank rectangle until the agent next speaks — which, while it is thinking, can be minutes, and
@@ -1335,8 +1362,9 @@ async function refreshMeta(id: string): Promise<void> {
   if (l.meta?.model === meta.model && l.meta?.activeMs === meta.activeMs && l.meta?.contextTokens === meta.contextTokens
     && l.meta?.summary === meta.summary) return; // unchanged → no re-render
   l.meta = meta;
-  if (!editingId) renderList();
-  renderHeader();
+  // Not while a rename is open: the header IS the editor, and rebuilding it under the person's
+  // hands re-selected everything they had typed (and broke an IME composition mid-syllable).
+  if (!editingId) { renderList(); renderHeader(); }
 }
 /** Re-resolve WHICH on-disk conversation a live tile is actually writing to. /clear starts a
  *  brand-new session id in the same terminal, so the open-time id goes permanently stale — persisting
@@ -1383,8 +1411,9 @@ async function refreshProvider(id: string): Promise<void> {
   publishCockpitNavigation();
   if (selectedId === id) publishSessionSelection(l);
   if (selectedId === id) setActiveUsageProvider(actual); // the footer must follow the tile's REAL provider
-  if (!editingId) renderList();
-  renderHeader();
+  // Not while a rename is open: the header IS the editor, and rebuilding it under the person's
+  // hands re-selected everything they had typed (and broke an IME composition mid-syllable).
+  if (!editingId) { renderList(); renderHeader(); }
 }
 
 /** Await a provider + drift check for every live tile — the update-restart path calls this right before
@@ -1404,8 +1433,9 @@ async function refreshGit(id: string): Promise<void> {
   if (l.session.branch === info.branch && l.session.dirty === info.dirty) return; // unchanged → no re-render
   l.session.branch = info.branch;
   l.session.dirty = info.dirty;
-  if (!editingId) renderList();
-  renderHeader();
+  // Not while a rename is open: the header IS the editor, and rebuilding it under the person's
+  // hands re-selected everything they had typed (and broke an IME composition mid-syllable).
+  if (!editingId) { renderList(); renderHeader(); }
 }
 // The 30s tick: skip exited sessions — their model/branch can't change, so re-reading their log +
 // re-spawning git every tick is pure waste (matters most with many concurrent sessions).

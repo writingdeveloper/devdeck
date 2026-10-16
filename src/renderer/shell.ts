@@ -79,7 +79,8 @@ export interface ShellController {
   showView(view: ViewId): void;
   setCockpitAvailable(available: boolean): void;
   setSessionGroups(items: ShellSessionInput[]): void;
-  setProjects(items: ShellProjectInput[]): void;
+  /** The deck's projects, and which machine they are on — project rows light up only for that machine's sessions. */
+  setProjects(items: ShellProjectInput[], machineId?: string): void;
   setActiveProject(path: string | null): void;
   setActiveSession(id: string | null): void;
   setCollapsed(collapsed: boolean): void;
@@ -101,6 +102,14 @@ export function mountShell(options: {
   onGroupClose?(group: ShellSessionGroup): void;
   onRestoreAll(): void;
 }): ShellController {
+  // The working spinners stop while another window has the focus. Any running animation makes
+  // Chromium draw the whole window every step — measured at about half a percent of a core per frame a
+  // second, the same for one spinner as for six — and nobody is watching the turn of a spinner in a
+  // window they are not in. The working shape and colour stay, so the state still reads at a glance.
+  const syncFocus = (): void => { document.documentElement.classList.toggle('app-unfocused', !document.hasFocus()); };
+  window.addEventListener('focus', syncFocus);
+  window.addEventListener('blur', syncFocus);
+  syncFocus();
   const sidebar = document.getElementById('app-sidebar')!;
   const collapse = document.getElementById('shell-collapse') as HTMLButtonElement;
   const quickOpen = document.getElementById('shell-quick-open') as HTMLInputElement;
@@ -117,6 +126,7 @@ export function mountShell(options: {
   const mobileBackdrop = document.getElementById('shell-mobile-backdrop') as HTMLButtonElement;
   let sessions: ShellSessionInput[] = [];
   let projects: ShellProjectInput[] = [];
+  let projectsMachine = 'local';
   let activeEntityKey = '';
   const sessionRows = new Map<string, HTMLButtonElement>();
   const sessionWraps = new Map<string, HTMLElement>();
@@ -630,6 +640,9 @@ export function mountShell(options: {
     const map = new Map<string, 'attention' | 'working'>();
     for (const item of sessions) {
       if (item.previous) continue;
+      // The project rows are one machine's; a session on another machine with the same folder layout
+      // is a different project that happens to share the path.
+      if ((item.machineId || 'local') !== projectsMachine) continue;
       if (item.activity === 'attention') map.set(item.projectPath, 'attention');
       else if (item.activity === 'working' && map.get(item.projectPath) !== 'attention') map.set(item.projectPath, 'working');
     }
@@ -937,7 +950,7 @@ export function mountShell(options: {
       // and each publish used to put the highlight back on the first result mid-navigation.
       if (quickOpen.value.trim()) { const keep = quickIndex; applyQuery(); highlightQuickResult(keep); }
     },
-    setProjects: (items) => { projects = [...items]; renderProjects(projects); applyQuery(); },
+    setProjects: (items, machineId = 'local') => { projects = [...items]; projectsMachine = machineId; renderProjects(projects); applyProjectActivity(); applyQuery(); },
     setActiveProject: (path) => {
       if (path != null) revealProject(path);
       markActiveEntity(path == null ? null : shellEntityKey('project', path));

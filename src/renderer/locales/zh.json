@@ -10,6 +10,7 @@
   "newproj.name": "名称",
   "newproj.name_ph": "项目名称",
   "newproj.add_location": "添加其他位置",
+  "newproj.err_is_repo": "此文件夹已作为单个项目添加。要在它旁边创建项目，请选择其上级文件夹。",
   "newproj.no_location": "请先添加扫描位置 →",
   "newproj.create": "创建",
   "newproj.cancel": "取消",

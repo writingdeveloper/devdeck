@@ -10,6 +10,7 @@
   "newproj.name": "名前",
   "newproj.name_ph": "プロジェクト名",
   "newproj.add_location": "別の場所を追加",
+  "newproj.err_is_repo": "このフォルダーはすでに単一プロジェクトとして追加されています。隣にプロジェクトを作るには親フォルダーを選んでください。",
   "newproj.no_location": "先にスキャン場所を追加してください →",
   "newproj.create": "作成",
   "newproj.cancel": "キャンセル",

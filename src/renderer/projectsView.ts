@@ -192,7 +192,7 @@ function providerOpenControl(p: ProjectViewModel, compact = false): HTMLElement 
   return createProviderOpenControl({
     path: p.path,
     historyAgentIds: p.agentIds,
-    liveAgentIds: () => liveProjectProviders(p.path),
+    liveAgentIds: () => liveProjectProviders(p.path, selectedMachineId()),
     compact,
     onOpen: (intent) => openInTerminal([{
       ...intent, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted,
@@ -593,7 +593,7 @@ function render(): void {
   showHiddenBtn.setAttribute('aria-checked', String(showHidden));
   // Computed once per render: drives the card status stripe/badge, the activity-sort
   // priority below, and the reconcile signature (so a live status flip forces a rebuild).
-  const act = liveProjectActivity();
+  const act = liveProjectActivity(selectedMachineId());
   let visible = showHidden ? projects.filter((p) => p.hidden) : projects.filter((p) => !p.hidden);
 
   // Search filter (case-insensitive substring match on name, branch, note)
@@ -757,7 +757,7 @@ function showSkeleton(): void {
 function renderDeckPulse(todayCost: number | null): void {
   const el = document.getElementById('deck-pulse'); if (!el) return;
   lastPulseCost = todayCost;
-  const act = liveProjectActivity();
+  const act = liveProjectActivity(selectedMachineId());
   const attn = [...act.values()].filter((v) => v === 'attention').length;
   const work = act.size - attn;
   const neglected = neglectedCount(projects); // stale ≥ neglectedDays, excluding no-record (see isNeglected)
@@ -824,6 +824,9 @@ async function reload(): Promise<void> {
 
 async function reloadFor(forMachine: string, current: () => boolean): Promise<void> {
   lastLoadMs = Date.now();
+  // Settings are read with the projects, and a slow (remote) load can come back after the person has
+  // switched between cards and list — the setting it read is then the one they just changed away from.
+  const viewBefore = viewMode;
   // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
   // so they never wipe the deck to gray placeholders.
   if (!hasRenderedOnce) showSkeleton();
@@ -855,15 +858,19 @@ async function reloadFor(forMachine: string, current: () => boolean): Promise<vo
   }
   if (!current()) return;
   projects = proj;
-  viewMode = settings.viewMode === 'cards' ? 'cards' : 'list';
+  if (viewMode === viewBefore) viewMode = settings.viewMode === 'cards' ? 'cards' : 'list';
   for (const listener of projectListeners) listener([...projects]);
   syncViewToggle();
   render();
   hasRenderedOnce = true;
   // Surface the cross-project overdue-task count in the tray tooltip (partial update: the
   // cockpit owns attention/turn on the same channel).
-  const overdue = projects.reduce((n, p) => n + taskCounts(p.todos, Date.now()).overdue, 0);
-  window.devdeck.setTrayCounts({ overdue });
+  // This machine's tray counts this machine's tasks: a deck switched to a paired machine must not
+  // replace the number with that machine's.
+  if (forMachine === LOCAL_MACHINE_ID) {
+    const overdue = projects.reduce((n, p) => n + taskCounts(p.todos, Date.now()).overdue, 0);
+    window.devdeck.setTrayCounts({ overdue });
+  }
   // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch), then
   // the toolbar pulse summary (live status counts + today's cost). Both best-effort: any
   // failure in this chain falls back to a status-only pulse rather than blocking reload().

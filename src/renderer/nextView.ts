@@ -12,7 +12,7 @@ import { createProviderOpenControl } from './providerOpenControl';
 import { createIcon } from './icons';
 import { liveProjectProviders } from './cockpitView';
 import type { AgentId } from '../shared/types';
-import { deckFor, selectedMachineId, machineSelectionVersion, onMachineSelected } from './machineDeck';
+import { deckFor, selectedMachineId, machineSelectionVersion, onMachineSelected, LOCAL_MACHINE_ID } from './machineDeck';
 
 let viewEl: HTMLElement;
 interface Proj { path: string; name: string; todos: Todo[]; revision: number | undefined; agentIds: AgentId[]; }
@@ -147,13 +147,16 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
   del.addEventListener('click', () => mutate(projectPath, (ts) => removeTodo(ts, todo.id)));
 
   const project = projects.find((p) => p.path === projectPath);
+  // The board lists the selected machine's projects, so a task's Open belongs to that machine. Left
+  // off, it opened the project on THIS computer — against whatever sits at that path here, or nothing.
+  const machineId = selectedMachineId();
   const open = createProviderOpenControl({
     path: projectPath,
     historyAgentIds: project?.agentIds ?? [],
-    liveAgentIds: () => liveProjectProviders(projectPath),
+    liveAgentIds: () => liveProjectProviders(projectPath, machineId),
     compact: true,
     onOpen: (intent) => openInTerminal([{
-      ...intent, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0,
+      ...intent, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0, machineId,
     }]),
   });
   open.classList.add('tk-open');
@@ -180,8 +183,17 @@ function startEdit(text: HTMLElement, path: string, todo: Todo): void {
 function startDueEdit(chip: HTMLElement, path: string, todo: Todo): void {
   const input = document.createElement('input'); input.type = 'date'; input.className = 'tk-due-input';
   input.value = todo.due ?? '';
-  input.addEventListener('change', () => mutate(path, (ts) => setTodoDue(ts, todo.id, input.value || null)));
-  input.addEventListener('blur', () => render());
+  // Saved when the person is DONE with the field, not on every change: typing a date by keyboard
+  // passes through values like year 0002, which read as invalid and cleared the due date mid-entry.
+  let settled = false;
+  const commit = (save: boolean): void => {
+    if (settled) return; settled = true;
+    const next = input.value || null;
+    if (save && next !== (todo.due ?? null) && (next === null || /^(19|20|21)\d\d-\d\d-\d\d$/.test(next))) void mutate(path, (ts) => setTodoDue(ts, todo.id, next));
+    else render();
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(true); if (e.key === 'Escape') commit(false); });
+  input.addEventListener('blur', () => commit(true));
   chip.replaceWith(input); input.focus();
   input.showPicker?.();
 }
@@ -284,8 +296,9 @@ function render(): void {
   const head = document.createElement('div'); head.className = 'next-head';
   head.textContent = `${tr('next.title')} · ${open.length}` + (overdue ? `  ·  🔴 ${overdue}` : '');
   // Checking off / re-dating a task changes the overdue total — keep the tray tooltip current
-  // (partial update: the cockpit owns attention/turn on the same channel).
-  window.devdeck.setTrayCounts({ overdue });
+  // (partial update: the cockpit owns attention/turn on the same channel). Only for this machine's
+  // board: the tray belongs to this machine.
+  if (selectedMachineId() === LOCAL_MACHINE_ID) window.devdeck.setTrayCounts({ overdue });
 
   // Single control row: [project▾][new-todo…][date][add] | separator | [filter▾][filter…][show-done](+clear) | [list|calendar]
   const bar = document.createElement('div'); bar.className = 'tk-bar ui-toolbar';

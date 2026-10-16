@@ -106,6 +106,10 @@ export function openNewProjectModal(onCreated: (path: string) => void): void {
   addLoc.addEventListener('click', async () => {
     const picked = await window.devdeck.pickFolder();
     if (!picked) return;
+    // Adding an existing path again CHANGES its kind, and a scan root's own folder is not listed — so
+    // picking a folder already added as a single project made that project vanish from the deck.
+    const existing = (await window.devdeck.getFolders()).find((f) => f.path.toLowerCase() === picked.toLowerCase());
+    if (existing?.kind === 'repo') { toast(tr('newproj.err_is_repo')); return; }
     // Explicitly a scan ROOT: this picker chooses where NEW projects get created, and loadRoots only
     // lists kind:'root'. Auto-detection silently made it 'repo' when the picked dir happened to have a
     // `.git`, so the folder was added but never appeared in the dropdown.

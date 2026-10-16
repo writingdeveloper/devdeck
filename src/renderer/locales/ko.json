@@ -10,6 +10,7 @@
   "newproj.name": "이름",
   "newproj.name_ph": "프로젝트 이름",
   "newproj.add_location": "다른 위치 추가",
+  "newproj.err_is_repo": "이 폴더는 이미 단일 프로젝트로 추가되어 있습니다. 그 옆에 프로젝트를 만들려면 상위 폴더를 고르세요.",
   "newproj.no_location": "먼저 스캔 위치를 추가하세요 →",
   "newproj.create": "만들기",
   "newproj.cancel": "취소",

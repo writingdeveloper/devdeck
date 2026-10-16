@@ -160,12 +160,15 @@
 .shell-signal.signal-square { border-radius: 1px; background: var(--dd-text-faint); }
 .shell-signal.signal-spinner {
   border: 1.6px solid var(--dd-working); border-right-color: transparent; background: transparent;
-  /* Stepped, not smooth. A continuous rotation is composited at the display's refresh rate for as
-     long as it runs — measured at two thirds of the whole app's CPU while one agent worked, more than
-     the terminal it was decorating. Eight steps a cycle reads as the same spinner and costs ten
-     frames a second instead of sixty. */
-  animation: shell-spin .8s steps(8, end) infinite;
+  /* Stepped, not smooth, and slow. A continuous rotation is composited at the display's refresh rate
+     for as long as it runs — measured at two thirds of the whole app's CPU while one agent worked.
+     Each step still redraws the whole window, at a cost that does not depend on how many spinners
+     are turning (measured: one spinner 12.2%, six 13.1% of a core, all frozen 6.8%), so what matters
+     is steps per second: a quarter turn four times a second ticks visibly alive at 4 frames instead
+     of 10. It stops while the window is not focused (see mountShell). */
+  animation: shell-spin 1s steps(4, end) infinite;
 }
+.app-unfocused .shell-signal.signal-spinner { animation-play-state: paused; }
 @keyframes shell-spin { to { rotate: 360deg; } }
 @media (prefers-reduced-motion: reduce) {
   .shell-signal.signal-spinner { animation: none; border-right-color: var(--dd-canvas); }

@@ -84,11 +84,14 @@ console.log(`view=${state.view} tiles=${state.tiles} shown=${state.shown} sizes=
 
 // ---- instrument the UI thread -------------------------------------------------------------
 await win.evaluate(() => {
-  window.__perf = { long: [], raf: 0 };
+  window.__perf = { long: [], raf: 0, counting: false };
   new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__perf.long.push(Math.round(e.duration)); })
     .observe({ entryTypes: ['longtask'] });
-  const tick = () => { window.__perf.raf++; requestAnimationFrame(tick); };
-  requestAnimationFrame(tick);
+  // The frame counter is a requestAnimationFrame loop, and a rAF loop is itself a frame every vsync
+  // (240 a second on this display) — it runs only while a JS profile is being taken. Left running, it
+  // was part of every process-CPU figure below, idle included: the harness measuring its own cost.
+  const tick = () => { if (!window.__perf.counting) return; window.__perf.raf++; requestAnimationFrame(tick); };
+  window.__perf.startCounting = () => { if (window.__perf.counting) return; window.__perf.counting = true; requestAnimationFrame(tick); };
 });
 
 const cdp = await win.context().newCDPSession(win);
@@ -96,11 +99,12 @@ await cdp.send('Profiler.enable');
 await cdp.send('Profiler.setSamplingInterval', { interval: 200 }); // µs
 
 async function profile(label, body) {
-  await win.evaluate(() => { window.__perf.long = []; window.__perf.raf = 0; });
+  await win.evaluate(() => { window.__perf.long = []; window.__perf.raf = 0; window.__perf.startCounting(); });
   await cdp.send('Profiler.start');
   const t0 = Date.now();
   await body();
   const { profile: p } = await cdp.send('Profiler.stop');
+  await win.evaluate(() => { window.__perf.counting = false; });
   report(label, p, Date.now() - t0, ...Object.values(await win.evaluate(() => ({ long: window.__perf.long, raf: window.__perf.raf }))));
 }
 
