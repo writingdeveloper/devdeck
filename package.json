@@ -113,7 +113,7 @@
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "playwright": "^1.62.1",
-    "typescript": "^5.5.0",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },
   "dependencies": {
