@@ -12,7 +12,7 @@ import { createProviderOpenControl } from './providerOpenControl';
 import { createIcon } from './icons';
 import { liveProjectProviders } from './cockpitView';
 import type { AgentId } from '../shared/types';
-import { deckFor, selectedMachineId, machineSelectionVersion, onMachineSelected } from './machineDeck';
+import { deckFor, selectedMachineId, machineSelectionVersion, onMachineSelected, LOCAL_MACHINE_ID } from './machineDeck';
 
 let viewEl: HTMLElement;
 interface Proj { path: string; name: string; todos: Todo[]; revision: number | undefined; agentIds: AgentId[]; }
@@ -137,6 +137,9 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
 
   const text = document.createElement('span'); text.className = 'tk-text'; text.textContent = todo.text; text.title = todo.text;
   text.addEventListener('dblclick', () => startEdit(text, projectPath, todo));
+  // Double-click was the only way in. Focusable, with Enter / F2, so a keyboard can edit a task too.
+  text.tabIndex = 0; text.setAttribute('role', 'button'); text.setAttribute('aria-label', `${todo.text} — ${tr('tasks.edit_hint')}`);
+  text.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); startEdit(text, projectPath, todo); } });
 
   const due = document.createElement('button'); due.className = 'tk-due' + (todo.due ? ' ' + BUCKET_CLASS[classifyDue(todo.due, now)] : ' tk-due-empty');
   due.textContent = todo.due ? dueLabel(todo.due, now) : '＋' + tr('tasks.due');
@@ -147,13 +150,16 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
   del.addEventListener('click', () => mutate(projectPath, (ts) => removeTodo(ts, todo.id)));
 
   const project = projects.find((p) => p.path === projectPath);
+  // The board lists the selected machine's projects, so a task's Open belongs to that machine. Left
+  // off, it opened the project on THIS computer — against whatever sits at that path here, or nothing.
+  const machineId = selectedMachineId();
   const open = createProviderOpenControl({
     path: projectPath,
     historyAgentIds: project?.agentIds ?? [],
-    liveAgentIds: () => liveProjectProviders(projectPath),
+    liveAgentIds: () => liveProjectProviders(projectPath, machineId),
     compact: true,
     onOpen: (intent) => openInTerminal([{
-      ...intent, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0,
+      ...intent, name: projectName, staleLevel: 'neutral', branch: null, dirty: 0, machineId,
     }]),
   });
   open.classList.add('tk-open');
@@ -180,8 +186,17 @@ function startEdit(text: HTMLElement, path: string, todo: Todo): void {
 function startDueEdit(chip: HTMLElement, path: string, todo: Todo): void {
   const input = document.createElement('input'); input.type = 'date'; input.className = 'tk-due-input';
   input.value = todo.due ?? '';
-  input.addEventListener('change', () => mutate(path, (ts) => setTodoDue(ts, todo.id, input.value || null)));
-  input.addEventListener('blur', () => render());
+  // Saved when the person is DONE with the field, not on every change: typing a date by keyboard
+  // passes through values like year 0002, which read as invalid and cleared the due date mid-entry.
+  let settled = false;
+  const commit = (save: boolean): void => {
+    if (settled) return; settled = true;
+    const next = input.value || null;
+    if (save && next !== (todo.due ?? null) && (next === null || /^(19|20|21)\d\d-\d\d-\d\d$/.test(next))) void mutate(path, (ts) => setTodoDue(ts, todo.id, next));
+    else render();
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(true); if (e.key === 'Escape') commit(false); });
+  input.addEventListener('blur', () => commit(true));
   chip.replaceWith(input); input.focus();
   input.showPicker?.();
 }
@@ -284,8 +299,9 @@ function render(): void {
   const head = document.createElement('div'); head.className = 'next-head';
   head.textContent = `${tr('next.title')} · ${open.length}` + (overdue ? `  ·  🔴 ${overdue}` : '');
   // Checking off / re-dating a task changes the overdue total — keep the tray tooltip current
-  // (partial update: the cockpit owns attention/turn on the same channel).
-  window.devdeck.setTrayCounts({ overdue });
+  // (partial update: the cockpit owns attention/turn on the same channel). Only for this machine's
+  // board: the tray belongs to this machine.
+  if (selectedMachineId() === LOCAL_MACHINE_ID) window.devdeck.setTrayCounts({ overdue });
 
   // Single control row: [project▾][new-todo…][date][add] | separator | [filter▾][filter…][show-done](+clear) | [list|calendar]
   const bar = document.createElement('div'); bar.className = 'tk-bar ui-toolbar';
@@ -349,8 +365,8 @@ function render(): void {
 function viewToggle(): HTMLElement {
   const wrap = document.createElement('div'); wrap.className = 'tk-viewtoggle';
   for (const [mode, key] of [['list', 'tasks.view_list'], ['calendar', 'tasks.view_calendar']] as ['list' | 'calendar', string][]) {
-    const b = document.createElement('button'); b.className = 'tk-vt' + (boardView === mode ? ' on' : '');
-    b.textContent = tr(key);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'tk-vt' + (boardView === mode ? ' on' : '');
+    b.textContent = tr(key); b.setAttribute('aria-pressed', String(boardView === mode));
     b.addEventListener('click', () => { if (boardView !== mode) { boardView = mode; render(); } });
     wrap.appendChild(b);
   }
@@ -402,6 +418,10 @@ function dayCell(cell: DayCell): HTMLElement {
   const el = document.createElement('button');
   el.className = 'cal-cell' + (cell.inMonth ? '' : ' out') + (cell.isToday ? ' today' : '') + (cell.dateStr === calSelected ? ' sel' : '');
   const n = document.createElement('span'); n.className = 'cal-day-n'; n.textContent = String(cell.day); el.appendChild(n);
+  // A bare day number and a dot is all a screen reader got; say the date and what is due.
+  const date = new Date(`${cell.dateStr}T00:00:00`).toLocaleDateString(localeTag(), { weekday: 'short', month: 'long', day: 'numeric' });
+  el.setAttribute('aria-label', cell.openCount > 0 ? `${date}, ${tr('tasks.cal_open_n', { n: cell.openCount })}` : date);
+  el.setAttribute('aria-pressed', String(cell.dateStr === calSelected));
   if (cell.openCount > 0) {
     const m = document.createElement('span'); m.className = 'cal-mark' + (cell.overdue ? ' overdue' : '');
     m.textContent = `${cell.overdue ? '🔴' : '●'}${cell.openCount}`;

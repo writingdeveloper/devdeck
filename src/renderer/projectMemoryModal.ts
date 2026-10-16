@@ -44,10 +44,11 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
   const foot = document.createElement('footer'); foot.className = 'pm-foot';
   const footHint = document.createElement('span'); footHint.textContent = tr('memory.open_hint');
   const open = createProviderOpenControl({
-    path: project.path, historyAgentIds: project.agentIds, liveAgentIds: () => liveProjectProviders(project.path),
+    path: project.path, historyAgentIds: project.agentIds, liveAgentIds: () => liveProjectProviders(project.path, machine),
     onOpen: (intent) => {
       close();
-      openInTerminal([{ ...intent, name: project.name, staleLevel: project.stale.level, branch: project.branch, dirty: project.uncommitted }]);
+      // The memory shown is `machine`'s, and so is the project: open it there, not on this computer.
+      openInTerminal([{ ...intent, name: project.name, staleLevel: project.stale.level, branch: project.branch, dirty: project.uncommitted, machineId: machine }]);
     },
   });
   foot.append(footHint, open);
@@ -109,7 +110,7 @@ export function openProjectMemoryModal(project: ProjectViewModel, trigger: HTMLE
       close();
       openInTerminal([{
         path: project.path, name: project.name, staleLevel: project.stale.level, branch: project.branch,
-        dirty: project.uncommitted, sessionId: action.sessionId, agentId: action.agentId, mode: 'auto',
+        dirty: project.uncommitted, sessionId: action.sessionId, agentId: action.agentId, mode: 'auto', machineId: machine,
       }]);
     } else if (action.kind === 'tasks') {
       close(); presetBoardProject(project.path);

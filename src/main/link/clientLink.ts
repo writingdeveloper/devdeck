@@ -21,7 +21,7 @@ import { fingerprintsMatch } from './selfSignedCert';
 import { dialOrder, type KnownHost } from './devices';
 import {
   LINK_FEATURES, LINK_PROTOCOL, peerSupports, protocolMatches,
-  type LinkErrorCode, type LinkMessage, type ReadyMessage,
+  type ErrorMessage, type LinkErrorCode, type LinkMessage, type ReadyMessage,
 } from './protocol';
 import type { LinkIdentity } from './identity';
 
@@ -70,14 +70,30 @@ export interface DialOptions {
   pairingToken?: string;
   /** Per-address connect timeout. Kept short: the point is to fall through to the next candidate. */
   connectTimeoutMs?: number;
+  /** From the TLS handshake completing to the host's `ready`. See DEFAULT_HANDSHAKE_TIMEOUT_MS. */
+  handshakeTimeoutMs?: number;
   requestTimeoutMs?: number;
   heartbeat?: HeartbeatOptions;
   onEvent?: (channel: string, payload: unknown) => void;
+  /**
+   * A refusal the host sent on an established link (an output-backlog reset, say). Kept apart from
+   * `onEvent` so the caller can tell the host's own error frames from event channels the host
+   * merely NAMED. Without it, the frame is handed to `onEvent` as `link:error`, as it always was.
+   */
+  onHostError?: (message: ErrorMessage) => void;
   onPty?: (sessionId: string, bytes: Buffer) => void;
   onClose?: (reason: string | null) => void;
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 4_000;
+
+/**
+ * TLS done, `ready` not yet. The connect timeout stops at the TLS handshake and the heartbeat starts
+ * only after `ready`, so a host that completed TLS and then went silent — wedged main process, a
+ * proxy swallowing the stream — left the dial pending forever, and with it every `reconnect()`, which
+ * waits on the dial in flight. Generous: a host answers hello with ready in one round trip.
+ */
+const DEFAULT_HANDSHAKE_TIMEOUT_MS = 15_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
@@ -203,15 +219,27 @@ function handshake(
     pending.clear();
   };
 
+  let handshakeTimer: NodeJS.Timeout | undefined;
+
   const connection: LinkConnection = attachConnection(socket, {
     onMessage: (message) => onMessage(message),
     onPty: (sessionId, bytes) => options.onPty?.(sessionId, bytes),
     onClose: (reason) => {
+      clearTimeout(handshakeTimer);
       settleAllPending(reason ?? 'disconnected');
       if (!established) done({ ok: false, failure: { kind: 'unreachable', tried: [address], attempts: [{ address, reason: 'other' }], lastError: reason ?? 'closed' } });
       else options.onClose?.(reason);
     },
   }, options.heartbeat);
+
+  // Reported as this address timing out, which is what it is from here: something answered and then
+  // never finished saying who it is. Settled before closing, for the same reason as the refusals below.
+  handshakeTimer = setTimeout(() => {
+    if (established) return;
+    done({ ok: false, failure: { kind: 'unreachable', tried: [address], attempts: [{ address, reason: 'timed-out' }], lastError: 'handshake timed out' } });
+    connection.close('handshake timeout');
+  }, options.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS);
+  handshakeTimer.unref?.();
 
   function onMessage(message: LinkMessage): void {
     switch (message.t) {
@@ -237,6 +265,7 @@ function handshake(
       }
       case 'ready': {
         established = true;
+        clearTimeout(handshakeTimer);
         // Enforced only against a host that said it answers pings. An older host is watched by TCP
         // keepalive alone — which is what watched every host before this existed, so nothing regresses.
         connection.startHeartbeat(peerSupports(message, 'ping'));
@@ -253,7 +282,8 @@ function handshake(
           return;
         }
         // Established links surface mid-session refusals (e.g. an output backlog reset) as events.
-        options.onEvent?.('link:error', message);
+        if (options.onHostError) options.onHostError(message);
+        else options.onEvent?.('link:error', message);
         return;
       }
       case 'res': {

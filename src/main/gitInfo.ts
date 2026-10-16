@@ -32,17 +32,39 @@ const GIT_TIMEOUT_MS = 10_000;
  */
 const GIT_MAX_BUFFER = 32 * 1024 * 1024;
 
-const defaultRunner: GitRunner = async (args) => {
-  const { stdout } = await execFileAsync('git', args, {
-    windowsHide: true,
+/**
+ * The environment every DevDeck git call runs with.
+ *
+ * GIT_OPTIONAL_LOCKS=0: `git status` otherwise takes index.lock opportunistically to refresh the
+ * index's stat cache — and DevDeck runs it on every project, every refresh, in the very repositories
+ * an agent is committing in. The agent's own `git add`/`git commit` then fails with "Unable to create
+ * index.lock: File exists" whenever the two land together. The refresh is only an optimization;
+ * a read-only dashboard has no business taking a write lock for it.
+ * GIT_TERMINAL_PROMPT=0: a credential prompt nobody can see would sit there until the timeout.
+ */
+export function gitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  return { ...base, GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' };
+}
+
+type ExecFileAsync = (file: string, args: string[], opts: Parameters<typeof execFileAsync>[2]) => Promise<{ stdout: string | Buffer }>;
+
+/** The production runner, over an injectable execFile so its options are testable. */
+export function createGitRunner(exec: ExecFileAsync = execFileAsync as unknown as ExecFileAsync): GitRunner {
+  return async (args) => {
+    const { stdout } = await exec('git', args, {
+      env: gitEnv(),
+      windowsHide: true,
     timeout: GIT_TIMEOUT_MS,
-    // SIGTERM is the default and is ignored on Windows for a process that is not responding; git
-    // spawns children (credential helpers, pagers) and this has to actually end them.
-    killSignal: 'SIGKILL',
-    maxBuffer: GIT_MAX_BUFFER,
-  });
-  return stdout;
-};
+      // SIGTERM is the default and is ignored on Windows for a process that is not responding; git
+      // spawns children (credential helpers, pagers) and this has to actually end them.
+      killSignal: 'SIGKILL',
+      maxBuffer: GIT_MAX_BUFFER,
+    });
+    return String(stdout);
+  };
+}
+
+const defaultRunner: GitRunner = createGitRunner();
 
 async function safe(run: GitRunner, args: string[]): Promise<string | null> {
   try {

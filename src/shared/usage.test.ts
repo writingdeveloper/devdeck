@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   emptyTotals, addUsage, estimateCost, MODEL_PRICING, priceFor, SONNET5_ROLLOFF_MS,
   activeMsFromTimestamps, formatDuration, ACTIVE_GAP_CAP_MS,
+  emptyActiveTally, cloneActiveTally, tallyStamp, tallyActiveSince, tallyHasStampSince,
   priceForProvider, normalizeCodexTotals, estimateProviderCost,
 } from './usage';
 
@@ -145,6 +146,48 @@ describe('activeMsFromTimestamps', () => {
     expect(activeMsFromTimestamps([T(2), T(0), T(5)])).toBe(5 * 60_000);
     expect(activeMsFromTimestamps([T(0)])).toBe(0);
     expect(activeMsFromTimestamps([])).toBe(0);
+  });
+});
+
+describe('ActiveTally (incremental active time)', () => {
+  const DAY = 86_400_000;
+  const dayOf = (ms: number) => Math.floor(ms / DAY) * DAY;
+
+  it('matches the batch sum for every "since day" — in order, out of order, repeated, very late', () => {
+    let seed = 7;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let trial = 0; trial < 200; trial++) {
+      const stamps: number[] = [];
+      let clock = Date.UTC(2026, 5, 1) + Math.floor(rnd() * DAY);
+      const n = Math.floor(rnd() * 400);
+      for (let i = 0; i < n; i++) {
+        const r = rnd();
+        clock += r < 0.05 ? Math.floor(rnd() * DAY) : Math.floor(rnd() * 7 * 60_000); // idle gaps, day changes
+        // ~10% arrive a little late, ~1% days late (a clock set back), some exactly repeated
+        const late = r > 0.99 ? Math.floor(rnd() * 3 * DAY) : r > 0.9 ? Math.floor(rnd() * 10 * 60_000) : 0;
+        stamps.push(r > 0.97 && stamps.length ? stamps[stamps.length - 1] : clock - late);
+      }
+      const t = emptyActiveTally();
+      for (const s of stamps) tallyStamp(t, s);
+      expect(t.sorted).toEqual([...stamps].sort((x, y) => x - y));
+      expect(tallyActiveSince(t, -Infinity)).toBe(activeMsFromTimestamps(stamps));
+      for (const since of [...new Set(stamps.map(dayOf))]) {
+        const inRange = stamps.filter((s) => dayOf(s) >= since);
+        expect(tallyActiveSince(t, since), `trial ${trial} since ${since}`).toBe(activeMsFromTimestamps(inRange));
+        expect(tallyHasStampSince(t, since)).toBe(inRange.length > 0);
+      }
+      expect(tallyHasStampSince(t, dayOf(Math.max(...stamps, 0)) + DAY)).toBe(false);
+    }
+  });
+
+  it('a clone is independent of the original', () => {
+    const t = emptyActiveTally();
+    tallyStamp(t, 1_000);
+    const c = cloneActiveTally(t);
+    tallyStamp(c, 61_000);
+    expect(tallyActiveSince(t, -Infinity)).toBe(0);
+    expect(tallyActiveSince(c, -Infinity)).toBe(60_000);
+    expect(t.sorted).toEqual([1_000]);
   });
 });
 

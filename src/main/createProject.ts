@@ -23,7 +23,9 @@ export interface CreateDeps {
 
 function defaultGitInit(cwd: string): boolean {
   try {
-    execFileSync('git', ['init'], { cwd, stdio: 'ignore', windowsHide: true });
+    // Bounded: this runs on the main thread, and a git stalled by a network drive or an antivirus
+    // scan would otherwise freeze the whole app for as long as it takes.
+    execFileSync('git', ['init'], { cwd, stdio: 'ignore', windowsHide: true, timeout: 15_000, killSignal: 'SIGKILL' });
     return true;
   } catch {
     return false;

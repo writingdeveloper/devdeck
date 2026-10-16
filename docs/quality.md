@@ -28,7 +28,7 @@ Results and screenshots are written to `qa/shots/maintenance/` and `qa/shots/res
 
 ## Manual harnesses
 
-`qa:link` is a supervised two-app harness that may start installed provider CLIs. `npm run qa:perf -- 4 --allow-live-agents` is a manual Windows benchmark and explicitly opts into real-agent startup. Performance QA refuses missing terminals, invisible workload, incomplete streaming/repaint activity and missing CPU samples instead of treating low CPU as success. It has not become a deterministic CI performance gate; that conversion remains a separate task.
+`qa:link` is a supervised two-app harness that may start installed provider CLIs. `qa:close` is a supervised two-app harness for the session close lifecycle (remote, offline, refused and bulk close, adoption focus, restart, Apply update); it starts the installed `claude` CLI in a throwaway repository and sends no prompts. `npm run qa:perf -- 4 --allow-live-agents` is a manual Windows benchmark and explicitly opts into real-agent startup. Performance QA refuses missing terminals, invisible workload, incomplete streaming/repaint activity and missing CPU samples instead of treating low CPU as success. It has not become a deterministic CI performance gate; that conversion remains a separate task.
 
 Do not run these against a live development conversation. Do not equate a short loopback test with sleep/resume, VPN changes or multi-day field validation.
 

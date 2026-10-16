@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from './store';
+import { Store, renameWithRetry } from './store';
 import { sanitizeMachineName } from '../shared/link/machine';
 
 let dir: string;
@@ -43,8 +43,20 @@ describe('Store', () => {
   it('returns a default entry for an unknown project', () => {
     const s = new Store(file);
     expect(s.get('C:\\g\\x')).toEqual({
-      note: '', pinned: false, hidden: false, lastOpened: null, todos: [], todosRevision: 0,
+      note: '', pinned: false, hidden: false, lastOpened: null, todos: [], todosRevision: 0, noteRevision: 0,
     });
+  });
+
+  it('saves a note only against the revision it was read at', () => {
+    const s = new Store(file);
+    expect(s.saveNote('note-proj', 'first', 0)).toEqual({ ok: true, note: 'first', revision: 1 });
+    // Another device saved in the meantime: the stale save is refused and told what is there now.
+    expect(s.saveNote('note-proj', 'mine', 0)).toEqual({ ok: false, note: 'first', revision: 1 });
+    expect(s.get('note-proj').note).toBe('first');
+    // An older device's unversioned write still moves the revision, so a versioned saver notices it.
+    s.setNote('note-proj', 'legacy');
+    expect(s.saveNote('note-proj', 'mine', 1)).toMatchObject({ ok: false, note: 'legacy', revision: 2 });
+    expect(s.saveNote('note-proj', 'mine', 2)).toEqual({ ok: true, note: 'mine', revision: 3 });
   });
 
   it('persists todos across instances and sanitizes junk on read', () => {
@@ -357,5 +369,37 @@ describe('session summary settings', () => {
     // runners have 67-character ones) is trimmed for display, and asserting raw equality here passed
     // on a developer's short hostname and failed on the build machine.
     expect(store.getMachineName()).toBe(sanitizeMachineName(hostname(), 'DevDeck')); // empty falls back rather than showing a blank chip
+  });
+});
+
+describe('renameWithRetry (state.json commit on Windows)', () => {
+  const fsError = (code: string) => Object.assign(new Error(code), { code });
+
+  it('rides out a few transient EPERM/EBUSY/EACCES failures from AV / indexer / OneDrive', () => {
+    const failures = ['EPERM', 'EBUSY', 'EACCES'];
+    const rename = vi.fn(() => { const code = failures.shift(); if (code) throw fsError(code); });
+    const sleep = vi.fn();
+    renameWithRetry('a.tmp', 'a', rename, sleep);
+    expect(rename).toHaveBeenCalledTimes(4);
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([20, 40, 80]);
+  });
+
+  it('gives up after 5 attempts and throws the last error', () => {
+    const rename = vi.fn(() => { throw fsError('EBUSY'); });
+    expect(() => renameWithRetry('a.tmp', 'a', rename, () => {})).toThrow('EBUSY');
+    expect(rename).toHaveBeenCalledTimes(5);
+  });
+
+  it('does not retry an error that waiting cannot fix', () => {
+    const rename = vi.fn(() => { throw fsError('ENOSPC'); });
+    expect(() => renameWithRetry('a.tmp', 'a', rename, () => {})).toThrow('ENOSPC');
+    expect(rename).toHaveBeenCalledTimes(1);
+  });
+
+  it('the real sync sleep actually waits (Atomics.wait works on this thread)', () => {
+    const rename = vi.fn().mockImplementationOnce(() => { throw fsError('EPERM'); }).mockImplementationOnce(() => {});
+    const t0 = Date.now();
+    renameWithRetry('a.tmp', 'a', rename);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(15);
   });
 });

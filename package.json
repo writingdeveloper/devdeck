@@ -1,6 +1,6 @@
 {
   "name": "devdeck",
-  "version": "1.37.9",
+  "version": "1.38.0",
   "description": "Project command deck — at-a-glance state + Claude Code, Codex, and Antigravity resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
@@ -34,6 +34,7 @@
     "qa": "npm run build && node qa/screenshot.mjs",
     "qa:audit": "npm run build && node qa/audit.mjs",
     "qa:link": "npm run build && node qa/link.mjs",
+    "qa:close": "npm run build && node qa/close.mjs",
     "qa:resilience": "npm run build && node qa/resilience.mjs",
     "qa:perf": "npm run build && node qa/perf.mjs",
     "qa:maintenance": "npm run build && node qa/maintenance.mjs",
@@ -119,11 +120,11 @@
     "@fontsource-variable/geist": "5.3.0",
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "@xterm/addon-search": "^0.16.0",
-    "@xterm/addon-webgl": "^0.19.0",
     "electron-updater": "^6.8.9"
   },
   "overrides": {
     "undici": "^6.28.0",
-    "form-data": "^4.0.6"
+    "form-data": "^4.0.6",
+    "global-agent": "^4.1.3"
   }
 }

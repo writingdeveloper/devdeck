@@ -142,8 +142,21 @@ export function findPairedDevice(devices: readonly PairedDevice[], fingerprint: 
  * longer on screen would grant access nobody agreed to.
  */
 export function upsertPairedDevice(devices: readonly PairedDevice[], device: PairedDevice): PairedDevice[] {
+  return upsertPairedDeviceReporting(devices, device).devices;
+}
+
+/**
+ * `upsertPairedDevice`, also naming whoever the cap pushed out. Pairing a 33rd device drops the
+ * oldest — which un-pairs a machine nobody chose to un-pair, so the host has to be able to say so.
+ */
+export function upsertPairedDeviceReporting(
+  devices: readonly PairedDevice[],
+  device: PairedDevice,
+): { devices: PairedDevice[]; evicted: PairedDevice[] } {
   const rest = devices.filter((d) => !fingerprintsMatch(d.fingerprint, device.fingerprint));
-  return [...rest, device].slice(-MAX_DEVICES);
+  const all = [...rest, device];
+  const cut = Math.max(0, all.length - MAX_DEVICES);
+  return { devices: all.slice(cut), evicted: all.slice(0, cut) };
 }
 
 export function removePairedDevice(devices: readonly PairedDevice[], fingerprint: unknown): PairedDevice[] {

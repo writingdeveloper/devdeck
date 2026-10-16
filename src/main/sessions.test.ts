@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listSessions, lastUserMessageForSession } from './sessions';
+import { open } from 'node:fs/promises';
+import { listSessions, lastUserMessageForSession, listSessionIds, listSessionStats, findInTail } from './sessions';
+import { lastUserMessage } from '../shared/sessionParse';
 
 let root: string;
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'devdeck-sess-')); });
@@ -97,5 +99,91 @@ describe('lastUserMessageForSession', async () => {
     for (let i = 0; i < 650; i++) lines.push(JSON.stringify({ type: 'assistant', message: { content: filler } }));
     writeFileSync(join(d, `${id}.jsonl`), lines.join('\n'));
     expect(await lastUserMessageForSession('C:\\g\\big', id, root)).toBe(target);
+  });
+
+  // The cue is cached per file on (size, mtime) — the deck asks for it every refresh — so it has to
+  // move the moment the session does.
+  it('answers again after the session is appended to', async () => {
+    const d = join(root, 'C--g-grow');
+    mkdirSync(d, { recursive: true });
+    const id = 'a0b1c2d3-e4f5-6789-abcd-ef0123456789';
+    const file = join(d, `${id}.jsonl`);
+    writeFileSync(file, userLine('first ask') + '\n');
+    expect(await lastUserMessageForSession('C:\\g\\grow', id, root)).toBe('first ask');
+    expect(await lastUserMessageForSession('C:\\g\\grow', id, root)).toBe('first ask');
+    appendFileSync(file, userLine('second ask') + '\n');
+    expect(await lastUserMessageForSession('C:\\g\\grow', id, root)).toBe('second ask');
+  });
+});
+
+describe('findInTail', () => {
+  /** The loop findInTail replaced: re-decode and re-search the whole accumulated tail on every read. */
+  async function reference(file: string, maxBytes: number, chunk: number): Promise<string | null> {
+    const handle = await open(file, 'r');
+    try {
+      const size = (await handle.stat()).size;
+      let pos = size;
+      let acc = Buffer.alloc(0);
+      while (pos > 0 && size - pos < maxBytes) {
+        const len = Math.min(chunk, pos);
+        pos -= len;
+        const buf = Buffer.alloc(len);
+        await handle.read(buf, 0, len, pos);
+        acc = Buffer.concat([buf, acc]);
+        const text = acc.toString('utf8');
+        const nl = text.indexOf('\n');
+        const body = pos === 0 ? text : nl < 0 ? '' : text.slice(nl + 1);
+        const found = lastUserMessage(body);
+        if (found) return found;
+      }
+      return null;
+    } finally { await handle.close(); }
+  }
+
+  it('gives the same answer as re-searching the whole tail, for any chunk size and cap', async () => {
+    let seed = 1;
+    const rnd = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    const assistant = (n: number) => JSON.stringify({ type: 'assistant', message: { content: '가나다 abc '.repeat(n) } });
+    for (let trial = 0; trial < 40; trial++) {
+      const lines: string[] = [];
+      const count = 1 + Math.floor(rnd() * 30);
+      for (let i = 0; i < count; i++) {
+        lines.push(rnd() < 0.15 ? userLine(`ask ${trial}-${i} 한글`) : assistant(Math.floor(rnd() * 60)));
+      }
+      const file = join(root, `t${trial}.jsonl`);
+      writeFileSync(file, lines.join('\n') + (rnd() < 0.5 ? '\n' : ''));
+      for (const chunk of [7, 64, 333, 4096]) {
+        for (const maxBytes of [50, 1000, 1 << 30]) {
+          const handle = await open(file, 'r');
+          try {
+            const size = (await handle.stat()).size;
+            const got = await findInTail(handle, size, maxBytes, chunk, lastUserMessage);
+            expect(got, `trial ${trial} chunk ${chunk} cap ${maxBytes}`).toBe(await reference(file, maxBytes, chunk));
+          } finally { await handle.close(); }
+        }
+      }
+    }
+  });
+});
+
+describe('listSessionIds / listSessionStats', () => {
+  it('lists valid session files newest-first with their stats, and nothing for a missing dir', async () => {
+    const d = join(root, 'C--g-stats');
+    mkdirSync(d, { recursive: true });
+    const a = 'a0b1c2d3-e4f5-6789-abcd-ef0123456780';
+    const b = 'a0b1c2d3-e4f5-6789-abcd-ef0123456781';
+    writeFileSync(join(d, `${a}.jsonl`), userLine('a'));
+    writeFileSync(join(d, `${b}.jsonl`), userLine('b'));
+    writeFileSync(join(d, '$(evil).jsonl'), userLine('bad'));
+    writeFileSync(join(d, `${a}.txt`), 'not a session');
+    utimesSync(join(d, `${a}.jsonl`), 1000, 1000);
+    utimesSync(join(d, `${b}.jsonl`), 2000, 2000);
+    expect(await listSessionIds('C:\\g\\stats', root)).toEqual([b, a]);
+    const stats = await listSessionStats('C:\\g\\stats', root);
+    expect(stats.map((s) => s.id).sort()).toEqual([a, b]);
+    expect(stats.find((s) => s.id === a)).toMatchObject({ mtimeMs: 1_000_000 });
+    expect(stats[0].birthtimeMs).toBeGreaterThan(0);
+    expect(await listSessionIds('C:\\g\\none', root)).toEqual([]);
+    expect(await listSessionStats('C:\\g\\none', root)).toEqual([]);
   });
 });

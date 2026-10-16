@@ -192,7 +192,7 @@ function providerOpenControl(p: ProjectViewModel, compact = false): HTMLElement 
   return createProviderOpenControl({
     path: p.path,
     historyAgentIds: p.agentIds,
-    liveAgentIds: () => liveProjectProviders(p.path),
+    liveAgentIds: () => liveProjectProviders(p.path, selectedMachineId()),
     compact,
     onOpen: (intent) => openInTerminal([{
       ...intent, name: p.name, staleLevel: p.stale.level, branch: p.branch, dirty: p.uncommitted,
@@ -228,6 +228,12 @@ function truncateCue(text: string, max = 60): string {
 // element (see makeCard) — when true, fall back to the plain ghost here instead of
 // repeating the same cue text a second time. Defaults to false so callers that don't
 // render `.card-cue` (list view has none) keep the original ghost-cue behavior.
+/** Both notes, the one already saved first, so the person can keep what they want and save again. */
+function mergeConflictingNotes(theirs: string, mine: string): string {
+  if (!theirs.trim()) return mine;
+  return `${theirs}\n\n— ${tr('proj.note_mine')} —\n${mine}`;
+}
+
 function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
   const wrap = document.createElement('div');
   const showRead = () => {
@@ -254,6 +260,7 @@ function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
     wrap.replaceChildren();
     const ta = document.createElement('textarea');
     ta.className = 'note-edit'; ta.rows = 2; ta.value = prefill ?? p.note; ta.placeholder = tr('proj.next_todo_ph');
+    ta.maxLength = 10_000; // the machine keeps at most this much; past it the text was cut off silently
     let cancelling = false;
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -268,7 +275,21 @@ function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
       if (ta.disabled) return;
       if (!cancelling && ta.value !== p.note) {
         ta.disabled = true;
-        try { await api.setNote(p.path, ta.value); p.note = ta.value; }
+        try {
+          const saved = await api.saveNote(p.path, ta.value, p.noteRevision ?? 0);
+          if (!saved.ok) {
+            // Another device saved this note since it was read. Overwriting would erase that note
+            // without anyone seeing it, so both are put in front of the person to reconcile.
+            p.noteRevision = saved.revision;
+            p.note = saved.note;
+            ta.value = mergeConflictingNotes(saved.note, ta.value);
+            ta.disabled = false;
+            toast(tr('proj.note_conflict'));
+            if (ta.isConnected) ta.focus();
+            return;
+          }
+          p.note = saved.note; p.noteRevision = saved.revision;
+        }
         catch (error) {
           reportSaveError(error);
           ta.disabled = false;
@@ -383,7 +404,7 @@ function makeMenuWrap(p: ProjectViewModel): HTMLElement {
   const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
   const menuBtn = document.createElement('button');
   menuBtn.className = 'iconbtn'; menuBtn.appendChild(createIcon('more'));
-  menuBtn.setAttribute('aria-label', 'more options');
+  menuBtn.setAttribute('aria-label', tr('projects.more_options', { name: p.name }));
   menuBtn.setAttribute('aria-haspopup', 'menu');
   menuBtn.setAttribute('aria-expanded', 'false');
 
@@ -459,7 +480,9 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   gitLine.appendChild(commitSpan);
 
   const foot = document.createElement('div'); foot.className = 'cardfoot';
-  const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
+  // Named per project: a screen reader moving through a column of identical "select" boxes cannot tell
+  // which project it is about to include.
+  const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(p.path); check.setAttribute('aria-label', tr('projects.select_named', { name: p.name }));
   check.addEventListener('change', () => {
     check.checked ? selected.add(p.path) : selected.delete(p.path);
     card.classList.toggle('selected', check.checked);
@@ -518,7 +541,7 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   row.dataset.projectPath = p.path;
   row.tabIndex = -1;
 
-  const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
+  const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', tr('projects.select_named', { name: p.name }));
   check.addEventListener('change', () => {
     check.checked ? selected.add(p.path) : selected.delete(p.path);
     row.classList.toggle('selected', check.checked);
@@ -593,7 +616,7 @@ function render(): void {
   showHiddenBtn.setAttribute('aria-checked', String(showHidden));
   // Computed once per render: drives the card status stripe/badge, the activity-sort
   // priority below, and the reconcile signature (so a live status flip forces a rebuild).
-  const act = liveProjectActivity();
+  const act = liveProjectActivity(selectedMachineId());
   let visible = showHidden ? projects.filter((p) => p.hidden) : projects.filter((p) => !p.hidden);
 
   // Search filter (case-insensitive substring match on name, branch, note)
@@ -757,7 +780,7 @@ function showSkeleton(): void {
 function renderDeckPulse(todayCost: number | null): void {
   const el = document.getElementById('deck-pulse'); if (!el) return;
   lastPulseCost = todayCost;
-  const act = liveProjectActivity();
+  const act = liveProjectActivity(selectedMachineId());
   const attn = [...act.values()].filter((v) => v === 'attention').length;
   const work = act.size - attn;
   const neglected = neglectedCount(projects); // stale ≥ neglectedDays, excluding no-record (see isNeglected)
@@ -824,6 +847,9 @@ async function reload(): Promise<void> {
 
 async function reloadFor(forMachine: string, current: () => boolean): Promise<void> {
   lastLoadMs = Date.now();
+  // Settings are read with the projects, and a slow (remote) load can come back after the person has
+  // switched between cards and list — the setting it read is then the one they just changed away from.
+  const viewBefore = viewMode;
   // Skeleton only on the very first load. Background/manual refreshes reconcile in place,
   // so they never wipe the deck to gray placeholders.
   if (!hasRenderedOnce) showSkeleton();
@@ -855,15 +881,19 @@ async function reloadFor(forMachine: string, current: () => boolean): Promise<vo
   }
   if (!current()) return;
   projects = proj;
-  viewMode = settings.viewMode === 'cards' ? 'cards' : 'list';
+  if (viewMode === viewBefore) viewMode = settings.viewMode === 'cards' ? 'cards' : 'list';
   for (const listener of projectListeners) listener([...projects]);
   syncViewToggle();
   render();
   hasRenderedOnce = true;
   // Surface the cross-project overdue-task count in the tray tooltip (partial update: the
   // cockpit owns attention/turn on the same channel).
-  const overdue = projects.reduce((n, p) => n + taskCounts(p.todos, Date.now()).overdue, 0);
-  window.devdeck.setTrayCounts({ overdue });
+  // This machine's tray counts this machine's tasks: a deck switched to a paired machine must not
+  // replace the number with that machine's.
+  if (forMachine === LOCAL_MACHINE_ID) {
+    const overdue = projects.reduce((n, p) => n + taskCounts(p.todos, Date.now()).overdue, 0);
+    window.devdeck.setTrayCounts({ overdue });
+  }
   // Fill in per-project cost in the background (all-time; sinceMs=0 = since epoch), then
   // the toolbar pulse summary (live status counts + today's cost). Both best-effort: any
   // failure in this chain falls back to a status-only pulse rather than blocking reload().

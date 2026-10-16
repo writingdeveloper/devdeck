@@ -206,6 +206,18 @@ describe('getCodexUsage protocol', () => {
     expect(h.child.kill).toHaveBeenCalledTimes(1);
   });
 
+  it('stops the child through the tree kill, so app-server under a .cmd shim does not outlive it', async () => {
+    const killChild = vi.fn();
+    const h = harness({ killChild });
+    const p = h.run();
+    await tick();
+    h.timers[0].fn();
+    await p;
+    expect(killChild).toHaveBeenCalledTimes(1);
+    expect(killChild).toHaveBeenCalledWith(h.child);
+    expect(h.child.kill).not.toHaveBeenCalled();
+  });
+
   it('read timeout after a successful handshake => offline', async () => {
     const h = harness();
     const p = h.run();

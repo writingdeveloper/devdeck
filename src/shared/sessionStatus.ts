@@ -92,3 +92,18 @@ export function computeActivity(i: { exited: boolean; lastDataAt: number; lastIn
   if (sinceData < IDLE_MS) return 'turn';
   return 'idle';
 }
+
+/**
+ * Whether an agent's own screen says a newer version of it is installed and waiting for a restart.
+ *
+ * Claude Code installs updates in the background and then shows "Update installed · Restart to apply"
+ * in its footer — and on Windows it has no in-session way to do that (its `/restart` is macOS/Linux
+ * only), so the update sits unapplied until someone exits and starts it again. Read off the same live
+ * screen tail as the spinner; acting on it is always the person's click.
+ */
+export function agentUpdateReady(agentId: string, screenText: string): boolean {
+  if (agentId !== 'claude') return false;
+  // The separator is matched loosely: it is a middle dot today, and a code page or font that cannot
+  // carry it turns it into something else without changing what the notice says.
+  return /Update installed\W{1,6}Restart to apply/i.test(screenText);
+}

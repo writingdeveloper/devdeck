@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { win32 as pathWin32 } from 'node:path';
 import { buildWtArgs, type WtTab } from '../shared/wtArgs';
+import { cliInvocation } from './aiSummary';
 import { buildMacLaunch, buildLinuxLaunch, type LaunchCmd } from '../shared/posixLaunch';
 
 export type SpawnFn = (file: string, args: string[]) => void;
@@ -139,16 +140,21 @@ function defaultSpawn(onError?: (msg: string) => void): SpawnFn {
   };
 }
 
-export interface EditorSpec { command: string; args: string[]; shell: boolean; }
+export interface EditorSpec { command: string; args: string[]; shell: boolean; verbatim?: boolean }
 
 /**
  * How to launch VS Code at a directory. On POSIX `code` is a plain script — pass the
  * dir as an args-array entry (no shell = injection-safe). On Windows `code` is
- * `code.cmd`, which Node can only run through a shell, so quote the path (Windows
- * paths cannot contain `"`, so the quoting is safe).
+ * `code.cmd`, which only cmd.exe can run. It used to go through `shell: true` as
+ * `code "<dir>"`, and cmd expanded what was inside the quotes: a folder named
+ * `%TEMP%` opened the temp directory. The path is now escaped for cmd (twice — the
+ * shim forwards it through %*) and passed verbatim.
  */
-export function editorSpec(dir: string, platform: NodeJS.Platform = process.platform): EditorSpec {
-  if (platform === 'win32') return { command: `code "${dir}"`, args: [], shell: true };
+export function editorSpec(dir: string, platform: NodeJS.Platform = process.platform, comspec: string = process.env.ComSpec || 'cmd.exe'): EditorSpec {
+  if (platform === 'win32') {
+    const run = cliInvocation('code.cmd', [dir], 'win32', comspec);
+    return { command: run.file, args: run.args, shell: false, verbatim: true };
+  }
   return { command: 'code', args: [dir], shell: false };
 }
 
@@ -162,7 +168,7 @@ export interface EditorOptions {
 export function openInEditor(dir: string, opts: EditorOptions = {}): void {
   const spec = editorSpec(dir, opts.platform ?? process.platform);
   if (opts.spawnFn) { opts.spawnFn(spec.command, spec.args, spec.shell); return; }
-  const child = spawn(spec.command, spec.args, { detached: true, stdio: 'ignore', shell: spec.shell, windowsHide: false });
+  const child = spawn(spec.command, spec.args, { detached: true, stdio: 'ignore', shell: spec.shell, windowsHide: false, windowsVerbatimArguments: spec.verbatim === true });
   child.on('error', (err) => {
     console.error('DevDeck: failed to open editor', err);
     opts.onError?.(`Failed to open editor (is the \`code\` CLI on your PATH?): ${(err as Error).message}`);

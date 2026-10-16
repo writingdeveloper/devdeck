@@ -27,6 +27,24 @@
   gap: 5px;
 }
 
+/* The agent has a new version waiting. A real button among the read-only pills, so it says so. */
+#view-cockpit .ck-update {
+  cursor: pointer;
+  color: var(--dd-success);
+  border: 1px solid color-mix(in srgb, var(--dd-success) 45%, transparent);
+  background: color-mix(in srgb, var(--dd-success) 10%, transparent);
+  font: inherit;
+}
+
+#view-cockpit .ck-update:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--dd-success) 18%, transparent);
+}
+
+#view-cockpit .ck-update:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 #shell-session-groups .shell-group + .shell-group {
   margin-top: 2px;
 }

@@ -12,8 +12,11 @@ Updated 2026-09-08. The 1.37.9 maintenance work was released on 2026-10-15. Impl
 | P2 | Persistent terminal history | Separate screen reconstruction from archive; bounded retention, deletion/export, redaction and visible gaps |
 | P2 | Task operation API | Task-ID mutations after revision-checked baseline; explicit same-task conflicts and concurrent create/edit/delete/clear-completed checks |
 | P1 | Remaining shared-metadata migrations | Apply the [ownership contract](state-consistency.md) to notes, project flags and Link settings; explicit failure/conflict UI and multi-observer QA |
-| P2 | Note concurrency | Notes remain last-write-wins across devices; add revision checks while preserving drafts |
 | P2 | Focused module extraction | Terminal lifecycle/rendering boundaries protected by regression tests; no rewrite solely for file length |
+
+## Implemented in 1.38.0
+
+Reliable session close across paired PCs (answered remote close, offline closes delivered on reconnect, tombstones against re-adoption, `closed` exits), DOM terminal rendering, Apply update for Claude Code, versioned notes, Windows process-tree kill, Link pre-auth/notify/event hardening, scan performance and spinner CPU reduction, and the supervised `qa:close` harness. See the [release notes](releases/1.38.0.md).
 
 ## Implemented in 1.37.9
 

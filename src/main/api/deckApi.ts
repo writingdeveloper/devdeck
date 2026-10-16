@@ -12,12 +12,12 @@ import { applyOpenAtLogin, effectiveOpenAtLogin } from '../autostart';
 import { scanFolders, isRepo } from '../scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits } from '../gitInfo';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
-import { toAgentId, type AgentId, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
+import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../../shared/pathGuard';
 import { basename, cwdKey } from '../../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../../shared/externalUrl';
 import { makeTtlCache } from '../../shared/ttlCache';
-import { buildProjectList } from '../projects';
+import { gatherProjects, withEntries, type GatheredProject } from '../projects';
 import { createProject } from '../createProject';
 import { openProjects, openInEditor, resolveShellPath, makeCliGuard } from '../launcher';
 import type { WtTab } from '../../shared/wtArgs';
@@ -35,7 +35,7 @@ import { UsageCoordinator, antigravityUsage } from '../usageProviders';
 import { pickAdoptedSessionId, pickDriftedSessionId, type PersistedSession } from '../../shared/cockpitPersist';
 import { makeAgentProbe } from '../agentProcess';
 import { loginPowerShellCommand } from '../cliExecutable';
-import { listSessionStats, listSessionIds } from '../sessions';
+import { listSessionStats, listSessionIds, countSessionFiles } from '../sessions';
 import { listCodexSessionStats, indexCodexSessionsByCwd, readCodexSessionMeta } from '../codexSessions';
 import { indexAntigravitySessionsByCwd } from '../antigravitySessions';
 import { makeProjectSessionScan } from '../sessionScan';
@@ -74,6 +74,9 @@ const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
 /** Paste-image ceiling. A screenshot is around a megabyte; this is generous and still far below the
  *  link's frame limit once base64 expansion is counted. */
 const MAX_PASTE_IMAGE_BYTES = 5 * 1024 * 1024;
+const REMOTE_IMAGE_BYTES_PER_HOUR = 200 * 1024 * 1024;
+/** The note box says so too (maxLength): a note longer than this was cut off silently on save. */
+const MAX_NOTE_CHARS = 10_000;
 
 export interface DeckApiConfig {
   win: BrowserWindow;
@@ -149,7 +152,8 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
 
   // Opt-in AI layer for the cockpit's per-session summary line (see aiSummary.ts). Constructed
   // regardless of the setting — it is inert while disabled — so toggling it needs no restart.
-  const aiSummarizer = makeAiSummarizer();
+  // A failed summary used to vanish into a cached null with no trace of why; it belongs in this machine's log.
+  const aiSummarizer = makeAiSummarizer({ onFailure: (message) => cfg.diagnostics?.write('warn', 'ai', message) });
   aiSummarizer.setEnabled(cfg.store.getAiSessionSummary());
 
   const activeAgent = (): AgentId => {
@@ -194,6 +198,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   const makeDeckScan = () => makeProjectSessionScan({
     installed: availableAgents(),
     perProject: { claude: (p, limit) => getProvider('claude').listSessions(p, limit) },
+    perProjectCount: { claude: (p) => countSessionFiles(p, CLAUDE_PROJECTS) },
     indexed: {
       codex: () => cachedIndex(codexIndexCache, CODEX_SESSIONS, () => indexCodexSessionsByCwd(CODEX_SESSIONS)),
       antigravity: () => cachedIndex(antigravityIndexCache, ANTIGRAVITY_DIR, () => indexAntigravitySessionsByCwd(ANTIGRAVITY_DIR)),
@@ -207,40 +212,50 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     lastUserMessage: (p, session) => getProvider(session.agentId).lastUserMessage(p, session.id),
     entry: (p) => cfg.store.get(p),
   });
-  // ONE build at a time, shared by every caller. The deck gives up on an answer after 150s and asks
-  // again on its next refresh, but giving up does not stop the walk here — so on a machine that had
-  // just booted (cold disk, every repository's git and the whole Codex store still to read) each retry
-  // started a second and third walk on top of the first, and none finished: SIHYEONG-4080 logged five
-  // 150s timeouts in a row on 2026-10-12. A late caller now joins the walk already under way.
-  let projectListInFlight: ReturnType<typeof buildProjectList> | null = null;
-  invoke('projects:list', allow('observe'), () => {
-    if (projectListInFlight) return projectListInFlight;
-    const scan = makeDeckScan();
-    // Where a slow build spent its time, summed per stage across the worker pool — the only way to
-    // tell git from the transcript stores after the fact on a machine nobody was watching.
-    const spent = { scan: 0, git: 0, sessions: 0, cue: 0 };
-    const timed = async <T>(stage: keyof typeof spent, work: () => Promise<T> | T): Promise<T> => {
-      const t = Date.now();
-      try { return await work(); } finally { spent[stage] += Date.now() - t; }
-    };
-    const started = Date.now();
-    let count = 0;
-    projectListInFlight = buildProjectList({
-      nowMs: started,
-      thresholds: effThresholds(),
-      scan: () => timed('scan', memoScan),
-      git: (dir) => timed('git', () => getGitInfo(dir)),
-      sessions: (p) => timed('sessions', () => scan.sessions(p)),
-      resumeCue: (p, session) => timed('cue', () => getProvider(session.agentId).lastUserMessage(p, session.id)),
-      getEntry: (p) => cfg.store.get(p),
-    }).then((list) => { count = list.length; return list; }).finally(() => {
-      projectListInFlight = null;
-      const ms = Date.now() - started;
-      if (ms >= SLOW_PROJECT_LIST_MS) {
-        cfg.diagnostics?.write('warn', 'deck', `projects:list took ${ms}ms for ${count} projects (summed: scan=${spent.scan} git=${spent.git} sessions=${spent.sessions} cue=${spent.cue}ms)`);
-      }
-    });
-    return projectListInFlight;
+  /**
+   * The git + session-store half of a deck list already being built, shared by every caller.
+   *
+   * Callers arrive in bunches — the 45s refresh, every window focus, the task board, a paired machine
+   * polling this deck — and the deck gives up on an answer after 150s and asks again without stopping
+   * the walk here. Each used to start another full walk on top of the first: SIHYEONG-4080 logged five
+   * 150s timeouts in a row on 2026-10-12. A late caller joins the walk under way, and each lays the
+   * store entries over it itself at the end, so a pin or note changed meanwhile is never lost.
+   * Cleared on completion, not on a timer: the next refresh must see git as it is then.
+   */
+  const gatherInFlight = new Map<string, Promise<GatheredProject[]>>();
+  invoke('projects:list', allow('observe'), async () => {
+    const thresholds = effThresholds();
+    const key = JSON.stringify(thresholds);
+    let gathering = gatherInFlight.get(key);
+    if (!gathering) {
+      const scan = makeDeckScan();
+      // Where a slow build spent its time, summed per stage across the worker pool — the only way to
+      // tell git from the transcript stores after the fact on a machine nobody was watching.
+      const spent = { scan: 0, git: 0, sessions: 0, cue: 0 };
+      const timed = async <T>(stage: keyof typeof spent, work: () => Promise<T> | T): Promise<T> => {
+        const t = Date.now();
+        try { return await work(); } finally { spent[stage] += Date.now() - t; }
+      };
+      const startedMs = Date.now();
+      gathering = gatherProjects({
+        nowMs: startedMs,
+        thresholds,
+        scan: () => timed('scan', memoScan),
+        git: (dir) => timed('git', () => getGitInfo(dir)),
+        sessions: (p) => timed('sessions', () => scan.sessions(p)),
+        resumeCue: (p, session) => timed('cue', () => getProvider(session.agentId).lastUserMessage(p, session.id)),
+        sessionCount: (p) => timed('sessions', () => scan.count(p)),
+      });
+      gatherInFlight.set(key, gathering);
+      const started = gathering;
+      void started.then((list) => {
+        const ms = Date.now() - startedMs;
+        if (ms >= SLOW_PROJECT_LIST_MS) {
+          cfg.diagnostics?.write('warn', 'deck', `projects:list took ${ms}ms for ${list.length} projects (summed: scan=${spent.scan} git=${spent.git} sessions=${spent.sessions} cue=${spent.cue}ms)`);
+        }
+      }, () => undefined).finally(() => { if (gatherInFlight.get(key) === started) gatherInFlight.delete(key); });
+    }
+    return withEntries(await gathering, (p) => cfg.store.get(p));
   });
   invoke('project:memory', allow('observe'), (projectPath: string, fresh?: boolean) => {
     const projectPathString = String(projectPath);
@@ -251,9 +266,27 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // These persist to state.json keyed by `path`. Guard with the same allowlist every other path-taking
   // handler uses — a compromised renderer must not be able to write store entries (10KB notes, todo
   // lists) for arbitrary paths outside any scanned folder and grow state.json unboundedly.
-  invoke('project:setNote', allow('write'), (path: string, note: string) => {
+  /**
+   * A paired machine may write only to projects this machine actually scanned. The folder allowlist is
+   * a string check, and any path under a scanned folder passes it whether or not it exists — so a
+   * device with `write` could grow state.json with entries for invented paths, each write rewriting
+   * the whole file (and its backup) on the main thread.
+   */
+  async function writableProject(path: string): Promise<void> {
     if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
-    cfg.store.setNote(path, String(note).slice(0, 10000));
+    if (!calledFromRemote()) return;
+    const known = await memoScan().catch(() => [] as Awaited<ReturnType<typeof memoScan>>);
+    if (!known.some((p) => p.path === path)) throw new Error('Not a project on this machine');
+  }
+  invoke('project:setNote', allow('write'), async (path: string, note: string) => {
+    await writableProject(String(path));
+    cfg.store.setNote(path, String(note).slice(0, MAX_NOTE_CHARS));
+  });
+  // Versioned, so a note saved on another device in the meantime is noticed instead of erased. A
+  // distinct method: an older host answers "no such method" and the caller falls back to setNote.
+  invoke('project:saveNote', allow('write'), async (path: string, note: unknown, expectedRevision: number) => {
+    await writableProject(String(path));
+    return cfg.store.saveNote(String(path), String(note ?? '').slice(0, MAX_NOTE_CHARS), Number(expectedRevision));
   });
   // Keep the old channel only to explain the upgrade, never to accept unversioned writes.
   invoke('project:setTodos', allow('write'), (path: string) => {
@@ -261,16 +294,16 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     throw new Error('TASKS_CLIENT_OUTDATED: Update DevDeck on both devices before editing tasks');
   });
   // A distinct method prevents older hosts from silently ignoring a revision argument.
-  invoke('project:saveTodos', allow('write'), (path: string, todos: unknown, expectedRevision: number) => {
-    if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
+  invoke('project:saveTodos', allow('write'), async (path: string, todos: unknown, expectedRevision: number) => {
+    await writableProject(String(path));
     return cfg.store.saveTodos(path, todos, expectedRevision);
   });
-  invoke('project:setPinned', allow('write'), (path: string, pinned: boolean) => {
-    if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
+  invoke('project:setPinned', allow('write'), async (path: string, pinned: boolean) => {
+    await writableProject(String(path));
     cfg.store.setPinned(path, pinned);
   });
-  invoke('project:setHidden', allow('write'), (path: string, hidden: boolean) => {
-    if (!isAllowedPath(effFolders(), path)) throw new Error('Project is no longer in the allowed folders');
+  invoke('project:setHidden', allow('write'), async (path: string, hidden: boolean) => {
+    await writableProject(String(path));
     cfg.store.setHidden(path, hidden);
   });
 
@@ -284,6 +317,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
    * thing `memoScan` does for the folder walk, for the same reason.
    */
   const usageInFlight = new Map<string, Promise<import("../../shared/types").UsageReport>>();
+  let remoteUsageQueue: Promise<unknown> = Promise.resolve();
 
   invoke('usage:report', allow('observe'), async (sinceMs: number) => {
     const ms = (Number.isFinite(sinceMs) || sinceMs === Infinity) ? sinceMs : 0;
@@ -294,7 +328,13 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const key = usageInFlightKey(ms);
     const running = usageInFlight.get(key);
     if (running) return running;
-    const started = buildUsageReport(ms);
+    // A paired machine asking for a different day each time would start a whole-store walk per ask, all
+    // at once. Its scans run one after another; this machine's own are never queued behind them.
+    let started: ReturnType<typeof buildUsageReport>;
+    if (calledFromRemote()) {
+      started = remoteUsageQueue.catch(() => undefined).then(() => buildUsageReport(ms));
+      remoteUsageQueue = started;
+    } else started = buildUsageReport(ms);
     usageInFlight.set(key, started);
     // Cleared on completion rather than on a timer: the point is to share one walk, not to cache its
     // answer — the next refresh must see what is on disk now.
@@ -481,6 +521,9 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       cfg.sendError(`Path outside allowed folders: ${p}`);
       return;
     }
+    // openPath RUNS a file it is given; this channel is for folders only.
+    const isDir = await stat(p).then((s) => s.isDirectory(), () => false);
+    if (!isDir) { cfg.sendError(`Not a folder: ${p}`); return; }
     const err = await shell.openPath(p);
     if (err) cfg.sendError(err);
   });
@@ -615,7 +658,13 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
         (e) => {
           ptyBatch.flush(); // flush buffered output before the exit notice
           cfg.diagnostics?.write(e.exitCode === 0 ? 'info' : 'warn', 'pty', `exit ${id} code=${e.exitCode}`);
-          emit('cockpit:exit', { id, exitCode: e.exitCode });
+          // Says whether somebody CLOSED it, and from where. Every deck showing this terminal hears the
+          // exit, but only the one that pressed close knew it was deliberate — the others kept a dead
+          // "exited" tile, saved it, and brought it back as a previous session (or, after an update
+          // restart, re-ran it). Optional fields: an older viewer reads only `id`/`exitCode`.
+          const closedBy = closing.get(id);
+          closing.delete(id);
+          emit('cockpit:exit', closedBy ? { id, exitCode: e.exitCode, closed: true, closedBy } : { id, exitCode: e.exitCode });
           publishSessions();
         },
         { projectPath: req.projectPath, sessionId: resolved.sessionId, agentId: a.id },
@@ -662,6 +711,18 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     // lands on top of the older, wider one.
     emit('cockpit:resized', { id: target, cols: c, rows: r });
   });
+  /** Ids this machine is killing on request, and who asked — read by the exit handler above. */
+  const closing = new Map<string, 'local' | 'remote'>();
+  function closeLocal(target: string): void {
+    ptyBatch.drop(target);
+    const by = calledFromRemote() ? 'remote' : 'local';
+    cfg.diagnostics?.write('info', 'pty', `close ${target} by=${by}`);
+    if (cfg.ptyHost.list().some((s) => s.id === target)) closing.set(target, by);
+    cfg.ptyHost.kill(target);
+    publishSessions();
+  }
+  // Fire-and-forget, kept for paired machines on an older build. It cannot say whether the close
+  // happened, which is why a viewer now uses `cockpit:closeSession` below.
   send('cockpit:close', allowSession('control'), (id: string) => {
     const target = String(id);
     if (isRemoteId(target)) {
@@ -670,10 +731,47 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       remote(target, (link, machineId, hostId) => link.notify(machineId, 'cockpit:close', [hostId]));
       return;
     }
-    ptyBatch.drop(target);
-    cfg.diagnostics?.write('info', 'pty', `close ${target}`);
-    cfg.ptyHost.kill(target);
-    publishSessions();
+    closeLocal(target);
+  });
+  /**
+   * Close a session and SAY whether it closed.
+   *
+   * A remote close used to be a notify: offline, without the `control` permission, or simply dropped,
+   * it vanished — the tile disappeared here while the agent went on running there, and the next time
+   * that machine listed its sessions the tile was adopted straight back. The answer lets the deck keep
+   * the close pending until the machine is reachable, or put the tile back and say why.
+   */
+  invoke('cockpit:closeSession', allowSession('control'), async (id: string): Promise<CloseResult> => {
+    const target = String(id);
+    if (!isRemoteId(target)) { closeLocal(target); return { ok: true }; }
+    if (refuseRelay(target, 'cockpit:closeSession')) return { ok: false, reason: 'error' };
+    const link = cfg.link?.();
+    if (!link) return { ok: false, reason: 'offline' };
+    const { machineId, hostId } = parseRemoteId(target);
+    if (link.machines().find((m) => m.machineId === machineId)?.state !== 'connected') return { ok: false, reason: 'offline' };
+    // The host meters requests, and a bulk close of a dozen remote tiles is a dozen of them at once.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await link.call(machineId, 'cockpit:closeSession', [hostId]);
+        link.detach(target);
+        return { ok: true };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/^too many requests/.test(message) && attempt < 6) { await new Promise((r) => setTimeout(r, 400 * (attempt + 1))); continue; }
+        // A host on an older build has only the notify. Send that; it is what every close used to be.
+        if (/^no such method/.test(message)) { link.detach(target); link.notify(machineId, 'cockpit:close', [hostId]); return { ok: true }; }
+        // Not running there any more: closing it is already done.
+        if (/^not a session on this machine/.test(message)) { link.detach(target); return { ok: true }; }
+        if (/^not permitted/.test(message)) return { ok: false, reason: 'denied' };
+        return { ok: false, reason: /offline|closed|timed out|unknown machine/.test(message) ? 'offline' : 'error', error: message };
+      }
+    }
+  });
+  // A tile that stopped showing a remote terminal without closing it (it was retired or rebound to a
+  // new id): stop asking the host to stream it, or every reconnect re-attaches an id that is gone.
+  send('cockpit:detach', localOnly, (id: string) => {
+    const target = String(id);
+    if (isRemoteId(target)) cfg.link?.()?.detach(target);
   });
 
   // Cockpit session persistence: remember the open sessions so a quit/crash doesn't lose them.
@@ -801,20 +899,25 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     // rollout store is flat, so this walks all of it.
     const wantsCodex = list.some((raw) => agentFor((raw as { agentId?: unknown })?.agentId).id === 'codex');
     const codexByCwd = wantsCodex ? await indexCodexSessionsByCwd(CODEX_SESSIONS) : null;
-    return list.map((raw) => {
+    const out: boolean[] = [];
+    for (const raw of list) {
       const it = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
       const projectPath = typeof it.projectPath === 'string' ? it.projectPath : '';
       const sessionId = typeof it.sessionId === 'string' ? it.sessionId : '';
-      if (!sessionId || !projectPath || !isAllowedPath(folders, projectPath)) return true;
+      if (!sessionId || !projectPath || !isAllowedPath(folders, projectPath)) { out.push(true); continue; }
       const owner = agentFor(it.agentId).id;
-      if (owner === 'antigravity') return true; // records no per-tile id — nothing to verify
+      if (owner === 'antigravity') { out.push(true); continue; } // records no per-tile id — nothing to verify
       if (owner === 'codex') {
-        return (codexByCwd?.get(cwdKey(projectPath)) ?? []).some((s) => s.id === sessionId);
+        out.push((codexByCwd?.get(cwdKey(projectPath)) ?? []).some((s) => s.id === sessionId));
+        continue;
       }
+      // Awaited (the listing is async so a 200-entry restore list never holds the main thread), and
+      // still read once per distinct project.
       let ids = claudeIds.get(projectPath);
-      if (!ids) { ids = new Set(listSessionIds(projectPath, CLAUDE_PROJECTS)); claudeIds.set(projectPath, ids); }
-      return ids.has(sessionId);
-    });
+      if (!ids) { ids = new Set(await listSessionIds(projectPath, CLAUDE_PROJECTS)); claudeIds.set(projectPath, ids); }
+      out.push(ids.has(sessionId));
+    }
+    return out;
   });
   /**
    * When each saved entry's conversation was last written — its transcript's mtime — answered as a
@@ -829,6 +932,14 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const claudeStats = new Map<string, Map<string, number>>();
     const wantsCodex = list.some((raw) => agentFor((raw as { agentId?: unknown })?.agentId).id === 'codex');
     const codexByCwd = wantsCodex ? await indexCodexSessionsByCwd(CODEX_SESSIONS) : null;
+    // Claude's per-project stat pass is async (it stats every transcript), so each project is read
+    // once up front and the answers below stay a plain lookup.
+    for (const raw of list) {
+      const it = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+      const projectPath = typeof it.projectPath === 'string' ? it.projectPath : '';
+      if (!projectPath || claudeStats.has(projectPath) || agentFor(it.agentId).id !== 'claude' || !isAllowedPath(folders, projectPath)) continue;
+      claudeStats.set(projectPath, new Map((await listSessionStats(projectPath, CLAUDE_PROJECTS)).map((s) => [s.id, s.mtimeMs])));
+    }
     return list.map((raw): number | null => {
       const it = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
       const projectPath = typeof it.projectPath === 'string' ? it.projectPath : '';
@@ -839,12 +950,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       if (owner === 'codex') {
         return (codexByCwd?.get(cwdKey(projectPath)) ?? []).find((s) => s.id === sessionId)?.mtimeMs ?? null;
       }
-      let stats = claudeStats.get(projectPath);
-      if (!stats) {
-        stats = new Map(listSessionStats(projectPath, CLAUDE_PROJECTS).map((s) => [s.id, s.mtimeMs]));
-        claudeStats.set(projectPath, stats);
-      }
-      return stats.get(sessionId) ?? null;
+      return claudeStats.get(projectPath)?.get(sessionId) ?? null;
     });
   });
   // Live session-id drift check (/clear starts a brand-new session id in the same terminal — the
@@ -852,11 +958,21 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // sends the tile's timing evidence; this stats the project's session files and adopts a new id only
   // when unambiguous (pickDriftedSessionId). Claude and Codex have per-file session stores;
   // Antigravity does not.
+  /**
+   * Whether a liveSessionId answer may be recorded on a terminal. The call needs only `observe`, and the
+   * timing evidence it carries is the caller's, so a paired machine could otherwise point any terminal
+   * here at any conversation — and every deck reconciling against this machine would follow. Only this
+   * machine's own window records, and only on a terminal of the project and provider it asked about.
+   */
+  function notablePty(ptyId: unknown, projectPath: string, agentId: string): boolean {
+    if (calledFromRemote() || typeof ptyId !== 'string' || !ptyId) return false;
+    return cfg.ptyHost.list().some((s) => s.id === ptyId && s.projectPath === projectPath && s.agentId === agentId);
+  }
   invoke('cockpit:liveSessionId', allow('observe'), async (projectPath: string, opts: { currentId: string | null; claimedIds: string[]; openedAtMs: number; sinceMs: number; lastDataAtMs: number; agentId?: AgentId; ptyId?: string }) => {
     if (!isAllowedPath(effFolders(), String(projectPath))) return null;
     if (!opts || typeof opts !== 'object') return null;
     const a = agentFor(opts.agentId).id;
-    const stats = a === 'claude' ? listSessionStats(String(projectPath), CLAUDE_PROJECTS)
+    const stats = a === 'claude' ? await listSessionStats(String(projectPath), CLAUDE_PROJECTS)
       : a === 'codex' ? await listCodexSessionStats(String(projectPath), CODEX_SESSIONS)
         : null;
     if (!stats) return null;
@@ -866,7 +982,14 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const lastDataAtMs = Number(opts.lastDataAtMs) || 0;
     // No id at all (the tile's provider was just re-detected, so its old id went with the old
     // provider): nothing to drift FROM, and a `-c` resume writes a file born before the tile opened.
-    if (!currentId) return pickAdoptedSessionId(stats, { claimedIds, sinceMs, lastDataAtMs });
+    if (!currentId) {
+      const picked = pickAdoptedSessionId(stats, { claimedIds, sinceMs, lastDataAtMs });
+      // Recorded on the pty for the same reason as a drift below: without it this machine keeps
+      // announcing the session with no conversation, and an open of that conversation from another
+      // deck does not find it running and starts a second agent on it.
+      if (picked && notablePty(opts.ptyId, String(projectPath), a) && cfg.ptyHost.note(opts.ptyId!, { sessionId: picked })) publishSessions();
+      return picked;
+    }
     const drifted = pickDriftedSessionId(stats, {
       currentId,
       claimedIds,
@@ -876,8 +999,8 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     });
     // Recorded on the pty as well, so a machine listing what is running here reports the conversation
     // a tile actually MOVED to (after /clear) rather than the one it happened to open on.
-    if (drifted && typeof opts.ptyId === 'string' && opts.ptyId) {
-      if (cfg.ptyHost.note(opts.ptyId, { sessionId: drifted })) publishSessions();
+    if (drifted && notablePty(opts.ptyId, String(projectPath), a)) {
+      if (cfg.ptyHost.note(opts.ptyId!, { sessionId: drifted })) publishSessions();
     }
     return drifted;
   });
@@ -892,7 +1015,11 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   invoke('cockpit:liveAgent', allowSession('observe'), async (id: string) => {
     const pid = cfg.ptyHost.pid(String(id));
     if (!pid) return null;
-    try { return await probeAgent(pid); } catch { return null; }
+    let found: Awaited<ReturnType<typeof probeAgent>> = null;
+    try { found = await probeAgent(pid); } catch { return null; }
+    // The provider a tile is really running is part of what this machine announces about it.
+    if (typeof found === 'string' && cfg.ptyHost.note(String(id), { agentId: found })) publishSessions();
+    return found;
   });
 
   // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a
@@ -908,6 +1035,13 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
 
   // Tray attention indicator (Discord-style): the renderer supplies the red-dotted icon once + live needs-you counts.
   send('tray:alertImage', localOnly, (dataUrl: string) => cfg.tray.setAlertImage(String(dataUrl)));
+  send('tray:labels', localOnly, (labels: unknown) => {
+    if (!labels || typeof labels !== 'object') return;
+    const pick = (k: string): string | undefined => { const v = (labels as Record<string, unknown>)[k]; return typeof v === 'string' && v.length <= 80 ? v : undefined; };
+    const next: Partial<import('../../shared/trayState').TrayLabels> = {};
+    for (const k of ['open', 'shutdownIdle', 'shutdownNow', 'cancelShutdown', 'quit', 'waiting', 'overdue'] as const) { const v = pick(k); if (v) next[k] = v; }
+    cfg.tray.setLabels?.(next as import('../../shared/trayState').TrayLabels);
+  });
   // Partial merge: the cockpit sends {attention, turn} and the deck sends {overdue} independently —
   // each sender updates only the fields it owns, so one can't zero the other's counts.
   send('tray:counts', localOnly, (counts: { attention?: number; turn?: number; overdue?: number }) => {
@@ -973,6 +1107,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
    * Deliberately narrow: it accepts a PNG and nothing else, writes only into the OS temp directory
    * under the name the existing sweeper already cleans up, and never takes a caller-supplied path.
    */
+  const remoteImageWindow = { startMs: 0, bytes: 0 };
   invoke('cockpit:receiveImage', allow('control'), (base64: unknown) => {
     if (typeof base64 !== 'string' || base64.length > MAX_PASTE_IMAGE_BYTES * 2) return null;
     let png: Buffer;
@@ -982,6 +1117,12 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
     if (png.length < PNG_MAGIC.length || !png.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) return null;
     if (png.length > MAX_PASTE_IMAGE_BYTES) return null;
+    // The sweeper clears these after a day; until then a paired machine could fill the disk at the
+    // request rate. A screenshot an hour's worth of pasting does not come near this.
+    const now = Date.now();
+    if (now - remoteImageWindow.startMs > 3_600_000) { remoteImageWindow.startMs = now; remoteImageWindow.bytes = 0; }
+    if (remoteImageWindow.bytes + png.length > REMOTE_IMAGE_BYTES_PER_HOUR) return null;
+    remoteImageWindow.bytes += png.length;
     const file = join(tmpdir(), `${PASTE_IMAGE_PREFIX}${randomUUID()}.png`);
     try { writeFileSync(file, png); } catch { return null; }
     return file;

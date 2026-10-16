@@ -79,7 +79,8 @@ export interface ShellController {
   showView(view: ViewId): void;
   setCockpitAvailable(available: boolean): void;
   setSessionGroups(items: ShellSessionInput[]): void;
-  setProjects(items: ShellProjectInput[]): void;
+  /** The deck's projects, and which machine they are on — project rows light up only for that machine's sessions. */
+  setProjects(items: ShellProjectInput[], machineId?: string): void;
   setActiveProject(path: string | null): void;
   setActiveSession(id: string | null): void;
   setCollapsed(collapsed: boolean): void;
@@ -101,6 +102,22 @@ export function mountShell(options: {
   onGroupClose?(group: ShellSessionGroup): void;
   onRestoreAll(): void;
 }): ShellController {
+  // The working spinners are turned by this tick, not by a CSS animation. A running CSS animation keeps
+  // Chromium producing frames whether or not a step is due, so even a slow stepped spinner cost a
+  // steady share of a core: measured with twelve sessions, six of them working — CSS at 10 steps/s
+  // 16.0%, at 4 steps/s 12.3%, at 1 step/s 9.0%; this tick at 4 steps/s 5.5%; nothing turning 4.6%.
+  // It pauses while the window is unfocused or hidden, and for reduced motion; the working shape and
+  // colour stay either way. Driven through a custom property so a row that stops working (a diamond
+  // has its own rotation) is not left turned.
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  let spinStep = 0;
+  setInterval(() => {
+    if (document.hidden || !document.hasFocus() || reducedMotion?.matches) return;
+    const spinners = document.querySelectorAll<HTMLElement>('.shell-signal.signal-spinner, .ck-spin');
+    if (!spinners.length) return;
+    spinStep = (spinStep + 1) % 4;
+    for (const el of Array.from(spinners)) el.style.setProperty('--spin', `${spinStep * 90}deg`);
+  }, 250);
   const sidebar = document.getElementById('app-sidebar')!;
   const collapse = document.getElementById('shell-collapse') as HTMLButtonElement;
   const quickOpen = document.getElementById('shell-quick-open') as HTMLInputElement;
@@ -117,6 +134,7 @@ export function mountShell(options: {
   const mobileBackdrop = document.getElementById('shell-mobile-backdrop') as HTMLButtonElement;
   let sessions: ShellSessionInput[] = [];
   let projects: ShellProjectInput[] = [];
+  let projectsMachine = 'local';
   let activeEntityKey = '';
   const sessionRows = new Map<string, HTMLButtonElement>();
   const sessionWraps = new Map<string, HTMLElement>();
@@ -630,6 +648,9 @@ export function mountShell(options: {
     const map = new Map<string, 'attention' | 'working'>();
     for (const item of sessions) {
       if (item.previous) continue;
+      // The project rows are one machine's; a session on another machine with the same folder layout
+      // is a different project that happens to share the path.
+      if ((item.machineId || 'local') !== projectsMachine) continue;
       if (item.activity === 'attention') map.set(item.projectPath, 'attention');
       else if (item.activity === 'working' && map.get(item.projectPath) !== 'attention') map.set(item.projectPath, 'working');
     }
@@ -937,7 +958,7 @@ export function mountShell(options: {
       // and each publish used to put the highlight back on the first result mid-navigation.
       if (quickOpen.value.trim()) { const keep = quickIndex; applyQuery(); highlightQuickResult(keep); }
     },
-    setProjects: (items) => { projects = [...items]; renderProjects(projects); applyQuery(); },
+    setProjects: (items, machineId = 'local') => { projects = [...items]; projectsMachine = machineId; renderProjects(projects); applyProjectActivity(); applyQuery(); },
     setActiveProject: (path) => {
       if (path != null) revealProject(path);
       markActiveEntity(path == null ? null : shellEntityKey('project', path));

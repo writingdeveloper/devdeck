@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   sanitizePairedDevices, sanitizeKnownHosts, findPairedDevice,
-  upsertPairedDevice, removePairedDevice, upsertKnownHost, removeKnownHost,
+  upsertPairedDevice, upsertPairedDeviceReporting, removePairedDevice, upsertKnownHost, removeKnownHost,
   dialOrder, noteHostReached, type PairedDevice, type KnownHost,
 } from './devices';
 
@@ -156,5 +156,23 @@ describe('noteHostReached', () => {
   it('adopts a renamed host but ignores an empty name', () => {
     expect(noteHostReached(host(), { address: 'x.example', machineName: 'Studio', nowMs: 1 }).machineName).toBe('Studio');
     expect(noteHostReached(host(), { address: 'x.example', machineName: '', nowMs: 1 }).machineName).toBe('SIHYEONG-MAIN');
+  });
+});
+
+describe('upsertPairedDeviceReporting', () => {
+  const fp = (i: number): string => (i.toString(16).toUpperCase().padStart(2, '0').repeat(32).match(/../g) ?? []).join(':');
+
+  it('names the device the cap pushed out, so the host can say so', () => {
+    const full = Array.from({ length: 32 }, (_, i) => device({ fingerprint: fp(i + 1), machineName: `m${i + 1}` }));
+    const { devices, evicted } = upsertPairedDeviceReporting(full, device({ fingerprint: fp(200), machineName: 'new' }));
+    expect(devices).toHaveLength(32);
+    expect(evicted.map((d) => d.machineName)).toEqual(['m1']);
+    expect(devices.at(-1)?.machineName).toBe('new');
+  });
+
+  it('evicts nobody when re-pairing a device already in a full ledger', () => {
+    const full = Array.from({ length: 32 }, (_, i) => device({ fingerprint: fp(i + 1) }));
+    expect(upsertPairedDeviceReporting(full, device({ fingerprint: fp(5) })).evicted).toEqual([]);
+    expect(upsertPairedDevice(full, device({ fingerprint: fp(5) }))).toHaveLength(32);
   });
 });

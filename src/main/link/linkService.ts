@@ -159,7 +159,19 @@ interface Outbound {
   inflight: Promise<void> | null;
   /** Sessions this viewer has asked to watch; re-sent after a reconnect so the stream resumes. */
   attached: Map<string, { cols: number; rows: number }>;
+  /** Set by removeMachine. A removed entry may still have a dial in flight or a socket closing. */
+  removed: boolean;
+  /** A host sending event channels it has no business sending is noted once, not per frame. */
+  strayEventNoted: boolean;
 }
+
+/**
+ * The event channels a host's pushes may arrive on. Anything else is dropped: this process forwards
+ * what it accepts to the window, and the window trusts channels like `link:sessions` to have been
+ * written HERE — a host that could send one could name any machine, this one included, as the owner
+ * of the sessions it lists.
+ */
+const HOST_EVENT_CHANNELS = new Set(['cockpit:data', 'cockpit:exit', 'cockpit:resized']);
 
 export interface LinkService {
   hostStatus(): HostStatus;
@@ -245,15 +257,24 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
    * lapsed mapping closes the port silently.
    */
   async function refreshPortMapping(): Promise<void> {
-    if (disposed || !server) return;
+    // Bound to the server it was started for. Every await below can outlive that server — host mode
+    // switched off, or a port change, which stops one server and starts another — and a refresh that
+    // only asked "is there A server" resumed against the new one: it published the old port's mapping
+    // as current and armed a renewal chain for a port nothing listens on, forever.
+    const owner = server;
+    const current = (): boolean => !disposed && owner !== null && server === owner;
+    if (!current() || !owner) return;
     const gateway = await defaultGateway();
     const localAddress = gateway ? await localAddressFor(gateway) : null;
-    if (disposed || !server) return;
-    portMap = await mapPort({ port: server.port, gateway, localAddress });
+    if (!current()) return;
+    const result = await mapPort({ port: owner.port, gateway, localAddress });
+    if (!current()) return;
+    portMap = result;
     changed();
-    if (portMap.state !== 'mapped') return; // nothing to keep alive
-    const lifetime = portMap.lifetimeS ?? PORT_MAP_LIFETIME_S;
-    portMapTimer = setTimeout(() => { void refreshPortMapping(); }, Math.max(60, lifetime / 2) * 1000);
+    if (result.state !== 'mapped') return; // nothing to keep alive
+    const lifetime = result.lifetimeS ?? PORT_MAP_LIFETIME_S;
+    if (portMapTimer) clearTimeout(portMapTimer);
+    portMapTimer = setTimeout(() => { portMapTimer = null; void refreshPortMapping(); }, Math.max(60, lifetime / 2) * 1000);
     portMapTimer.unref?.();
   }
 
@@ -272,15 +293,26 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
     const entry: Outbound = {
       host, link: null, state: 'offline', problem: null,
       attempt: 0, timer: null, inflight: null, attached: new Map(),
+      removed: false, strayEventNoted: false,
     };
     outbound.set(host.machineId, entry);
     void connect(entry);
     return entry;
   }
 
+  /**
+   * Whether `entry` is still the one this service keeps for its machine. Everything that can fire
+   * after removeMachine — a socket's close, a dial resolving, a retry timer — checks this first.
+   * Closing a removed machine's link used to run its onClose, which armed a retry, which redialed
+   * and saved the machine straight back into the known-host list it had just been taken out of.
+   */
+  function isCurrent(entry: Outbound): boolean {
+    return !disposed && !entry.removed && outbound.get(entry.host.machineId) === entry;
+  }
+
   /** Idempotent: concurrent callers share one dial and all wait for the same outcome. */
   function connect(entry: Outbound): Promise<void> {
-    if (disposed || entry.link) return Promise.resolve();
+    if (!isCurrent(entry) || entry.link) return Promise.resolve();
     if (entry.inflight) return entry.inflight;
     entry.inflight = dial(entry).finally(() => { entry.inflight = null; });
     return entry.inflight;
@@ -298,6 +330,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
       appVersion: options.appVersion,
       heartbeat: options.heartbeat,
       onEvent: (channel, payload) => {
+        if (!isCurrent(entry)) return;
         // "What is running there" is re-addressed to a channel that NAMES the machine. Deriving it
         // from the ids would work right up until the interesting case — an empty list, which is how a
         // machine says its last session ended and has no id to read the machine from.
@@ -308,16 +341,36 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
           });
           return;
         }
+        if (!HOST_EVENT_CHANNELS.has(channel)) {
+          if (!entry.strayEventNoted) {
+            entry.strayEventNoted = true;
+            console.warn(`[link] dropped event channel ${JSON.stringify(String(channel).slice(0, 80))} from ${entry.host.machineName}`);
+          }
+          return;
+        }
         options.onRemoteEvent?.(channel, qualifyPayload(entry.host.machineId, channel, payload));
       },
-      onPty: (sessionId, bytes) => options.onRemotePty?.(qualifyRemoteId(entry.host.machineId, sessionId), bytes),
+      // The host's own error frames, which are this file's to forward — unlike a `link:error` channel
+      // the host might name in an event, which onEvent above drops.
+      onHostError: (message) => {
+        if (!isCurrent(entry)) return;
+        options.onRemoteEvent?.('link:error', { t: 'error', code: message.code, message: message.message });
+      },
+      onPty: (sessionId, bytes) => { if (isCurrent(entry)) options.onRemotePty?.(qualifyRemoteId(entry.host.machineId, sessionId), bytes); },
       onClose: () => {
         entry.link = null;
+        if (!isCurrent(entry)) return;
         entry.state = 'offline';
         changed();
         scheduleRetry(entry);
       },
     });
+    if (!isCurrent(entry)) {
+      // Removed (or the service disposed) while this dial was in flight. Whatever it reached is
+      // hung up on, and nothing is written back — not the host, not a retry.
+      if (result.ok) result.link.close('removed');
+      return;
+    }
     if (!result.ok) {
       entry.problem = result.failure;
       // An impostor is called out as its own state and never retried on a timer: quietly reconnecting
@@ -351,7 +404,7 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
   }
 
   function scheduleRetry(entry: Outbound, delayMs?: number): void {
-    if (disposed || entry.timer || entry.state === 'impostor') return;
+    if (!isCurrent(entry) || entry.timer || entry.state === 'impostor') return;
     const steps = options.reconnectStepsMs ?? RECONNECT_STEPS_MS;
     const delay = delayMs ?? steps[Math.min(entry.attempt, steps.length - 1)];
     entry.attempt += 1;
@@ -553,9 +606,15 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
     removeMachine(machineId) {
       const entry = outbound.get(machineId);
       if (entry) {
-        if (entry.timer) clearTimeout(entry.timer);
-        entry.link?.close('removed');
+        // In this order: once it is marked and out of the map, nothing its close sets off can bring
+        // it back (see isCurrent).
+        entry.removed = true;
         outbound.delete(machineId);
+        if (entry.timer) { clearTimeout(entry.timer); entry.timer = null; }
+        entry.attached.clear();
+        const link = entry.link;
+        entry.link = null;
+        link?.close('removed');
       }
       options.store.setKnownHosts(removeKnownHost(options.store.getKnownHosts(), machineId));
       changed();
@@ -652,7 +711,12 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
     auditLog(limit) { return log.recent(limit); },
     clearAuditLog() { log.clear(); },
 
-    hasRemoteViewers() { return connections.some((c) => c.attachedSessions.length > 0); },
+    hasRemoteViewers() {
+      // Only sessions that still exist count. The host drops an exited session from what viewers are
+      // attached to; this is the second check, for an id that left the running set some other way.
+      const live = options.liveSessionIds?.();
+      return connections.some((c) => c.attachedSessions.some((id) => !live || live.includes(id)));
+    },
 
     async dispose() {
       disposed = true;

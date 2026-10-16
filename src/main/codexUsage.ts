@@ -5,6 +5,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { clampPercent, parseResetTime, safeUsageLabel, type ProviderUsage, type UsageCredits, type UsageLimit } from '../shared/usageWindows';
 import { resolveAgentCliPath } from './cliExecutable';
+import { cliInvocation, killChildTree } from './aiSummary';
 
 const STARTUP_TIMEOUT_MS = 8_000;
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -20,6 +21,8 @@ export interface CodexUsageDeps {
   /** Injected in tests so timers don't depend on real time. */
   setTimer?: (fn: () => void, ms: number) => unknown;
   clearTimer?: (handle: unknown) => void;
+  /** How the child is stopped; defaults to a process-tree kill (see killChildTree). */
+  killChild?: (child: ChildProcessWithoutNullStreams) => void;
 }
 
 function result(state: ProviderUsage['state'], now: number, over: Partial<ProviderUsage> = {}): ProviderUsage {
@@ -144,7 +147,8 @@ export function getCodexUsage(deps: CodexUsageDeps): Promise<ProviderUsage> {
       child.removeAllListeners('error');
       child.removeAllListeners('exit');
       try { child.stdin?.end(); } catch { /* already closed */ }
-      if (!killed) { killed = true; try { child.kill(); } catch { /* already gone */ } }
+      // A tree kill: through a .cmd shim, child.kill() would end cmd.exe and leave app-server running.
+      if (!killed) { killed = true; try { (deps.killChild ?? killChildTree)(child); } catch { /* already gone */ } }
       resolve(value);
     };
 
@@ -204,10 +208,11 @@ function loginOrOffline(error: unknown, now: number): ProviderUsage {
 
 /** Production spawn: the official CLI, stdio pipes only, no shell. */
 export function spawnCodexAppServer(): ChildProcessWithoutNullStreams {
-  const command = resolveAgentCliPath('codex');
-  // npm installs a `codex.cmd` shim on Windows. CreateProcess cannot execute that shim directly;
-  // route the fixed command through cmd.exe there (there is no user-controlled argv in this call).
-  return spawn(command, ['app-server'], {
-    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: process.platform === 'win32',
+  // npm installs a `codex.cmd` shim on Windows, which CreateProcess cannot execute directly;
+  // cliInvocation routes only that case through cmd.exe, with the argument quoted, and starts a
+  // real codex.exe directly — no `shell: true` either way.
+  const how = cliInvocation(resolveAgentCliPath('codex'), ['app-server']);
+  return spawn(how.file, how.args, {
+    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, windowsVerbatimArguments: how.windowsVerbatimArguments,
   }) as ChildProcessWithoutNullStreams;
 }

@@ -13,8 +13,11 @@ export interface ShutdownStatus {
 export interface SchedulerDeps {
   log: { append(r: ShutdownRecord): boolean; updateLast(p: Partial<ShutdownRecord>): boolean };
   now(): number;
-  /** spawn `shutdown /s /f /t <delaySec> /c ...` — the countdown is the OS's from here on. */
-  execShutdown(delaySec: number): void;
+  /**
+   * spawn `shutdown /s /f /t <delaySec> /c ...` — the countdown is the OS's from here on.
+   * `onFailed` is called if the command could not be started or exited non-zero.
+   */
+  execShutdown(delaySec: number, onFailed: (message: string) => void): void;
   /** spawn `shutdown /a` */
   execAbort(): void;
   transcriptMtime(): Promise<number>;
@@ -43,6 +46,8 @@ export class ShutdownScheduler {
   private workingCount = 0;
   private sessions: ShutdownSessionSummary[] = [];
   private ticking = false;
+  /** Bumped per issue, so a late failure report from an earlier command cannot end a newer countdown. */
+  private issueSeq = 0;
 
   constructor(private readonly deps: SchedulerDeps) {
     this.lastBusyAt = deps.now();
@@ -110,10 +115,28 @@ export class ShutdownScheduler {
       this.push();
       return;
     }
-    this.deps.execShutdown(Math.round(countdownMs / 1000));
+    const seq = ++this.issueSeq;
     this.phase = 'countdown';
     this.scheduledAt = rec.scheduledAt;
     this.kind = kind;
+    this.push();
+    const failed = (message: string): void => this.issueFailed(seq, message);
+    try { this.deps.execShutdown(Math.round(countdownMs / 1000), failed); } catch (e) { failed(e instanceof Error ? e.message : String(e)); }
+  }
+
+  /**
+   * shutdown.exe refused (a shutdown already pending, policy, missing binary). There is no OS timer,
+   * so staying in 'countdown' would show a countdown to nothing and block re-arming until restart.
+   * Back to disarmed, and the record says it never happened — the next-boot banner must not report
+   * a shutdown that was never scheduled as one that "did not execute".
+   */
+  private issueFailed(seq: number, message: string): void {
+    if (seq !== this.issueSeq || this.phase !== 'countdown') return;
+    this.deps.log.updateLast({ status: 'cancelled', cancelledAt: this.deps.now() });
+    this.phase = 'disarmed';
+    this.scheduledAt = null;
+    this.kind = null;
+    this.deps.onError(`DevDeck: shutdown could not be scheduled — ${message}`);
     this.push();
   }
 

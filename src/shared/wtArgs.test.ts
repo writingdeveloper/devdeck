@@ -26,3 +26,12 @@ describe('buildWtArgs', () => {
     expect(() => buildWtArgs([], 'pwsh')).toThrow();
   });
 });
+
+describe('buildWtArgs semicolons', () => {
+  it('escapes ; so wt does not split a folder or title into another subcommand', () => {
+    const args = buildWtArgs([{ name: 'a;b', dir: 'C:/x;y', command: 'claude' }], 'pwsh');
+    expect(args).toContain('a\\;b');
+    expect(args).toContain('C:/x\\;y');
+    expect(args.filter((a) => a === ';')).toHaveLength(0);
+  });
+});

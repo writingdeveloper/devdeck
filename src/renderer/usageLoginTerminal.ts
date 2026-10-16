@@ -68,6 +68,6 @@ export async function openUsageLoginTerminal(providerId: LoginProvider): Promise
   if (!active || active.overlay !== overlay) { if (opened?.id) window.devdeck.cockpit.close(opened.id); return; }
   if (!opened) { term.writeln(tr('usage.login_unavailable')); return; }
   active.id = opened.id;
-  terminalHost.focus();
+  term.focus(); // the host div is not focusable; keystrokes reach the sign-in only through xterm's own input
 }
 

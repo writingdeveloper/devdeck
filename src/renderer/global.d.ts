@@ -6,6 +6,7 @@ declare global {
       listProjects(): Promise<ProjectViewModel[]>;
       projectMemory(path: string, fresh?: boolean): Promise<import('../shared/types').ProjectMemory>;
       setNote(path: string, note: string): Promise<void>;
+      saveNote(path: string, note: string, revision: number): Promise<import('../shared/types').NoteSaveResult>;
       setTodos(path: string, todos: import('../shared/tasks').Todo[], revision: number): Promise<import('../shared/tasks').TodoSaveResult>;
       setPinned(path: string, pinned: boolean): Promise<void>;
       setHidden(path: string, hidden: boolean): Promise<void>;
@@ -45,6 +46,7 @@ declare global {
         listProjects(): Promise<ProjectViewModel[]>;
         projectMemory(path: string, fresh?: boolean): Promise<import('../shared/types').ProjectMemory>;
         setNote(path: string, note: string): Promise<void>;
+        saveNote(path: string, note: string, revision: number): Promise<import('../shared/types').NoteSaveResult>;
         setTodos(path: string, todos: import('../shared/tasks').Todo[], revision: number): Promise<import('../shared/tasks').TodoSaveResult>;
         setPinned(path: string, pinned: boolean): Promise<void>;
         setHidden(path: string, hidden: boolean): Promise<void>;
@@ -72,6 +74,7 @@ declare global {
       setContextWindow(w: number): Promise<void>;
       setTrayCounts(counts: { attention?: number; turn?: number; overdue?: number }): void;
       setTrayAlertImage(dataUrl: string): void;
+      setTrayLabels(labels: import('../shared/trayState').TrayLabels): void;
       setBaseDir(dir: string): Promise<void>;
       getFolders(): Promise<import('../shared/types').Folder[]>;
       /** `kind` omitted ⇒ auto-detect (a `.git` in the folder makes it a single project). */
@@ -123,8 +126,10 @@ declare global {
         input(id: string, data: string): void;
         resize(id: string, cols: number, rows: number): void;
         close(id: string): void;
+        closeSession(id: string): Promise<import('../shared/types').CloseResult>;
+        detach(id: string): void;
         onData(cb: (p: { id: string; chunk: string }) => void): void;
-        onExit(cb: (p: { id: string; exitCode: number }) => void): void;
+        onExit(cb: (p: { id: string; exitCode: number; closed?: boolean; closedBy?: 'local' | 'remote' }) => void): void;
         onResized(cb: (p: { id: string; cols: number; rows: number }) => void): void;
         liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
         sessionBuffer(id: string): Promise<string>;

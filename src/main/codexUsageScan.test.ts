@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { scanCodexUsage } from './codexUsageScan';
@@ -157,5 +157,67 @@ describe('scanCodexUsage', () => {
     let yields = 0;
     await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity, chunkBytes: 128, yieldNow: async () => { yields++; } });
     expect(yields).toBeGreaterThan(1);
+  });
+});
+
+describe('the index between scans', () => {
+  // Every scan used to read, validate, deep-clone, re-serialize and rewrite the whole index
+  // synchronously, changed or not (~80 ms on a 5,000-rollout store). Between scans it now lives in
+  // memory; the file is written only when something changed, and read again when it is not ours.
+  const nextTotal = { input_tokens: 150, cached_input_tokens: 70, cache_write_input_tokens: 0, output_tokens: 15 };
+  const appendTurn = (file: string): void => appendFileSync(file, token(nextTotal, nextTotal, '2026-08-08T10:03:00.000Z') + '\n');
+  const pause = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));
+
+  it('does not rewrite the index when nothing changed', async () => {
+    writeFileSync(rolloutPath(), firstRollout().join('\n') + '\n');
+    await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity });
+    const before = statSync(cachePath).mtimeMs;
+    await pause();
+    const again = await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity });
+    expect(again.global.input).toBe(40);
+    expect(statSync(cachePath).mtimeMs).toBe(before);
+  });
+
+  it('writes the index after an append, and later scans resume from it without recounting', async () => {
+    const file = rolloutPath();
+    writeFileSync(file, firstRollout().join('\n') + '\n');
+    await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity });
+    appendTurn(file);
+    const grown = await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity });
+    expect(grown.global).toEqual({ input: 80, cacheRead: 70, cacheWrite: 0, output: 15 });
+    const saved = JSON.parse(readFileSync(cachePath, 'utf8')) as { files: { offset: number }[] };
+    expect(saved.files[0].offset).toBe(statSync(file).size);
+    let bytes = 0;
+    for (let i = 0; i < 2; i++) {
+      const report = await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity, onBytesRead: (n) => { bytes += n; } });
+      expect(report.global).toEqual({ input: 80, cacheRead: 70, cacheWrite: 0, output: 15 });
+    }
+    expect(bytes).toBe(0);
+  });
+
+  it('honours an index file replaced by someone else since the last scan', async () => {
+    writeFileSync(rolloutPath(), firstRollout().join('\n') + '\n');
+    await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity });
+    const saved = JSON.parse(readFileSync(cachePath, 'utf8')) as { files: { buckets: { totals: { input: number } }[] }[] };
+    saved.files[0].buckets[0].totals.input = 999; // still a valid index — just different numbers
+    await pause();
+    writeFileSync(cachePath, JSON.stringify(saved));
+    const report = await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity });
+    expect(report.global.input).toBe(999);
+  });
+
+  it('two scans at once each count an append once, and leave a readable index behind', async () => {
+    const file = rolloutPath();
+    writeFileSync(file, firstRollout().join('\n') + '\n');
+    await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity });
+    appendTurn(file);
+    const [a, b] = await Promise.all([
+      scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity }),
+      scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity }),
+    ]);
+    expect(a.global.input).toBe(80);
+    expect(b.global.input).toBe(80);
+    expect((await scanCodexUsage({ sessionsDir, cachePath, sinceMs: Infinity })).global.input).toBe(80);
+    expect(() => JSON.parse(readFileSync(cachePath, 'utf8'))).not.toThrow();
   });
 });

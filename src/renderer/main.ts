@@ -7,7 +7,7 @@ import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { activateCockpitSession, closeCockpitSessionGroup, closeCockpitSessions, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, closeCockpitSessionGroup, closeCockpitSessions, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, runningSessionsForAutoRestore, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -17,6 +17,7 @@ import { initializeAgentSelection, setSelectedAgent } from './agentSelection';
 import type { AgentId } from '../shared/types';
 import { createIcon } from './icons';
 import { maximizeActionPresentation } from '../shared/windowControls';
+import { selectedMachineId } from './machineDeck';
 
 let shellController: ShellController | null = null;
 let contextRestore: ContextRestoreCoordinator | null = null;
@@ -79,7 +80,7 @@ function renderUpdate(p: import('../shared/update').UpdatePayload): void {
       // Sweep the drift check first: a /clear in the last seconds before the restart would otherwise
       // freeze the pre-clear id and the relaunch would restore the PAST conversation.
       try { await refreshLiveSessionIds(); } catch { /* best-effort */ }
-      const live = liveSessionsForPersist();
+      const live = runningSessionsForAutoRestore();
       if (live.length) { try { await window.devdeck.setPendingAutoRestore(live); } catch { /* proceed regardless */ } }
       void window.devdeck.installUpdate();
     });
@@ -90,6 +91,11 @@ window.devdeck.onUpdate(renderUpdate);
 
 function applyStaticLabels(): void {
   document.documentElement.lang = currentLang();
+  // The tray menu and tooltip are drawn by the main process, which has no translator of its own.
+  window.devdeck.setTrayLabels({
+    open: tr('tray.open'), shutdownIdle: tr('tray.shutdown_idle'), shutdownNow: tr('tray.shutdown_now'),
+    cancelShutdown: tr('tray.cancel_shutdown'), quit: tr('tray.quit'), waiting: tr('tray.waiting'), overdue: tr('tray.overdue'),
+  });
   const openSelected = document.querySelector<HTMLButtonElement>('#open-selected')!;
   openSelected.replaceChildren(createIcon('play'), document.createTextNode(tr('app.open_selected')));
   const newProject = document.querySelector<HTMLButtonElement>('#new-project')!;
@@ -349,11 +355,11 @@ async function boot(): Promise<void> {
     applyRestore(contextRestore.sessionsLoaded(new Set()));
   }
   const syncShellProjects = (items: readonly import('../shared/types').ProjectViewModel[]): void => {
-    shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })));
+    shellController?.setProjects(items.filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })), selectedMachineId());
     applyRestore(contextRestore?.projectsLoaded(new Set(items.map((item) => item.path))) ?? null);
   };
   onProjectsChanged(syncShellProjects);
-  shellController.setProjects(currentProjects().filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })));
+  shellController.setProjects(currentProjects().filter((item) => !item.hidden).map(({ path, name, branch, pinned }) => ({ path, name, branch, pinned })), selectedMachineId());
 
   const agentSel = document.getElementById('agent-select') as HTMLSelectElement;
   const agentControl = document.getElementById('agent-select-control');

@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cleanSummaryText, SUMMARY_MAX } from '../shared/sessionSummary';
 import { codexExecFinalMessage } from '../shared/codexParse';
 import type { AgentId } from '../shared/types';
+import { resolveAgentCliPath } from './cliExecutable';
+import { taskkillTree } from './ptyHost';
 
 /**
  * Optional AI layer for the cockpit's per-session summary line.
@@ -72,22 +74,77 @@ export function normalizeAiSummary(raw: string): string {
   return line.length > SUMMARY_MAX ? line.slice(0, SUMMARY_MAX - 1) + '…' : line;
 }
 
+/** A process start with nothing left for a shell to reinterpret. */
+export interface CliInvocation { file: string; args: string[]; windowsVerbatimArguments?: boolean }
+
+// Characters cmd.exe gives meaning to. Each one is ^-escaped so it reaches the program literally.
+const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
+
+/** One argument, quoted for the MSVCRT parser the program uses, then escaped for cmd.exe. */
+function cmdArgument(arg: string, viaBatch: boolean): string {
+  let quoted = arg.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\*)$/, '$1$1');
+  quoted = `"${quoted}"`.replace(CMD_META, '^$1');
+  // A batch file re-reads its arguments when it expands %* into its own command line, so cmd parses
+  // them twice and they need escaping twice (npm's .cmd shims all forward through %*).
+  return viaBatch ? quoted.replace(CMD_META, '^$1') : quoted;
+}
+
+/**
+ * How to start an agent CLI without `shell: true`.
+ *
+ * `shell: true` on Windows joins the argv with plain spaces and hands it to cmd.exe unquoted, so an
+ * argument is whatever cmd and the program's own parser make of it: `--mcp-config '{"mcpServers":{}}'`
+ * arrived at Claude as `{mcpServers:{}}` and every summary failed. A real .exe is started directly.
+ * A .cmd/.bat shim cannot be (CreateProcess refuses them), so it goes through cmd.exe with each
+ * argument quoted and escaped here, verbatim, rather than left to the shell.
+ */
+export function cliInvocation(
+  command: string, args: string[],
+  platform: NodeJS.Platform = process.platform, comspec: string = process.env.ComSpec || 'cmd.exe',
+): CliInvocation {
+  if (platform !== 'win32' || !/\.(cmd|bat)$/i.test(command)) return { file: command, args };
+  const line = [command.replace(CMD_META, '^$1'), ...args.map((a) => cmdArgument(a, true))].join(' ');
+  return { file: comspec, args: ['/d', '/s', '/c', `"${line}"`], windowsVerbatimArguments: true };
+}
+
+/**
+ * Stop a CLI child and everything under it. On Windows `child.kill()` ends only the process it
+ * started — cmd.exe for a shim — and the real claude/codex node process kept running, spending quota
+ * on an answer nobody was waiting for. `taskkill /T` takes the tree; the plain kill follows.
+ */
+export function killChildTree(child: Pick<ChildProcess, 'pid' | 'kill'>, platform: NodeJS.Platform = process.platform): void {
+  const plainKill = (): void => { try { child.kill(); } catch { /* already gone */ } };
+  if (platform !== 'win32' || typeof child.pid !== 'number') { plainKill(); return; }
+  void taskkillTree(child.pid).then(plainKill);
+}
+
+/** Positive results only: a CLI installed after DevDeck started must still be found next time. */
+const _resolvedCli = new Map<'claude' | 'codex', string>();
+function cliPath(provider: 'claude' | 'codex'): string {
+  const hit = _resolvedCli.get(provider);
+  if (hit) return hit;
+  const found = resolveAgentCliPath(provider);
+  if (found !== provider) _resolvedCli.set(provider, found);
+  return found;
+}
+
 /**
  * Run an agent CLI headlessly and return its stdout.
  *
- * The prompt goes in on STDIN, never as an argv element: on Windows these CLIs are `.cmd` shims, which
- * need `shell: true`, and session text on a shell command line would be a command-injection hole.
- * Every argv entry passed here is a fixed literal.
+ * The prompt goes in on STDIN, never as an argv element: session text on a command line — and on
+ * Windows these can still pass through cmd.exe, see cliInvocation — would be a command-injection
+ * hole. Every argv entry passed here is a fixed literal.
  */
 function runCli(bin: string, args: string[], input: string, cwd: string, scrubEnv: (key: string) => boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     const env = { ...process.env };
     for (const k of Object.keys(env)) if (scrubEnv(k)) delete env[k];
-    const child = spawn(bin, args, { cwd, env, windowsHide: true, shell: process.platform === 'win32' });
+    const how = cliInvocation(bin, args);
+    const child = spawn(how.file, how.args, { cwd, env, windowsHide: true, windowsVerbatimArguments: how.windowsVerbatimArguments });
     let out = '';
     let settled = false;
     const done = (fn: () => void) => { if (settled) return; settled = true; clearTimeout(timer); fn(); };
-    const timer = setTimeout(() => done(() => { child.kill(); reject(new Error('summary timeout')); }), AI_TIMEOUT_MS);
+    const timer = setTimeout(() => done(() => { killChildTree(child); reject(new Error('summary timeout')); }), AI_TIMEOUT_MS);
     child.stdout.on('data', (b: Buffer) => { if (out.length < 32_000) out += b.toString('utf8'); });
     child.stderr.on('data', () => { /* the CLIs chat on stderr; the exit code is what matters */ });
     child.on('error', (err) => done(() => reject(err)));
@@ -106,7 +163,7 @@ function runCli(bin: string, args: string[], input: string, cwd: string, scrubEn
  */
 export function spawnClaudeSummary(input: string, cwd: string): Promise<string> {
   return runCli(
-    'claude',
+    cliPath('claude'),
     ['-p', '--model', 'haiku', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}'],
     input, cwd,
     (k) => k === 'CLAUDECODE' || k.startsWith('CLAUDE_CODE_'),
@@ -126,7 +183,7 @@ export function spawnClaudeSummary(input: string, cwd: string): Promise<string> 
  */
 export function spawnCodexSummary(input: string, cwd: string): Promise<string> {
   return runCli(
-    'codex',
+    cliPath('codex'),
     ['exec', '--json', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check', '-s', 'read-only', '-'],
     input, cwd,
     () => false,
@@ -146,8 +203,13 @@ const DEFAULT_RUNNERS: Partial<Record<AgentId, RunSummary>> = {
   codex: (input) => spawnCodexSummary(input, summaryCwd()),
 };
 
-export function makeAiSummarizer(deps: { runners?: Partial<Record<AgentId, RunSummary>>; now?: () => number; cooldownMs?: number } = {}): AiSummarizer {
+export function makeAiSummarizer(deps: {
+  runners?: Partial<Record<AgentId, RunSummary>>; now?: () => number; cooldownMs?: number;
+  /** Where a failed generation is reported (the diagnostics log, when the caller has one). */
+  onFailure?: (message: string) => void;
+} = {}): AiSummarizer {
   const runners = deps.runners ?? DEFAULT_RUNNERS;
+  const onFailure = deps.onFailure ?? ((message: string) => console.warn('DevDeck:', message));
   const now = deps.now ?? (() => Date.now());
   const cooldownMs = deps.cooldownMs ?? AI_COOLDOWN_MS;
   const cache = new Map<string, Entry>();
@@ -172,8 +234,11 @@ export function makeAiSummarizer(deps: { runners?: Partial<Record<AgentId, RunSu
       let text: string | null = null;
       try {
         text = normalizeAiSummary(await run(buildSummaryPrompt(job.source))) || null;
-      } catch {
+      } catch (err) {
         text = null; // cached as a miss so a missing CLI doesn't retry every tick
+        // Said once per miss rather than swallowed: a summary that silently never arrives is how the
+        // argument-mangling bug went unnoticed.
+        try { onFailure(`AI summary (${job.provider}) failed: ${err instanceof Error ? err.message : String(err)}`); } catch { /* best-effort */ }
       }
       remember(sessionId, { mtimeMs: job.mtimeMs, text, at: now() });
     }

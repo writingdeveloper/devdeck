@@ -1,3 +1,5 @@
+import { tr } from './i18n-runtime';
+
 const NS = 'http://www.w3.org/2000/svg';
 
 /** A simple bar chart. values: [{label, value}], height in px.
@@ -13,7 +15,7 @@ export function barChart(values: { label: string; value: number }[], height = 80
   svg.setAttribute('role', 'img');
 
   const svgTitle = document.createElementNS(NS, 'title');
-  svgTitle.textContent = 'Daily token usage bar chart';
+  svgTitle.textContent = tr('usage.chart_title');
   svg.appendChild(svgTitle);
 
   values.forEach((v, i) => {

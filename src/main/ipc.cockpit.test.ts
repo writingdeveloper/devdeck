@@ -62,6 +62,7 @@ import { cwdKey } from '../shared/paths';
 const ALLOWED_ROOT = join(process.cwd(), 'cockpit-allowed-root');
 let storedAgent = 'claude';
 const ptyCreate = vi.fn();
+const ptyNote = vi.fn((_id: string, _patch: Record<string, unknown>) => false);
 
 beforeAll(() => {
   registerIpc({
@@ -74,7 +75,7 @@ beforeAll(() => {
     },
     sendError: vi.fn(),
     defaultLanguage: 'en',
-    ptyHost: { create: ptyCreate, list: () => [], pid: (id: string) => (id === 'live#1' ? 4321 : null) },
+    ptyHost: { create: ptyCreate, list: () => [], pid: (id: string) => (id === 'live#1' ? 4321 : null), note: ptyNote },
     ptyAvailable: true,
     tray: {},
     shutdown: null,
@@ -194,6 +195,8 @@ describe('cockpit:liveAgent', () => {
     probe.mockClear();
     expect(await liveAgent(null, 'live#1')).toBe('claude');
     expect(probe).toHaveBeenCalledWith(4321);
+    // ...and recorded on the pty, so what this machine announces names the agent really running.
+    expect(ptyNote).toHaveBeenCalledWith('live#1', { agentId: 'claude' });
 
     probe.mockClear();
     expect(await liveAgent(null, 'gone#9')).toBeNull();
@@ -381,13 +384,12 @@ describe('cockpit:conversationsLastUsed', () => {
 // had just booted, none of them ever finished.
 describe('projects:list', () => {
   it('shares the build already under way instead of starting another', async () => {
+    // Each caller gets its own answer (the store entries are laid over the shared build at the end, so
+    // a pin changed meanwhile is not lost); that the BUILD runs once is counted in
+    // api/deckApi.projects.test.ts. Here: concurrent asks agree, and a later ask still answers.
     const list = handlers.get('projects:list')!;
-    const first = list(null);
-    const second = list(null);
-    expect(second).toBe(first);
-    await first;
-    const third = list(null);
-    expect(third).not.toBe(first); // once it has landed, the next ask builds fresh
-    await third;
+    const [first, second] = await Promise.all([list(null), list(null)]);
+    expect(second).toEqual(first);
+    expect(await list(null)).toEqual(first);
   });
 });

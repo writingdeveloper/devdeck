@@ -7,6 +7,7 @@ import {
   type ParsedSessionMeta, type SessionMetaState,
 } from '../shared/sessionMeta';
 import { isValidSessionId } from './sessions';
+import { cloneActiveTally, emptyActiveTally, tallyActiveSince, tallyStamp, type ActiveTally } from '../shared/usage';
 
 /** Parsed meta plus the log's mtime — the cache key for the AI summary and the task-staleness reference. */
 export type ClaudeSessionMeta = ParsedSessionMeta & { mtimeMs: number };
@@ -24,8 +25,18 @@ const NEWLINE = 0x0a;
  * Per-session parse state, resumed across reads. `offset` is the byte just past the last COMPLETE line
  * consumed so far, so an append-only log is only ever read forward — the cockpit's 30s tick on an
  * active session costs the few KB that turn wrote, not the whole log again.
+ *
+ * Active time rides in its own `tally` rather than in `state.timestamps`. The shared parser collects
+ * every line's timestamp and its finalize copies and sorts them all, so a tick on a live 550 MB session
+ * (~50,000 lines) did that — plus a copy of the whole array to resume into — for the sake of the few
+ * lines the turn added, every tile, every tick. Each read now moves the timestamps it parsed into the
+ * tally (kept in order, the sum kept as it goes) and empties the array, so a tick costs the lines it
+ * added plus one copy of the tally to fold into — no sort.
  */
-const _metaCache = new Map<string, { mtimeMs: number; offset: number; state: SessionMetaState; meta: ClaudeSessionMeta }>();
+interface MetaCacheEntry { mtimeMs: number; offset: number; state: SessionMetaState; tally: ActiveTally; meta: ClaudeSessionMeta }
+const _metaCache = new Map<string, MetaCacheEntry>();
+/** Test-only: how many line timestamps the cached state for this log has counted (each line once). */
+export function _cachedTimestampCount(file: string): number { return _metaCache.get(file)?.tally.sorted.length ?? 0; }
 
 /**
  * Fold a log's bytes from `start` into `state`, stopping at the last complete line.
@@ -52,7 +63,7 @@ const _metaCache = new Map<string, { mtimeMs: number; offset: number; state: Ses
  * Reading the same bytes still takes the same time. The difference is that everything else keeps
  * running while it happens, which is the entire complaint.
  */
-async function foldFrom(handle: FileHandle, start: number, size: number, state: SessionMetaState): Promise<number> {
+async function foldFrom(handle: FileHandle, start: number, size: number, state: SessionMetaState, tally: ActiveTally): Promise<number> {
   let pos = start;
   let carry = Buffer.alloc(0); // bytes after the last newline seen — an incomplete line
   while (pos < size) {
@@ -65,18 +76,36 @@ async function foldFrom(handle: FileHandle, start: number, size: number, state: 
     const nl = data.lastIndexOf(NEWLINE);
     if (nl < 0) { carry = Buffer.from(data); continue; } // one line longer than a chunk — keep reading
     advanceSessionMeta(state, data.subarray(0, nl).toString('utf8'));
+    // Every line timestamp this chunk produced goes into the tally; the parser's own array stays empty.
+    for (const ts of state.timestamps) tallyStamp(tally, ts);
+    state.timestamps.length = 0;
     carry = Buffer.from(data.subarray(nl + 1));
-    // Parsing a 4 MB chunk is itself long enough to drop frames; hand the loop back between them.
+    // Parsing a chunk is itself long enough to drop frames; hand the loop back between them.
     await yieldToLoop();
   }
   return pos - carry.length; // the trailing partial line is NOT consumed — it may still be being written
 }
+
+/**
+ * Reads in progress, by file. The same session is routinely asked about twice at once — this
+ * machine's cockpit tick and a paired machine polling it — and both used to resume from the one
+ * cached state, folding the same appended lines into it twice. A second caller now waits for the
+ * first and is answered from what it cached.
+ */
+const _reading = new Map<string, Promise<ClaudeSessionMeta>>();
 
 /** Read a Claude session's meta from its on-disk .jsonl (best-effort; an empty meta if missing). */
 export async function readClaudeSessionMeta(projectPath: string, sessionId: string, claudeProjectsDir: string): Promise<ClaudeSessionMeta> {
   // Guard the id before it touches a path — a crafted sessionId must not escape ~/.claude/projects (path traversal).
   if (!isValidSessionId(sessionId)) return emptySessionMeta();
   const file = join(claudeProjectsDir, encodeProjectPath(projectPath), sessionId + '.jsonl');
+  for (let inFlight = _reading.get(file); inFlight; inFlight = _reading.get(file)) await inFlight.catch(() => undefined);
+  const work = readMetaFile(file);
+  _reading.set(file, work);
+  try { return await work; } finally { if (_reading.get(file) === work) _reading.delete(file); }
+}
+
+async function readMetaFile(file: string): Promise<ClaudeSessionMeta> {
   let mtimeMs: number;
   let size: number;
   try { ({ mtimeMs, size } = await stat(file)); } catch { return emptySessionMeta(); }
@@ -87,18 +116,24 @@ export async function readClaudeSessionMeta(projectPath: string, sessionId: stri
   // shrank was rewritten, not appended to, and the state carried over would describe a file that is
   // no longer there — reparse from zero.
   const resume = cached && size >= cached.offset;
-  const state = resume ? cached.state : emptySessionMetaState();
+  // Copies, so a read that fails partway leaves the cached state exactly as it was committed.
+  const state = resume ? copyState(cached.state) : emptySessionMetaState();
+  const tally = resume ? cloneActiveTally(cached.tally) : emptyActiveTally();
   let handle: FileHandle;
   try { handle = await open(file, 'r'); } catch { return emptySessionMeta(); }
   let offset: number;
   try {
-    offset = await foldFrom(handle, resume ? cached.offset : 0, size, state);
+    offset = await foldFrom(handle, resume ? cached.offset : 0, size, state, tally);
   } catch {
     return emptySessionMeta(); // leave the cache alone: a later read can still resume from it
   } finally {
     await handle.close().catch(() => { /* already gone */ });
   }
-  const meta = { ...finalizeSessionMeta(state), mtimeMs };
-  _metaCache.set(file, { mtimeMs, offset, state, meta });
+  const meta = { ...finalizeSessionMeta(state), activeMs: tallyActiveSince(tally, -Infinity), mtimeMs };
+  _metaCache.set(file, { mtimeMs, offset, state, tally, meta });
   return meta;
+}
+
+function copyState(s: SessionMetaState): SessionMetaState {
+  return { ...s, timestamps: [...s.timestamps], edited: [...s.edited] };
 }

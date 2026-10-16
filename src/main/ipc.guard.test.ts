@@ -115,23 +115,23 @@ describe('project store-setter path guards', () => {
   const outside = join(process.cwd(), 'elsewhere', 'proj');
   const inside = join(ALLOWED_ROOT, 'proj');
 
-  it('ignores writes to a path outside the allowed folders', () => {
+  it('ignores writes to a path outside the allowed folders', async () => {
     for (const s of Object.values(storeSpies)) s.mockClear();
-    expect(() => handlers.get('project:setNote')!(null, outside, 'x')).toThrow('allowed folders');
+    await expect(Promise.resolve().then(() => handlers.get('project:setNote')!(null, outside, 'x'))).rejects.toThrow('allowed folders');
     expect(() => handlers.get('project:setTodos')!(null, outside, [])).toThrow('allowed folders');
-    expect(() => handlers.get('project:setPinned')!(null, outside, true)).toThrow('allowed folders');
-    expect(() => handlers.get('project:setHidden')!(null, outside, true)).toThrow('allowed folders');
+    await expect(Promise.resolve().then(() => handlers.get('project:setPinned')!(null, outside, true))).rejects.toThrow('allowed folders');
+    await expect(Promise.resolve().then(() => handlers.get('project:setHidden')!(null, outside, true))).rejects.toThrow('allowed folders');
     expect(storeSpies.setNote).not.toHaveBeenCalled();
     expect(storeSpies.setTodos).not.toHaveBeenCalled();
     expect(storeSpies.setPinned).not.toHaveBeenCalled();
     expect(storeSpies.setHidden).not.toHaveBeenCalled();
   });
 
-  it('allows writes to a project under an allowed folder', () => {
+  it('allows writes to a project under an allowed folder', async () => {
     for (const s of Object.values(storeSpies)) s.mockClear();
-    handlers.get('project:setNote')!(null, inside, 'hi');
-    handlers.get('project:setPinned')!(null, inside, true);
-    handlers.get('project:setHidden')!(null, inside, true);
+    await handlers.get('project:setNote')!(null, inside, 'hi');
+    await handlers.get('project:setPinned')!(null, inside, true);
+    await handlers.get('project:setHidden')!(null, inside, true);
     expect(storeSpies.setNote).toHaveBeenCalledWith(inside, 'hi');
     expect(storeSpies.setPinned).toHaveBeenCalledWith(inside, true);
     expect(storeSpies.setHidden).toHaveBeenCalledWith(inside, true);

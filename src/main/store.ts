@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, renameSync, copyFileSync } fro
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import type { StoreEntry, Folder } from '../shared/types';
+import type { StoreEntry, Folder, NoteSaveResult } from '../shared/types';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import { sanitizeTodos, type Todo, type TodoSaveResult } from '../shared/tasks';
 import { sanitizeWindowBounds, type WindowBounds } from '../shared/windowBounds';
@@ -13,6 +13,36 @@ import { LINK_DEFAULT_PORT } from './link/protocol';
 interface StateFile {
   projects: Record<string, StoreEntry>;
   settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
+}
+
+/** Error codes Windows returns while another process (AV scan, indexer, OneDrive) briefly holds the file. */
+const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const RENAME_ATTEMPTS = 5;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * renameSync, retried briefly on the errors a scanner or sync client holding the target causes.
+ *
+ * On Windows those are routine rather than exceptional: Defender, the search indexer and OneDrive
+ * all open freshly written files, and a rename onto a file someone has open fails with EPERM/EBUSY
+ * for a few milliseconds. Unretried, that one collision failed the whole save — a lost setting or
+ * task edit, reported to the user as an error. Five attempts over ~300 ms ride it out; anything
+ * else (or anything that outlasts that) still throws to the caller as before.
+ */
+export function renameWithRetry(
+  from: string, to: string,
+  rename: (from: string, to: string) => void = renameSync, sleep: (ms: number) => void = sleepSync,
+): void {
+  for (let attempt = 1; ; attempt++) {
+    try { rename(from, to); return; } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (attempt >= RENAME_ATTEMPTS || !code || !TRANSIENT_RENAME_CODES.has(code)) throw err;
+      sleep(20 * 2 ** (attempt - 1)); // 20, 40, 80, 160 ms
+    }
+  }
 }
 
 const EMPTY: StoreEntry = {
@@ -70,7 +100,7 @@ export class Store {
     try {
       const serialized = JSON.stringify(this.state, null, 2);
       writeFileSync(tmp, serialized, 'utf8');
-      renameSync(tmp, this.filePath);
+      renameWithRetry(tmp, this.filePath);
       this.committed = serialized;
       // Mirror the just-written good state to .bak so external corruption of the live file (disk error,
       // a sync tool, a manual edit) is recoverable on the next load instead of starting from empty.
@@ -84,7 +114,8 @@ export class Store {
 
   get(path: string): StoreEntry {
     const e = { ...EMPTY, ...this.state.projects[path] };
-    return { ...e, todos: sanitizeTodos(e.todos), todosRevision: Number.isSafeInteger(e.todosRevision) && e.todosRevision! >= 0 ? e.todosRevision : 0 }; // never hand out unvalidated on-disk todos
+    const rev = (v: unknown): number => (Number.isSafeInteger(v) && (v as number) >= 0 ? v as number : 0);
+    return { ...e, todos: sanitizeTodos(e.todos), todosRevision: rev(e.todosRevision), noteRevision: rev(e.noteRevision) }; // never hand out unvalidated on-disk todos
   }
 
   private mutate(path: string, patch: Partial<StoreEntry>): void {
@@ -267,7 +298,26 @@ export class Store {
   }
 
 
-  setNote(path: string, note: string): void { this.mutate(path, { note }); }
+  /** The unversioned write older paired machines still send; it moves the revision so newer savers notice. */
+  setNote(path: string, note: string): void {
+    const current = this.get(path);
+    if (current.note === note) return;
+    this.mutate(path, { note, noteRevision: Math.min((current.noteRevision ?? 0) + 1, Number.MAX_SAFE_INTEGER) });
+  }
+  /**
+   * Save a note only if nobody else has saved one since the caller read it. Two devices editing the
+   * same project's note used to be last-write-wins: the second blur silently erased the first note.
+   */
+  saveNote(path: string, note: string, expectedRevision: number): NoteSaveResult {
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('NOTE_INVALID_REVISION');
+    const current = this.get(path);
+    const revision = current.noteRevision ?? 0;
+    if (revision !== expectedRevision) return { ok: false, note: current.note, revision };
+    if (note === current.note) return { ok: true, note, revision };
+    if (revision >= Number.MAX_SAFE_INTEGER) throw new Error('NOTE_REVISION_EXHAUSTED');
+    this.mutate(path, { note, noteRevision: revision + 1 });
+    return { ok: true, note, revision: revision + 1 };
+  }
   getTodos(path: string): Todo[] { return this.get(path).todos; }
   /** Compare and persist without yielding: local and Link callers share this Store. */
   saveTodos(path: string, todos: unknown, expectedRevision: number): TodoSaveResult {
