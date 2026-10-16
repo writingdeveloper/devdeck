@@ -192,13 +192,13 @@ describe('scanUsage', () => {
       const d = join(root, `C--g-${proj}`);
       mkdirSync(d, { recursive: true });
       const f = join(d, 's.jsonl');
-      // ~150 unique-timestamp lines ⇒ a ~2.6KB DIGEST (stamps dominate) — the shrunk budget fits two.
+      // ~150 unique-timestamp lines ⇒ a ~1.6KB DIGEST (its retained timestamps dominate) — the shrunk budget fits two.
       const lines = Array.from({ length: 150 }, (_v, i) =>
         asst('claude-opus-4-8', { input_tokens: 1 }, `2026-06-01T10:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`));
       writeFileSync(f, lines.join('\n'));
       return f;
     };
-    _setCacheBudget(6 * 1024); // room for two ~2.6KB digests, not three
+    _setCacheBudget(4 * 1024); // room for two ~1.6KB digests, not three
     const [fa, fb, fc] = [mk('lru-a'), mk('lru-b'), mk('lru-c')];
     await scanUsage([{ path: 'C:\\g\\lru-a', name: 'a' }], root, Infinity);
     await scanUsage([{ path: 'C:\\g\\lru-b', name: 'b' }], root, Infinity);
@@ -213,13 +213,13 @@ describe('scanUsage', () => {
       const d = join(root, `C--g-${proj}`);
       mkdirSync(d, { recursive: true });
       const f = join(d, 's.jsonl');
-      // ~150 unique-timestamp lines ⇒ a ~2.6KB DIGEST (stamps dominate) — the shrunk budget fits two.
+      // ~150 unique-timestamp lines ⇒ a ~1.6KB DIGEST (its retained timestamps dominate) — the shrunk budget fits two.
       const lines = Array.from({ length: 150 }, (_v, i) =>
         asst('claude-opus-4-8', { input_tokens: 1 }, `2026-06-01T10:${String(Math.floor(i / 60)).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`));
       writeFileSync(f, lines.join('\n'));
       return f;
     };
-    _setCacheBudget(6 * 1024);
+    _setCacheBudget(4 * 1024);
     const [fa, fb, fc] = [mk('fifo-a'), mk('fifo-b'), mk('fifo-c')];
     await scanUsage([{ path: 'C:\\g\\fifo-a', name: 'a' }], root, Infinity);
     await scanUsage([{ path: 'C:\\g\\fifo-b', name: 'b' }], root, Infinity);
@@ -287,5 +287,36 @@ describe('scanUsage', () => {
     const jun = await scanUsage([{ path: 'C:\\g\\since', name: 'since' }], root, junCut); // served from the digest
     expect(jun.global.input).toBe(7);
     expect(jun.daily.map((b) => b.day)).toEqual(['2026-06-01']);
+  });
+
+  // Active time is no longer recomputed from every timestamp on every scan; it is kept as a tally that
+  // a resumed fold adds to. Whatever order lines arrive in, the answer must be what a fresh parse of
+  // the whole file gives — including a line that lands far back, before most of what was counted.
+  it('keeps active time and session counts exact across resumes, even for a line far out of order', async () => {
+    const d = join(root, 'C--g-tally');
+    mkdirSync(d, { recursive: true });
+    const f = join(d, 's.jsonl');
+    const at = (ms: number) => new Date(ms).toISOString();
+    const t0 = Date.UTC(2026, 5, 1, 9);
+    const line = (ms: number) => JSON.stringify({ type: 'user', timestamp: at(ms), message: { content: 'x' } });
+    // 1,500 lines a minute or so apart over three days, a few slightly out of order.
+    const body: string[] = [];
+    for (let i = 0; i < 1500; i++) body.push(line(t0 + i * 170_000 - (i % 17 === 0 ? 240_000 : 0)));
+    writeFileSync(f, body.join('\n') + '\n');
+    const repo = [{ path: 'C:\\g\\tally', name: 'tally' }];
+    const ranges = [Infinity, Date.UTC(2026, 5, 2), Date.UTC(2026, 5, 4)];
+    const fresh = async () => { _clearFileCache(); return Promise.all(ranges.map((s) => scanUsage(repo, root, s))); };
+    const resumed = () => Promise.all(ranges.map((s) => scanUsage(repo, root, s)));
+    const pick = (rs: Awaited<ReturnType<typeof resumed>>) => rs.map((r) => [r.activeMs, r.sessions]);
+
+    await resumed();
+    appendFileSync(f, line(t0 + 1500 * 170_000) + '\n'); // in order
+    expect(pick(await resumed())).toEqual(pick(await fresh()));
+    appendFileSync(f, line(t0 + 1500 * 170_000 - 120_000) + '\n'); // a little late
+    expect(pick(await resumed())).toEqual(pick(await fresh()));
+    appendFileSync(f, line(t0 + 30_000) + '\n'); // days before most of the log (a clock set back)
+    const after = await resumed();
+    expect(pick(after)).toEqual(pick(await fresh()));
+    expect(after[0].activeMs).toBeGreaterThan(0);
   });
 });

@@ -384,13 +384,12 @@ describe('cockpit:conversationsLastUsed', () => {
 // had just booted, none of them ever finished.
 describe('projects:list', () => {
   it('shares the build already under way instead of starting another', async () => {
+    // Each caller gets its own answer (the store entries are laid over the shared build at the end, so
+    // a pin changed meanwhile is not lost); that the BUILD runs once is counted in
+    // api/deckApi.projects.test.ts. Here: concurrent asks agree, and a later ask still answers.
     const list = handlers.get('projects:list')!;
-    const first = list(null);
-    const second = list(null);
-    expect(second).toBe(first);
-    await first;
-    const third = list(null);
-    expect(third).not.toBe(first); // once it has landed, the next ask builds fresh
-    await third;
+    const [first, second] = await Promise.all([list(null), list(null)]);
+    expect(second).toEqual(first);
+    expect(await list(null)).toEqual(first);
   });
 });

@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, renameSync, copyFileSync } fro
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import type { StoreEntry, Folder } from '../shared/types';
+import type { StoreEntry, Folder, NoteSaveResult } from '../shared/types';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import { sanitizeTodos, type Todo, type TodoSaveResult } from '../shared/tasks';
 import { sanitizeWindowBounds, type WindowBounds } from '../shared/windowBounds';
@@ -114,7 +114,8 @@ export class Store {
 
   get(path: string): StoreEntry {
     const e = { ...EMPTY, ...this.state.projects[path] };
-    return { ...e, todos: sanitizeTodos(e.todos), todosRevision: Number.isSafeInteger(e.todosRevision) && e.todosRevision! >= 0 ? e.todosRevision : 0 }; // never hand out unvalidated on-disk todos
+    const rev = (v: unknown): number => (Number.isSafeInteger(v) && (v as number) >= 0 ? v as number : 0);
+    return { ...e, todos: sanitizeTodos(e.todos), todosRevision: rev(e.todosRevision), noteRevision: rev(e.noteRevision) }; // never hand out unvalidated on-disk todos
   }
 
   private mutate(path: string, patch: Partial<StoreEntry>): void {
@@ -297,7 +298,26 @@ export class Store {
   }
 
 
-  setNote(path: string, note: string): void { this.mutate(path, { note }); }
+  /** The unversioned write older paired machines still send; it moves the revision so newer savers notice. */
+  setNote(path: string, note: string): void {
+    const current = this.get(path);
+    if (current.note === note) return;
+    this.mutate(path, { note, noteRevision: Math.min((current.noteRevision ?? 0) + 1, Number.MAX_SAFE_INTEGER) });
+  }
+  /**
+   * Save a note only if nobody else has saved one since the caller read it. Two devices editing the
+   * same project's note used to be last-write-wins: the second blur silently erased the first note.
+   */
+  saveNote(path: string, note: string, expectedRevision: number): NoteSaveResult {
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new Error('NOTE_INVALID_REVISION');
+    const current = this.get(path);
+    const revision = current.noteRevision ?? 0;
+    if (revision !== expectedRevision) return { ok: false, note: current.note, revision };
+    if (note === current.note) return { ok: true, note, revision };
+    if (revision >= Number.MAX_SAFE_INTEGER) throw new Error('NOTE_REVISION_EXHAUSTED');
+    this.mutate(path, { note, noteRevision: revision + 1 });
+    return { ok: true, note, revision: revision + 1 };
+  }
   getTodos(path: string): Todo[] { return this.get(path).todos; }
   /** Compare and persist without yielding: local and Link callers share this Store. */
   saveTodos(path: string, todos: unknown, expectedRevision: number): TodoSaveResult {

@@ -97,7 +97,12 @@ export interface StoreEntry {
   todos: Todo[];
   /** Missing in old state files / hosts. New stores expose zero initially. */
   todosRevision?: number;
+  /** Bumped on every note write, so a save can tell it is about to replace another device's note. */
+  noteRevision?: number;
 }
+
+/** Outcome of a versioned note save: on a conflict, the note and revision that are there now. */
+export interface NoteSaveResult { ok: boolean; note: string; revision: number }
 
 export interface ResumeCue {
   kind: 'lastMessage'; // 'todos' reserved for future structured harvesting
@@ -129,6 +134,8 @@ export interface ProjectViewModel {
   todos: Todo[];
   /** Missing in old state files / hosts. New stores expose zero initially. */
   todosRevision?: number;
+  /** Missing from older hosts, whose notes then save without conflict detection. */
+  noteRevision?: number;
 }
 
 export interface RecentCommit {

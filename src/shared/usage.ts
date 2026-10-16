@@ -154,6 +154,86 @@ export function activeMsFromTimestamps(timestampsMs: number[]): number {
   return active;
 }
 
+const DAY_MS = 86_400_000;
+
+/**
+ * Active time kept up to date one timestamp at a time — the incremental form of
+ * activeMsFromTimestamps, for logs that are read forward a piece at a time.
+ *
+ * The batch form wants every timestamp in one array, which it copies and sorts on each call. Session
+ * logs only grow, so callers held every timestamp and re-sorted the lot on every refresh: the usage
+ * scan for every transcript on the machine every ~45 s (unchanged ones included), the cockpit for
+ * every live tile every tick. Here the timestamps are kept IN ORDER as they arrive, and the sum is
+ * kept per day as they do, so answering is a walk over the days and adding a line touches only its
+ * neighbours.
+ *
+ * Exact, not an estimate. A gap is credited to the UTC day of its EARLIER timestamp, so "active time
+ * on or after day D" — the only range question asked — is the sum over days from D on: the
+ * timestamps from D on are a suffix of the sorted list, and the gaps inside that suffix are exactly
+ * the ones whose earlier end is in it. Inserting t between neighbours a < b swaps gap(a,b) for
+ * gap(a,t) + gap(t,b). Real logs do arrive out of order (subagent lines interleave — ~10% of lines on
+ * this machine, never more than 25 places back), so the insert is almost always at or near the end.
+ *
+ * Every timestamp is still kept, deliberately: dropping old ones would leave a late line with no
+ * known neighbours, and a clock set back by a day would make EVERY new line one of those.
+ */
+export interface ActiveTally {
+  /** Every timestamp so far, ascending. */
+  sorted: number[];
+  /** Active ms by UTC day start of each counted gap's earlier timestamp. */
+  byDay: Map<number, number>;
+}
+
+export function emptyActiveTally(): ActiveTally {
+  return { sorted: [], byDay: new Map() };
+}
+
+export function cloneActiveTally(t: ActiveTally): ActiveTally {
+  return { sorted: t.sorted.slice(), byDay: new Map(t.byDay) };
+}
+
+function creditGap(t: ActiveTally, from: number, to: number, sign: 1 | -1): void {
+  const gap = to - from;
+  if (!(gap > 0 && gap <= ACTIVE_GAP_CAP_MS)) return;
+  const day = Math.floor(from / DAY_MS) * DAY_MS;
+  t.byDay.set(day, (t.byDay.get(day) ?? 0) + sign * gap);
+}
+
+/** Count one more timestamp, wherever it falls. */
+export function tallyStamp(t: ActiveTally, ms: number): void {
+  const { sorted } = t;
+  const n = sorted.length;
+  if (n === 0 || ms >= sorted[n - 1]) {
+    if (n > 0) creditGap(t, sorted[n - 1], ms, 1);
+    sorted.push(ms);
+    return;
+  }
+  let lo = 0;
+  let hi = n;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] <= ms) lo = mid + 1; else hi = mid; }
+  const after = sorted[lo];
+  if (lo > 0) {
+    const before = sorted[lo - 1];
+    creditGap(t, before, after, -1);
+    creditGap(t, before, ms, 1);
+  }
+  creditGap(t, ms, after, 1);
+  sorted.splice(lo, 0, ms);
+}
+
+/** Active ms over the timestamps whose UTC day starts at or after `fromDayMs` (-Infinity = all). */
+export function tallyActiveSince(t: ActiveTally, fromDayMs: number): number {
+  let sum = 0;
+  for (const [day, ms] of t.byDay) if (day >= fromDayMs) sum += ms;
+  return sum;
+}
+
+/** Whether any tallied timestamp's UTC day starts at or after `fromDayMs`. */
+export function tallyHasStampSince(t: ActiveTally, fromDayMs: number): boolean {
+  const n = t.sorted.length;
+  return n > 0 && Math.floor(t.sorted[n - 1] / DAY_MS) * DAY_MS >= fromDayMs;
+}
+
 /** Human-friendly duration: "14h 9m", "45m", "0m". Floors to whole minutes. */
 export function formatDuration(ms: number): string {
   const totalMin = Math.floor(Math.max(0, ms) / 60000);

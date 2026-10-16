@@ -43,8 +43,20 @@ describe('Store', () => {
   it('returns a default entry for an unknown project', () => {
     const s = new Store(file);
     expect(s.get('C:\\g\\x')).toEqual({
-      note: '', pinned: false, hidden: false, lastOpened: null, todos: [], todosRevision: 0,
+      note: '', pinned: false, hidden: false, lastOpened: null, todos: [], todosRevision: 0, noteRevision: 0,
     });
+  });
+
+  it('saves a note only against the revision it was read at', () => {
+    const s = new Store(file);
+    expect(s.saveNote('note-proj', 'first', 0)).toEqual({ ok: true, note: 'first', revision: 1 });
+    // Another device saved in the meantime: the stale save is refused and told what is there now.
+    expect(s.saveNote('note-proj', 'mine', 0)).toEqual({ ok: false, note: 'first', revision: 1 });
+    expect(s.get('note-proj').note).toBe('first');
+    // An older device's unversioned write still moves the revision, so a versioned saver notices it.
+    s.setNote('note-proj', 'legacy');
+    expect(s.saveNote('note-proj', 'mine', 1)).toMatchObject({ ok: false, note: 'legacy', revision: 2 });
+    expect(s.saveNote('note-proj', 'mine', 2)).toEqual({ ok: true, note: 'mine', revision: 3 });
   });
 
   it('persists todos across instances and sanitizes junk on read', () => {

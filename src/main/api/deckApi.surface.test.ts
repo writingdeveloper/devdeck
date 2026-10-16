@@ -296,5 +296,5 @@ it('allows revision-checked task saves only to write-authorized devices', () => 
   expect(mayCallRemotely(api['project:saveTodos'], ['observe'])).toBe(false);
   expect(mayCallRemotely(api['project:saveTodos'], ['write'])).toBe(true);
   expect(() => api['project:setTodos'].handler(ALLOWED_ROOT, [])).toThrow('TASKS_CLIENT_OUTDATED');
-  expect(() => api['project:saveTodos'].handler(join(process.cwd(), 'outside'), [], 0)).toThrow('allowed folders');
+  return expect(Promise.resolve().then(() => api['project:saveTodos'].handler(join(process.cwd(), 'outside'), [], 0))).rejects.toThrow('allowed folders');
 });

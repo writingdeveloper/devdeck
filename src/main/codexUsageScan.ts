@@ -1,4 +1,5 @@
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync } from 'node:fs';
+import { mkdir, rename, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { basename, cwdKey } from '../shared/paths';
 import {
@@ -114,11 +115,65 @@ function loadIndex(cachePath: string): CodexUsageIndex {
   }
 }
 
-function saveIndex(cachePath: string, index: CodexUsageIndex): void {
-  mkdirSync(dirname(cachePath), { recursive: true });
-  const temp = `${cachePath}.tmp`;
-  writeFileSync(temp, JSON.stringify(index), 'utf8');
-  renameSync(temp, cachePath);
+/**
+ * The index as the last scan left it, per cache path, plus the size and mtime of the file that scan
+ * wrote.
+ *
+ * Every scan used to read the whole index back from disk, validate every entry, deep-clone every
+ * entry through JSON, then stringify and write all of it again — all synchronous, back to back, for
+ * every rollout on the machine, on every deck refresh and window focus. With 5,000 rollouts that is a
+ * 4.5 MB file and a ~80 ms stretch in which the main process answered nothing, even when not one
+ * rollout had changed. The index on disk is only there to survive a restart; between scans the one
+ * in memory is the same thing. It is still read from disk when there is none in memory yet, or when
+ * the file is no longer the one this process wrote (so an index replaced underneath us is honoured).
+ */
+interface LiveIndex { files: IndexedFile[]; written: { size: number; mtimeMs: number } | null }
+const _live = new Map<string, LiveIndex>();
+
+async function previousFiles(cachePath: string): Promise<IndexedFile[]> {
+  const live = _live.get(cachePath);
+  if (live?.written) {
+    try {
+      const st = await stat(cachePath);
+      if (st.size === live.written.size && st.mtimeMs === live.written.mtimeMs) return live.files;
+    } catch { /* gone: fall through to the same answer a fresh read gives */ }
+  }
+  // Stat BEFORE reading, so a write landing in between makes the next scan read again, not trust this.
+  const st = await stat(cachePath).catch(() => null);
+  const { files } = loadIndex(cachePath);
+  _live.set(cachePath, { files, written: st ? { size: st.size, mtimeMs: st.mtimeMs } : null });
+  return files;
+}
+
+/** Already read to the end of the file as it is now — exactly when updateFile would read nothing. */
+function caughtUp(file: IndexedFile, head: CodexRolloutHead): boolean {
+  return file.size === head.size && file.mtimeMs === head.mtimeMs && file.offset === head.size;
+}
+
+/**
+ * Saves in progress, by path, chained so two scans finishing together never write the same temp
+ * file at once; the later scan's save lands last, as it did when both were synchronous.
+ */
+const _saving = new Map<string, Promise<void>>();
+
+function saveIndex(cachePath: string, index: CodexUsageIndex): Promise<void> {
+  const run = async (): Promise<void> => {
+    try {
+      await mkdir(dirname(cachePath), { recursive: true });
+      const temp = `${cachePath}.tmp`;
+      await writeFile(temp, JSON.stringify(index), 'utf8');
+      await rename(temp, cachePath);
+      const st = await stat(cachePath);
+      _live.set(cachePath, { files: index.files, written: { size: st.size, mtimeMs: st.mtimeMs } });
+    } catch {
+      // Unwritable cache: the scan's answer stands, and the next scan reads from disk again.
+      _live.delete(cachePath);
+    }
+  };
+  const next = (_saving.get(cachePath) ?? Promise.resolve()).then(run);
+  _saving.set(cachePath, next);
+  void next.finally(() => { if (_saving.get(cachePath) === next) _saving.delete(cachePath); });
+  return next;
 }
 
 function freshFile(head: CodexRolloutHead): IndexedFile {
@@ -297,15 +352,23 @@ function reportFromFiles(files: IndexedFile[], sinceMs: number, exists: (path: s
 export async function scanCodexUsage(options: ScanCodexUsageOptions): Promise<ProviderUsageSlice> {
   const heads = await listCodexRolloutHeads(options.sessionsDir);
   if (!heads.length) return emptyProviderUsage('codex');
-  const previous = loadIndex(options.cachePath);
-  const previousByFile = new Map(previous.files.map((file) => [file.file, file]));
+  const previous = await previousFiles(options.cachePath);
+  const previousByFile = new Map(previous.map((file) => [file.file, file]));
   const files: IndexedFile[] = [];
+  let changed = previous.length !== heads.length;
   for (const head of heads) {
     const old = previousByFile.get(head.file);
+    if (old && resumable(old, head) && caughtUp(old, head)) {
+      // Nothing to read, so nothing to change: the entry is shared as-is instead of deep-cloned.
+      // Entries are never mutated once a scan has published them — only fresh clones are folded into.
+      files.push(old);
+      continue;
+    }
     const file = resumable(old, head) ? cloneFile(old!) : freshFile(head);
     await updateFile(file, head, options);
     files.push(file);
+    changed = true;
   }
-  saveIndex(options.cachePath, { version: INDEX_VERSION, files });
+  if (changed) await saveIndex(options.cachePath, { version: INDEX_VERSION, files });
   return reportFromFiles(files, options.sinceMs, options.exists ?? existsSync);
 }

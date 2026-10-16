@@ -71,8 +71,17 @@ describe('editorSpec', () => {
     expect(editorSpec('/g/a', 'darwin')).toEqual({ command: 'code', args: ['/g/a'], shell: false });
     expect(editorSpec('/g/a', 'linux')).toEqual({ command: 'code', args: ['/g/a'], shell: false });
   });
-  it('windows: quoted path through a shell (code is code.cmd)', () => {
-    expect(editorSpec('C:\\g\\a', 'win32')).toEqual({ command: 'code "C:\\g\\a"', args: [], shell: true });
+  it('windows: code.cmd through cmd.exe, the path escaped and passed verbatim (no shell expansion)', () => {
+    const spec = editorSpec('C:\\g\\a', 'win32', 'cmd.exe');
+    expect(spec).toMatchObject({ command: 'cmd.exe', shell: false, verbatim: true });
+    expect(spec.args.slice(0, 3)).toEqual(['/d', '/s', '/c']);
+    expect(spec.args[3]).toContain('code.cmd');
+    expect(spec.args[3]).toContain('C:\\g\\a');
+  });
+  it('windows: a %VAR% or & in the folder name reaches code literally', () => {
+    const line = editorSpec('C:\\g\\%TEMP% & x', 'win32', 'cmd.exe').args[3];
+    expect(line).not.toMatch(/(^|[^^])%TEMP/);
+    expect(line).not.toMatch(/(^|[^^])&/);
   });
 });
 

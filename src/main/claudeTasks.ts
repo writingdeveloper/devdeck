@@ -44,7 +44,9 @@ export function readActiveTaskForm(
   const dir = join(tasksDir, sessionId);
   let names: string[];
   try {
-    names = readdirSync(dir).filter((n) => n.endsWith('.json')).sort(byNumber).slice(0, MAX_FILES);
+    // The NEWEST files: tasks are numbered in creation order, so the first fifty of a long session's
+    // list are the oldest, and the task actually in progress was never read once it passed fifty.
+    names = readdirSync(dir).filter((n) => n.endsWith('.json')).sort(byNumber).slice(-MAX_FILES);
   } catch {
     return null; // no task list for this session
   }

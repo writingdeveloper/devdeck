@@ -6,23 +6,32 @@ import { encodeProjectPath } from '../shared/paths';
 
 /** ASCII line feed — transcripts are newline-delimited JSON. */
 const NEWLINE = 0x0a;
-import { emptyTotals, addUsage, addTotals, estimateCost, activeMsFromTimestamps, priceFor, SYNTHETIC_MODEL, type UsageTotals, type RawUsage } from '../shared/usage';
+import {
+  emptyTotals, addUsage, addTotals, estimateCost, priceFor, SYNTHETIC_MODEL,
+  emptyActiveTally, cloneActiveTally, tallyStamp, tallyActiveSince, tallyHasStampSince,
+  type UsageTotals, type RawUsage, type ActiveTally,
+} from '../shared/usage';
 import type { LocalDailyUsage, LocalModelUsage, LocalProjectUsage, ProviderUsageSlice } from '../shared/localUsage';
 
-// Cache: filepath -> per-file DIGEST — (day × model) usage rollups + message timestamps — NOT the raw
+// Cache: filepath -> per-file DIGEST — (day × model) usage rollups + an active-time tally — NOT the raw
 // text. History: caching every file's full text forever ballooned the main process to several GB and
 // crashed it (V8 OOM, v1.12.2); the follow-up "don't retain files over 5MB" fix then aged badly as the
 // user's transcripts grew — 56 files totalling ~2GB fell over that cap and were RE-READ AND RE-PARSED
 // from disk on every deck refresh (~45s), which is exactly the "everything got slower" complaint. A
-// digest is a few KB even for a multi-hundred-MB transcript (it scales with turn count, not bytes), so
-// EVERY file can stay cached: an unchanged mtime costs one stat() and zero parsing, for any size.
-// sinceMs filtering happens at day granularity, so filtering the digest gives identical results.
+// digest is a few KB even for a multi-hundred-MB transcript, so EVERY file can stay cached: an
+// unchanged mtime costs one stat() and zero parsing, for any size. sinceMs filtering happens at day
+// granularity, so filtering the digest gives identical results.
+//
+// (Size scales with line count: the active-time tally keeps one number per timestamped line — ~8
+// bytes, ~400 KB for a 550 MB transcript. What it no longer does is what every scan used to: copy and
+// sort ALL of those timestamps, for every transcript on the machine, changed or not, on every refresh
+// — the tally keeps them in order and keeps the sums per day, so a scan only reads them; see
+// ActiveTally. The parallel day-per-stamp array is gone too, halving it.)
 interface DigestEntry { dayMs: number; day: string; model: string; totals: UsageTotals; webSearch: number; webFetch: number; unknown: boolean }
 interface FileDigest {
   mtimeMs: number;
   entries: DigestEntry[]; // (day × model) rollups, synthetic lines already excluded
-  stamps: number[];       // every line's timestamp (user + assistant + tool) for active-time gaps
-  stampDayMs: number[];   // parallel to stamps: that line's UTC day start, for the sinceMs day filter
+  active: ActiveTally;    // every line's timestamp (user + assistant + tool), as active time per day
   bytes: number;          // estimated in-memory size, for the total-cache budget
   /**
    * How far into the file this digest has read, and what the file looked like then.
@@ -47,8 +56,9 @@ let _cacheBudget = MAX_CACHE_TOTAL_BYTES;
 let _cacheBytes = 0;
 const _fileCache = new Map<string, FileDigest>(); // Map iteration order = insertion order = LRU order
 
-function digestBytes(entries: number, stamps: number): number {
-  return 200 + entries * 160 + stamps * 16; // rough JS-object overhead estimate — only the budget uses it
+function digestBytes(entries: number, active: ActiveTally): number {
+  // rough JS-object overhead estimate — only the budget uses it
+  return 200 + entries * 160 + active.sorted.length * 8 + active.byDay.size * 40;
 }
 function cacheDelete(path: string): void {
   const e = _fileCache.get(path);
@@ -96,7 +106,8 @@ function sumModelCost(byModel: Map<string, UsageTotals>): number | null {
 
 /** A digest holding nothing, ready to be folded into. */
 function emptyDigest(mtimeMs: number, size: number, birthtimeMs: number): FileDigest {
-  return { mtimeMs, entries: [], stamps: [], stampDayMs: [], bytes: digestBytes(0, 0), offset: 0, size, birthtimeMs };
+  const active = emptyActiveTally();
+  return { mtimeMs, entries: [], active, bytes: digestBytes(0, active), offset: 0, size, birthtimeMs };
 }
 
 /**
@@ -136,17 +147,18 @@ function resumable(previous: FileDigest | undefined, size: number, birthtimeMs: 
 /** Fold ONE transcript line into a rollup. The only place a raw record is interpreted. */
 function foldLine(
   line: string, fileMs: number,
-  rollup: Map<string, DigestEntry>, stamps: number[], stampDayMs: number[],
+  rollup: Map<string, DigestEntry>, active: ActiveTally,
 ): void {
   if (!line.trim()) return;
   let o: { type?: string; timestamp?: string; message?: { model?: string; usage?: RawUsage & { server_tool_use?: { web_search_requests?: number; web_fetch_requests?: number } } } };
   try { o = JSON.parse(line); } catch { return; }
   const day = dayKey(o.timestamp, fileMs);
   const dayMs = new Date(day + 'T00:00:00.000Z').getTime();
-  // Collect every line's timestamp (user + assistant + tool) so gaps reflect real wall-clock activity.
+  // Count every line's timestamp (user + assistant + tool) so gaps reflect real wall-clock activity.
+  // Its tally day is the UTC day of the same instant — the day `dayMs` names for that line.
   if (o.timestamp) {
     const ms = new Date(o.timestamp).getTime();
-    if (!Number.isNaN(ms)) { stamps.push(ms); stampDayMs.push(dayMs); }
+    if (!Number.isNaN(ms)) tallyStamp(active, ms);
   }
   const u = o.message?.usage;
   if (o.type !== 'assistant' || !u) return;
@@ -175,15 +187,15 @@ async function foldDigest(
   // the cache until restart (200,100 tokens became 400,100). A read that fails halfway likewise left
   // its partial sums behind. With copies, the cache only changes when a whole fold is committed.
   const rollup = new Map<string, DigestEntry>(base.entries.map((e) => [e.day + ' ' + e.model, cloneEntry(e)]));
-  const stamps = [...base.stamps];
-  const stampDayMs = [...base.stampDayMs];
   let offset = resume ? base.offset : 0;
   if (offset >= size) {
     const settled = { ...base, mtimeMs, size, birthtimeMs, offset };
     return { durable: settled, view: settled };
   }
+  // Copied only here, past the early return: a file with nothing new to read costs no copy at all.
+  const active = cloneActiveTally(base.active);
 
-  const consume = (line: string): void => foldLine(line, fileMs, rollup, stamps, stampDayMs);
+  const consume = (line: string): void => foldLine(line, fileMs, rollup, active);
 
   let trailing = Buffer.alloc(0);
 
@@ -206,23 +218,22 @@ async function foldDigest(
   }
   const entries = [...rollup.values()];
   const durable: FileDigest = {
-    mtimeMs, entries, stamps, stampDayMs,
-    bytes: digestBytes(entries.length, stamps.length), offset, size, birthtimeMs,
+    mtimeMs, entries, active,
+    bytes: digestBytes(entries.length, active), offset, size, birthtimeMs,
   };
   if (trailing.length === 0) return { durable, view: durable };
   // The file does not end in a newline. Fold that last line into a SEPARATE view so the numbers
   // include it, and leave `durable` short of it: the next fold resumes at the boundary and reads
   // that line again, whole, whether it grew in the meantime or turned out to be all there was.
   const viewRollup = new Map<string, DigestEntry>(entries.map((e) => [e.day + ' ' + e.model, cloneEntry(e)]));
-  const viewStamps = [...stamps];
-  const viewStampDayMs = [...stampDayMs];
-  foldLine(trailing.toString('utf8'), fileMs, viewRollup, viewStamps, viewStampDayMs);
+  const viewActive = cloneActiveTally(active);
+  foldLine(trailing.toString('utf8'), fileMs, viewRollup, viewActive);
   const viewEntries = [...viewRollup.values()];
   return {
     durable,
     view: {
-      mtimeMs, entries: viewEntries, stamps: viewStamps, stampDayMs: viewStampDayMs,
-      bytes: digestBytes(viewEntries.length, viewStamps.length), offset, size, birthtimeMs,
+      mtimeMs, entries: viewEntries, active: viewActive,
+      bytes: digestBytes(viewEntries.length, viewActive), offset, size, birthtimeMs,
     },
   };
 }
@@ -278,12 +289,16 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
     if (existsSync(dir)) {
       let files: string[] = [];
       try { files = (await readdir(dir)).filter((f) => f.endsWith('.jsonl')); } catch { files = []; }
-      for (const f of files) {
+      // A project's stats go out together: with every digest cached, these round-trips ARE the scan,
+      // and one at a time they were most of its wall time. Folding stays in file order.
+      const stats = await Promise.all(files.map((f) => stat(join(dir, f)).catch(() => null)));
+      for (const [i, f] of files.entries()) {
         const full = join(dir, f);
-        let fileMs = Date.now();
-        let size = 0;
-        let birthtimeMs = 0;
-        try { ({ mtimeMs: fileMs, size, birthtimeMs } = await stat(full)); } catch { /* keep defaults */ }
+        const st = stats[i];
+        // An unreadable stat keeps the old defaults: "now", empty, unknown birth.
+        const fileMs = st ? st.mtimeMs : Date.now();
+        const size = st ? st.size : 0;
+        const birthtimeMs = st ? st.birthtimeMs : 0;
         const digest = await digestFor(full, fileMs, size, birthtimeMs);
         if (!digest) continue; // unreadable — skip, don't poison the cache
         let contributed = false;
@@ -301,12 +316,12 @@ export async function scanUsage(repos: RepoRef[], claudeProjectsDir: string, sin
           webSearch += e.webSearch;
           webFetch += e.webFetch;
         }
-        const stampsInRange = sinceMs === Infinity ? digest.stamps : digest.stamps.filter((_, i) => digest.stampDayMs[i] >= sinceMs);
-        projActiveMs += activeMsFromTimestamps(stampsInRange);
+        const fromDayMs = sinceMs === Infinity ? -Infinity : sinceMs;
+        projActiveMs += tallyActiveSince(digest.active, fromDayMs);
         // Count a session only when it had activity in the selected range (an in-range usage entry, or
         // any in-range message). Counting every file regardless of range let long-dead projects render
         // as 0-value rows and inflated the summary's range-scoped "sessions" stat with lifetime files.
-        if (contributed || stampsInRange.length > 0) projSessions++;
+        if (contributed || tallyHasStampSince(digest.active, fromDayMs)) projSessions++;
       }
     }
 

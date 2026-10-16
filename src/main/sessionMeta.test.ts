@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readClaudeSessionMeta, emptySessionMeta, _cachedTimestampCount } from './sessionMeta';
 import { encodeProjectPath } from '../shared/paths';
+import { activeMsFromTimestamps } from '../shared/usage';
 
 describe('readClaudeSessionMeta', () => {
   it('rejects a traversal sessionId — no path escape (returns an empty meta)', async () => {
@@ -111,6 +112,29 @@ describe('readClaudeSessionMeta over an append-only log', () => {
     writeFileSync(file, `${asstLine('Rewritten behind our back', 0, 'claude-sonnet-5', 777)}\n`);
     utimesSync(file, atime, mtime); // same mtime as the cached parse
     expect(await read()).toMatchObject({ model: 'claude-opus-5', contextTokens: 42 });
+  });
+
+  // Active time is tallied as the log is read forward instead of re-sorting every timestamp each tick.
+  // Whatever order lines land in — including one far back, before most of the log —
+  // it must equal the batch answer over the whole log.
+  it('keeps active time exact across resumed reads, even for a line far out of order', async () => {
+    const t0 = Date.UTC(2026, 7, 4, 9);
+    const stamps: number[] = [];
+    const line = (ms: number) => { stamps.push(ms); return JSON.stringify({ type: 'user', timestamp: new Date(ms).toISOString(), message: { content: 'x' } }); };
+    const lines: string[] = [];
+    for (let i = 0; i < 1500; i++) lines.push(line(t0 + i * 170_000 - (i % 13 === 0 ? 200_000 : 0)));
+    writeFileSync(file, lines.join('\n') + '\n');
+    let tick = Date.now();
+    // Each append gets its own mtime: two landing in the same millisecond are, rightly, a cache hit.
+    const grow = (extra: string) => { appendFileSync(file, extra); tick += 5000; utimesSync(file, new Date(tick), new Date(tick)); };
+    expect((await read()).activeMs).toBe(activeMsFromTimestamps(stamps));
+    grow(line(t0 + 1500 * 170_000) + '\n');
+    expect((await read()).activeMs).toBe(activeMsFromTimestamps(stamps));
+    grow(line(t0 + 1500 * 170_000 - 90_000) + '\n'); // slightly late
+    expect((await read()).activeMs).toBe(activeMsFromTimestamps(stamps));
+    grow(line(t0 + 10_000) + '\n'); // days before most of the log (a clock set back)
+    expect((await read()).activeMs).toBe(activeMsFromTimestamps(stamps));
+    expect(_cachedTimestampCount(file)).toBe(stamps.length);
   });
 
   it('handles a multi-byte character split across a read boundary', async () => {

@@ -199,3 +199,70 @@ describe('the head cache', () => {
     expect(await listCodexRolloutHeads(dir)).toEqual([]);
   });
 });
+
+describe('per-project passes and the shared head cache', () => {
+  // The cockpit asks one project's question per Codex tile per tick; a pass for one project skips the
+  // stat of rollouts already known to be another project's. Everything a full pass would find for
+  // THIS project must still be found.
+  it('a per-project pass still sees this project\'s new, changed, deleted and late-valid rollouts', async () => {
+    const mine = writeRollout(`rollout-${OLD_ID}.jsonl`, rollout(OLD_ID, PROJECT));
+    writeRollout(`rollout-${OTHER_ID}.jsonl`, rollout(OTHER_ID, OTHER_PROJECT));
+    const late = writeRollout(`rollout-${NEW_ID}.jsonl`, ''); // created before its head is written
+    utimesSync(mine, 1000, 1000);
+    expect((await listCodexRolloutHeads(dir)).map((h) => h.id).sort()).toEqual([OLD_ID, OTHER_ID]); // the empty one has no head yet
+
+    writeFileSync(late, rollout(NEW_ID, PROJECT)); // the head lands later
+    utimesSync(late, 3000, 3000);
+    writeFileSync(mine, rollout(OLD_ID, PROJECT, [user('first'), user('appended')])); // this project's file grows
+    utimesSync(mine, 2000, 2000);
+    const extra = '44444444-4444-4444-4444-444444444444';
+    writeRollout(`rollout-${extra}.jsonl`, rollout(extra, PROJECT)); // a brand-new one
+
+    const stats = await listCodexSessionStats(PROJECT, dir);
+    expect(stats.map((s) => s.id).sort()).toEqual([OLD_ID, NEW_ID, extra].sort());
+    expect(stats.find((s) => s.id === OLD_ID)?.mtimeMs).toBe(2_000_000);
+    expect((await listCodexSessionStats(OTHER_PROJECT, dir)).map((s) => s.id)).toEqual([OTHER_ID]);
+
+    rmSync(mine);
+    expect((await listCodexSessionIds(PROJECT, dir)).sort()).toEqual([NEW_ID, extra].sort());
+  });
+
+  it('a per-project pass agrees with filtering a full pass', async () => {
+    for (let i = 0; i < 150; i++) {
+      const id = `a0b1c2d3-0000-0000-0000-${String(i).padStart(12, '0')}`;
+      const file = writeRollout(`rollout-${id}.jsonl`, rollout(id, i % 3 === 0 ? PROJECT : OTHER_PROJECT));
+      utimesSync(file, 1000 + i, 1000 + i);
+    }
+    const full = (await listCodexRolloutHeads(dir)).filter((h) => h.cwd === PROJECT).map((h) => h.id).sort();
+    expect((await listCodexSessionIds(PROJECT, dir)).sort()).toEqual(full);
+    _clearCodexHeadCache(); // and from a cold cache, where nothing can be skipped
+    expect((await listCodexSessionIds(PROJECT, dir)).sort()).toEqual(full);
+  });
+
+  it('callers sharing one pass each get their own array', async () => {
+    writeRollout(`rollout-${OLD_ID}.jsonl`, rollout(OLD_ID, PROJECT));
+    writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT));
+    const [a, b] = await Promise.all([listCodexRolloutHeads(dir), listCodexRolloutHeads(dir)]);
+    expect(a).not.toBe(b);
+    expect(a).toEqual(b);
+    a.reverse();
+    expect(b.map((h) => h.id)).not.toEqual(a.map((h) => h.id));
+  });
+
+  // The deck asks for every project's resume cue on each refresh. Resolving the id used to be a pass
+  // over the whole store per project; the deck's own index pass has already read every head.
+  it('resolves a session from the head cache, and follows the rollout as it grows', async () => {
+    const file = writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT, [user('first ask')]));
+    await listCodexRolloutHeads(dir);
+    expect(await lastUserMessageForCodexSession(PROJECT, NEW_ID, dir)).toBe('first ask');
+    writeFileSync(file, rollout(NEW_ID, PROJECT, [user('first ask'), user('the newer ask')]));
+    expect(await lastUserMessageForCodexSession(PROJECT, NEW_ID, dir)).toBe('the newer ask');
+    expect(await lastUserMessageForCodexSession(OTHER_PROJECT, NEW_ID, dir)).toBeNull(); // still project-scoped
+  });
+
+  it('finds a user message several chunks back, past multi-byte text', async () => {
+    const filler = JSON.stringify({ type: 'event_msg', payload: { type: 'agent_message', message: '한글 출력 '.repeat(40_000) } });
+    writeRollout(`rollout-${NEW_ID}.jsonl`, rollout(NEW_ID, PROJECT, [user('older'), user('깊이 묻힌 요청'), filler, filler, filler]));
+    expect(await lastUserMessageForCodexSession(PROJECT, NEW_ID, dir)).toBe('깊이 묻힌 요청');
+  });
+});

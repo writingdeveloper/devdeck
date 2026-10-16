@@ -31,11 +31,15 @@ export interface SessionScanDeps {
   perProject: Partial<Record<AgentId, (projectPath: string, limit: number) => Promise<SessionMeta[]>>>;
   /** Flat stores (Codex, Antigravity): indexed once, then looked up by canonical cwd key. */
   indexed: Partial<Record<AgentId, () => Map<string, SessionMeta[]> | Promise<Map<string, SessionMeta[]>>>>;
+  /** Per-project stores: how many sessions there are, without reading any of them. */
+  perProjectCount?: Partial<Record<AgentId, (projectPath: string) => Promise<number>>>;
 }
 
 export interface ProjectSessionScan {
   /** Sessions for one project from EVERY installed provider, newest-first, each tagged with its owner. */
   sessions(projectPath: string, limit?: number): Promise<ProjectSession[]>;
+  /** How many sessions the project has across every installed provider. */
+  count(projectPath: string): Promise<number>;
 }
 
 /**
@@ -70,6 +74,16 @@ export function makeProjectSessionScan(deps: SessionScanDeps): ProjectSessionSca
         }
       }
       return mergeProjectSessions(byProvider, limit);
+    },
+    async count(projectPath) {
+      const key = cwdKey(projectPath);
+      let total = 0;
+      for (const agentId of deps.installed) {
+        const counter = deps.perProjectCount?.[agentId];
+        if (counter) { try { total += await counter(projectPath); } catch { /* skip this provider */ } }
+        else if (deps.indexed[agentId]) total += (await indexFor(agentId)).get(key)?.length ?? 0;
+      }
+      return total;
     },
   };
 }
