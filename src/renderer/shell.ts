@@ -102,14 +102,22 @@ export function mountShell(options: {
   onGroupClose?(group: ShellSessionGroup): void;
   onRestoreAll(): void;
 }): ShellController {
-  // The working spinners stop while another window has the focus. Any running animation makes
-  // Chromium draw the whole window every step — measured at about half a percent of a core per frame a
-  // second, the same for one spinner as for six — and nobody is watching the turn of a spinner in a
-  // window they are not in. The working shape and colour stay, so the state still reads at a glance.
-  const syncFocus = (): void => { document.documentElement.classList.toggle('app-unfocused', !document.hasFocus()); };
-  window.addEventListener('focus', syncFocus);
-  window.addEventListener('blur', syncFocus);
-  syncFocus();
+  // The working spinners are turned by this tick, not by a CSS animation. A running CSS animation keeps
+  // Chromium producing frames whether or not a step is due, so even a slow stepped spinner cost a
+  // steady share of a core: measured with twelve sessions, six of them working — CSS at 10 steps/s
+  // 16.0%, at 4 steps/s 12.3%, at 1 step/s 9.0%; this tick at 4 steps/s 5.5%; nothing turning 4.6%.
+  // It pauses while the window is unfocused or hidden, and for reduced motion; the working shape and
+  // colour stay either way. Driven through a custom property so a row that stops working (a diamond
+  // has its own rotation) is not left turned.
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  let spinStep = 0;
+  setInterval(() => {
+    if (document.hidden || !document.hasFocus() || reducedMotion?.matches) return;
+    const spinners = document.querySelectorAll<HTMLElement>('.shell-signal.signal-spinner, .ck-spin');
+    if (!spinners.length) return;
+    spinStep = (spinStep + 1) % 4;
+    for (const el of Array.from(spinners)) el.style.setProperty('--spin', `${spinStep * 90}deg`);
+  }, 250);
   const sidebar = document.getElementById('app-sidebar')!;
   const collapse = document.getElementById('shell-collapse') as HTMLButtonElement;
   const quickOpen = document.getElementById('shell-quick-open') as HTMLInputElement;

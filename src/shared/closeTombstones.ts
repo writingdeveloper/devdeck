@@ -43,6 +43,11 @@ export class CloseTombstones {
       .filter(([, entry]) => entry.pending).map(([id]) => id);
   }
 
+  /** Every close still owed, on any machine — what has to survive a restart of this app. */
+  allPending(): { machineId: string; id: string }[] {
+    return [...this.byMachine].flatMap(([machineId, ids]) => [...ids].filter(([, e]) => e.pending).map(([id]) => ({ machineId, id })));
+  }
+
   /** Forget a close entirely — it was refused, so the session is legitimately still there. */
   remove(machineId: string, id: string): void {
     const ids = this.byMachine.get(machineId);

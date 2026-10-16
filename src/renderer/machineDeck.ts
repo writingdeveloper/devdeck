@@ -27,6 +27,8 @@ export interface DeckFacade {
    */
   projectMemory: (path: string, fresh?: boolean) => Promise<import('../shared/types').ProjectMemory>;
   setNote: (path: string, note: string) => Promise<void>;
+  /** Versioned note save; against a host too old to version notes it falls back to a plain write. */
+  saveNote: (path: string, note: string, revision: number) => Promise<import('../shared/types').NoteSaveResult>;
   setTodos: typeof window.devdeck.setTodos;
   setPinned: (path: string, pinned: boolean) => Promise<void>;
   setHidden: (path: string, hidden: boolean) => Promise<void>;
@@ -61,6 +63,7 @@ export function deckFor(machineId: string): DeckFacade {
       listProjects: () => window.devdeck.listProjects(),
       projectMemory: (path, fresh) => window.devdeck.projectMemory(path, fresh),
       setNote: (path, note) => window.devdeck.setNote(path, note),
+      saveNote: (path, note, revision) => window.devdeck.saveNote(path, note, revision),
       setTodos: (path, todos, revision) => window.devdeck.setTodos(path, todos, revision),
       setPinned: (path, pinned) => window.devdeck.setPinned(path, pinned),
       setHidden: (path, hidden) => window.devdeck.setHidden(path, hidden),
@@ -73,6 +76,14 @@ export function deckFor(machineId: string): DeckFacade {
     listProjects: () => remote.listProjects(),
     projectMemory: (path, fresh) => remote.projectMemory(path, fresh),
     setNote: (path, note) => remote.setNote(path, note),
+    saveNote: async (path, note, revision) => {
+      try { return await remote.saveNote(path, note, revision); }
+      catch (error) {
+        if (!/no such method/.test(error instanceof Error ? error.message : String(error))) throw error;
+        await remote.setNote(path, note);
+        return { ok: true, note, revision };
+      }
+    },
     setTodos: (path, todos, revision) => remote.setTodos(path, todos, revision),
     setPinned: (path, pinned) => remote.setPinned(path, pinned),
     setHidden: (path, hidden) => remote.setHidden(path, hidden),

@@ -36,6 +36,12 @@ describe('CloseTombstones', () => {
     expect(t.has('m1', 'link:m1:p#1')).toBe(false);
   });
 
+  it('lists every owed close across machines', () => {
+    const t = new CloseTombstones();
+    t.add('m1', 'a', true); t.add('m2', 'b', true); t.add('m2', 'c');
+    expect(t.allPending()).toEqual([{ machineId: 'm1', id: 'a' }, { machineId: 'm2', id: 'b' }]);
+  });
+
   it('forgets a refused close so the session can be shown again', () => {
     const t = new CloseTombstones();
     t.add('m1', 'x', true);

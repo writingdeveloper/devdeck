@@ -999,7 +999,8 @@ const liveRowControls = await win.evaluate(async () => {
     triggersVisible: wraps.every((wrap) => (wrap.querySelector('.shell-session-actions')?.getClientRects().length ?? 0) > 0),
     liveActions: actionsOf(wraps[0]),
     pinnedActions: actionsOf(wraps.find((wrap) => wrap.querySelector('[data-pinned="true"]'))),
-    workingAnimated: getComputedStyle(working).animationName === 'shell-spin',
+    // The spinner is turned by a tick (not a CSS animation): it must actually move between two looks.
+    workingAnimated: await (async () => { const a = getComputedStyle(working).rotate; await new Promise((r) => setTimeout(r, 700)); return getComputedStyle(working).rotate !== a; })(),
     distinctShapes: new Set(shapes).size === shapes.length,
     summaryShown: !!document.querySelector('.activity-working')?.parentElement?.querySelector('.shell-entity-copy em:not(.hidden)')?.textContent,
   };

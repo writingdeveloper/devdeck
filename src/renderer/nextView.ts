@@ -137,6 +137,9 @@ function taskRow(it: TaskWithProject, now: number): HTMLElement {
 
   const text = document.createElement('span'); text.className = 'tk-text'; text.textContent = todo.text; text.title = todo.text;
   text.addEventListener('dblclick', () => startEdit(text, projectPath, todo));
+  // Double-click was the only way in. Focusable, with Enter / F2, so a keyboard can edit a task too.
+  text.tabIndex = 0; text.setAttribute('role', 'button'); text.setAttribute('aria-label', `${todo.text} — ${tr('tasks.edit_hint')}`);
+  text.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); startEdit(text, projectPath, todo); } });
 
   const due = document.createElement('button'); due.className = 'tk-due' + (todo.due ? ' ' + BUCKET_CLASS[classifyDue(todo.due, now)] : ' tk-due-empty');
   due.textContent = todo.due ? dueLabel(todo.due, now) : '＋' + tr('tasks.due');
@@ -362,8 +365,8 @@ function render(): void {
 function viewToggle(): HTMLElement {
   const wrap = document.createElement('div'); wrap.className = 'tk-viewtoggle';
   for (const [mode, key] of [['list', 'tasks.view_list'], ['calendar', 'tasks.view_calendar']] as ['list' | 'calendar', string][]) {
-    const b = document.createElement('button'); b.className = 'tk-vt' + (boardView === mode ? ' on' : '');
-    b.textContent = tr(key);
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'tk-vt' + (boardView === mode ? ' on' : '');
+    b.textContent = tr(key); b.setAttribute('aria-pressed', String(boardView === mode));
     b.addEventListener('click', () => { if (boardView !== mode) { boardView = mode; render(); } });
     wrap.appendChild(b);
   }
@@ -415,6 +418,10 @@ function dayCell(cell: DayCell): HTMLElement {
   const el = document.createElement('button');
   el.className = 'cal-cell' + (cell.inMonth ? '' : ' out') + (cell.isToday ? ' today' : '') + (cell.dateStr === calSelected ? ' sel' : '');
   const n = document.createElement('span'); n.className = 'cal-day-n'; n.textContent = String(cell.day); el.appendChild(n);
+  // A bare day number and a dot is all a screen reader got; say the date and what is due.
+  const date = new Date(`${cell.dateStr}T00:00:00`).toLocaleDateString(localeTag(), { weekday: 'short', month: 'long', day: 'numeric' });
+  el.setAttribute('aria-label', cell.openCount > 0 ? `${date}, ${tr('tasks.cal_open_n', { n: cell.openCount })}` : date);
+  el.setAttribute('aria-pressed', String(cell.dateStr === calSelected));
   if (cell.openCount > 0) {
     const m = document.createElement('span'); m.className = 'cal-mark' + (cell.overdue ? ' overdue' : '');
     m.textContent = `${cell.overdue ? '🔴' : '●'}${cell.openCount}`;

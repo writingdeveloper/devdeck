@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('devdeck', {
   listProjects: () => ipcRenderer.invoke('projects:list'),
   projectMemory: (path: string, fresh?: boolean) => ipcRenderer.invoke('project:memory', path, fresh === true),
   setNote: (path: string, note: string) => ipcRenderer.invoke('project:setNote', path, note),
+  saveNote: (path: string, note: string, revision: number) => ipcRenderer.invoke('project:saveNote', path, note, revision),
   setTodos: (path: string, todos: unknown, revision: number) => ipcRenderer.invoke('project:saveTodos', path, todos, revision),
   setPinned: (path: string, pinned: boolean) => ipcRenderer.invoke('project:setPinned', path, pinned),
   setHidden: (path: string, hidden: boolean) => ipcRenderer.invoke('project:setHidden', path, hidden),
@@ -156,6 +157,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     listProjects: () => ipcRenderer.invoke('link:call', machineId, 'projects:list', []),
     projectMemory: (path: string, fresh?: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:memory', [path, fresh === true]),
     setNote: (path: string, note: string) => ipcRenderer.invoke('link:call', machineId, 'project:setNote', [path, note]),
+    saveNote: (path: string, note: string, revision: number) => ipcRenderer.invoke('link:call', machineId, 'project:saveNote', [path, note, revision]),
     setTodos: (path: string, todos: unknown, revision: number) => ipcRenderer.invoke('link:call', machineId, 'project:saveTodos', [path, todos, revision]),
     setPinned: (path: string, pinned: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:setPinned', [path, pinned]),
     setHidden: (path: string, hidden: boolean) => ipcRenderer.invoke('link:call', machineId, 'project:setHidden', [path, hidden]),
@@ -186,4 +188,5 @@ contextBridge.exposeInMainWorld('devdeck', {
   setContextWindow: (w: number) => ipcRenderer.invoke('settings:setContextWindow', w),
   setTrayCounts: (counts: { attention?: number; turn?: number; overdue?: number }) => ipcRenderer.send('tray:counts', counts),
   setTrayAlertImage: (dataUrl: string) => ipcRenderer.send('tray:alertImage', dataUrl),
+  setTrayLabels: (labels: import('../shared/trayState').TrayLabels) => ipcRenderer.send('tray:labels', labels),
 });

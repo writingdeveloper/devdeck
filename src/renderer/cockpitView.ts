@@ -247,6 +247,7 @@ export function mountCockpit(): void {
   // did not come back. Repainting before that would ask the machine for screens it no longer has.
   // Closes owed to that machine go first: they were pressed while it was unreachable, and the
   // sessions they name are still running there until they arrive.
+  loadOwedCloses();
   onMachineConnected((machineId) => { void deliverPendingCloses(machineId).then(() => pullMachineSessions(machineId)).then(() => resyncMachineTiles(machineId)); });
   // A machine coming or going is exactly when a size another view was holding this pty down to stops
   // being true — drop the caps and let the pane have its terminals back.
@@ -2191,6 +2192,30 @@ function removeTile(l: Live): void {
 const owedCloseNames = new Map<string, string>();
 
 /**
+ * Owed closes outlive this app. Kept only in memory, quitting DevDeck before the other machine came
+ * back forgot them: the session went on running there and was adopted straight back on the next
+ * connect. Per-viewer state, so the browser storage of this window is the right place for it.
+ */
+const OWED_CLOSES_KEY = 'devdeck.owedCloses';
+function saveOwedCloses(): void {
+  try {
+    const owed = closedTiles.allPending().map((p) => ({ ...p, name: owedCloseNames.get(p.id) ?? '' }));
+    if (owed.length) localStorage.setItem(OWED_CLOSES_KEY, JSON.stringify(owed)); else localStorage.removeItem(OWED_CLOSES_KEY);
+  } catch { /* storage unavailable: the close is still owed for this run */ }
+}
+function loadOwedCloses(): void {
+  try {
+    const raw = JSON.parse(localStorage.getItem(OWED_CLOSES_KEY) ?? '[]') as unknown;
+    if (!Array.isArray(raw)) return;
+    for (const item of raw.slice(0, 200)) {
+      if (!item || typeof item.machineId !== 'string' || typeof item.id !== 'string' || item.machineId === LOCAL_MACHINE_ID) continue;
+      closedTiles.add(item.machineId, item.id, true);
+      if (typeof item.name === 'string' && item.name) owedCloseNames.set(item.id, item.name);
+    }
+  } catch { /* unreadable: nothing owed */ }
+}
+
+/**
  * Ask the machine running a remote tile to close it, and act on the answer.
  *
  * Unreachable: the close is kept and sent the moment the machine is back, and until then the session
@@ -2202,15 +2227,17 @@ async function deliverClose(machineId: string, id: string, name: string): Promis
   let result: import('../shared/types').CloseResult;
   try { result = await window.devdeck.cockpit.closeSession(id); } catch (err) { result = { ok: false, reason: 'error', error: String(err) }; }
   window.devdeck.logDiagnostic(`close ${id.slice(-24)} on ${machineName(machineId)}: ${result.ok ? 'ok' : result.reason}`, result.ok ? 'info' : 'warn', 'link');
-  if (result.ok) { closedTiles.settle(machineId, id); owedCloseNames.delete(id); return true; }
+  if (result.ok) { closedTiles.settle(machineId, id); owedCloseNames.delete(id); saveOwedCloses(); return true; }
   if (result.reason === 'offline') {
     closedTiles.markPending(machineId, id);
     if (!owedCloseNames.has(id)) toast(tr('cockpit.close_pending', { name, machine: machineName(machineId) }));
     owedCloseNames.set(id, name);
+    saveOwedCloses();
     return false;
   }
   closedTiles.remove(machineId, id);
   owedCloseNames.delete(id);
+  saveOwedCloses();
   toast(result.reason === 'denied'
     ? tr('cockpit.close_denied', { name, machine: machineName(machineId) })
     : tr('cockpit.close_failed', { name, machine: machineName(machineId) }));

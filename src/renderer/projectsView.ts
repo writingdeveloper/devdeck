@@ -228,6 +228,12 @@ function truncateCue(text: string, max = 60): string {
 // element (see makeCard) — when true, fall back to the plain ghost here instead of
 // repeating the same cue text a second time. Defaults to false so callers that don't
 // render `.card-cue` (list view has none) keep the original ghost-cue behavior.
+/** Both notes, the one already saved first, so the person can keep what they want and save again. */
+function mergeConflictingNotes(theirs: string, mine: string): string {
+  if (!theirs.trim()) return mine;
+  return `${theirs}\n\n— ${tr('proj.note_mine')} —\n${mine}`;
+}
+
 function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
   const wrap = document.createElement('div');
   const showRead = () => {
@@ -254,6 +260,7 @@ function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
     wrap.replaceChildren();
     const ta = document.createElement('textarea');
     ta.className = 'note-edit'; ta.rows = 2; ta.value = prefill ?? p.note; ta.placeholder = tr('proj.next_todo_ph');
+    ta.maxLength = 10_000; // the machine keeps at most this much; past it the text was cut off silently
     let cancelling = false;
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -268,7 +275,21 @@ function makeNote(p: ProjectViewModel, suppressCue = false): HTMLElement {
       if (ta.disabled) return;
       if (!cancelling && ta.value !== p.note) {
         ta.disabled = true;
-        try { await api.setNote(p.path, ta.value); p.note = ta.value; }
+        try {
+          const saved = await api.saveNote(p.path, ta.value, p.noteRevision ?? 0);
+          if (!saved.ok) {
+            // Another device saved this note since it was read. Overwriting would erase that note
+            // without anyone seeing it, so both are put in front of the person to reconcile.
+            p.noteRevision = saved.revision;
+            p.note = saved.note;
+            ta.value = mergeConflictingNotes(saved.note, ta.value);
+            ta.disabled = false;
+            toast(tr('proj.note_conflict'));
+            if (ta.isConnected) ta.focus();
+            return;
+          }
+          p.note = saved.note; p.noteRevision = saved.revision;
+        }
         catch (error) {
           reportSaveError(error);
           ta.disabled = false;
@@ -383,7 +404,7 @@ function makeMenuWrap(p: ProjectViewModel): HTMLElement {
   const menuWrap = document.createElement('div'); menuWrap.className = 'menu-wrap';
   const menuBtn = document.createElement('button');
   menuBtn.className = 'iconbtn'; menuBtn.appendChild(createIcon('more'));
-  menuBtn.setAttribute('aria-label', 'more options');
+  menuBtn.setAttribute('aria-label', tr('projects.more_options', { name: p.name }));
   menuBtn.setAttribute('aria-haspopup', 'menu');
   menuBtn.setAttribute('aria-expanded', 'false');
 
@@ -459,7 +480,9 @@ function makeCard(p: ProjectViewModel, render: () => void, live: '' | 'attention
   gitLine.appendChild(commitSpan);
 
   const foot = document.createElement('div'); foot.className = 'cardfoot';
-  const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
+  // Named per project: a screen reader moving through a column of identical "select" boxes cannot tell
+  // which project it is about to include.
+  const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selected.has(p.path); check.setAttribute('aria-label', tr('projects.select_named', { name: p.name }));
   check.addEventListener('change', () => {
     check.checked ? selected.add(p.path) : selected.delete(p.path);
     card.classList.toggle('selected', check.checked);
@@ -518,7 +541,7 @@ function makeRow(p: ProjectViewModel, live: '' | 'attention' | 'working' = ''): 
   row.dataset.projectPath = p.path;
   row.tabIndex = -1;
 
-  const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', 'select');
+  const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'prow-check'; check.checked = selected.has(p.path); check.setAttribute('aria-label', tr('projects.select_named', { name: p.name }));
   check.addEventListener('change', () => {
     check.checked ? selected.add(p.path) : selected.delete(p.path);
     row.classList.toggle('selected', check.checked);

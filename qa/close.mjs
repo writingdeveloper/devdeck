@@ -264,8 +264,12 @@ try {
   const u1 = await host.win.evaluate(async () => (await window.devdeck.cockpit.liveSessions()).find((s) => s.label === 'qa-U1')?.id);
   const screenHas = (text) => host.win.evaluate((t) => [...(document.querySelector('.ck-term.show .xterm-rows')?.children ?? [])].some((r) => (r.textContent ?? '').includes(t)), text);
   await waitFor(() => screenHas('No, exit'), 20000);
-  await host.win.evaluate((id) => window.devdeck.cockpit.input(id, '\r'), u1); // trust prompt: "No, exit" -> PowerShell
-  await waitFor(() => screenHas('PS '), 15000);
+  // Trust prompt: "No, exit" -> PowerShell. The prompt can be drawn a moment before it takes input, so
+  // Enter is sent again if the shell has not appeared; a spare Enter at a PowerShell prompt is harmless.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await host.win.evaluate((id) => window.devdeck.cockpit.input(id, '\r'), u1);
+    if (await waitFor(() => screenHas('PS '), 6000)) break;
+  }
   await host.win.evaluate((id) => window.devdeck.cockpit.input(id, "Write-Host '  >> bypass permissions on      Update installed · Restart to apply'\r"), u1);
   const appeared = await waitFor(() => host.win.evaluate(() => !!document.querySelector('#ck-header .ck-update')), 8000);
   check('update.buttonAppears', appeared, appeared ? undefined : await host.win.evaluate(() => [...(document.querySelector('.ck-term.show .xterm-rows')?.children ?? [])].map((r) => r.textContent).filter((t) => t && t.trim()).slice(-6)));

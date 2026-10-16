@@ -91,6 +91,11 @@ window.devdeck.onUpdate(renderUpdate);
 
 function applyStaticLabels(): void {
   document.documentElement.lang = currentLang();
+  // The tray menu and tooltip are drawn by the main process, which has no translator of its own.
+  window.devdeck.setTrayLabels({
+    open: tr('tray.open'), shutdownIdle: tr('tray.shutdown_idle'), shutdownNow: tr('tray.shutdown_now'),
+    cancelShutdown: tr('tray.cancel_shutdown'), quit: tr('tray.quit'), waiting: tr('tray.waiting'), overdue: tr('tray.overdue'),
+  });
   const openSelected = document.querySelector<HTMLButtonElement>('#open-selected')!;
   openSelected.replaceChildren(createIcon('play'), document.createTextNode(tr('app.open_selected')));
   const newProject = document.querySelector<HTMLButtonElement>('#new-project')!;

@@ -1,4 +1,4 @@
-import { tr } from './i18n-runtime';
+import { tr, localeTag } from './i18n-runtime';
 import { toast } from './loadError';
 import type { ShutdownStatus } from '../main/shutdownScheduler';
 import { createIcon, type IconName } from './icons';
@@ -14,7 +14,8 @@ let menuEl: HTMLElement;
 let countdownTimer: ReturnType<typeof setInterval> | undefined;
 
 function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  // In the app's language, not the OS's: a Korean UI was showing English month names on an English Windows.
+  return new Date(ms).toLocaleString(localeTag(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function applyStatus(s: ShutdownStatus): void {
