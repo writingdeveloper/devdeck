@@ -112,7 +112,7 @@
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
-    "playwright": "^1.62.1",
+    "playwright": "^1.64.0",
     "typescript": "^5.5.0",
     "vitest": "^4.1.11"
   },
