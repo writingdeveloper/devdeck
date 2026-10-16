@@ -15,7 +15,9 @@ Related paths treated cached session labels as authority when attaching, used ba
 | Session title | Main process of the machine running the terminal | Permission + terminal incarnation + expected label revision; persist before publishing/acknowledging | All renderers, including the host, consume the owner snapshot. Drafts are separate. |
 | Saved session membership and pins | Each viewer | Local persistence; overlay host-owned titles when reconciling local live sessions | Never send cached titles back merely because a viewer attached or restarted. |
 | Project task list | Main process owning the project | Expected task revision; reject conflicts; no silent retry | Display returned snapshot; preserve unsaved attempted change. |
-| Project notes/flags | Project-owning machine | Existing last-write-wins behavior | Not yet covered by title/task CAS guarantees. |
+| Project notes | Project-owning machine | Expected note revision (`project:saveNote`, 1.38.0); legacy `setNote` still accepted and bumps the revision | On conflict show both the saved note and the attempted one; nothing is overwritten unseen. |
+| Project flags (pin/hide) | Project-owning machine | Last-write-wins; remote writes only to scanned projects | Not yet covered by CAS guarantees. |
+| Session membership (close) | Machine running the terminal | `cockpit:closeSession` answers ok/offline/denied; closes owed to an offline machine are kept (also across restarts) and delivered on reconnect | Closed ids are tombstoned until the machine stops listing them; an exit carries `closed`/`closedBy` so every deck removes the tile. |
 | Settings | Current PC | Await write; rollback or retain invalid draft with explicit feedback | No success state before persistence. Link settings still need broader failure coverage. |
 | Terminal input/output | Host terminal | Ordered byte stream; do not turn every keystroke into a storage transaction | Screen replay is bounded and is not an archival transcript. |
 
