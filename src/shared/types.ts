@@ -167,3 +167,9 @@ export interface ProjectMemory {
   events: ProjectMemoryEvent[];
   partial: Array<'git' | 'sessions'>;
 }
+
+/**
+ * What a close asked of a machine came back as. `offline` means the machine could not be asked (the
+ * close is still owed), `denied` that this device may not drive that machine's sessions.
+ */
+export type CloseResult = { ok: true } | { ok: false; reason: 'offline' | 'denied' | 'error'; error?: string };

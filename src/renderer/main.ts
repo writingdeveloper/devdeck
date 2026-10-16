@@ -7,7 +7,7 @@ import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { activateCockpitSession, closeCockpitSessionGroup, closeCockpitSessions, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, liveSessionsForPersist, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, closeCockpitSessionGroup, closeCockpitSessions, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, runningSessionsForAutoRestore, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -79,7 +79,7 @@ function renderUpdate(p: import('../shared/update').UpdatePayload): void {
       // Sweep the drift check first: a /clear in the last seconds before the restart would otherwise
       // freeze the pre-clear id and the relaunch would restore the PAST conversation.
       try { await refreshLiveSessionIds(); } catch { /* best-effort */ }
-      const live = liveSessionsForPersist();
+      const live = runningSessionsForAutoRestore();
       if (live.length) { try { await window.devdeck.setPendingAutoRestore(live); } catch { /* proceed regardless */ } }
       void window.devdeck.installUpdate();
     });

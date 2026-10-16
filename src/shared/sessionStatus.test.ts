@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { stripAnsi, hasPromptPattern, hasWorkingSpinner, computeActivity, WORKING_MS, IDLE_MS } from './sessionStatus';
+import { agentUpdateReady, stripAnsi, hasPromptPattern, hasWorkingSpinner, computeActivity, WORKING_MS, IDLE_MS } from './sessionStatus';
 
 describe('stripAnsi', () => {
   const ESC = String.fromCharCode(27);
@@ -112,5 +112,23 @@ describe('computeActivity', () => {
   });
   it('a confirmation prompt outranks a lingering spinner => attention', () => {
     expect(computeActivity({ ...base, now: 1000 + 20_000, prev: 'working', recentOutput: '✻ Gesticulating… ❯ 1. Yes' })).toBe('attention');
+  });
+});
+
+describe('agentUpdateReady', () => {
+  it("reads Claude Code's footer notice", () => {
+    expect(agentUpdateReady('claude', '> \n  ⏵⏵ bypass permissions on      Update installed · Restart to apply\n')).toBe(true);
+    expect(agentUpdateReady('claude', '  ✗ Auto-update failed · Try claude doctor\n')).toBe(false);
+    expect(agentUpdateReady('claude', '> \n')).toBe(false);
+  });
+  it('is Claude-only', () => {
+    expect(agentUpdateReady('codex', 'Update installed · Restart to apply')).toBe(false);
+  });
+});
+
+describe('agentUpdateReady separator', () => {
+  it('does not depend on the middle dot surviving the code page', () => {
+    expect(agentUpdateReady('claude', 'Update installed ? Restart to apply')).toBe(true);
+    expect(agentUpdateReady('claude', 'Update installed • Restart to apply')).toBe(true);
   });
 });

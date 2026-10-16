@@ -123,8 +123,10 @@ declare global {
         input(id: string, data: string): void;
         resize(id: string, cols: number, rows: number): void;
         close(id: string): void;
+        closeSession(id: string): Promise<import('../shared/types').CloseResult>;
+        detach(id: string): void;
         onData(cb: (p: { id: string; chunk: string }) => void): void;
-        onExit(cb: (p: { id: string; exitCode: number }) => void): void;
+        onExit(cb: (p: { id: string; exitCode: number; closed?: boolean; closedBy?: 'local' | 'remote' }) => void): void;
         onResized(cb: (p: { id: string; cols: number; rows: number }) => void): void;
         liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
         sessionBuffer(id: string): Promise<string>;

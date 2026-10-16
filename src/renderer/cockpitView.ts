@@ -1,13 +1,13 @@
 import { SessionReadGate } from '../shared/sessionReadGate';
+import { CloseTombstones } from '../shared/closeTombstones';
 import { conversationKey, sameScope } from '../shared/sessionIdentity';
 import { hasLabelVersion, acceptsLabelVersion, normalizeSessionLabel, type SessionLabelVersion } from '../shared/sessionLabel';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { WebglAddon } from '@xterm/addon-webgl';
 import { activityOrderStamp, filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
 import type { ShellSessionAction, ShellSessionGroup, ShellSessionInput } from '../shared/shellNavigation';
-import { computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
+import { agentUpdateReady, computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
@@ -34,7 +34,6 @@ interface Live {
   /** The machine this tile's terminal actually runs on. */ machineId: string;
   tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement;
   /** The GPU renderer, when the machine could give us one; null means xterm is drawing with DOM nodes. */
-  webgl: WebglAddon | null;
   lastDataAt: number; lastInputAt: number; recentOutput: string;
   openedSessionId: string | null; openedAt: number; idCheckAt: number;
   labelVersion: SessionLabelVersion | null;
@@ -65,11 +64,19 @@ interface Live {
    * and by Refresh — those are the moments the other view may no longer be there.
    */
   ptyCap: TerminalDims | null;
+  /** The agent says a newer version of itself is installed and waiting for a restart. */
+  updateReady: boolean;
+  /** The person asked for that restart while a turn was running; it happens when the turn ends. */
+  updateWhenIdle: boolean;
 }
 /** The renderer's display metadata plus the explicit provider launch intent. */
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; instanceId?: string; labelRevision?: number; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; instanceId?: string; labelRevision?: number; /** Picked up because a machine announced it, not because anybody here asked: build it without taking the screen or the keyboard. */ background?: boolean; }
 
 const live = new Map<string, Live>();
+/** Sessions closed here that their machine may still list for a moment — never adopted back. */
+const closedTiles = new CloseTombstones();
+/** Restart waits for the old terminal to be gone before resuming its conversation. */
+const exitWaiters = new Map<string, () => void>();
 const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
 const sessionSelectionListeners = new Set<(id: string) => void>();
 const sessionsLoadedListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
@@ -160,7 +167,6 @@ export function mountCockpit(): void {
   document.getElementById('ck-collapse')!.addEventListener('click', () => toggleSidebar(true));
   document.getElementById('ck-expand')!.addEventListener('click', () => toggleSidebar(false));
   refreshCockpitSidebar();
-  void window.devdeck.getAppInfo().then((info) => { webglAllowed = info.gpu !== false; }).catch(() => { /* keep the default */ });
 
   window.devdeck.cockpit.onData(({ id, chunk }) => {
     const l = live.get(id); if (!l) return;
@@ -170,8 +176,21 @@ export function mountCockpit(): void {
     l.lastDataAt = Date.now();
     l.recentOutput = (l.recentOutput + stripAnsi(chunk)).slice(-4096);
   });
-  window.devdeck.cockpit.onExit(({ id }) => {
+  window.devdeck.cockpit.onExit(({ id, closed }) => {
+    exitWaiters.get(id)?.();
     const l = live.get(id); if (!l) return;
+    if (closed) {
+      // Somebody closed it — at the machine running it, or from another deck watching it. That was a
+      // decision, not a crash, so this deck follows it rather than keeping a dead tile that gets
+      // saved and comes back as a previous session (or, after an update restart, runs again).
+      const name = liveLabels.get(id) ?? l.customLabel ?? l.session.name;
+      removeTile(l);
+      persist();
+      toast(l.machineId === LOCAL_MACHINE_ID
+        ? tr('cockpit.closed_elsewhere', { name })
+        : tr('cockpit.closed_on_machine', { name, machine: machineName(l.machineId) }));
+      return;
+    }
     l.session.status = 'exited'; l.session.activity = 'exited';
     renderList(); renderHeader(); updateRailBadge();
   });
@@ -217,7 +236,9 @@ export function mountCockpit(): void {
   // Reconcile FIRST, then repaint: reconciling is what rebinds a tile whose terminal came back under
   // a new id (a machine that restarted restores its sessions with fresh ids) and retires the ones that
   // did not come back. Repainting before that would ask the machine for screens it no longer has.
-  onMachineConnected((machineId) => { void pullMachineSessions(machineId).then(() => resyncMachineTiles(machineId)); });
+  // Closes owed to that machine go first: they were pressed while it was unreachable, and the
+  // sessions they name are still running there until they arrive.
+  onMachineConnected((machineId) => { void deliverPendingCloses(machineId).then(() => pullMachineSessions(machineId)).then(() => resyncMachineTiles(machineId)); });
   // A machine coming or going is exactly when a size another view was holding this pty down to stops
   // being true — drop the caps and let the pane have its terminals back.
   onMachinesChanged(() => {
@@ -396,7 +417,17 @@ export function liveSessionsForPersist(): PersistedSession[] {
   return [...live.values()].map((l) => ({ tileId: l.tileId, runtimeId: l.labelVersion?.instanceId, projectPath: l.session.projectPath, name: l.session.name, sessionId: l.openedSessionId, agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned, lastActiveMs: liveActivityAt(l), machineId: l.machineId === LOCAL_MACHINE_ID ? undefined : l.machineId }));
 }
 /** How many cockpit sessions are live right now (for the update-restart button label). */
-export function liveSessionCount(): number { return live.size; }
+export function liveSessionCount(): number { return [...live.values()].filter((l) => l.session.status !== 'exited').length; }
+
+/**
+ * The sessions an update restart should bring back: the RUNNING ones. A tile whose terminal already
+ * ended stays a saved entry like any other; re-running it on relaunch revived sessions somebody had
+ * closed — or that had crashed — on the strength of a tile nobody had cleared yet.
+ */
+export function runningSessionsForAutoRestore(): PersistedSession[] {
+  const running = new Set([...live.values()].filter((l) => l.session.status !== 'exited').map((l) => l.tileId));
+  return liveSessionsForPersist().filter((entry) => running.has(entry.tileId));
+}
 
 function navigationIdentity(liveSession: Live): { tileId: string; projectPath: string; sessionId: string | null; runtimeId: string } {
   return { tileId: liveSession.tileId, projectPath: liveSession.session.projectPath, sessionId: liveSession.openedSessionId, runtimeId: liveSession.session.id };
@@ -553,14 +584,16 @@ export function showCockpit(): void {
  */
 async function duplicateTileFor(p: OpenReq): Promise<string | null> {
   if (p.mode === 'new') return null;
+  // The same path on two machines is two projects: only a tile on the machine being opened counts.
+  const machineId = p.machineId ?? LOCAL_MACHINE_ID;
   const tiles = [...live.entries()]
-    .filter(([, l]) => l.session.projectPath === p.path && l.session.agentId === p.agentId)
+    .filter(([, l]) => l.machineId === machineId && l.session.projectPath === p.path && l.session.agentId === p.agentId)
     .map(([id, l]) => ({ id, sessionId: l.openedSessionId, agentId: l.session.agentId, exited: l.session.status === 'exited' }));
   if (!tiles.length) return null; // nothing of this project is open — no lookup needed at all
   let target = p.sessionId ?? null;
   if (!target) {
     try {
-      const ids = await window.devdeck.cockpit.sessionIds(p.path, p.agentId);
+      const ids = await deckFor(machineId).cockpit.sessionIds(p.path, p.agentId);
       target = ids[0] ?? null; // newest-first — what the main process's continue path resolves to
     } catch { return null; }
   }
@@ -625,54 +658,16 @@ async function createSession(p: OpenReq): Promise<boolean> {
 }
 
 /**
- * Draw with the GPU when there is one.
+ * Every tile draws with xterm's DOM renderer, which repaints a changed row as a whole.
  *
- * xterm's default renderer is DOM nodes: every cell that changes is an element restyled, and a TUI
- * that redraws its whole screen on every spinner frame keeps the layout engine and the compositor
- * busy for as long as an agent is thinking. Measured on the reporting machine: one idle tile cost the
- * GPU process ~9% and the renderer ~6% of a core, all day. The WebGL addon draws the same cells as
- * textured quads. It is loaded after `open()` (it needs the element) and dropped — back to DOM,
- * automatically — if the context is ever lost, so a machine without usable WebGL is exactly as it was.
+ * Tiles used to draw with the WebGL addon, which repaints changed CELLS. On the machines that
+ * reported it, Claude Code's screen built up stale cells under that renderer: old status lines
+ * stacked down the screen, and earlier text showing through exactly where new text had spaces. The
+ * terminal's own buffer was right all along — minimizing and restoring the window, which makes xterm
+ * redraw every row and changes nothing else (no resize reaches the pty), cleared it every time. A
+ * renderer that can leave a screen wrong is not a trade worth making: measured when it was added, it
+ * left the GPU process's cost where it was (14.2% -> 14.5%) and took about a fifth off the renderer's.
  */
-/** False once main says GPU acceleration is off (--disable-gpu): software WebGL is not worth having. */
-let webglAllowed = true;
-
-/**
- * Whether WebGL here is a real GPU. Decided once, synchronously, from the driver's own name: with
- * GPU acceleration off Chromium still hands out a context, backed by a software rasterizer (WARP's
- * "Microsoft Basic Render Driver", SwiftShader, llvmpipe) that is no cheaper than DOM rendering and
- * has crashed the renderer under a resize storm. Asked before the first tile, not after an IPC answer
- * — a tile made in that gap would be the one on the software path.
- */
-let hardwareGl: boolean | null = null;
-function hasHardwareGl(): boolean {
-  if (hardwareGl !== null) return hardwareGl;
-  try {
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl2') as WebGL2RenderingContext | null;
-    if (!gl) { hardwareGl = false; return false; }
-    const info = gl.getExtension('WEBGL_debug_renderer_info');
-    const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
-    hardwareGl = !/basic render driver|swiftshader|llvmpipe|softpipe|software/i.test(name);
-    gl.getExtension('WEBGL_lose_context')?.loseContext();
-  } catch {
-    hardwareGl = false;
-  }
-  return hardwareGl;
-}
-
-function attachWebgl(term: Terminal): WebglAddon | null {
-  if (!webglAllowed || !hasHardwareGl()) return null;
-  try {
-    const addon = new WebglAddon();
-    addon.onContextLoss(() => { try { addon.dispose(); } catch { /* already gone */ } });
-    term.loadAddon(addon);
-    return addon;
-  } catch {
-    return null; // no WebGL here (software GL disabled, remote desktop, an old GPU): the DOM renderer stays
-  }
-}
-
 async function buildTile(p: OpenReq): Promise<boolean> {
   // Before any DOM: xterm has to be told, at construction, whether its pty is a Windows one, and
   // that is a fact about the machine the session runs on (see ptyCompatFor).
@@ -689,8 +684,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   // and the spinner beside the input already says whether the agent is busy.
   const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: false, scrollback: 10_000, windowsPty });
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
-  const webgl = attachWebgl(term);
-  el.dataset.termRenderer = webgl ? 'webgl' : 'dom'; // which renderer this tile got — read by the perf harness and by anyone debugging a slow machine
+  el.dataset.termRenderer = 'dom'; // read by the perf/link harnesses and by anyone debugging a slow machine
   // The size this terminal is actually drawing at. Written on every resize because a pty is shared:
   // when two machines watch one session, "do both terminals agree with the pty" is the whole
   // question, and it cannot be read back off the screen — a row of text is as long as its content.
@@ -869,7 +863,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   const displaced = live.get(res.id);
   if (displaced && displaced.el !== el) { displaced.el.remove(); displaced.term.dispose(); }
   live.set(res.id, {
-    machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el, webgl,
+    machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el,
     lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '',
     openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(),
     labelVersion: hasLabelVersion(res) ? { instanceId: res.instanceId, labelRevision: res.labelRevision } : null,
@@ -880,6 +874,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     // history to paint, so it writes through from the first byte.
     replayPending: adopting ? [] : null,
     ptyCap: null,
+    updateReady: false, updateWhenIdle: false,
   });
   // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
   // blank rectangle until the agent next speaks — which, while it is thinking, can be minutes, and
@@ -897,7 +892,15 @@ async function buildTile(p: OpenReq): Promise<boolean> {
       if ('snapshot' in result) syncAdoptedLabel(machineId, res.id, result.snapshot.label, result.snapshot);
     } catch (error) { reportSaveError(error); }
   } // Attaching to an existing terminal is a READ, never a cached-title write-back.
-  select(res.id);
+  // A session another machine started arrives in the sidebar, NOT under the person's hands: taking
+  // the screen and the keyboard sent whatever they were typing into somebody else's agent — possibly
+  // into its "allow this?" prompt. It was made visible above only so it could be measured.
+  const current = selectedId && selectedId !== res.id ? live.get(selectedId) : undefined;
+  if (p.background && current) {
+    el.classList.remove('show');
+    current.el.classList.add('show');
+    renderList();
+  } else select(res.id);
   updateRailBadge();
   persist();
   // Attaching does not itself tell the host our size; a resize does, and it is also what starts the
@@ -940,8 +943,9 @@ const sessionReads = new SessionReadGate();
 function adoptAnnounced(machineId: string, sessions: readonly RunningSession[], token = sessionReads.begin(machineId)): Promise<void> {
   return onMachineQueue(machineId, async () => {
     if (!sessionReads.current(machineId, token)) return;
-    const adopted = await syncMachineSessions(machineId, sessions);
+    const adopted = await syncMachineSessions(machineId, sessions, () => sessionReads.current(machineId, token));
     if (!sessionReads.current(machineId, token)) return;
+    closedTiles.observe(machineId, sessions.map((info) => info.id));
     noteSessionsGone(machineId, sessions.map((info) => info.id));
     if (adopted > 0 && machineId !== LOCAL_MACHINE_ID) {
       toast(tr('cockpit.adopted_remote', { n: adopted, machine: machineName(machineId) }));
@@ -981,6 +985,7 @@ function markMachineReachability(): void {
  */
 function rebindTile(l: Live, newId: string): void {
   const oldId = l.session.id;
+  if (oldId !== newId && l.machineId !== LOCAL_MACHINE_ID) window.devdeck.cockpit.detach(oldId);
   live.delete(oldId);
   l.session.id = newId;
   l.labelVersion = null;
@@ -1002,9 +1007,9 @@ function retireToPrevious(l: Live): void {
     agentId: l.session.agentId, label: l.customLabel, pinned: l.pinned || undefined, lastActiveMs: liveActivityAt(l),
     machineId: l.machineId === LOCAL_MACHINE_ID ? undefined : l.machineId,
   };
-  l.webgl?.dispose(); l.term.dispose(); l.el.remove(); live.delete(l.session.id);
-  if (selectedId === l.session.id) { selectedId = [...live.keys()][0] ?? null; if (selectedId) select(selectedId); else hideAllTerminals(); }
+  if (l.machineId !== LOCAL_MACHINE_ID) window.devdeck.cockpit.detach(l.session.id);
   restorable = [entry, ...restorable.filter((r) => r.tileId !== entry.tileId)];
+  removeTile(l);
 }
 
 /** Ask a machine what it is running, then reconcile. Used when a link comes up. */
@@ -1031,11 +1036,16 @@ export async function pullMachineSessions(machineId: string): Promise<void> {
  * machine and this deck may hold tiles from several, and an absent entry is far more often "not that
  * machine's session" than "gone".
  */
-export async function syncMachineSessions(machineId: string, sessions: readonly RunningSession[]): Promise<number> {
+export async function syncMachineSessions(machineId: string, sessions: readonly RunningSession[], stillCurrent: () => boolean = () => true): Promise<number> {
   const known = new Set(live.keys());
   let adopted = 0;
   for (const info of sessions) {
+    // A newer announcement superseded this one while an earlier tile was being built: what this list
+    // says is running may already be wrong, and the newer list is reconciled in its own turn.
+    if (!stillCurrent()) break;
     const id = info.id; // already qualified by the link when it came from another machine
+    // Closed here a moment ago; the machine listing it has not caught up yet (see CloseTombstones).
+    if (closedTiles.has(machineId, id)) continue;
     if (known.has(id)) {
       const held = live.get(id);
       if (held && info.instanceId && held.labelVersion && info.instanceId !== held.labelVersion.instanceId) rebindTile(held, id);
@@ -1070,6 +1080,7 @@ export async function syncMachineSessions(machineId: string, sessions: readonly 
       label: info.label ?? null,
       instanceId: info.instanceId, labelRevision: info.labelRevision,
       pinned: saved?.pinned,
+      background: true,
     });
     if (ok) adopted += 1;
   }
@@ -1537,12 +1548,24 @@ function tickActivity(): void {
   let changed = false;
   for (const l of live.values()) {
     const prev = l.session.activity;
+    const screenText = liveScreenTail(l);
     // spinnerReliable: only Claude's spinner glyph is one we match, so only there can we trust "spinner
     // gone ⇒ turn" and skip the timing hysteresis (avoids 작업중 lingering ~10s after each Claude turn).
     const next = l.offline && l.session.status !== 'exited' ? 'offline' : computeActivity({
       exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, lastInputAt: l.lastInputAt, now,
-      recentOutput: l.recentOutput, screenText: liveScreenTail(l), prev: prev === 'offline' ? 'idle' : prev, spinnerReliable: l.session.agentId === 'claude',
+      recentOutput: l.recentOutput, screenText, prev: prev === 'offline' ? 'idle' : prev, spinnerReliable: l.session.agentId === 'claude',
     });
+    const updateReady = l.session.status !== 'exited' && agentUpdateReady(l.session.agentId, screenText);
+    if (updateReady !== l.updateReady) {
+      l.updateReady = updateReady;
+      if (!updateReady) l.updateWhenIdle = false;
+      if (l.session.id === selectedId && !editingId) renderHeader();
+    }
+    // Asked for while the agent was mid-turn: restart the moment the turn is over, not in the middle.
+    if (l.updateWhenIdle && next !== 'working' && next !== 'offline' && next !== 'exited') {
+      l.updateWhenIdle = false;
+      void restartSession(l.session.id, false);
+    }
     if (next !== prev) {
       l.session.activity = next; changed = true;
       // A turn just finished → a new assistant model may have been logged; refresh so the sidebar model
@@ -1959,14 +1982,26 @@ function renderHeader(): void {
   });
   const restart = actBtn('restart', tr('cockpit.restart'), () => restartSession(s.id));
   const close = actBtn('close', tr('cockpit.close'), () => void requestClose(s.id));
-  headerEl.append(...pills, sp, newSession, pin, rename, folder, restart, close);
+  // The agent installed a newer version of itself and is waiting to be restarted. Claude Code's own
+  // in-session `/restart` exists only on macOS and Linux; on Windows the way to the new version was to
+  // /exit and start it again by hand. This is that, keeping the conversation.
+  const update: HTMLElement[] = [];
+  if (l.updateReady) {
+    const b = document.createElement('button'); b.className = 'ck-pill ck-update';
+    b.append(createIcon('restart'), tr(l.updateWhenIdle ? 'cockpit.update_queued' : 'cockpit.apply_update'));
+    b.title = tr('cockpit.apply_update_title'); b.disabled = l.updateWhenIdle;
+    b.addEventListener('click', () => applyAgentUpdate(s.id));
+    update.push(b);
+  }
+  headerEl.append(...pills, sp, ...update, newSession, pin, rename, folder, restart, close);
 }
 
 /** "+ New session": spawn another, fresh conversation in the SAME project as the selected session. */
 async function addSessionToCurrentProject(): Promise<void> {
   const l = selectedId ? live.get(selectedId) : null; if (!l) return;
   const s = l.session;
-  await createSession({ path: s.projectPath, name: s.name, staleLevel: s.staleLevel, branch: s.branch, dirty: s.dirty, mode: 'new', agentId: s.agentId });
+  // On the machine the selected session runs on — the same path here is a different project, if any.
+  await createSession({ path: s.projectPath, name: s.name, staleLevel: s.staleLevel, branch: s.branch, dirty: s.dirty, mode: 'new', agentId: s.agentId, machineId: l.machineId });
 }
 
 function actBtn(icon: IconName, title: string, onClick: () => void): HTMLButtonElement {
@@ -1984,18 +2019,67 @@ function actBtn(icon: IconName, title: string, onClick: () => void): HTMLButtonE
  * It asks first, because it kills a running agent. The ✕ beside it always has; this had not, and it
  * sits one button away.
  */
-async function restartSession(id: string): Promise<void> {
+async function restartSession(id: string, ask = true): Promise<void> {
   const l = live.get(id); if (!l) return;
   const name = liveLabels.get(id) ?? l.session.name;
-  if (!(await confirmDialog(tr('cockpit.restart_confirm', { name }), tr('cockpit.restart')))) return;
+  if (ask && !(await confirmDialog(tr('cockpit.restart_confirm', { name }), tr('cockpit.restart')))) return;
   const still = live.get(id); if (!still) return; // closed while the question was up
   // Carry the user-given label + pin into the re-created session — ⟳ must not silently reset them.
+  // A tile that never learned its conversation id (Codex/Antigravity before drift settles) restarts
+  // FRESH: "auto" without an id is "continue", the project's newest conversation, which may well be
+  // another tile's — and the machine then hands back that tile, so this one simply disappeared.
+  // And a conversation that was never written (nothing was ever typed, so the agent created no
+  // transcript) cannot be resumed: `--resume` of it fails and the tile comes back as an error. It
+  // starts fresh under the SAME id instead, as a restore does, so the tile keeps its identity.
+  let resumable = !!still.openedSessionId;
+  if (resumable) {
+    try {
+      const [exists] = await deckFor(still.machineId).cockpit.sessionsExist([{ projectPath: still.session.projectPath, sessionId: still.openedSessionId, agentId: still.session.agentId }]);
+      resumable = exists !== false;
+    } catch { /* could not ask: try the resume, as before */ }
+    if (live.get(id) !== still) return; // closed or rebuilt while we asked
+  }
   const p: OpenReq = {
     path: still.session.projectPath, name: still.session.name, staleLevel: still.session.staleLevel,
-    branch: still.session.branch, dirty: still.session.dirty, mode: 'auto', sessionId: still.openedSessionId,
+    branch: still.session.branch, dirty: still.session.dirty, mode: resumable ? 'auto' : 'new', sessionId: still.openedSessionId,
     label: still.customLabel, pinned: still.pinned, agentId: still.session.agentId, machineId: still.machineId,
   };
-  closeSession(id); await createSession(p);
+  const entry: PersistedSession = {
+    tileId: still.tileId, projectPath: p.path, name: p.name, sessionId: still.openedSessionId, agentId: p.agentId,
+    label: still.customLabel, pinned: still.pinned || undefined, lastActiveMs: liveActivityAt(still),
+    machineId: still.machineId === LOCAL_MACHINE_ID ? undefined : still.machineId,
+  };
+  // The old agent may still be flushing its transcript; resuming the same conversation on top of a
+  // process that has not exited yet gives two writers one file.
+  const exited = still.machineId === LOCAL_MACHINE_ID && still.session.status !== 'exited' ? waitForExit(id, 3_000) : Promise.resolve();
+  closeSession(id);
+  await exited;
+  // A restart that cannot reopen (machine went away, path refused) must not cost the tile: it goes
+  // back to the saved list with its name and pin, one click from trying again.
+  if (!(await createSession({ ...p, tileId: still.tileId }))) {
+    restorable = [entry, ...restorable.filter((r) => r.tileId !== entry.tileId)];
+    persist(); renderList();
+  }
+}
+
+/** Restart onto the agent's newly installed version — now if it is between turns, else when the turn ends. */
+function applyAgentUpdate(id: string): void {
+  const l = live.get(id); if (!l) return;
+  if (l.session.activity === 'working') {
+    l.updateWhenIdle = true;
+    toast(tr('cockpit.update_after_turn', { name: liveLabels.get(id) ?? l.session.name }));
+    renderHeader();
+    return;
+  }
+  void restartSession(id, false);
+}
+
+function waitForExit(id: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => { clearTimeout(timer); exitWaiters.delete(id); resolve(); };
+    const timer = setTimeout(done, timeoutMs);
+    exitWaiters.set(id, done);
+  });
 }
 
 /** Small in-app confirmation modal (a DOM overlay, NOT window.confirm). Resolves true on confirm. */
@@ -2022,7 +2106,9 @@ function confirmDialog(message: string, confirmLabel: string): Promise<boolean> 
       }
       if (e.key !== 'Escape' && e.key !== 'Enter') return;
       e.preventDefault(); e.stopPropagation(); // keep Esc/Enter inside the dialog (don't leak to terminal/rename)
-      done(e.key === 'Enter');
+      // Enter presses the FOCUSED button. Confirming regardless meant tabbing to Cancel and pressing
+      // Enter closed (or restarted) the sessions anyway.
+      done(e.key === 'Enter' && document.activeElement !== cancel);
     };
     cancel.addEventListener('click', () => done(false));
     ok.addEventListener('click', () => done(true));
@@ -2038,20 +2124,73 @@ function confirmDialog(message: string, confirmLabel: string): Promise<boolean> 
 async function requestClose(id: string): Promise<void> {
   const l = live.get(id); if (!l) return;
   const name = liveLabels.get(id) ?? l.session.name;
-  if (await confirmDialog(tr('cockpit.close_confirm').replace('{name}', name), tr('cockpit.close'))) closeSession(id);
+  // On a remote tile the agent being stopped is on the other machine — possibly in front of someone.
+  const question = l.machineId === LOCAL_MACHINE_ID
+    ? tr('cockpit.close_confirm', { name })
+    : tr('cockpit.close_confirm_remote', { name, machine: machineName(l.machineId) });
+  if (await confirmDialog(question, tr('cockpit.close'))) closeSession(id);
 }
 
 function closeSession(id: string): void {
   const l = live.get(id); if (!l) return;
-  window.devdeck.cockpit.close(id);
-  l.webgl?.dispose(); l.term.dispose(); l.el.remove(); live.delete(id); updateRailBadge();
+  // Remembered BEFORE anything is sent: the machine's next announcement can be one it made before it
+  // processed this close, and it must not bring the tile straight back (see CloseTombstones).
+  closedTiles.add(l.machineId, id);
+  if (l.machineId === LOCAL_MACHINE_ID) window.devdeck.cockpit.close(id);
+  else void deliverClose(l.machineId, id, liveLabels.get(id) ?? l.customLabel ?? l.session.name);
+  removeTile(l);
   persist(); // close = forget (the closed session drops out of persistence)
+}
+
+/**
+ * Take a tile off the screen and out of `live`, and hand the selection to the session that was
+ * looked at most recently — not to whichever happened to be opened first.
+ */
+function removeTile(l: Live): void {
+  const id = l.session.id;
+  l.term.dispose(); l.el.remove(); live.delete(id); updateRailBadge();
   if (selectedId === id) {
-    const next = [...live.keys()][0] ?? null;
+    const next = [...live.values()].sort((a, b) => b.lastSelectedAt - a.lastSelectedAt)[0]?.session.id ?? null;
     selectedId = null;
     if (next) select(next);
-    else { setActiveUsageProvider(null); renderAll(); mainEl.classList.toggle('has-session', false); } // no session → footer goes back to the cross-provider max
+    else { hideAllTerminals(); setActiveUsageProvider(null); renderAll(); mainEl.classList.toggle('has-session', false); } // no session → footer goes back to the cross-provider max
   } else renderList();
+}
+
+/** Closes owed to a machine that could not be reached when they were pressed. */
+const owedCloseNames = new Map<string, string>();
+
+/**
+ * Ask the machine running a remote tile to close it, and act on the answer.
+ *
+ * Unreachable: the close is kept and sent the moment the machine is back, and until then the session
+ * stays suppressed here — it is still running there. Refused (this device may not drive that
+ * machine's sessions): the tile comes back and the person is told, rather than watching it vanish
+ * while the agent carries on.
+ */
+async function deliverClose(machineId: string, id: string, name: string): Promise<boolean> {
+  let result: import('../shared/types').CloseResult;
+  try { result = await window.devdeck.cockpit.closeSession(id); } catch (err) { result = { ok: false, reason: 'error', error: String(err) }; }
+  window.devdeck.logDiagnostic(`close ${id.slice(-24)} on ${machineName(machineId)}: ${result.ok ? 'ok' : result.reason}`, result.ok ? 'info' : 'warn', 'link');
+  if (result.ok) { closedTiles.settle(machineId, id); owedCloseNames.delete(id); return true; }
+  if (result.reason === 'offline') {
+    closedTiles.markPending(machineId, id);
+    if (!owedCloseNames.has(id)) toast(tr('cockpit.close_pending', { name, machine: machineName(machineId) }));
+    owedCloseNames.set(id, name);
+    return false;
+  }
+  closedTiles.remove(machineId, id);
+  owedCloseNames.delete(id);
+  toast(result.reason === 'denied'
+    ? tr('cockpit.close_denied', { name, machine: machineName(machineId) })
+    : tr('cockpit.close_failed', { name, machine: machineName(machineId) }));
+  // It is still running there; show it again rather than leave it invisible and alive.
+  void pullMachineSessions(machineId);
+  return false;
+}
+
+async function deliverPendingCloses(machineId: string): Promise<void> {
+  for (const id of closedTiles.pending(machineId)) await deliverClose(machineId, id, owedCloseNames.get(id) ?? id);
 }
 
 // Restores in flight, keyed by project + saved id. A "Previous" row stays clickable for as long as

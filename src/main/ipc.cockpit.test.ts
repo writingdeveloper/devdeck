@@ -62,6 +62,7 @@ import { cwdKey } from '../shared/paths';
 const ALLOWED_ROOT = join(process.cwd(), 'cockpit-allowed-root');
 let storedAgent = 'claude';
 const ptyCreate = vi.fn();
+const ptyNote = vi.fn((_id: string, _patch: Record<string, unknown>) => false);
 
 beforeAll(() => {
   registerIpc({
@@ -74,7 +75,7 @@ beforeAll(() => {
     },
     sendError: vi.fn(),
     defaultLanguage: 'en',
-    ptyHost: { create: ptyCreate, list: () => [], pid: (id: string) => (id === 'live#1' ? 4321 : null) },
+    ptyHost: { create: ptyCreate, list: () => [], pid: (id: string) => (id === 'live#1' ? 4321 : null), note: ptyNote },
     ptyAvailable: true,
     tray: {},
     shutdown: null,
@@ -194,6 +195,8 @@ describe('cockpit:liveAgent', () => {
     probe.mockClear();
     expect(await liveAgent(null, 'live#1')).toBe('claude');
     expect(probe).toHaveBeenCalledWith(4321);
+    // ...and recorded on the pty, so what this machine announces names the agent really running.
+    expect(ptyNote).toHaveBeenCalledWith('live#1', { agentId: 'claude' });
 
     probe.mockClear();
     expect(await liveAgent(null, 'gone#9')).toBeNull();

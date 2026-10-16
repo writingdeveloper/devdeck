@@ -12,7 +12,7 @@ import { applyOpenAtLogin, effectiveOpenAtLogin } from '../autostart';
 import { scanFolders, isRepo } from '../scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits } from '../gitInfo';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
-import { toAgentId, type AgentId, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
+import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../../shared/pathGuard';
 import { basename, cwdKey } from '../../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../../shared/externalUrl';
@@ -149,7 +149,8 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
 
   // Opt-in AI layer for the cockpit's per-session summary line (see aiSummary.ts). Constructed
   // regardless of the setting — it is inert while disabled — so toggling it needs no restart.
-  const aiSummarizer = makeAiSummarizer();
+  // A failed summary used to vanish into a cached null with no trace of why; it belongs in this machine's log.
+  const aiSummarizer = makeAiSummarizer({ onFailure: (message) => cfg.diagnostics?.write('warn', 'ai', message) });
   aiSummarizer.setEnabled(cfg.store.getAiSessionSummary());
 
   const activeAgent = (): AgentId => {
@@ -615,7 +616,13 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
         (e) => {
           ptyBatch.flush(); // flush buffered output before the exit notice
           cfg.diagnostics?.write(e.exitCode === 0 ? 'info' : 'warn', 'pty', `exit ${id} code=${e.exitCode}`);
-          emit('cockpit:exit', { id, exitCode: e.exitCode });
+          // Says whether somebody CLOSED it, and from where. Every deck showing this terminal hears the
+          // exit, but only the one that pressed close knew it was deliberate — the others kept a dead
+          // "exited" tile, saved it, and brought it back as a previous session (or, after an update
+          // restart, re-ran it). Optional fields: an older viewer reads only `id`/`exitCode`.
+          const closedBy = closing.get(id);
+          closing.delete(id);
+          emit('cockpit:exit', closedBy ? { id, exitCode: e.exitCode, closed: true, closedBy } : { id, exitCode: e.exitCode });
           publishSessions();
         },
         { projectPath: req.projectPath, sessionId: resolved.sessionId, agentId: a.id },
@@ -662,6 +669,18 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     // lands on top of the older, wider one.
     emit('cockpit:resized', { id: target, cols: c, rows: r });
   });
+  /** Ids this machine is killing on request, and who asked — read by the exit handler above. */
+  const closing = new Map<string, 'local' | 'remote'>();
+  function closeLocal(target: string): void {
+    ptyBatch.drop(target);
+    const by = calledFromRemote() ? 'remote' : 'local';
+    cfg.diagnostics?.write('info', 'pty', `close ${target} by=${by}`);
+    if (cfg.ptyHost.list().some((s) => s.id === target)) closing.set(target, by);
+    cfg.ptyHost.kill(target);
+    publishSessions();
+  }
+  // Fire-and-forget, kept for paired machines on an older build. It cannot say whether the close
+  // happened, which is why a viewer now uses `cockpit:closeSession` below.
   send('cockpit:close', allowSession('control'), (id: string) => {
     const target = String(id);
     if (isRemoteId(target)) {
@@ -670,10 +689,47 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       remote(target, (link, machineId, hostId) => link.notify(machineId, 'cockpit:close', [hostId]));
       return;
     }
-    ptyBatch.drop(target);
-    cfg.diagnostics?.write('info', 'pty', `close ${target}`);
-    cfg.ptyHost.kill(target);
-    publishSessions();
+    closeLocal(target);
+  });
+  /**
+   * Close a session and SAY whether it closed.
+   *
+   * A remote close used to be a notify: offline, without the `control` permission, or simply dropped,
+   * it vanished — the tile disappeared here while the agent went on running there, and the next time
+   * that machine listed its sessions the tile was adopted straight back. The answer lets the deck keep
+   * the close pending until the machine is reachable, or put the tile back and say why.
+   */
+  invoke('cockpit:closeSession', allowSession('control'), async (id: string): Promise<CloseResult> => {
+    const target = String(id);
+    if (!isRemoteId(target)) { closeLocal(target); return { ok: true }; }
+    if (refuseRelay(target, 'cockpit:closeSession')) return { ok: false, reason: 'error' };
+    const link = cfg.link?.();
+    if (!link) return { ok: false, reason: 'offline' };
+    const { machineId, hostId } = parseRemoteId(target);
+    if (link.machines().find((m) => m.machineId === machineId)?.state !== 'connected') return { ok: false, reason: 'offline' };
+    // The host meters requests, and a bulk close of a dozen remote tiles is a dozen of them at once.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await link.call(machineId, 'cockpit:closeSession', [hostId]);
+        link.detach(target);
+        return { ok: true };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (/^too many requests/.test(message) && attempt < 6) { await new Promise((r) => setTimeout(r, 400 * (attempt + 1))); continue; }
+        // A host on an older build has only the notify. Send that; it is what every close used to be.
+        if (/^no such method/.test(message)) { link.detach(target); link.notify(machineId, 'cockpit:close', [hostId]); return { ok: true }; }
+        // Not running there any more: closing it is already done.
+        if (/^not a session on this machine/.test(message)) { link.detach(target); return { ok: true }; }
+        if (/^not permitted/.test(message)) return { ok: false, reason: 'denied' };
+        return { ok: false, reason: /offline|closed|timed out|unknown machine/.test(message) ? 'offline' : 'error', error: message };
+      }
+    }
+  });
+  // A tile that stopped showing a remote terminal without closing it (it was retired or rebound to a
+  // new id): stop asking the host to stream it, or every reconnect re-attaches an id that is gone.
+  send('cockpit:detach', localOnly, (id: string) => {
+    const target = String(id);
+    if (isRemoteId(target)) cfg.link?.()?.detach(target);
   });
 
   // Cockpit session persistence: remember the open sessions so a quit/crash doesn't lose them.
@@ -866,7 +922,14 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const lastDataAtMs = Number(opts.lastDataAtMs) || 0;
     // No id at all (the tile's provider was just re-detected, so its old id went with the old
     // provider): nothing to drift FROM, and a `-c` resume writes a file born before the tile opened.
-    if (!currentId) return pickAdoptedSessionId(stats, { claimedIds, sinceMs, lastDataAtMs });
+    if (!currentId) {
+      const picked = pickAdoptedSessionId(stats, { claimedIds, sinceMs, lastDataAtMs });
+      // Recorded on the pty for the same reason as a drift below: without it this machine keeps
+      // announcing the session with no conversation, and an open of that conversation from another
+      // deck does not find it running and starts a second agent on it.
+      if (picked && typeof opts.ptyId === 'string' && opts.ptyId && cfg.ptyHost.note(opts.ptyId, { sessionId: picked })) publishSessions();
+      return picked;
+    }
     const drifted = pickDriftedSessionId(stats, {
       currentId,
       claimedIds,
@@ -892,7 +955,11 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   invoke('cockpit:liveAgent', allowSession('observe'), async (id: string) => {
     const pid = cfg.ptyHost.pid(String(id));
     if (!pid) return null;
-    try { return await probeAgent(pid); } catch { return null; }
+    let found: Awaited<ReturnType<typeof probeAgent>> = null;
+    try { found = await probeAgent(pid); } catch { return null; }
+    // The provider a tile is really running is part of what this machine announces about it.
+    if (typeof found === 'string' && cfg.ptyHost.note(String(id), { agentId: found })) publishSessions();
+    return found;
   });
 
   // Live git branch + dirty count for a cockpit session's project. Re-read on a slow tick so a

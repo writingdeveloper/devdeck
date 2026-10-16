@@ -73,9 +73,13 @@ contextBridge.exposeInMainWorld('devdeck', {
     input: (id: string, data: string) => ipcRenderer.send('cockpit:input', id, data),
     resize: (id: string, cols: number, rows: number) => ipcRenderer.send('cockpit:resize', id, cols, rows),
     close: (id: string) => ipcRenderer.send('cockpit:close', id),
+    /** Close and report the outcome — the machine owning a remote tile may be offline or refuse. */
+    closeSession: (id: string): Promise<import('../shared/types').CloseResult> => ipcRenderer.invoke('cockpit:closeSession', id),
+    /** Stop streaming a remote terminal this deck no longer shows, without closing it. */
+    detach: (id: string) => ipcRenderer.send('cockpit:detach', id),
     onData: (cb: (p: { id: string; chunk: string }) => void) =>
       ipcRenderer.on('cockpit:data', (_e, p) => cb(p)),
-    onExit: (cb: (p: { id: string; exitCode: number }) => void) =>
+    onExit: (cb: (p: { id: string; exitCode: number; closed?: boolean; closedBy?: 'local' | 'remote' }) => void) =>
       ipcRenderer.on('cockpit:exit', (_e, p) => cb(p)),
     onResized: (cb: (p: { id: string; cols: number; rows: number }) => void) =>
       ipcRenderer.on('cockpit:resized', (_e, p) => cb(p)),
