@@ -69,7 +69,7 @@ jobs:
           DEBUG: 'pw:browser' # if launch fails again, the electron process's own stderr lands in the log
       - name: Run the multilingual user journeys
         run: xvfb-run -a sh -c 'openbox --sm-disable >/tmp/devdeck-openbox.log 2>&1 & node qa/screenshot.mjs'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: qa-audit-and-journeys
@@ -114,7 +114,7 @@ jobs:
       - name: Verify host and two viewers agree on committed session titles
         if: runner.os == 'Windows'
         run: node qa/session-sync.mjs
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: qa-resilience-${{ matrix.os }}
