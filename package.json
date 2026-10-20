@@ -37,6 +37,7 @@
     "qa:close": "npm run build && node qa/close.mjs",
     "qa:resilience": "npm run build && node qa/resilience.mjs",
     "qa:perf": "npm run build && node qa/perf.mjs",
+    "qa:perf-gate": "npm run build && node qa/perf-gate.mjs",
     "qa:maintenance": "npm run build && node qa/maintenance.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "qa:session-sync": "npm run build && node qa/session-sync.mjs",

@@ -82,7 +82,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -114,6 +114,15 @@ jobs:
       - name: Verify host and two viewers agree on committed session titles
         if: runner.os == 'Windows'
         run: node qa/session-sync.mjs
+      - name: Performance gate (fixture agent; animations, DOM churn, main-process stalls)
+        if: runner.os == 'Windows'
+        run: node qa/perf-gate.mjs
+      - name: Session images, attach and update-all journeys
+        if: runner.os == 'Windows'
+        run: |
+          node qa/images.mjs
+          node qa/images-remote.mjs
+          node qa/claude-update.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -122,3 +131,7 @@ jobs:
             qa/shots/resilience/
             qa/shots/maintenance/
             qa/shots/session-sync/
+            qa/shots/perf-gate/
+            qa/shots/images/
+            qa/shots/images-remote/
+            qa/shots/claude-update/
