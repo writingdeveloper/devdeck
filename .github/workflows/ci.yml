@@ -123,6 +123,7 @@ jobs:
           node qa/images.mjs
           node qa/images-remote.mjs
           node qa/claude-update.mjs
+          node qa/restore-pacing.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:

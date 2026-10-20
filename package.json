@@ -43,7 +43,8 @@
     "qa:session-sync": "npm run build && node qa/session-sync.mjs",
     "qa:images": "npm run build && node qa/images.mjs",
     "qa:images-remote": "npm run build && node qa/images-remote.mjs",
-    "qa:update": "npm run build && node qa/claude-update.mjs"
+    "qa:update": "npm run build && node qa/claude-update.mjs",
+    "qa:restore-pacing": "npm run build && node qa/restore-pacing.mjs"
   },
   "build": {
     "appId": "com.soursea.devdeck",
