@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('machine selection lifecycle', () => {
   it('invalidates an earlier visit even after A → B → A', async () => {
-    const deck = await import('./machineDeck');
+    const deck = await import('./machineDeck.js');
     const initial = deck.machineSelectionVersion();
     const listener = vi.fn();
     const unsubscribe = deck.onMachineSelected(listener);
@@ -28,7 +28,7 @@ describe('machine selection lifecycle', () => {
     const old = deferred<unknown[]>();
     const machines = vi.fn().mockReturnValueOnce(old.promise).mockResolvedValueOnce([remote]);
     vi.stubGlobal('window', { devdeck: { link: { machines } } });
-    const deck = await import('./machineDeck');
+    const deck = await import('./machineDeck.js');
     const first = deck.refreshMachines();
     await deck.refreshMachines();
     deck.selectMachine('remote');
@@ -41,7 +41,7 @@ describe('machine selection lifecycle', () => {
   it('preserves selection on read failure and emits selection change when the host is actually forgotten', async () => {
     const machines = vi.fn().mockResolvedValueOnce([remote]).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([]);
     vi.stubGlobal('window', { devdeck: { link: { machines } } });
-    const deck = await import('./machineDeck');
+    const deck = await import('./machineDeck.js');
     await deck.refreshMachines();
     deck.selectMachine('remote');
     const listener = vi.fn();

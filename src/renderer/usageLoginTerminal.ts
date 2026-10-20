@@ -28,7 +28,7 @@ function closeLoginTerminal(): void {
   if (current.id) window.devdeck.cockpit.close(current.id);
   current.term.dispose();
   current.overlay.remove();
-  void import('./usageBar').then((module) => module.refreshUsageBar(true));
+  void import('./usageBar.js').then((module) => module.refreshUsageBar(true));
 }
 
 /** Open one provider-owned OAuth command in a visible, interactive in-app terminal. */

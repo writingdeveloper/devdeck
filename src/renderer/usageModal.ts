@@ -42,7 +42,7 @@ export function openUsageModal(snapshot: UsageSnapshot | null, trigger: HTMLElem
   refresh.addEventListener('click', () => {
     refresh.disabled = true; // only the refresh control is disabled; the dialog stays usable
     // Imported lazily to avoid an import cycle with usageBar (which owns the shared refresh promise).
-    void import('./usageBar').then((m) => m.refreshUsageBar(true)).finally(() => { refresh.disabled = false; });
+    void import('./usageBar.js').then((m) => m.refreshUsageBar(true)).finally(() => { refresh.disabled = false; });
   });
   close.addEventListener('click', () => closeUsageModal());
   overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeUsageModal(); });

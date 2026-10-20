@@ -14,6 +14,11 @@ updates:
       # Electron, by hand.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # 0.14 dropped Electron support (its release notes) and is published by a new releaser. The
+      # terminal of every session runs on this package; stay on 0.13 until a release says Electron
+      # works again.
+      - dependency-name: "@homebridge/node-pty-prebuilt-multiarch"
+        versions: [">=0.14.0"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

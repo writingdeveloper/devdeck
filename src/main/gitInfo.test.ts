@@ -149,7 +149,7 @@ describe('the git command is bounded', () => {
       },
     }));
     vi.resetModules();
-    const fresh = await import('./gitInfo');
+    const fresh = await import('./gitInfo.js');
     await fresh.getGitBranchDirty('C:/repo');
     vi.doUnmock('node:child_process');
     vi.resetModules();
