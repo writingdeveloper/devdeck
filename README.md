@@ -16,7 +16,7 @@ See what needs attention, resume the right conversation, and work on a paired PC
 
 </div>
 
-> **1.38.0** makes closing a session reliable across paired PCs, fixes stale terminal drawing, adds **Apply update** for Claude Code on Windows, protects notes from being overwritten by another device, and cuts background CPU use ([release notes](docs/releases/1.38.0.md)). Use 1.38.0 on both machines for confirmed remote close and versioned notes; 1.37.9 added confirmed session renames and task conflict protection ([notes](docs/releases/1.37.9.md)). See [the maintenance review](docs/quality-review-2026-09-08.md) and [session synchronization review](docs/session-sync-review-2026-09-08.md).
+> **1.39.0** shows the screenshots and images a Claude session worked with — Claude Desktop shows them inline; DevDeck puts them in a strip beside the terminal, also for sessions on another PC — adds 📎 / drag-and-drop attachments (images travel to a remote PC), **Update all** for Claude Code on Windows, staggered session restores that no longer stall a PC, and ends the daily false "Login expired" ([release notes](docs/releases/1.39.0.md)). 1.38.0 made closing a session reliable across paired PCs ([notes](docs/releases/1.38.0.md)). See [the maintenance review](docs/quality-review-2026-09-08.md) and [session synchronization review](docs/session-sync-review-2026-09-08.md).
 
 <div align="center">
 <img src="docs/screenshots/projects.png" width="820" alt="DevDeck project overview with repository and session navigation" />
@@ -32,6 +32,8 @@ DevDeck is a local-first desktop command center for **Claude Code, Codex, and An
 | --- | --- |
 | Find work that needs attention | Shared sidebar for working/waiting sessions; Quick Open with `Ctrl+Shift+P`; recent projects |
 | Resume without losing context | Provider-aware Open, existing terminal focus, previous-session restore, local Project Memory |
+| See what the agent looked at | Image strip of a Claude session's screenshots, pasted images and written image files, with a full-size viewer — local or remote |
+| Hand the agent a file | 📎 or drag-and-drop onto the terminal; images are sent to a remote PC and typed as its path |
 | Track a repository | Branch, dirty files, unpushed commits, activity, notes, project pin/hide and external actions |
 | Plan and inspect usage | Cross-project tasks and calendar; local token/API-equivalent cost estimates; supported live provider limits |
 | Use another PC | Opt-in DevDeck Link: the agent runs on the host; the viewer sends input and receives terminal output |

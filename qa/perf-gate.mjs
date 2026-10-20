@@ -107,9 +107,15 @@ try {
   if (await restoreAll.count()) await restoreAll.first().click();
   await win.waitForFunction(() => document.querySelectorAll('.ck-term').length >= 2, null, { timeout: 30000 });
   await win.locator('#shell-session-groups .shell-session').first().click();
-  await win.waitForFunction(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].some((r) => r.textContent.includes('PERF_FIXTURE_READY')));
   const ids = await win.evaluate(() => window.devdeck.cockpit.liveSessions().then((list) => list.map((s) => s.id)));
   assert.ok(ids.length >= 2, 'two sessions running: ' + JSON.stringify(ids));
+  // Read off each session's output buffer, not the visible rows: a screen printed before the terminal
+  // reached its final size can scroll the marker out of view, which says nothing about performance.
+  const allPrinted = (marker, ms) => win.waitForFunction(async ([list, m]) => {
+    const bufs = await Promise.all(list.map((i) => window.devdeck.cockpit.sessionBuffer(i)));
+    return bufs.every((b) => b.includes(m));
+  }, [ids, marker], { timeout: ms, polling: 250 });
+  await allPrinted('PERF_FIXTURE_READY', 30000);
   // The workload goes to every running session — one is on screen, the other works in the background,
   // which is how a deck is actually used.
   const sendAll = (key) => win.evaluate(([list, k]) => { for (const i of list) window.devdeck.cockpit.input(i, k); }, [ids, key]);
@@ -139,7 +145,6 @@ try {
     ...(await win.evaluate(() => ({ long: [...window.__gate.long], mutations: window.__gate.mutations, outside: window.__gate.outside }))),
     stall: await app.evaluate(() => globalThis.__lag.max),
   });
-  const terminalRows = () => win.evaluate(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].map((r) => r.textContent).join('\n'));
 
   // ---- IDLE ----------------------------------------------------------------------------------
   await reset();
@@ -158,7 +163,7 @@ try {
   // ---- WORKING -------------------------------------------------------------------------------
   await reset();
   await sendAll('W');
-  await win.waitForFunction(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].some((r) => r.textContent.includes('WORK_DONE')), null, { timeout: 30000 });
+  await allPrinted('WORK_DONE', 30000);
   const working = await read();
   judge('working: main-process stall ms', working.stall, LIMITS.workingMainStallMs);
   judge('working: longest UI task ms', Math.max(0, ...working.long), LIMITS.workingLongestTaskMs);
@@ -169,6 +174,8 @@ try {
   await reset();
   const t0 = Date.now();
   await sendAll('S');
+  await allPrinted('STREAM_DONE', LIMITS.streamSeconds * 1000);
+  // ...and drawn: the visible terminal has caught up with it.
   await win.waitForFunction(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].some((r) => r.textContent.includes('STREAM_DONE')), null, { timeout: LIMITS.streamSeconds * 1000 });
   const streamSeconds = Math.round((Date.now() - t0) / 100) / 10;
   // The window includes what follows a stream — scrollback trimming, reflow, the deck catching up —
@@ -178,7 +185,6 @@ try {
   judge('stream: seconds to draw 20k lines', streamSeconds, LIMITS.streamSeconds);
   judge('stream: main-process stall ms', stream.stall, LIMITS.streamMainStallMs);
   judge('stream: longest UI task ms', Math.max(0, ...stream.long), LIMITS.streamLongestTaskMs);
-  assert.ok((await terminalRows()).includes('STREAM_DONE'));
   await win.screenshot({ path: join(out, 'stream.png') });
 } catch (e) {
   console.log('FAIL harness: ' + (e?.message ?? e));
