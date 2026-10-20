@@ -70,3 +70,169 @@
 .ck-rename-input[aria-invalid="true"] { border-color: var(--dd-attention); }
 
 .ck-rename-actions { display: flex; gap: 8px; }
+
+/* The image strip: what the session looked at, newest first, between the header and the terminal. */
+#view-cockpit .ck-images {
+  display: flex;
+  gap: 8px;
+  padding: 8px 14px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid var(--border);
+  background: var(--dd-sidebar);
+  flex: 0 0 auto;
+  scrollbar-width: thin;
+}
+
+#view-cockpit .ck-images.hidden {
+  display: none;
+}
+
+#view-cockpit .ck-img-thumb {
+  flex: 0 0 auto;
+  height: 84px;
+  min-width: 56px;
+  max-width: 180px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--dd-canvas);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+
+#view-cockpit .ck-img-thumb img {
+  display: block;
+  height: 100%;
+  width: auto;
+  max-width: 180px;
+  object-fit: cover;
+}
+
+#view-cockpit .ck-img-thumb:hover,
+#view-cockpit .ck-img-thumb:focus-visible {
+  border-color: var(--accent-hover);
+}
+
+/* A pasted image is the person's own; a tool's screenshot is the agent's. The edge says which. */
+#view-cockpit .ck-img-thumb.kind-pasted {
+  border-style: dashed;
+}
+
+#view-cockpit .ck-img-thumb.missing {
+  width: 84px;
+  opacity: 0.45;
+}
+
+#view-cockpit .ck-act.on {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+#view-cockpit .ck-act .ck-img-count {
+  position: absolute;
+  transform: translate(10px, -9px);
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  font-size: 9.5px;
+  line-height: 14px;
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+#view-cockpit .ck-act:has(.ck-img-count) {
+  position: relative;
+}
+
+#view-cockpit .ck-act .ck-img-count.new {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* A file held over the terminal: say it will be taken. */
+#view-cockpit .ck-term.drop-target {
+  outline: 2px dashed var(--accent-hover);
+  outline-offset: -6px;
+}
+
+/* Full-size viewer, over the whole window. */
+.ck-img-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: rgba(5, 6, 9, 0.92);
+}
+
+.ck-img-stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  position: relative;
+}
+
+.ck-img-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.ck-img-status {
+  position: absolute;
+  color: #c9ccd4;
+  font-size: 13px;
+}
+
+.ck-img-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  color: #e6e8ee;
+  background: rgba(15, 17, 22, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ck-img-bar .ck-act {
+  color: #c9ccd4;
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+}
+
+.ck-img-bar .ck-act:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ck-img-bar .ck-act:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ck-img-bar .ck-act[hidden] {
+  display: none;
+}
+
+.ck-img-counter {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: #a7abb6;
+}
+
+.ck-img-caption {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}

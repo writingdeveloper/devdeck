@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { agentUpdateReady, stripAnsi, hasPromptPattern, hasWorkingSpinner, computeActivity, WORKING_MS, IDLE_MS } from './sessionStatus';
+import { agentUpdateReady, agentUpdateFailed, stripAnsi, hasPromptPattern, hasWorkingSpinner, computeActivity, WORKING_MS, IDLE_MS } from './sessionStatus';
 
 describe('stripAnsi', () => {
   const ESC = String.fromCharCode(27);
@@ -112,6 +112,14 @@ describe('computeActivity', () => {
   });
   it('a confirmation prompt outranks a lingering spinner => attention', () => {
     expect(computeActivity({ ...base, now: 1000 + 20_000, prev: 'working', recentOutput: '✻ Gesticulating… ❯ 1. Yes' })).toBe('attention');
+  });
+});
+
+describe('agentUpdateFailed', () => {
+  it('reads Claude Code\'s failed background update off its footer, for Claude only', () => {
+    expect(agentUpdateFailed('claude', '> \n  ✗ Auto-update failed · Try claude doctor\n')).toBe(true);
+    expect(agentUpdateFailed('claude', '> \n  Update installed · Restart to apply\n')).toBe(false);
+    expect(agentUpdateFailed('codex', 'Auto-update failed')).toBe(false);
   });
 });
 

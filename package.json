@@ -39,7 +39,9 @@
     "qa:perf": "npm run build && node qa/perf.mjs",
     "qa:maintenance": "npm run build && node qa/maintenance.mjs",
     "check:docs": "node scripts/check-docs.mjs",
-    "qa:session-sync": "npm run build && node qa/session-sync.mjs"
+    "qa:session-sync": "npm run build && node qa/session-sync.mjs",
+    "qa:images": "npm run build && node qa/images.mjs",
+    "qa:update": "npm run build && node qa/claude-update.mjs"
   },
   "build": {
     "appId": "com.soursea.devdeck",

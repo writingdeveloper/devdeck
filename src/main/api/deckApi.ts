@@ -2,7 +2,7 @@ import { createSessionLabels } from '../sessionLabels';
 import { dialog, shell, app, clipboard, type BrowserWindow } from 'electron';
 import { homedir, release, tmpdir } from 'node:os';
 import path, { join } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Store } from '../store';
@@ -31,6 +31,9 @@ import { validThresholds } from '../../shared/settingsValidation';
 import { sanitizeTodos } from '../../shared/tasks';
 import { getClaudeUsage, readClaudeCredentials, fetchUsageApi } from '../claudeUsage';
 import { getCodexUsage, spawnCodexAppServer } from '../codexUsage';
+import { claudeTranscriptPath, listSessionImages, readEmbeddedImage } from '../sessionImages';
+import { encodeImageForView, IMAGE_MIME, MAX_VIEW_IMAGE_FILE_BYTES, VIEWABLE_IMAGE_EXT, type ViewImage } from '../imageView';
+import { runClaudeUpdate } from '../agentUpdate';
 import { UsageCoordinator, antigravityUsage } from '../usageProviders';
 import { pickAdoptedSessionId, pickDriftedSessionId, type PersistedSession } from '../../shared/cockpitPersist';
 import { makeAgentProbe } from '../agentProcess';
@@ -1153,6 +1156,48 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     if (err) { cfg.sendError(`Could not open file: ${err}`); return 'error'; }
     return 'ok';
   });
+
+  /**
+   * The images a session handled — tool screenshots, pasted images, image files it touched — for the
+   * cockpit's image panel, which is the terminal's answer to Claude Desktop showing them inline.
+   * Claude only: the other agents do not record images in their logs.
+   */
+  invoke('cockpit:sessionImages', allow('observe'), async (projectPath: string, sessionId: string, agentId?: AgentId) => {
+    const pp = String(projectPath);
+    if (!isAllowedPath(effFolders(), pp) || agentFor(agentId).id !== 'claude' || typeof sessionId !== 'string') return [];
+    const file = claudeTranscriptPath(pp, sessionId, CLAUDE_PROJECTS);
+    return file ? listSessionImages(file) : [];
+  });
+  /** One of those images, as a thumbnail or at full size. */
+  invoke('cockpit:sessionImage', allow('observe'), async (projectPath: string, sessionId: string, imageId: string, size?: string) => {
+    const pp = String(projectPath);
+    if (!isAllowedPath(effFolders(), pp) || typeof sessionId !== 'string' || typeof imageId !== 'string') return null;
+    if (imageId.startsWith('f:')) return readImageFileFor(pp, imageId.slice(2), size);
+    const file = claudeTranscriptPath(pp, sessionId, CLAUDE_PROJECTS);
+    const img = file ? await readEmbeddedImage(file, imageId) : null;
+    return img ? encodeImageForView(img.data, img.mediaType, size) : null;
+  });
+  /**
+   * An image file a session named, read where the session runs. A remote session's path means
+   * nothing on the viewer's disk, so clicking one used to say "not available here"; now its pixels
+   * travel instead. Same guards as opening one locally, minus anything that is not an image.
+   */
+  invoke('cockpit:imageFile', allow('observe'), (projectPath: string, filePath: string, size?: string) =>
+    readImageFileFor(String(projectPath), String(filePath), size));
+  async function readImageFileFor(projectPath: string, filePath: string, size?: string): Promise<ViewImage | null> {
+    if (!isAllowedPath(effFolders(), projectPath)) return null;
+    const resolved = resolveAgentFilePath(projectPath, filePath, homedir());
+    if (!VIEWABLE_IMAGE_EXT.test(resolved) || !isAllowedFilePath(effFolders(), resolved, [tmpdir()])) return null;
+    try {
+      const st = await stat(resolved);
+      if (!st.isFile() || st.size > MAX_VIEW_IMAGE_FILE_BYTES) return null;
+      const ext = resolved.slice(resolved.lastIndexOf('.') + 1).toLowerCase();
+      return encodeImageForView(await readFile(resolved), IMAGE_MIME[ext] ?? 'image/png', size);
+    } catch { return null; }
+  }
+
+  /** Run `claude update` here; the cockpit has already stopped every Claude session holding the executable. */
+  invoke('agent:updateClaude', localOnly, () => runClaudeUpdate());
 
   // One-shot idle shutdown (win32 only — cfg.shutdown is null elsewhere so none of this registers).
   // Lifecycle invokes return the fresh status so the renderer can update without a round-trip race.

@@ -7,7 +7,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { activityOrderStamp, filterSessions, groupByActivity, needsAttentionCount, numberCollidingNames, cockpitListSignature, shouldNotifyAttention, foldProjectActivity, sessionNavigationItem, tileHoldingSession, type CockpitSession } from '../shared/cockpitModel';
 import type { ShellSessionAction, ShellSessionGroup, ShellSessionInput } from '../shared/shellNavigation';
-import { agentUpdateReady, computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
+import { agentUpdateFailed, agentUpdateReady, computeActivity, stripAnsi, type ActivityState } from '../shared/sessionStatus';
 import { friendlyModel, contextPercent, contextSeverity } from '../shared/sessionMeta';
 import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
@@ -27,6 +27,8 @@ import { ptyCompatFor } from './ptyCompat';
 import { followPtySize, type TerminalDims } from '../shared/terminalSize';
 import { basename } from '../shared/paths';
 import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
+import { imageStripState, initImageStrip, openSingleImage, refreshImages, showImagesFor, toggleImageStrip, type ImageSource } from './imageStrip';
+import { attachFiles, pathsAsPrompt } from './attachments';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
@@ -66,6 +68,8 @@ interface Live {
   ptyCap: TerminalDims | null;
   /** The agent says a newer version of itself is installed and waiting for a restart. */
   updateReady: boolean;
+  /** Its screen says its own background update failed (on Windows: the executable was in use). */
+  updateFailed: boolean;
   /** The person asked for that restart while a turn was running; it happens when the turn ends. */
   updateWhenIdle: boolean;
   /** When this terminal last changed size: the repaint that follows is not the agent doing anything. */
@@ -152,6 +156,20 @@ export function mountCockpit(): void {
   termsEl = document.getElementById('ck-terms')!;
   emptyEl = document.getElementById('ck-empty')!;
   mainEl = document.querySelector('#view-cockpit .ck-main')!;
+  const strip = document.getElementById('ck-images');
+  // The strip opening or closing changes the terminal's height, and its count lives in the header.
+  if (strip) initImageStrip(strip, () => { if (!editingId) renderHeader(); scheduleLayout(); });
+  // Mid-turn, new screenshots show up as they are taken rather than at the end of the turn; between
+  // turns a slow re-read still catches images written some other way (another process, a resume).
+  // Only the selected session is ever read, and an unchanged transcript costs one stat.
+  let imageTick = 0;
+  setInterval(() => {
+    if (document.hidden) return;
+    const sel = selectedId ? live.get(selectedId) : null;
+    if (!sel || sel.session.agentId !== 'claude') return;
+    imageTick = (imageTick + 1) % 6;
+    if (sel.session.activity === 'working' || imageTick === 0) void refreshImages();
+  }, 5000);
   // The toolbar's Refresh is the button users already press when a terminal looks wrong; make it
   // mean that. The deck reload is wired separately, in projectsView — both listeners fire.
   document.getElementById('refresh')?.addEventListener('click', () => {
@@ -653,6 +671,47 @@ function pasteClipboardText(term: Terminal): void {
   void window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
 }
 
+/** Give files to a session: by their own path locally, as uploaded images on another machine. */
+async function attachToTerminal(files: File[], machineId: string, term: Terminal): Promise<void> {
+  const out = await attachFiles(files, {
+    local: machineId === LOCAL_MACHINE_ID,
+    receiveImage: (b64) => deckFor(machineId).cockpit.receiveImage(b64),
+    pathForFile: (f) => window.devdeck.cockpit.pathForFile(f),
+  });
+  if (out.paths.length) { term.paste(pathsAsPrompt(out.paths)); term.focus(); }
+  // Every file that did not make it is said out loud: an attachment that silently went missing is
+  // one the person goes on talking about while the agent never saw it.
+  const notes: string[] = [];
+  if (out.paths.length) notes.push(tr('cockpit.attached', { count: String(out.paths.length) }));
+  if (out.skippedNonImage) notes.push(tr('cockpit.attach_images_only', { count: String(out.skippedNonImage), machine: machineName(machineId) }));
+  if (out.tooLarge) notes.push(tr('cockpit.remote_image_too_large'));
+  if (out.failed) notes.push(tr('cockpit.remote_image_failed'));
+  if (notes.length) toast(notes.join(' · '));
+}
+
+/** 📎: the same as a drop, through the system file picker. */
+function pickAttachments(machineId: string, term: Terminal): void {
+  const input = document.createElement('input'); input.type = 'file'; input.multiple = true;
+  // A remote session can only take images, so the picker offers only those there.
+  if (machineId !== LOCAL_MACHINE_ID) input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/bmp';
+  input.addEventListener('change', () => { const files = Array.from(input.files ?? []); if (files.length) void attachToTerminal(files, machineId, term); });
+  input.click();
+}
+
+/** Where the image strip reads a session's images from: the machine running it. */
+function imageSourceFor(l: { session: CockpitSession; machineId: string; openedSessionId: string | null }): ImageSource | null {
+  const sid = l.openedSessionId;
+  if (!sid || l.session.agentId !== 'claude') return null;
+  const deck = deckFor(l.machineId);
+  const projectPath = l.session.projectPath;
+  return {
+    key: `${l.machineId}|${projectPath}|${sid}`,
+    list: () => deck.cockpit.sessionImages(projectPath, sid, 'claude'),
+    get: (id, size) => deck.cockpit.sessionImage(projectPath, sid, id, size),
+    openFile: l.machineId === LOCAL_MACHINE_ID ? (path) => { void window.devdeck.cockpit.openFile(projectPath, path); } : undefined,
+  };
+}
+
 async function pasteImageToRemote(machineId: string, term: Terminal): Promise<void> {
   let payload: { tooLarge: boolean; bytes: string | null } | null = null;
   try { payload = await window.devdeck.clipboard.readImageBytes(); } catch { payload = null; }
@@ -778,7 +837,11 @@ async function buildTile(p: OpenReq): Promise<boolean> {
             // A remote session's paths belong to the OTHER machine. Opening them here would either
             // fail the allowlist or — far worse — open a same-named file that exists locally and is
             // entirely unrelated work. Refuse and say why rather than open the wrong thing.
-            if (machineId !== LOCAL_MACHINE_ID) { toast(tr('cockpit.remote_file_unavailable', { machine: machineName(machineId) })); return; }
+            // An IMAGE, though, can travel: its pixels are read over there and shown here.
+            if (machineId !== LOCAL_MACHINE_ID) {
+              if (/.(?:png|jpe?g|gif|webp|bmp)$/i.test(text)) { openSingleImage(() => deckFor(machineId).cockpit.imageFile(p.path, text, 'full'), text); return; }
+              toast(tr('cockpit.remote_file_unavailable', { machine: machineName(machineId) })); return;
+            }
             void window.devdeck.cockpit.openFile(p.path, text);
           },
         })),
@@ -787,6 +850,19 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     },
   };
   term.registerLinkProvider(linkProvider);
+  // Files dropped on the terminal are handed to the agent by path, as 📎 does (see attachments.ts).
+  // preventDefault on dragover is what makes this a drop target at all — without it Electron would
+  // navigate the window to the dropped file.
+  el.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; el.classList.add('drop-target');
+  });
+  el.addEventListener('dragleave', (e) => { if (!el.contains(e.relatedTarget as Node | null)) el.classList.remove('drop-target'); });
+  el.addEventListener('drop', (e) => {
+    e.preventDefault(); el.classList.remove('drop-target');
+    const files = Array.from(e.dataTransfer?.files ?? []);
+    if (files.length) void attachToTerminal(files, machineId, term);
+  });
   // Resolve the Ctrl+C copy-vs-SIGINT conflict (and Ctrl+V paste) before xterm forwards the key.
   // Returning false stops xterm processing it, so 'copy'/'paste' never reach the PTY as keystrokes.
   term.attachCustomKeyEventHandler((e) => {
@@ -902,7 +978,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     // history to paint, so it writes through from the first byte.
     replayPending: adopting ? [] : null,
     ptyCap: null,
-    updateReady: false, updateWhenIdle: false, resizedAt: 0,
+    updateReady: false, updateFailed: false, updateWhenIdle: false, resizedAt: 0,
   });
   // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
   // blank rectangle until the agent next speaks — which, while it is thinking, can be minutes, and
@@ -1471,6 +1547,7 @@ function select(id: string): void {
   renderList(); renderHeader();
   void refreshMeta(id);
   void refreshGit(id);
+  void refreshImages(); // renderHeader pointed the strip at this session; a re-select re-reads it too
   // Selecting a tile is when its provider is most visible (header mark + usage footer) — re-check it
   // here too instead of waiting up to 30s for the tick. Main's listing is cached, so this is cheap.
   void refreshProvider(id);
@@ -1587,6 +1664,11 @@ function tickActivity(): void {
       recentOutput: l.recentOutput, screenText, prev: prev === 'offline' ? 'idle' : prev, spinnerReliable: l.session.agentId === 'claude',
     });
     const updateReady = l.session.status !== 'exited' && agentUpdateReady(l.session.agentId, screenText);
+    const updateFailed = l.session.status !== 'exited' && !updateReady && agentUpdateFailed(l.session.agentId, screenText);
+    if (updateFailed !== l.updateFailed) {
+      l.updateFailed = updateFailed;
+      if (l.session.id === selectedId && !editingId) renderHeader();
+    }
     if (updateReady !== l.updateReady) {
       l.updateReady = updateReady;
       if (!updateReady) l.updateWhenIdle = false;
@@ -1599,6 +1681,8 @@ function tickActivity(): void {
     }
     if (next !== prev) {
       l.session.activity = next; changed = true;
+      // A turn just ended: whatever it looked at is in the transcript now.
+      if (prev === 'working' && l.session.id === selectedId) void refreshImages();
       // A turn just finished → a new assistant model may have been logged; refresh so the sidebar model
       // isn't stuck on the previous turn's model after a /model switch (only otherwise refreshed on the
       // 30s tick). The drift check rides along so a /clear is adopted within seconds of the next turn,
@@ -1980,6 +2064,7 @@ function renderHeader(): void {
   if (!headerEl) return; // may be called (via setCockpitContextWindow) before mountCockpit wired the DOM
   headerEl.replaceChildren();
   const l = selectedId ? live.get(selectedId) : null;
+  showImagesFor(l ? imageSourceFor(l) : null);
   if (!l) return;
   const s = l.session;
   const title = document.createElement('span'); title.className = 'title';
@@ -2012,6 +2097,21 @@ function renderHeader(): void {
     void window.devdeck.openFolder(s.projectPath);
   });
   const restart = actBtn('restart', tr('cockpit.restart'), () => restartSession(s.id));
+  const attach = actBtn('paperclip', tr(l.machineId === LOCAL_MACHINE_ID ? 'cockpit.attach' : 'cockpit.attach_remote'), () => pickAttachments(l.machineId, l.term));
+  // The image strip's toggle, with how many images there are — and how many arrived unseen, which is
+  // the reason to open it.
+  const images: HTMLElement[] = [];
+  if (s.agentId === 'claude') {
+    const st = imageStripState();
+    const b = actBtn('image', tr(st.open ? 'cockpit.images_hide' : 'cockpit.images_show'), () => toggleImageStrip());
+    b.classList.toggle('on', st.open); b.setAttribute('aria-pressed', String(st.open));
+    if (st.total > 0) {
+      const n = document.createElement('span'); n.className = `ck-img-count${st.unseen > 0 ? ' new' : ''}`;
+      n.textContent = st.unseen > 0 ? `+${st.unseen}` : String(st.total);
+      b.appendChild(n);
+    }
+    images.push(b);
+  }
   const close = actBtn('close', tr('cockpit.close'), () => void requestClose(s.id));
   // The agent installed a newer version of itself and is waiting to be restarted. Claude Code's own
   // in-session `/restart` exists only on macOS and Linux; on Windows the way to the new version was to
@@ -2024,7 +2124,18 @@ function renderHeader(): void {
     b.addEventListener('click', () => applyAgentUpdate(s.id));
     update.push(b);
   }
-  headerEl.append(...pills, sp, ...update, newSession, pin, rename, folder, restart, close);
+  // Every Claude session here at once: stop them, run `claude update` with nothing holding the
+  // executable, bring the same conversations back. Offered beside a single tile's update when there
+  // are others to take along, and as the fix when the agent's own background update failed.
+  const localClaude = localClaudeTiles().length;
+  if (l.machineId === LOCAL_MACHINE_ID && s.agentId === 'claude' && (l.updateFailed || (l.updateReady && localClaude > 1))) {
+    const b = document.createElement('button'); b.className = 'ck-pill ck-update';
+    b.append(createIcon('restart'), claudeUpdateRunning ? tr('cockpit.update_all_running') : tr('cockpit.update_all', { count: String(localClaude) }));
+    b.title = tr('cockpit.update_all_title'); b.disabled = claudeUpdateRunning;
+    b.addEventListener('click', () => void updateAllClaude());
+    update.push(b);
+  }
+  headerEl.append(...pills, sp, ...update, ...images, attach, newSession, pin, rename, folder, restart, close);
 }
 
 /** "+ New session": spawn another, fresh conversation in the SAME project as the selected session. */
@@ -2055,6 +2166,21 @@ async function restartSession(id: string, ask = true): Promise<void> {
   const name = liveLabels.get(id) ?? l.session.name;
   if (ask && !(await confirmDialog(tr('cockpit.restart_confirm', { name }), tr('cockpit.restart')))) return;
   const still = live.get(id); if (!still) return; // closed while the question was up
+  const plan = await planReopen(still);
+  if (!plan) return; // closed or rebuilt while we asked
+  // The old agent may still be flushing its transcript; resuming the same conversation on top of a
+  // process that has not exited yet gives two writers one file.
+  const exited = still.machineId === LOCAL_MACHINE_ID && still.session.status !== 'exited' ? waitForExit(id, 3_000) : Promise.resolve();
+  closeSession(id);
+  await exited;
+  await reopen(plan);
+}
+
+interface ReopenPlan { p: OpenReq; entry: PersistedSession; tileId: string }
+
+/** How to bring a tile's conversation back after its process is stopped — null if it went away meanwhile. */
+async function planReopen(still: Live): Promise<ReopenPlan | null> {
+  const id = still.session.id;
   // Carry the user-given label + pin into the re-created session — ⟳ must not silently reset them.
   // A tile that never learned its conversation id (Codex/Antigravity before drift settles) restarts
   // FRESH: "auto" without an id is "continue", the project's newest conversation, which may well be
@@ -2068,7 +2194,7 @@ async function restartSession(id: string, ask = true): Promise<void> {
       const [exists] = await deckFor(still.machineId).cockpit.sessionsExist([{ projectPath: still.session.projectPath, sessionId: still.openedSessionId, agentId: still.session.agentId }]);
       resumable = exists !== false;
     } catch { /* could not ask: try the resume, as before */ }
-    if (live.get(id) !== still) return; // closed or rebuilt while we asked
+    if (live.get(id) !== still) return null; // closed or rebuilt while we asked
   }
   const p: OpenReq = {
     path: still.session.projectPath, name: still.session.name, staleLevel: still.session.staleLevel,
@@ -2080,16 +2206,60 @@ async function restartSession(id: string, ask = true): Promise<void> {
     label: still.customLabel, pinned: still.pinned || undefined, lastActiveMs: liveActivityAt(still),
     machineId: still.machineId === LOCAL_MACHINE_ID ? undefined : still.machineId,
   };
-  // The old agent may still be flushing its transcript; resuming the same conversation on top of a
-  // process that has not exited yet gives two writers one file.
-  const exited = still.machineId === LOCAL_MACHINE_ID && still.session.status !== 'exited' ? waitForExit(id, 3_000) : Promise.resolve();
-  closeSession(id);
-  await exited;
-  // A restart that cannot reopen (machine went away, path refused) must not cost the tile: it goes
-  // back to the saved list with its name and pin, one click from trying again.
-  if (!(await createSession({ ...p, tileId: still.tileId }))) {
-    restorable = [entry, ...restorable.filter((r) => r.tileId !== entry.tileId)];
-    persist(); renderList();
+  return { p, entry, tileId: still.tileId };
+}
+
+/** A restart that cannot reopen (machine went away, path refused) must not cost the tile: it goes
+ *  back to the saved list with its name and pin, one click from trying again. */
+async function reopen(plan: ReopenPlan): Promise<boolean> {
+  if (await createSession({ ...plan.p, tileId: plan.tileId })) return true;
+  restorable = [plan.entry, ...restorable.filter((r) => r.tileId !== plan.entry.tileId)];
+  persist(); renderList();
+  return false;
+}
+
+function localClaudeTiles(): Live[] {
+  return [...live.values()].filter((l) => l.machineId === LOCAL_MACHINE_ID && l.session.agentId === 'claude' && l.session.status !== 'exited');
+}
+
+let claudeUpdateRunning = false;
+const UPDATE_WAIT_FOR_TURNS_MS = 15 * 60_000;
+
+/**
+ * Update Claude Code with every local Claude session stopped, then resume each conversation.
+ *
+ * On Windows the updater cannot replace claude.exe while any session runs it, so with a deck of
+ * sessions open the background update fails forever. Turns in progress are waited out first — a
+ * restart mid-turn throws that turn away.
+ */
+async function updateAllClaude(): Promise<void> {
+  if (claudeUpdateRunning) return;
+  const count = localClaudeTiles().length;
+  if (!(await confirmDialog(tr('cockpit.update_all_confirm', { count: String(count) }), tr('cockpit.update_all', { count: String(count) })))) return;
+  claudeUpdateRunning = true; renderHeader();
+  try {
+    const deadline = Date.now() + UPDATE_WAIT_FOR_TURNS_MS;
+    let told = false;
+    while (localClaudeTiles().some((l) => l.session.activity === 'working') && Date.now() < deadline) {
+      if (!told) { toast(tr('cockpit.update_all_waiting')); told = true; }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    const tiles = localClaudeTiles();
+    const plans: ReopenPlan[] = [];
+    for (const l of tiles) { const plan = await planReopen(l); if (plan) plans.push(plan); }
+    const exits = tiles.map((l) => waitForExit(l.session.id, 5_000));
+    for (const l of tiles) closeSession(l.session.id);
+    await Promise.all(exits);
+    toast(tr('cockpit.update_all_updating'));
+    let result: { ok: boolean; output: string } = { ok: false, output: '' };
+    try { result = await window.devdeck.cockpit.updateClaude(); } catch (err) { result = { ok: false, output: String(err) }; }
+    const lastLine = result.output.split('\n').map((s) => s.trim()).filter(Boolean).pop() ?? '';
+    toast(result.ok ? tr('cockpit.update_all_done', { detail: lastLine.slice(0, 160) }) : tr('cockpit.update_all_failed', { detail: lastLine.slice(0, 160) }));
+    window.devdeck.logDiagnostic(`claude update ${result.ok ? 'ok' : 'failed'}: ${lastLine.slice(0, 200)}`, result.ok ? 'info' : 'warn', 'cockpit');
+    // Every conversation comes back whether or not the update did: the sessions were stopped for it.
+    for (const plan of plans) await reopen(plan);
+  } finally {
+    claudeUpdateRunning = false; renderHeader();
   }
 }
 
