@@ -41,6 +41,7 @@
     "check:docs": "node scripts/check-docs.mjs",
     "qa:session-sync": "npm run build && node qa/session-sync.mjs",
     "qa:images": "npm run build && node qa/images.mjs",
+    "qa:images-remote": "npm run build && node qa/images-remote.mjs",
     "qa:update": "npm run build && node qa/claude-update.mjs"
   },
   "build": {
