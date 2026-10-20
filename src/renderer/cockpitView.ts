@@ -318,7 +318,47 @@ async function autoRestoreAfterUpdate(pending: PersistedSession[]): Promise<void
   for (const [machineId, n] of offlineByMachine) toast(tr('cockpit.restore_machine_offline_n', { n: String(n), machine: machineName(machineId) }));
   restorable = removeAutoRestoreMatches(restorable, now);
   renderList();
-  for (const entry of now) await restoreSession(entry);
+  await restoreInTurn(now);
+}
+
+const START_QUIET_MS = 1500;
+const START_SILENT_MS = 6000;
+const START_SETTLE_MAX_MS = 12_000;
+
+/**
+ * Wait for an agent that was just started to finish starting.
+ *
+ * Restores were already sequential, but "sequential" meant one SPAWN after another: each returns as
+ * soon as the process exists, so eight `claude --resume` startups ran at the same time. Measured on a
+ * 133MB transcript, one resume peaks at 1.6GB and ~10 CPU-seconds; four at once peaked at 6.6GB and
+ * 88 CPU-seconds inside five seconds, and each kept ~1.3GB afterwards. A machine restoring eight —
+ * after a reboot, or a paired deck reconnecting and restoring its tiles there — has every core and
+ * several GB taken at once, which is the "other PC freezes for two or three minutes" report.
+ *
+ * Done when output has arrived and then stopped for a moment (the agent drew its screen and waits),
+ * or when nothing has arrived at all for a while (an adopted session that is already running and
+ * quiet), or at a ceiling — a session that never goes quiet must not stall the rest.
+ */
+async function settleAfterStart(tileId: string | undefined): Promise<void> {
+  if (!tileId) return;
+  const started = Date.now();
+  while (Date.now() - started < START_SETTLE_MAX_MS) {
+    const l = [...live.values()].find((x) => x.tileId === tileId);
+    if (!l || l.session.status === 'exited') return;
+    const now = Date.now();
+    const hasOutput = l.lastDataAt > l.openedAt;
+    if (hasOutput && now - l.lastDataAt >= START_QUIET_MS) return;
+    if (!hasOutput && now - l.openedAt >= START_SILENT_MS) return;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+/** Restore saved entries one at a time, each starting only once the one before has finished starting. */
+async function restoreInTurn(entries: PersistedSession[]): Promise<void> {
+  for (const entry of entries) {
+    await restoreSession(entry);
+    await settleAfterStart(entry.tileId);
+  }
 }
 
 /**
@@ -348,6 +388,7 @@ async function autoRestoreAtLaunch(candidates: PersistedSession[]): Promise<void
     // The remembered selection may have reopened this one while the list was being read.
     if (entry.sessionId && [...live.values()].some((l) => l.openedSessionId === entry.sessionId)) continue;
     await restoreSession(entry);
+    await settleAfterStart(entry.tileId);
   }
 }
 
@@ -2271,6 +2312,7 @@ async function updateAllClaude(): Promise<void> {
     // Every conversation comes back whether or not the update did: the sessions were stopped for it.
     for (const plan of plans) {
       if (await reopen(plan)) { restorable = restorable.filter((r) => r.tileId !== plan.entry.tileId); persist(); renderList(); }
+      await settleAfterStart(plan.tileId);
     }
   } finally {
     claudeUpdateRunning = false; renderHeader();
@@ -2602,7 +2644,7 @@ function renameInput(id: string, current: string): HTMLElement {
 }
 
 async function restoreAll(): Promise<void> {
-  for (const entry of [...restorable]) await restoreSession(entry);
+  await restoreInTurn([...restorable]);
 }
 
 function forgetSession(entry: PersistedSession): void {
