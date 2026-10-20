@@ -326,6 +326,8 @@
   "usage.state_offline": "연결 실패",
   "usage.state_rate_limited": "API 혼잡",
   "usage.state_unsupported": "CLI에서 확인",
+  "usage.state_refresh_pending": "자동 갱신 대기",
+  "usage.refresh_pending_hint": "Claude Code가 다음에 응답할 때 로그인이 자동으로 갱신됩니다 — 다시 로그인할 필요 없음",
   "usage.local_title": "Claude Code + Codex 로컬 분석",
   "usage.local_explainer": "~/.claude 및 ~/.codex 로그에서 계산한 API 환산 토큰·비용 기록입니다. 실제 구독 청구액과 다를 수 있으며, 안정적인 로컬 비용 데이터가 없는 Antigravity는 포함하지 않습니다. 하단 사용량 바는 기존처럼 실시간 구독 한도를 표시합니다.",
   "usage.range_label": "분석 기간",

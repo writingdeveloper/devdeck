@@ -8,7 +8,11 @@ import { parseClaudeUsageResponse, type ProviderUsage } from '../shared/usageWin
 const API_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 256 * 1024;
 
-export interface Credentials { accessToken: string; subscriptionType: string; expiresAt: number | null; }
+export interface Credentials {
+  accessToken: string; subscriptionType: string; expiresAt: number | null;
+  /** Whether a refresh token is on disk, and when it stops working. The token itself is never read out. */
+  hasRefreshToken?: boolean; refreshTokenExpiresAt?: number | null;
+}
 export interface FetchResult { ok: boolean; body?: unknown; status?: number; }
 
 export interface UsageDeps {
@@ -57,7 +61,16 @@ export async function getClaudeUsage(deps: UsageDeps): Promise<ProviderUsage> {
 
   const creds = deps.readCredentials();
   if (!creds) return result('login-required', now);
-  if (creds.expiresAt != null && creds.expiresAt <= now) return result('expired', now);
+  if (creds.expiresAt != null && creds.expiresAt <= now) {
+    // The access token lives ~8 hours and Claude Code renews it only when it next calls the API, so an
+    // idle night leaves an expired one on disk every morning. That is not a lost sign-in: while the
+    // refresh token is still good, the next reply renews the file and the following poll recovers.
+    // Calling it "expired" sent the user through /login daily for nothing. DevDeck must not refresh it
+    // itself — refresh tokens rotate, and the running Claude Code sessions would be left holding a dead one.
+    const refreshable = creds.hasRefreshToken === true
+      && (creds.refreshTokenExpiresAt == null || creds.refreshTokenExpiresAt > now);
+    return result(refreshable ? 'refresh-pending' : 'expired', now);
+  }
 
   const plan = planName(creds.subscriptionType);
   if (!plan) return result('not-applicable', now); // API / custom-key mode has no subscription windows
@@ -84,6 +97,8 @@ export function readClaudeCredentials(home = homedir()): Credentials | null {
       accessToken,
       subscriptionType: typeof o.subscriptionType === 'string' ? o.subscriptionType : '',
       expiresAt: typeof o.expiresAt === 'number' ? o.expiresAt : null,
+      hasRefreshToken: typeof o.refreshToken === 'string' && o.refreshToken.length > 0,
+      refreshTokenExpiresAt: typeof o.refreshTokenExpiresAt === 'number' ? o.refreshTokenExpiresAt : null,
     };
   } catch { return null; }
 }

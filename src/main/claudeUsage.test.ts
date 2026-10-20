@@ -57,6 +57,20 @@ describe('getClaudeUsage', () => {
     expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, expiresAt: 500 }) }))).state).toBe('expired');
   });
 
+  it('expired access token with a live refresh token => refresh-pending, not a re-login', async () => {
+    let fetched = false;
+    const fetchUsage = async () => { fetched = true; return { ok: false, status: 401 }; };
+    const pending = await getClaudeUsage(deps({ fetchUsage, readCredentials: () => ({ ...baseCreds, expiresAt: 500, hasRefreshToken: true, refreshTokenExpiresAt: 5000 }) }));
+    expect(pending.state).toBe('refresh-pending');
+    expect(fetched).toBe(false);
+    expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, expiresAt: 500, hasRefreshToken: true, refreshTokenExpiresAt: null }) }))).state).toBe('refresh-pending');
+  });
+
+  it('expired access token whose refresh token is gone or expired => expired', async () => {
+    expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, expiresAt: 500, hasRefreshToken: true, refreshTokenExpiresAt: 900 }) }))).state).toBe('expired');
+    expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, expiresAt: 500, hasRefreshToken: false }) }))).state).toBe('expired');
+  });
+
   it('api subscription => not-applicable', async () => {
     expect((await getClaudeUsage(deps({ readCredentials: () => ({ ...baseCreds, subscriptionType: 'api' }) }))).state).toBe('not-applicable');
   });

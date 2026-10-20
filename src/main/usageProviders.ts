@@ -18,7 +18,7 @@ export function antigravityUsage(now: number): ProviderUsage {
   };
 }
 
-const STATES: UsageProviderState[] = ['ready', 'stale', 'login-required', 'expired', 'not-applicable', 'cli-missing', 'offline', 'rate-limited', 'unsupported'];
+const STATES: UsageProviderState[] = ['ready', 'stale', 'login-required', 'expired', 'not-applicable', 'cli-missing', 'offline', 'rate-limited', 'unsupported', 'refresh-pending'];
 const KINDS = ['session', 'weekly', 'model-weekly', 'primary', 'secondary'];
 
 function sanitizeLimit(v: unknown): UsageLimit | null {
@@ -65,7 +65,7 @@ export interface UsageCoordinatorDeps {
 }
 
 /** States that carry no numbers of their own — for these, last-good data is worth keeping as `stale`. */
-const DATALESS = new Set<UsageProviderState>(['offline', 'rate-limited', 'expired']);
+const DATALESS = new Set<UsageProviderState>(['offline', 'rate-limited', 'expired', 'refresh-pending']);
 
 /**
  * Ceiling on one provider read, above every provider's own timeouts.
