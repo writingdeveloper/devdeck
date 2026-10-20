@@ -8,6 +8,12 @@ updates:
     groups:
       test-tooling:
         patterns: ["vitest", "@vitest/*", "vite"]
+    ignore:
+      # The types describe the Node that RUNS the code, which is the one bundled in Electron (24 in
+      # Electron 43). A newer major would type-check APIs that do not exist at runtime; move it with
+      # Electron, by hand.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
