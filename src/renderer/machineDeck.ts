@@ -41,6 +41,10 @@ export interface DeckFacade {
     liveSessionId: (projectPath: string, opts: unknown) => Promise<string | null>;
     liveAgent: (id: string) => Promise<import('../shared/types').AgentId | null>;
     gitInfo: (projectPath: string) => Promise<{ branch: string | null; dirty: number } | null>;
+    receiveImage: (base64: string) => Promise<string | null>;
+    sessionImages: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionImageRef[]>;
+    sessionImage: (projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full') => Promise<import('../main/imageView').ViewImage | null>;
+    imageFile: (projectPath: string, filePath: string, size?: 'thumb' | 'full') => Promise<import('../main/imageView').ViewImage | null>;
   };
 }
 
@@ -98,6 +102,11 @@ export function deckFor(machineId: string): DeckFacade {
       // themselves; the machine's own API only knows the bare id it minted.
       liveAgent: (id) => remote.cockpit.liveAgent(parseRemoteId(id).hostId),
       gitInfo: (projectPath) => remote.cockpit.gitInfo(projectPath),
+      receiveImage: (base64) => remote.cockpit.receiveImage(base64),
+      // A host older than the image panel has no such method; it simply has no images to show.
+      sessionImages: (projectPath, sessionId, agentId) => remote.cockpit.sessionImages(projectPath, sessionId, agentId).catch(() => []),
+      sessionImage: (projectPath, sessionId, imageId, size) => remote.cockpit.sessionImage(projectPath, sessionId, imageId, size).catch(() => null),
+      imageFile: (projectPath, filePath, size) => remote.cockpit.imageFile(projectPath, filePath, size).catch(() => null),
     },
   };
 }

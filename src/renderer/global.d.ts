@@ -65,6 +65,9 @@ declare global {
           liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;
           gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
           receiveImage(base64: string): Promise<string | null>;
+          sessionImages(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionImageRef[]>;
+          sessionImage(projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
+          imageFile(projectPath: string, filePath: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
           liveSessions(): Promise<import('../main/ptyHost').PtySessionInfo[]>;
           sessionBuffer(id: string): Promise<string>;
           sessionScreen(id: string): Promise<{ data: string; cols: number; rows: number }>;
@@ -151,6 +154,12 @@ declare global {
         gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
         openLink(url: string): Promise<void>;
         openFile(projectPath: string, filePath: string): Promise<string>;
+        receiveImage(base64: string): Promise<string | null>;
+        sessionImages(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionImageRef[]>;
+        sessionImage(projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
+        imageFile(projectPath: string, filePath: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
+        updateClaude(): Promise<import('../main/agentUpdate').AgentUpdateResult>;
+        pathForFile(file: File): string;
       };
       shutdown: {
         arm(): Promise<import('../main/shutdownScheduler').ShutdownStatus>;

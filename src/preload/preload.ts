@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 contextBridge.exposeInMainWorld('devdeck', {
   listProjects: () => ipcRenderer.invoke('projects:list'),
@@ -106,6 +106,13 @@ contextBridge.exposeInMainWorld('devdeck', {
     gitInfo: (projectPath: string) => ipcRenderer.invoke('cockpit:gitInfo', projectPath),
     openLink: (url: string) => ipcRenderer.invoke('cockpit:openLink', url),
     openFile: (projectPath: string, filePath: string) => ipcRenderer.invoke('cockpit:openFile', projectPath, filePath),
+    receiveImage: (base64: string) => ipcRenderer.invoke('cockpit:receiveImage', base64),
+    sessionImages: (projectPath: string, sessionId: string, agentId?: string) => ipcRenderer.invoke('cockpit:sessionImages', projectPath, sessionId, agentId),
+    sessionImage: (projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full') => ipcRenderer.invoke('cockpit:sessionImage', projectPath, sessionId, imageId, size),
+    imageFile: (projectPath: string, filePath: string, size?: 'thumb' | 'full') => ipcRenderer.invoke('cockpit:imageFile', projectPath, filePath, size),
+    updateClaude: () => ipcRenderer.invoke('agent:updateClaude'),
+    /** The on-disk path of a dropped or picked File; '' when it has none (dragged out of a browser). */
+    pathForFile: (file: File): string => { try { return webUtils.getPathForFile(file); } catch { return ''; } },
   },
   shutdown: {
     arm: () => ipcRenderer.invoke('shutdown:arm'),
@@ -179,6 +186,9 @@ contextBridge.exposeInMainWorld('devdeck', {
       liveAgent: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveAgent', [id]),
       gitInfo: (projectPath: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:gitInfo', [projectPath]),
       receiveImage: (base64: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:receiveImage', [base64]),
+      sessionImages: (projectPath: string, sessionId: string, agentId?: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionImages', [projectPath, sessionId, agentId]),
+      sessionImage: (projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full') => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionImage', [projectPath, sessionId, imageId, size]),
+      imageFile: (projectPath: string, filePath: string, size?: 'thumb' | 'full') => ipcRenderer.invoke('link:call', machineId, 'cockpit:imageFile', [projectPath, filePath, size]),
       liveSessions: () => ipcRenderer.invoke('link:call', machineId, 'cockpit:liveSessions', []),
       sessionBuffer: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionBuffer', [id]),
       sessionScreen: (id: string) => ipcRenderer.invoke('link:call', machineId, 'cockpit:sessionScreen', [id]),

@@ -107,3 +107,13 @@ export function agentUpdateReady(agentId: string, screenText: string): boolean {
   // carry it turns it into something else without changing what the notice says.
   return /Update installed\W{1,6}Restart to apply/i.test(screenText);
 }
+
+/**
+ * Whether the agent's screen says its own background update FAILED. On Windows that is what happens
+ * while other sessions are running the executable it needs to replace — the fix is to stop them all,
+ * update, and start them again, which the cockpit offers as one action.
+ */
+export function agentUpdateFailed(agentId: string, screenText: string): boolean {
+  if (agentId !== 'claude') return false;
+  return /Auto-?update failed/i.test(screenText);
+}

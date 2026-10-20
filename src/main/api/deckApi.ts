@@ -2,7 +2,7 @@ import { createSessionLabels } from '../sessionLabels';
 import { dialog, shell, app, clipboard, type BrowserWindow } from 'electron';
 import { homedir, release, tmpdir } from 'node:os';
 import path, { join } from 'node:path';
-import { stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { Store } from '../store';
@@ -31,6 +31,9 @@ import { validThresholds } from '../../shared/settingsValidation';
 import { sanitizeTodos } from '../../shared/tasks';
 import { getClaudeUsage, readClaudeCredentials, fetchUsageApi } from '../claudeUsage';
 import { getCodexUsage, spawnCodexAppServer } from '../codexUsage';
+import { claudeTranscriptPath, listSessionImages, readEmbeddedImage } from '../sessionImages';
+import { encodeImageForView, MAX_VIEW_IMAGE_FILE_BYTES, VIEWABLE_IMAGE_EXT, type ViewImage } from '../imageView';
+import { runClaudeUpdate } from '../agentUpdate';
 import { UsageCoordinator, antigravityUsage } from '../usageProviders';
 import { pickAdoptedSessionId, pickDriftedSessionId, type PersistedSession } from '../../shared/cockpitPersist';
 import { makeAgentProbe } from '../agentProcess';
@@ -75,6 +78,22 @@ const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
  *  link's frame limit once base64 expansion is counted. */
 const MAX_PASTE_IMAGE_BYTES = 5 * 1024 * 1024;
 const REMOTE_IMAGE_BYTES_PER_HOUR = 200 * 1024 * 1024;
+/**
+ * Image reads decode and re-encode on THIS process. Opening the strip asks for dozens of thumbnails
+ * at once, and a paired device can ask as fast as its rate limit allows; unbounded, that is the
+ * main-process stall v1.37.0 removed. A few at a time, and thumbnails are remembered.
+ */
+const IMAGE_WORK_CONCURRENCY = 3;
+const IMAGE_THUMB_CACHE = 300;
+const imageThumbs = new Map<string, ViewImage>();
+let imageWorkActive = 0;
+const imageWorkQueue: (() => void)[] = [];
+async function imageWork<T>(work: () => Promise<T>): Promise<T> {
+  // A finishing job hands its slot straight to the next waiter, so a newcomer cannot slip in between.
+  if (imageWorkActive >= IMAGE_WORK_CONCURRENCY) await new Promise<void>((resolve) => imageWorkQueue.push(resolve));
+  else imageWorkActive++;
+  try { return await work(); } finally { const next = imageWorkQueue.shift(); if (next) next(); else imageWorkActive--; }
+}
 /** The note box says so too (maxLength): a note longer than this was cut off silently on save. */
 const MAX_NOTE_CHARS = 10_000;
 
@@ -1153,6 +1172,82 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     if (err) { cfg.sendError(`Could not open file: ${err}`); return 'error'; }
     return 'ok';
   });
+
+  /**
+   * The images a session handled — tool screenshots, pasted images, image files it touched — for the
+   * cockpit's image panel, which is the terminal's answer to Claude Desktop showing them inline.
+   * Claude only: the other agents do not record images in their logs.
+   */
+  invoke('cockpit:sessionImages', allow('observe'), async (projectPath: string, sessionId: string, agentId?: AgentId) => {
+    const pp = String(projectPath);
+    if (!isAllowedPath(effFolders(), pp) || agentFor(agentId).id !== 'claude' || typeof sessionId !== 'string') return [];
+    const file = claudeTranscriptPath(pp, sessionId, CLAUDE_PROJECTS);
+    return file ? listSessionImages(file) : [];
+  });
+  /**
+   * One of those images, as a thumbnail or at full size.
+   *
+   * Only an id the session's own index holds is served — an arbitrary byte offset or file path is
+   * not a request this method answers, so a paired device holding `observe` reads exactly the images
+   * the strip would show it and nothing else.
+   */
+  invoke('cockpit:sessionImage', allow('observe'), async (projectPath: string, sessionId: string, imageId: string, size?: string) => {
+    const pp = String(projectPath);
+    if (!isAllowedPath(effFolders(), pp) || typeof sessionId !== 'string' || typeof imageId !== 'string') return null;
+    const file = claudeTranscriptPath(pp, sessionId, CLAUDE_PROJECTS);
+    if (!file) return null;
+    const ref = (await listSessionImages(file)).find((r) => r.id === imageId);
+    if (!ref) return null;
+    const key = `${file}|${imageId}|${ref.ts ?? ''}`; // a file the agent wrote again is a new image
+    if (size === 'thumb') { const hit = imageThumbs.get(key); if (hit) return hit; }
+    const out = await imageWork(async () => {
+      if (ref.kind === 'file' && ref.path) return readImageFileFor(pp, ref.path, size);
+      const img = await readEmbeddedImage(file, imageId);
+      return img ? encodeImageForView(img.data, size) : null;
+    });
+    if (out && size === 'thumb') {
+      imageThumbs.set(key, out);
+      if (imageThumbs.size > IMAGE_THUMB_CACHE) imageThumbs.delete(imageThumbs.keys().next().value as string);
+    }
+    return out;
+  });
+  /**
+   * An image file a session named, read where the session runs. A remote session's path means
+   * nothing on the viewer's disk, so clicking one used to say "not available here"; now its pixels
+   * travel instead.
+   */
+  invoke('cockpit:imageFile', allow('observe'), (projectPath: string, filePath: string, size?: string) =>
+    imageWork(() => readImageFileFor(String(projectPath), String(filePath), size)));
+  /**
+   * Stricter than opening a file locally, because the caller may be another machine:
+   *  - containment is checked on the REAL path too, so a `.png` symlink or junction inside a project
+   *    cannot reach outside it;
+   *  - of the temp directory only Claude Code's own scratch area and DevDeck's pasted images count —
+   *    not every other application's temp files;
+   *  - the bytes must BE an image (sniffed), whatever the file is called.
+   */
+  async function readImageFileFor(projectPath: string, filePath: string, size?: string): Promise<ViewImage | null> {
+    const folders = effFolders();
+    if (!isAllowedPath(folders, projectPath)) return null;
+    const resolved = resolveAgentFilePath(projectPath, filePath, homedir());
+    if (!VIEWABLE_IMAGE_EXT.test(resolved)) return null;
+    const tmp = tmpdir();
+    const isPaste = path.dirname(resolved).toLowerCase() === tmp.toLowerCase() && path.basename(resolved).startsWith(PASTE_IMAGE_PREFIX);
+    const roots = [...folders.map((f) => f.path), join(tmp, 'claude')];
+    const lexicalRoots = roots.filter((r) => isAllowedFilePath([], resolved, [r]));
+    if (!isPaste && lexicalRoots.length === 0) return null;
+    try {
+      const real = await realpath(resolved);
+      const realRoots = isPaste ? [await realpath(tmp)] : await Promise.all(lexicalRoots.map((r) => realpath(r).catch(() => r)));
+      if (!isAllowedFilePath([], real, realRoots)) return null;
+      const st = await stat(real);
+      if (!st.isFile() || st.size > MAX_VIEW_IMAGE_FILE_BYTES) return null;
+      return encodeImageForView(await readFile(real), size);
+    } catch { return null; }
+  }
+
+  /** Run `claude update` here; the cockpit has already stopped every Claude session holding the executable. */
+  invoke('agent:updateClaude', localOnly, () => runClaudeUpdate());
 
   // One-shot idle shutdown (win32 only — cfg.shutdown is null elsewhere so none of this registers).
   // Lifecycle invokes return the fresh status so the renderer can update without a round-trip race.
