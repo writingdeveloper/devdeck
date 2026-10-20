@@ -117,13 +117,19 @@ jobs:
       - name: Performance gate (fixture agent; animations, DOM churn, main-process stalls)
         if: runner.os == 'Windows'
         run: node qa/perf-gate.mjs
-      - name: Session images, attach and update-all journeys
+      # One step per harness: a multi-line pwsh `run` fails only on its LAST command's exit code.
+      - name: Session images and attach
         if: runner.os == 'Windows'
-        run: |
-          node qa/images.mjs
-          node qa/images-remote.mjs
-          node qa/claude-update.mjs
-          node qa/restore-pacing.mjs
+        run: node qa/images.mjs
+      - name: Session images from a paired host
+        if: runner.os == 'Windows'
+        run: node qa/images-remote.mjs
+      - name: Update all Claude sessions
+        if: runner.os == 'Windows'
+        run: node qa/claude-update.mjs
+      - name: Restored agents start one at a time
+        if: runner.os == 'Windows'
+        run: node qa/restore-pacing.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
