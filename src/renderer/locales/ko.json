@@ -490,6 +490,7 @@
   "cockpit.update_all_updating": "claude update 실행 중…",
   "cockpit.update_all_done": "Claude 업데이트 완료 — 세션을 다시 엽니다. {detail}",
   "cockpit.update_all_failed": "Claude 업데이트 실패 — 세션은 그대로 다시 엽니다. {detail}",
+  "cockpit.update_all_gave_up": "15분이 지나도 작업 중인 Claude 세션이 있어 업데이트를 취소했습니다 — 아무 세션도 멈추지 않았습니다.",
   "cockpit.remote_image_unsupported": "다른 기기의 세션에 이미지를 붙여넣는 건 아직 지원하지 않습니다.",
   "proj.remote_local_only": "그 폴더는 {machine}에 있습니다. 이 동작은 이 컴퓨터의 프로젝트에서만 됩니다.",
   "usage.machine_title": "{machine}의 로컬 사용량",

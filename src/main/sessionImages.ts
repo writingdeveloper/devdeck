@@ -8,6 +8,7 @@ import { SessionImageCollector, embeddedImageBlocks, mergeImageRefs, parseEmbedd
 /** How far back the first look reaches. Transcripts reach 500MB; the images worth seeing are recent. */
 const FIRST_SCAN_TAIL_BYTES = 64 * 1024 * 1024;
 const CHUNK_BYTES = 4 * 1024 * 1024;
+const READ_CHUNK_BYTES = 512 * 1024;
 /** One line holding a screenshot is a few MB; past this it is not a line worth buffering. */
 const MAX_LINE_BYTES = 48 * 1024 * 1024;
 export const MAX_SESSION_IMAGES = 300;
@@ -106,7 +107,7 @@ export async function readEmbeddedImage(file: string, id: string): Promise<{ med
     const parts: Buffer[] = [];
     let total = 0;
     for (let pos = where.offset; pos < size && total < MAX_LINE_BYTES;) {
-      const buf = Buffer.alloc(Math.min(CHUNK_BYTES, size - pos));
+      const buf = Buffer.alloc(Math.min(READ_CHUNK_BYTES, size - pos)); // most lines are small; a screenshot line takes a few reads
       const { bytesRead } = await fh.read(buf, 0, buf.length, pos);
       if (bytesRead <= 0) break;
       const nl = buf.subarray(0, bytesRead).indexOf(10);

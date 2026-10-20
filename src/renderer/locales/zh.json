@@ -490,6 +490,7 @@
   "cockpit.update_all_updating": "正在运行 claude update…",
   "cockpit.update_all_done": "Claude 已更新 — 正在重新打开会话。{detail}",
   "cockpit.update_all_failed": "Claude 更新失败 — 仍会重新打开会话。{detail}",
+  "cockpit.update_all_gave_up": "15 分钟后仍有 Claude 会话在工作，已取消更新 — 没有停止任何会话。",
   "cockpit.remote_image_unsupported": "暂不支持向其他设备上的会话粘贴图片。",
   "proj.remote_local_only": "该文件夹位于 {machine}。此操作仅适用于本机上的项目。",
   "usage.machine_title": "{machine} 的本地用量",

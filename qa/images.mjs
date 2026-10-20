@@ -2,7 +2,7 @@
 // fixture `claude` that echoes what it is sent. Never starts a real agent.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, symlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -30,6 +30,12 @@ const sid = '3f6c2a1e-1111-4222-8333-944455556666';
 const pngA = readFileSync(join(root, 'docs', 'demo', 'poster.png')).toString('base64');
 const pngB = readFileSync(join(root, 'build', 'icon.png')).toString('base64');
 copyFileSync(join(root, 'build', 'icon.png'), join(repo, 'render.png'));
+// What a peer must NOT be able to read through the image methods: a non-image named .png, a real
+// image outside the project, and one reached through a junction inside the project.
+writeFileSync(join(repo, 'secret.png'), 'not an image: TOKEN=abc');
+const outside = join(sandbox, 'outside'); mkdirSync(outside);
+copyFileSync(join(root, 'build', 'icon.png'), join(outside, 'private.png'));
+symlinkSync(outside, join(repo, 'linked'), 'junction');
 const ts = new Date().toISOString();
 const enc = repo.replace(/[^a-zA-Z0-9]/g, '-');
 const tdir = join(home, '.claude', 'projects', enc);
@@ -100,6 +106,17 @@ try {
     await fc.setFiles(join(repo, 'render.png'));
     await win.waitForFunction((p) => [...document.querySelectorAll('.ck-term.show .xterm-rows')].some((r) => r.textContent.replace(/\s/g, '').includes(p.replace(/\s/g, ''))), join(repo, 'render.png'), { timeout: 10000 });
     await win.screenshot({ path: join(shots, '3-attached.png') });
+  });
+
+  await check('image reads refuse non-images, paths outside the project, and junction escapes', async () => {
+    const read = (fp) => win.evaluate(([r, f]) => window.devdeck.cockpit.imageFile(r, f, 'thumb'), [repo, fp]);
+    assert.ok(await read('render.png'), 'a real image in the project is served');
+    assert.equal(await read('secret.png'), null, 'a non-image named .png');
+    assert.equal(await read(join(outside, 'private.png')), null, 'an absolute path outside the folders');
+    assert.equal(await read('../outside/private.png'), null, 'a relative escape');
+    assert.equal(await read('linked/private.png'), null, 'a junction out of the project');
+    const bogus = await win.evaluate(([r]) => window.devdeck.cockpit.sessionImage(r, '3f6c2a1e-1111-4222-8333-944455556666', 'f:secret.png', 'full'), [repo]);
+    assert.equal(bogus, null, 'an id the session index does not hold');
   });
 
   await check('a new image in the transcript shows up as unseen when the strip is closed', async () => {

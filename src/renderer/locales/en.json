@@ -490,6 +490,7 @@
   "cockpit.update_all_updating": "Running claude update…",
   "cockpit.update_all_done": "Claude updated — reopening sessions. {detail}",
   "cockpit.update_all_failed": "Claude update failed — reopening sessions anyway. {detail}",
+  "cockpit.update_all_gave_up": "Some Claude sessions are still busy after 15 minutes — update cancelled, nothing was stopped.",
   "cockpit.remote_image_unsupported": "Pasting an image into a session on another machine is not supported yet.",
   "proj.remote_local_only": "That folder is on {machine}. This action only works on projects on this computer.",
   "usage.machine_title": "Local usage on {machine}",

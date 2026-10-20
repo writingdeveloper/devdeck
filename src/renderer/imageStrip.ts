@@ -27,8 +27,11 @@ let stripEl: HTMLElement | null = null;
 let source: ImageSource | null = null;
 let refs: SessionImageRef[] = [];
 let open = readOpenPref();
-/** Per session: how many images the person had seen when they last had the strip open. */
-const seenCount = new Map<string, number>();
+/**
+ * Per session: the newest image the person had seen when they last had the strip open (null = none).
+ * An id rather than a count, because the list is capped — past the cap its length stops growing.
+ */
+const seenId = new Map<string, string | null>();
 const thumbs = new Map<string, Promise<string | null>>();
 let onCountChange: () => void = () => {};
 let refreshSeq = 0;
@@ -60,25 +63,31 @@ export async function refreshImages(): Promise<void> {
   const seq = ++refreshSeq;
   let list: SessionImageRef[];
   try { list = await src.list(); } catch { return; }
-  if (seq !== refreshSeq || src !== source) return; // the selection moved on while we asked
+  // Compared by key: the header rebuilds the source object for the SAME session on every meta or
+  // git refresh, and a list arriving after one of those is still this session's list.
+  if (seq !== refreshSeq || src.key !== source?.key) return;
   const changed = list.length !== refs.length || list[list.length - 1]?.id !== refs[refs.length - 1]?.id;
   refs = list;
-  if (!seenCount.has(src.key)) seenCount.set(src.key, list.length); // what was there before we looked is not "new"
-  if (open) seenCount.set(src.key, list.length);
+  const newest = list.length ? list[list.length - 1].id : null;
+  if (!seenId.has(src.key)) seenId.set(src.key, newest); // what was there before we looked is not "new"
+  if (open) seenId.set(src.key, newest);
   if (changed) render();
   onCountChange();
 }
 
 export function imageStripState(): { total: number; unseen: number; open: boolean } {
   const total = refs.length;
-  const seen = source ? seenCount.get(source.key) ?? total : total;
-  return { total, unseen: Math.max(0, total - seen), open };
+  if (!source || !seenId.has(source.key)) return { total, unseen: 0, open };
+  const last = seenId.get(source.key) ?? null;
+  const at = last === null ? -1 : refs.findIndex((r) => r.id === last);
+  // Not found: either nothing had been seen, or what was seen has scrolled past the cap — all new.
+  return { total, unseen: at === -1 ? total : total - 1 - at, open };
 }
 
 export function toggleImageStrip(): void {
   open = !open;
   writeOpenPref(open);
-  if (open && source) seenCount.set(source.key, refs.length);
+  if (open && source) seenId.set(source.key, refs.length ? refs[refs.length - 1].id : null);
   render();
   onCountChange();
 }
@@ -114,7 +123,10 @@ function render(): void {
       if (url) img.src = url;
       else { b.classList.add('missing'); b.title = `${label} · ${tr('cockpit.image_unavailable')}`; }
     });
-    b.addEventListener('click', () => openViewer(src, refs, refs.indexOf(ref)));
+    // Looked up by id at click time: a refresh replaces the list with fresh objects without
+    // necessarily re-rendering, and the button must still open the image it shows.
+    const id = ref.id;
+    b.addEventListener('click', () => openViewer(src, refs, refs.findIndex((r) => r.id === id)));
     stripEl.appendChild(b);
   }
 }

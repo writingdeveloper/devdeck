@@ -84,7 +84,7 @@ const RESIZE_ECHO_MS = 700;
 /** Sessions closed here that their machine may still list for a moment — never adopted back. */
 const closedTiles = new CloseTombstones();
 /** Restart waits for the old terminal to be gone before resuming its conversation. */
-const exitWaiters = new Map<string, () => void>();
+const exitWaiters = new Map<string, Set<() => void>>();
 const navigationListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
 const sessionSelectionListeners = new Set<(id: string) => void>();
 const sessionsLoadedListeners = new Set<(items: readonly ShellSessionInput[]) => void>();
@@ -204,7 +204,7 @@ export function mountCockpit(): void {
     l.recentOutput = (l.recentOutput + stripAnsi(chunk)).slice(-4096);
   });
   window.devdeck.cockpit.onExit(({ id, closed }) => {
-    exitWaiters.get(id)?.();
+    for (const done of [...(exitWaiters.get(id) ?? [])]) done();
     const l = live.get(id); if (!l) return;
     if (closed) {
       // Somebody closed it — at the machine running it, or from another deck watching it. That was a
@@ -839,7 +839,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
             // entirely unrelated work. Refuse and say why rather than open the wrong thing.
             // An IMAGE, though, can travel: its pixels are read over there and shown here.
             if (machineId !== LOCAL_MACHINE_ID) {
-              if (/.(?:png|jpe?g|gif|webp|bmp)$/i.test(text)) { openSingleImage(() => deckFor(machineId).cockpit.imageFile(p.path, text, 'full'), text); return; }
+              if (/\.(?:png|jpe?g|gif|webp|bmp)$/i.test(text)) { openSingleImage(() => deckFor(machineId).cockpit.imageFile(p.path, text, 'full'), text); return; }
               toast(tr('cockpit.remote_file_unavailable', { machine: machineName(machineId) })); return;
             }
             void window.devdeck.cockpit.openFile(p.path, text);
@@ -1675,7 +1675,7 @@ function tickActivity(): void {
       if (l.session.id === selectedId && !editingId) renderHeader();
     }
     // Asked for while the agent was mid-turn: restart the moment the turn is over, not in the middle.
-    if (l.updateWhenIdle && next !== 'working' && next !== 'offline' && next !== 'exited') {
+    if (l.updateWhenIdle && !claudeUpdateRunning && next !== 'working' && next !== 'offline' && next !== 'exited') {
       l.updateWhenIdle = false;
       void restartSession(l.session.id, false);
     }
@@ -2236,19 +2236,31 @@ async function updateAllClaude(): Promise<void> {
   if (claudeUpdateRunning) return;
   const count = localClaudeTiles().length;
   if (!(await confirmDialog(tr('cockpit.update_all_confirm', { count: String(count) }), tr('cockpit.update_all', { count: String(count) })))) return;
-  claudeUpdateRunning = true; renderHeader();
+  claudeUpdateRunning = true;
+  // This takes over any single-tile update that was queued for the end of a turn.
+  for (const l of live.values()) l.updateWhenIdle = false;
+  renderHeader();
   try {
+    // A turn in progress, or one waiting on the person at a permission prompt, is not killed.
+    const busy = (): boolean => localClaudeTiles().some((l) => l.session.activity === 'working' || l.session.activity === 'attention');
     const deadline = Date.now() + UPDATE_WAIT_FOR_TURNS_MS;
     let told = false;
-    while (localClaudeTiles().some((l) => l.session.activity === 'working') && Date.now() < deadline) {
+    while (busy() && Date.now() < deadline) {
       if (!told) { toast(tr('cockpit.update_all_waiting')); told = true; }
       await new Promise((r) => setTimeout(r, 1500));
     }
+    if (busy()) { toast(tr('cockpit.update_all_gave_up')); return; }
     const tiles = localClaudeTiles();
     const plans: ReopenPlan[] = [];
     for (const l of tiles) { const plan = await planReopen(l); if (plan) plans.push(plan); }
+    // Closing a tile forgets it. The update can take minutes, and a quit or crash in that window
+    // must not lose every Claude tile's name, pin and conversation: they are saved as restorable
+    // first, and each comes off the list again once it is back.
+    const planned = new Set(plans.map((pl) => pl.entry.tileId));
+    restorable = [...plans.map((pl) => pl.entry), ...restorable.filter((r) => !planned.has(r.tileId))];
     const exits = tiles.map((l) => waitForExit(l.session.id, 5_000));
     for (const l of tiles) closeSession(l.session.id);
+    persist();
     await Promise.all(exits);
     toast(tr('cockpit.update_all_updating'));
     let result: { ok: boolean; output: string } = { ok: false, output: '' };
@@ -2257,7 +2269,9 @@ async function updateAllClaude(): Promise<void> {
     toast(result.ok ? tr('cockpit.update_all_done', { detail: lastLine.slice(0, 160) }) : tr('cockpit.update_all_failed', { detail: lastLine.slice(0, 160) }));
     window.devdeck.logDiagnostic(`claude update ${result.ok ? 'ok' : 'failed'}: ${lastLine.slice(0, 200)}`, result.ok ? 'info' : 'warn', 'cockpit');
     // Every conversation comes back whether or not the update did: the sessions were stopped for it.
-    for (const plan of plans) await reopen(plan);
+    for (const plan of plans) {
+      if (await reopen(plan)) { restorable = restorable.filter((r) => r.tileId !== plan.entry.tileId); persist(); renderList(); }
+    }
   } finally {
     claudeUpdateRunning = false; renderHeader();
   }
@@ -2277,9 +2291,16 @@ function applyAgentUpdate(id: string): void {
 
 function waitForExit(id: string, timeoutMs: number): Promise<void> {
   return new Promise((resolve) => {
-    const done = (): void => { clearTimeout(timer); exitWaiters.delete(id); resolve(); };
+    // A set: a restart and an update can both be waiting on the same tile, and one finishing must
+    // not take the other's waiter with it.
+    const done = (): void => {
+      clearTimeout(timer);
+      const set = exitWaiters.get(id); set?.delete(done); if (set && set.size === 0) exitWaiters.delete(id);
+      resolve();
+    };
     const timer = setTimeout(done, timeoutMs);
-    exitWaiters.set(id, done);
+    let set = exitWaiters.get(id); if (!set) { set = new Set(); exitWaiters.set(id, set); }
+    set.add(done);
   });
 }
 

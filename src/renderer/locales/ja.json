@@ -490,6 +490,7 @@
   "cockpit.update_all_updating": "claude update を実行中…",
   "cockpit.update_all_done": "Claude を更新しました — セッションを再び開きます。{detail}",
   "cockpit.update_all_failed": "Claude の更新に失敗しました — セッションはそのまま再び開きます。{detail}",
+  "cockpit.update_all_gave_up": "15 分経っても作業中の Claude セッションがあるため更新を中止しました — どのセッションも停止していません。",
   "cockpit.remote_image_unsupported": "ほかのデバイスのセッションへの画像貼り付けはまだ対応していません。",
   "proj.remote_local_only": "そのフォルダーは {machine} にあります。この操作はこの PC のプロジェクトでのみ使えます。",
   "usage.machine_title": "{machine} のローカル使用量",
