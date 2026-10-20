@@ -99,11 +99,14 @@ function startTimer(): void { if (!timer) timer = setInterval(() => { void refre
 function staleChip(summary: ReturnType<typeof summarizeProviderUsage>, now: number): HTMLElement {
   const fixable = summary.staleReason === 'expired' || summary.staleReason === 'login-required';
   const age = summary.staleSince != null ? formatStaleAge(summary.staleSince, now, tr) : null;
-  const cause = fixable ? tr(usageStateKey(summary.staleReason!)) : tr('usage.state_stale');
+  // An access token waiting for Claude Code's next reply is named too, but as the self-healing pause it
+  // is — no button, since signing in again would fix nothing.
+  const pending = summary.staleReason === 'refresh-pending';
+  const cause = fixable || pending ? tr(usageStateKey(summary.staleReason!)) : tr('usage.state_stale');
   const text = age ? `${cause} · ${age}` : cause;
   if (!fixable) {
     const st = document.createElement('span'); st.className = 'ub-stale'; st.textContent = text;
-    st.title = `${tr('usage.stale_note')}${age ? ` · ${age}` : ''}`;
+    st.title = pending ? tr('usage.refresh_pending_hint') : `${tr('usage.stale_note')}${age ? ` · ${age}` : ''}`;
     return st;
   }
   const st = document.createElement('button'); st.type = 'button'; st.className = 'ub-stale fix'; st.textContent = text;

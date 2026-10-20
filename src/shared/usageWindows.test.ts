@@ -65,7 +65,7 @@ describe('formatReset', () => {
 
 describe('usageStateKey', () => {
   it('maps every normalized state to an i18n key', () => {
-    for (const s of ['ready', 'stale', 'login-required', 'expired', 'not-applicable', 'cli-missing', 'offline', 'rate-limited', 'unsupported'] as const) {
+    for (const s of ['ready', 'stale', 'login-required', 'expired', 'not-applicable', 'cli-missing', 'offline', 'rate-limited', 'unsupported', 'refresh-pending'] as const) {
       expect(usageStateKey(s)).toMatch(/^usage\.state_/);
     }
   });
@@ -77,6 +77,8 @@ describe('usageActionFor', () => {
     expect(usageActionFor('claude', 'expired')).toBe('login');
     expect(usageActionFor('codex', 'cli-missing')).toBe('install');
     expect(usageActionFor('claude', 'ready')).toBeNull();
+    expect(usageActionFor('claude', 'refresh-pending')).toBeNull();
+    expect(usageActionFor('claude', 'stale', 'refresh-pending')).toBeNull();
     expect(usageActionFor('antigravity', 'unsupported')).toBeNull();
   });
 

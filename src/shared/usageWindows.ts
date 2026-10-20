@@ -8,7 +8,7 @@ export type Severity = 'ok' | 'warn' | 'crit';
 /** Why a provider section looks the way it does. `stale` = last-good data after a failed refresh. */
 export type UsageProviderState =
   | 'ready' | 'stale' | 'login-required' | 'expired' | 'not-applicable'
-  | 'cli-missing' | 'offline' | 'rate-limited' | 'unsupported';
+  | 'cli-missing' | 'offline' | 'rate-limited' | 'unsupported' | 'refresh-pending';
 
 /** `session`/`weekly` = Claude's fixed windows, `model-weekly` = a model-scoped weekly quota,
  *  `primary`/`secondary` = Codex's two app-server windows. */

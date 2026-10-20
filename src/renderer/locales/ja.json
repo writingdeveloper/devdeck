@@ -326,6 +326,8 @@
   "usage.state_offline": "取得できません",
   "usage.state_rate_limited": "API混雑",
   "usage.state_unsupported": "CLIで確認",
+  "usage.state_refresh_pending": "自動更新待ち",
+  "usage.refresh_pending_hint": "次に Claude Code が応答すると自動で更新されます — 再ログインは不要です",
   "usage.local_title": "Claude Code + Codex ローカル分析",
   "usage.local_explainer": "~/.claude と ~/.codex のログから算出した API 換算のトークン・コスト履歴です。実際のサブスクリプション請求とは異なる場合があります。安定したローカルコストデータがない Antigravity は対象外で、フッターの使用量バーは従来どおりリアルタイム上限を表示します。",
   "usage.range_label": "分析期間",

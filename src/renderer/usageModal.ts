@@ -107,6 +107,7 @@ function providerSection(p: ProviderUsage): HTMLElement {
     if (p.staleReason) stateParts.push(tr(usageStateKey(p.staleReason)));
   }
   state.textContent = stateParts.join(' · ');
+  if ((p.state === 'stale' ? p.staleReason : p.state) === 'refresh-pending') state.title = tr('usage.refresh_pending_hint');
   head.appendChild(state);
   sec.appendChild(head);
 
