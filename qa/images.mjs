@@ -22,7 +22,7 @@ const home = join(profile, 'home');
 for (const p of [repo, bin, profile, home]) mkdirSync(p, { recursive: true });
 execFileSync('git', ['init', '-q', '-b', 'qa-images'], { cwd: repo });
 // An echoing agent: whatever is pasted into it shows up on its screen.
-writeFileSync(join(bin, 'echo.js'), "process.stdout.write('FIXTURE_READY\\r\\n'); if (process.stdin.isTTY) process.stdin.setRawMode(true); process.stdin.on('data', (d) => process.stdout.write('GOT:' + d.toString().replace(/\\r/g, '') + '\\r\\n'));\n");
+writeFileSync(join(bin, 'echo.js'), "if (process.argv.includes('agents')) { process.stdout.write('[]'); process.exit(0); } process.stdout.write('FIXTURE_READY\\r\\n'); if (process.stdin.isTTY) process.stdin.setRawMode(true); process.stdin.on('data', (d) => process.stdout.write('GOT:' + d.toString().replace(/\\r/g, '') + '\\r\\n'));\n");
 writeFileSync(join(bin, 'claude.cmd'), '@echo off\r\nnode "%~dp0echo.js"\r\n');
 
 // A transcript with a tool screenshot, a pasted image and an image file the agent wrote.

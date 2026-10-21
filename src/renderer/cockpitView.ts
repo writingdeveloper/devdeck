@@ -179,7 +179,8 @@ export function mountCockpit(): void {
   if (strip) initImageStrip(strip, () => { if (!editingId) renderHeader(); scheduleLayout(); }, { popupIn: termsEl, refsChanged: () => { markSelectedTerminal(); void refreshTimeline(); } });
   // Floats over the terminal's right edge, so opening it never resizes the pty.
   initTimeline(termsEl, () => { if (!editingId) renderHeader(); });
-  void refreshBackgroundAgents();
+  // Not at start-up: restoring sessions comes first, and the list is not urgent.
+  setTimeout(() => void refreshBackgroundAgents(), BACKGROUND_FIRST_POLL_MS);
   setInterval(() => { if (!document.hidden) void refreshBackgroundAgents(); }, BACKGROUND_POLL_MS);
   // Mid-turn, new screenshots show up as they are taken rather than at the end of the turn; between
   // turns a slow re-read still catches images written some other way (another process, a resume).
@@ -621,6 +622,7 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
 /** Per machine, the background sessions its `claude agents` lists (see main/backgroundAgents). */
 const backgroundAgents = new Map<string, BackgroundAgent[]>();
 const BACKGROUND_POLL_MS = 30_000;
+const BACKGROUND_FIRST_POLL_MS = 15_000;
 
 function backgroundNavigationId(machineId: string, id: string): string { return `bg:${machineId}:${id}`; }
 

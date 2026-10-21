@@ -51,6 +51,7 @@ execFileSync('git', ['init', '-q', '-b', 'qa-perf'], { cwd: repo });
 // The fixture agent: a static screen at rest; "W" repaints the whole screen at 10fps for 8s with a
 // Claude spinner in it (so the deck shows the session as working); "S" prints 20,000 lines.
 writeFileSync(join(bin, 'agent.js'), `
+if (process.argv.includes('agents')) { process.stdout.write('[]'); process.exit(0); } // DevDeck's background-session listing
 const out = (s) => process.stdout.write(s);
 const E = '\\x1b';
 const screen = (title) => out(E + '[H' + E + '[2J' + title + '\\r\\n' + Array.from({ length: 30 }, (_, i) => 'line ' + i + ' ' + 'x'.repeat(80)).join('\\r\\n') + '\\r\\n> ');

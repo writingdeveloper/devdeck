@@ -24,6 +24,7 @@ for (const p of [repo, bin, home]) mkdirSync(p, { recursive: true });
 execFileSync('git', ['init', '-q', '-b', 'qa-pacing'], { cwd: repo });
 const BOOT_MS = 2000;
 writeFileSync(join(bin, 'agent.js'), `
+if (process.argv.includes('agents')) { process.stdout.write('[]'); process.exit(0); } // DevDeck's background-session listing
 require('fs').appendFileSync(${JSON.stringify(log)}, Date.now() + ' ' + process.argv.slice(2).join(' ') + '\\n');
 const t = setInterval(() => process.stdout.write('.'), 100); // busy drawing while it boots
 setTimeout(() => { clearInterval(t); process.stdout.write('\\r\\nPACING_READY\\r\\n> '); }, ${BOOT_MS});

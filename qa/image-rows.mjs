@@ -57,6 +57,7 @@ writeFileSync(join(bin, 'more.jsonl'), [
 const SHADE = '\x1b[48;5;237m';
 const RESET = '\x1b[0m';
 writeFileSync(join(bin, 'agent.js'), `
+if (process.argv.includes('agents')) { process.stdout.write('[]'); process.exit(0); } // DevDeck's background-session listing
 const fs = require('fs');
 const out = (s) => process.stdout.write(s.replace(/\\n/g, '\\r\\n'));
 const filler = (tag, n) => Array.from({ length: n }, (_, i) => '  ' + tag + ' output line ' + i).join('\\n') + '\\n';
