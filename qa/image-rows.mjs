@@ -187,6 +187,8 @@ try {
 
     await win.locator('.ck-img-bar button[aria-label="터미널에서 위치 보기"]').click();
     await win.waitForSelector('.ck-img-viewer', { state: 'detached' });
+    // The scroll is drawn on the next frame; on a slow runner that is after the viewer is gone.
+    await win.waitForFunction(() => [...document.querySelectorAll('.ck-term.show .xterm-rows > div')].some((r) => r.textContent.includes('(element: "Submit button")')));
     const spans = await imageSpans();
     assert.ok(spans.some((s) => s.row.includes('[Image]')), 'the login screenshot row is on screen');
     assert.ok((await screenText()).some((r) => r.includes('browser_take_screenshot (MCP)(element: "Submit button")')), 'with its call above it');
