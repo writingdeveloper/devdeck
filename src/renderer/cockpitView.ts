@@ -1044,14 +1044,14 @@ async function buildTile(p: OpenReq): Promise<boolean> {
       return false;
     }
     if (action === 'find') { e.preventDefault(); openFindBar(); return false; } // Ctrl+F searches scrollback, never reaches the PTY
+    // A slot with no phrase is left to the terminal, as the chord was before quick replies existed.
     const slot = quickReplySlot(e);
-    if (slot !== null) {
+    const phrase = slot === null ? undefined : quickReplies()[slot];
+    if (phrase) {
       e.preventDefault();
-      const text = quickReplies()[slot];
       // By terminal, not by the session declared below: a key can arrive while the tile is still opening.
       const owner = [...live.values()].find((x) => x.term === term);
-      if (!text) toast(tr('cockpit.quick_reply_none', { n: String(slot + 1) }));
-      else if (owner) sendQuickReply(owner.session.id, text);
+      if (owner) sendQuickReply(owner.session.id, phrase);
       return false;
     }
     if (action === 'prompt-prev' || action === 'prompt-next') {

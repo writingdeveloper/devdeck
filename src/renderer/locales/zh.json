@@ -538,7 +538,6 @@
   "cockpit.attach_host_too_old": "跳过 {count} 个 — {machine} 上的 DevDeck 版本过旧，无法接收文档 (请更新到 1.41.0)",
   "cockpit.quick_replies": "快捷回复",
   "cockpit.quick_replies_hint": "可在 设置 → 快捷回复 中修改",
-  "cockpit.quick_reply_none": "没有第 {n} 条快捷回复 — 请在设置中添加",
   "cockpit.quick_default_1": "好的，继续",
   "cockpit.quick_default_2": "提交一下",
   "cockpit.quick_default_3": "运行测试并检查结果",

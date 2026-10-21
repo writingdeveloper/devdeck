@@ -538,7 +538,6 @@
   "cockpit.attach_host_too_old": "{count} skipped — DevDeck on {machine} is too old to receive documents (update it to 1.41.0)",
   "cockpit.quick_replies": "Quick replies",
   "cockpit.quick_replies_hint": "Edit these in Settings → Quick replies",
-  "cockpit.quick_reply_none": "No quick reply {n} — add one in Settings",
   "cockpit.quick_default_1": "Yes, go ahead",
   "cockpit.quick_default_2": "Commit it",
   "cockpit.quick_default_3": "Run the tests and check the result",

@@ -217,8 +217,10 @@ export class SessionImageCollector {
 
   /** A user line that is something the person typed — not a tool result, a command or a reminder. */
   private noteTurn(entry: unknown, content: unknown, offset: number, ts: number | null): void {
-    const e = entry as { type?: unknown; isMeta?: unknown; isSidechain?: unknown };
+    const e = entry as { type?: unknown; isMeta?: unknown; isSidechain?: unknown; isCompactSummary?: unknown; isVisibleInTranscriptOnly?: unknown };
     if (e.type !== 'user' || e.isMeta === true || e.isSidechain === true) return;
+    // The summary Claude Code writes when it compacts a conversation is filed as a user line.
+    if (e.isCompactSummary === true || e.isVisibleInTranscriptOnly === true) return;
     let raw = '';
     let pasted = 0;
     if (typeof content === 'string') raw = content;
@@ -232,6 +234,8 @@ export class SessionImageCollector {
     } else return;
     if (raw && isWrapper(raw)) return;
     if (/^\s*\[Request interrupted/.test(raw)) return;
+    // Pasted text is recorded inside a <pasted_content> wrapper; what matters is what was pasted.
+    raw = raw.replace(/<\/?pasted_content\b[^>]*>/g, '');
     const text = oneLine(stripImageNoise(raw)) ?? '';
     if (!text && pasted === 0) return;
     this.turns.push({ id: `t${offset}`, ts, text, pasted, reply: null });

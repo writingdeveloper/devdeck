@@ -147,11 +147,14 @@ describe('session turns', () => {
       plain('<command-name>/clear</command-name>'),
       JSON.stringify({ type: 'user', isMeta: true, timestamp: TS, message: { role: 'user', content: 'Caveat: hidden' } }),
       plain('[Request interrupted by user]'),
+      JSON.stringify({ type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, timestamp: TS, message: { role: 'user', content: 'This session is being continued from a previous conversation' } }),
+      plain('\n\n<pasted_content id="3a1d">\nRead CLAUDE.md first.\nThen continue.\n</pasted_content id="3a1d">\n'),
     ];
     lines.forEach((l, i) => c.add(l, i * 100));
     expect(c.turns).toEqual([
       { id: 't0', ts: Date.parse(TS), text: 'fix the login page', pasted: 0, reply: 'Fixed: the handler was not awaited.' },
       { id: 't500', ts: Date.parse(TS), text: 'look', pasted: 1, reply: null },
+      { id: 't1000', ts: Date.parse(TS), text: 'Read CLAUDE.md first.', pasted: 0, reply: null },
     ]);
   });
 

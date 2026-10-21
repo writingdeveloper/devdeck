@@ -538,7 +538,6 @@
   "cockpit.attach_host_too_old": "{count} 件をスキップ — {machine} の DevDeck はドキュメントを受け取れないバージョンです (1.41.0 に更新してください)",
   "cockpit.quick_replies": "クイック返信",
   "cockpit.quick_replies_hint": "設定 → クイック返信 で変更できます",
-  "cockpit.quick_reply_none": "クイック返信 {n} がありません — 設定で追加してください",
   "cockpit.quick_default_1": "はい、続けてください",
   "cockpit.quick_default_2": "コミットしてください",
   "cockpit.quick_default_3": "テストを実行して結果を確認してください",

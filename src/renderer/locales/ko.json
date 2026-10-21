@@ -538,7 +538,6 @@
   "cockpit.attach_host_too_old": "{count}개 건너뜀 — {machine}의 DevDeck이 문서를 받을 수 없는 버전입니다 (1.41.0으로 업데이트하세요)",
   "cockpit.quick_replies": "빠른 답장",
   "cockpit.quick_replies_hint": "설정 → 빠른 답장에서 바꿀 수 있습니다",
-  "cockpit.quick_reply_none": "빠른 답장 {n}번이 없습니다 — 설정에서 추가하세요",
   "cockpit.quick_default_1": "네 계속 진행해줘",
   "cockpit.quick_default_2": "커밋해줘",
   "cockpit.quick_default_3": "테스트 돌려서 결과 확인해줘",
