@@ -43,3 +43,18 @@ describe('cleanupPasteImages', () => {
     await expect(cleanupPasteImages(join(dir, 'nope'), Date.now())).resolves.toBe(0);
   });
 });
+
+describe('cleanupPasteImages and files sent from another machine', () => {
+  it('sweeps old sent files by their own prefix, and nothing that merely looks similar', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'devdeck-clean-'));
+    try {
+      const now = Date.now();
+      const put = (name: string): string => { const p = join(dir, name); writeFileSync(p, 'x'); const t = new Date(now - 2 * DAY); utimesSync(p, t, t); return p; };
+      const sent = put('devdeck-file-0a1b2c3d-4e5f-6789-abcd-ef0123456789-build.log');
+      const near = put('devdeck-file-build.log');
+      expect(await cleanupPasteImages(dir, now)).toBe(1);
+      expect(existsSync(sent)).toBe(false);
+      expect(existsSync(near)).toBe(true);
+    } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 5 }); }
+  });
+});

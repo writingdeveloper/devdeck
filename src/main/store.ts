@@ -6,13 +6,14 @@ import type { StoreEntry, Folder, NoteSaveResult } from '../shared/types';
 import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitPersist';
 import { sanitizeTodos, type Todo, type TodoSaveResult } from '../shared/tasks';
 import { sanitizeWindowBounds, type WindowBounds } from '../shared/windowBounds';
+import { sanitizeQuickReplies } from '../shared/quickReplies';
 import { LOCAL_MACHINE_ID, isValidMachineId, sanitizeMachineName } from '../shared/link/machine';
 import { sanitizeKnownHosts, sanitizePairedDevices, type KnownHost, type PairedDevice } from './link/devices';
 import { LINK_DEFAULT_PORT } from './link/protocol';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; quickReplies?: string[]; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
 }
 
 /** Error codes Windows returns while another process (AV scan, indexer, OneDrive) briefly holds the file. */
@@ -283,6 +284,9 @@ export class Store {
   // Opt-in AI refinement of that line (a haiku call per finished turn — it spends usage, so default off).
   getAiSessionSummary(): boolean { return this.state.settings?.aiSessionSummary === true; }
   setAiSessionSummary(on: boolean): void { this.state.settings = { ...(this.state.settings ?? {}), aiSessionSummary: on === true }; this.save(); }
+  /** The person's quick replies, or null while they have never edited them (the defaults are per language). */
+  getQuickReplies(): string[] | null { const q = this.state.settings?.quickReplies; return Array.isArray(q) ? sanitizeQuickReplies(q) : null; }
+  setQuickReplies(list: unknown): void { this.state.settings = { ...(this.state.settings ?? {}), quickReplies: sanitizeQuickReplies(list) }; this.save(); }
 
   getTrayAlert(): 'off' | 'attention' | 'all' { const t = this.state.settings?.trayAlert; return t === 'off' || t === 'all' ? t : 'attention'; }
   setTrayAlert(t: 'off' | 'attention' | 'all'): void { this.state.settings = { ...(this.state.settings ?? {}), trayAlert: t === 'off' || t === 'all' ? t : 'attention' }; this.save(); }

@@ -42,6 +42,8 @@ export interface DeckFacade {
     liveAgent: (id: string) => Promise<import('../shared/types').AgentId | null>;
     gitInfo: (projectPath: string) => Promise<{ branch: string | null; dirty: number } | null>;
     receiveImage: (base64: string) => Promise<string | null>;
+    receiveFile: (name: string, base64: string) => Promise<string | null>;
+    sessionTurns: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionTurn[]>;
     sessionImages: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionImageRef[]>;
     sessionImage: (projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full') => Promise<import('../main/imageView').ViewImage | null>;
     imageFile: (projectPath: string, filePath: string, size?: 'thumb' | 'full') => Promise<import('../main/imageView').ViewImage | null>;
@@ -103,6 +105,9 @@ export function deckFor(machineId: string): DeckFacade {
       liveAgent: (id) => remote.cockpit.liveAgent(parseRemoteId(id).hostId),
       gitInfo: (projectPath) => remote.cockpit.gitInfo(projectPath),
       receiveImage: (base64) => remote.cockpit.receiveImage(base64),
+      // An older host has no receiveFile: its 'no such method' is passed on, so the sender can say why.
+      receiveFile: (name, base64) => remote.cockpit.receiveFile(name, base64),
+      sessionTurns: (projectPath, sessionId, agentId) => remote.cockpit.sessionTurns(projectPath, sessionId, agentId).catch(() => []),
       // A host older than the image panel has no such method; it simply has no images to show.
       sessionImages: (projectPath, sessionId, agentId) => remote.cockpit.sessionImages(projectPath, sessionId, agentId).catch(() => []),
       sessionImage: (projectPath, sessionId, imageId, size) => remote.cockpit.sessionImage(projectPath, sessionId, imageId, size).catch(() => null),

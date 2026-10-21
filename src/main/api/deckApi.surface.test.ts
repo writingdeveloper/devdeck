@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 // deckApi reaches Electron for dialogs/clipboard/app info; none of that is exercised here — this file
 // is about the SHAPE of the capability table, not its handlers' behavior (ipc.guard/ipc.cockpit cover those).
@@ -289,6 +291,51 @@ describe('receiving a pasted image from another machine', () => {
     const written = api['cockpit:receiveImage'].handler(png()) as string | null;
     expect(written).toMatch(/devdeck-paste-[0-9a-f-]{36}\.png$/);
   });
+});
+
+describe('receiving a document from another machine', () => {
+  const b64 = (s: string | Buffer) => Buffer.from(s).toString('base64');
+  const receive = (name: unknown, data: unknown) => api['cockpit:receiveFile'].handler(name, data) as string | null;
+
+  it('needs control, like an image', () => {
+    expect(mayCallRemotely(api['cockpit:receiveFile'], ['observe'])).toBe(false);
+    expect(mayCallRemotely(api['cockpit:receiveFile'], ['control'])).toBe(true);
+  });
+
+  it('writes a text file into the temp directory under its own name, never a path the caller picked', () => {
+    const written = receive('..\\..\\Windows\\build.log', b64('line 1\nline 2\n'));
+    expect(written).not.toBeNull();
+    expect(dirname(written!)).toBe(tmpdir());
+    expect(basename(written!)).toMatch(/^devdeck-file-[0-9a-f-]{36}-build\.log$/);
+    expect(readFileSync(written!, 'utf8')).toBe('line 1\nline 2\n');
+    rmSync(written!);
+  });
+
+  it('refuses kinds that could run, and bytes that are not what the name says', () => {
+    expect(receive('setup.exe', b64('MZ'))).toBeNull();
+    expect(receive('run.ps1', b64('Remove-Item'))).toBeNull();
+    expect(receive('page.html', b64('<script>'))).toBeNull();
+    expect(receive('notes.txt', b64(Buffer.from([0x4d, 0x5a, 0x00, 0x01])))).toBeNull(); // a renamed binary
+    expect(receive('spec.pdf', b64('not a pdf'))).toBeNull();
+    expect(receive('empty.txt', '')).toBeNull();
+    expect(receive(42, b64('x'))).toBeNull();
+    expect(receive('a.txt', 42)).toBeNull();
+  });
+
+  it('accepts a PDF that starts like one', () => {
+    const written = receive('spec.pdf', b64('%PDF-1.7\n...'));
+    expect(written).toMatch(/-spec\.pdf$/);
+    rmSync(written!);
+  });
+
+  it('refuses an oversized payload before decoding it', () => {
+    expect(receive('big.log', 'A'.repeat(30 * 1024 * 1024))).toBeNull();
+  });
+});
+
+it('reads a session timeline only for an allowed project, as an observer may', async () => {
+  expect(mayCallRemotely(api['cockpit:sessionTurns'], ['observe'])).toBe(true);
+  await expect(api['cockpit:sessionTurns'].handler(join(process.cwd(), 'outside'), '00000000-0000-0000-0000-000000000000', 'claude')).resolves.toEqual([]);
 });
 
 

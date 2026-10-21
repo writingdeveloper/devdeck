@@ -3,7 +3,7 @@
 import { open, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encodeProjectPath, isValidSessionId } from '../shared/paths';
-import { SessionImageCollector, embeddedImageBlocks, mergeImageRefs, parseEmbeddedImageId, type SessionImageRef } from '../shared/sessionImages';
+import { SessionImageCollector, embeddedImageBlocks, mergeImageRefs, parseEmbeddedImageId, type SessionImageRef, type SessionTurn } from '../shared/sessionImages';
 
 /** How far back the first look reaches. Transcripts reach 500MB; the images worth seeing are recent. */
 const FIRST_SCAN_TAIL_BYTES = 64 * 1024 * 1024;
@@ -28,6 +28,16 @@ export async function listSessionImages(file: string): Promise<SessionImageRef[]
   const work = refresh(file);
   building.set(file, work);
   try { return await work; } finally { if (building.get(file) === work) building.delete(file); }
+}
+
+/**
+ * The person's prompts in the same session, oldest first — read in the same pass as the images, so
+ * the timeline costs no second walk of a transcript that can reach hundreds of megabytes.
+ */
+export async function listSessionTurns(file: string): Promise<SessionTurn[]> {
+  await listSessionImages(file);
+  const idx = cache.get(file);
+  return idx ? idx.collector.turns.map((t) => ({ ...t })) : [];
 }
 
 async function refresh(file: string): Promise<SessionImageRef[]> {
