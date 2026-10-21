@@ -142,3 +142,15 @@ describe('AGENT_OPEN_EXT (click-to-open allowlist)', () => {
     }
   });
 });
+
+describe('a repo\'s parallel-session workspaces', () => {
+  const repo = resolve('/w/proj');
+  const folders = [{ path: repo, kind: 'repo' as const }];
+  it('are admitted with the repo, one level under .claude/worktrees and nowhere else in it', () => {
+    expect(isAllowedPath(folders, join(repo, '.claude', 'worktrees', '1021-0632-abc'))).toBe(true);
+    expect(isAllowedPath(folders, join(repo, '.claude', 'worktrees'))).toBe(false);
+    expect(isAllowedPath(folders, join(repo, '.claude', 'worktrees', 'a', 'b'))).toBe(false);
+    expect(isAllowedPath(folders, join(repo, '.claude', 'worktrees', '..', '..', '..', 'other'))).toBe(false);
+    expect(isAllowedPath(folders, join(repo, 'src'))).toBe(false);
+  });
+});

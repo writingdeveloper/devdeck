@@ -669,3 +669,19 @@
 @media (prefers-reduced-motion: reduce) {
   #view-cockpit .ck-status-pill.st-working .ck-status-dot { animation: none; }
 }
+
+/* ---- parallel workspaces (git worktrees) ---- */
+#view-cockpit .ck-wt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--dd-font-sans);
+  font-size: 12px;
+  color: #c4a7ff;
+  border-color: color-mix(in srgb, #c4a7ff 45%, transparent);
+}
+
+#view-cockpit .ck-wt-pill svg {
+  width: 13px;
+  height: 13px;
+}

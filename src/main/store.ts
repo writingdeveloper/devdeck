@@ -7,13 +7,14 @@ import { sanitizePersistedList, type PersistedSession } from '../shared/cockpitP
 import { sanitizeTodos, type Todo, type TodoSaveResult } from '../shared/tasks';
 import { sanitizeWindowBounds, type WindowBounds } from '../shared/windowBounds';
 import { sanitizeQuickReplies } from '../shared/quickReplies';
+import type { Worktree } from './worktrees';
 import { LOCAL_MACHINE_ID, isValidMachineId, sanitizeMachineName } from '../shared/link/machine';
 import { sanitizeKnownHosts, sanitizePairedDevices, type KnownHost, type PairedDevice } from './link/devices';
 import { LINK_DEFAULT_PORT } from './link/protocol';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; quickReplies?: string[]; programStatus?: boolean; whatsNewSeen?: string; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; quickReplies?: string[]; programStatus?: boolean; whatsNewSeen?: string; worktrees?: Worktree[]; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
 }
 
 /** Error codes Windows returns while another process (AV scan, indexer, OneDrive) briefly holds the file. */
@@ -295,6 +296,22 @@ export class Store {
   setWhatsNewSeen(v: string): void { if (!/^\d+\.\d+\.\d+$/.test(v)) return; this.state.settings = { ...(this.state.settings ?? {}), whatsNewSeen: v }; this.save(); }
   /** Whether this install has been used before (a window was ever saved) — an upgrade, not a first run. */
   hasUsedBefore(): boolean { return this.state.settings?.windowBounds !== undefined; }
+  /** Parallel-session workspaces DevDeck created, with what each started from. */
+  getWorktrees(): Worktree[] {
+    const list = this.state.settings?.worktrees;
+    if (!Array.isArray(list)) return [];
+    return list.filter((w): w is Worktree => !!w && typeof w.path === 'string' && typeof w.repo === 'string'
+      && typeof w.branch === 'string' && typeof w.baseCommit === 'string' && (w.baseBranch === null || typeof w.baseBranch === 'string'));
+  }
+  addWorktree(w: Worktree): void {
+    const rest = this.getWorktrees().filter((x) => x.path !== w.path);
+    this.state.settings = { ...(this.state.settings ?? {}), worktrees: [...rest, w] };
+    this.save();
+  }
+  removeWorktreeRecord(path: string): void {
+    this.state.settings = { ...(this.state.settings ?? {}), worktrees: this.getWorktrees().filter((x) => x.path !== path) };
+    this.save();
+  }
 
   getTrayAlert(): 'off' | 'attention' | 'all' { const t = this.state.settings?.trayAlert; return t === 'off' || t === 'all' ? t : 'attention'; }
   setTrayAlert(t: 'off' | 'attention' | 'all'): void { this.state.settings = { ...(this.state.settings ?? {}), trayAlert: t === 'off' || t === 'all' ? t : 'attention' }; this.save(); }

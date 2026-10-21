@@ -1,7 +1,7 @@
 import { createSessionLabels } from '../sessionLabels';
 import { dialog, shell, app, clipboard, nativeImage, type BrowserWindow } from 'electron';
 import { homedir, release, tmpdir } from 'node:os';
-import path, { join } from 'node:path';
+import path, { join, resolve } from 'node:path';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -10,7 +10,8 @@ import type { PtyHost } from '../ptyHost';
 import { PtyBatcher } from '../ptyBatch';
 import { applyOpenAtLogin, effectiveOpenAtLogin } from '../autostart';
 import { scanFolders, isRepo } from '../scanner';
-import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits } from '../gitInfo';
+import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, createGitRunner, type GitRunner } from '../gitInfo';
+import { createWorktree, removeWorktree, worktreeChanges, type Worktree } from '../worktrees';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
 import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../../shared/pathGuard';
@@ -1056,6 +1057,47 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // RESTORED session (re-created with no branch) and in-terminal branch switches both show the real
   // branch instead of a stale snapshot or "-". Uses the 2-call branch+dirty reader (not the deck's
   // 5-call getGitInfo) since the cockpit refreshes this per session.
+  // ---- parallel-session workspaces (git worktrees) ----
+  // Each is a folder inside the project, so the same allowlist admits it; creating or removing one
+  // changes the repository, which is what "spawn" already grants a paired device.
+  // Made on first use: nothing about workspaces should run while the API is being put together.
+  let worktreeRunner: GitRunner | null = null;
+  const worktreeGit: GitRunner = (args) => (worktreeRunner ??= createGitRunner())(args);
+  const worktreeFor = (path: string): Worktree | undefined => cfg.store.getWorktrees().find((w) => w.path.toLowerCase() === resolve(String(path)).toLowerCase());
+  invoke('cockpit:createWorktree', allow('spawn'), async (repoPath: string) => {
+    const repo = String(repoPath);
+    if (!isAllowedPath(effFolders(), repo)) return { error: 'Path outside allowed folders' };
+    try {
+      const w = await createWorktree(repo, worktreeGit);
+      cfg.store.addWorktree(w);
+      cfg.diagnostics?.write('info', 'worktree', `created ${w.path} branch=${w.branch} from=${w.baseBranch ?? w.baseCommit.slice(0, 8)}`);
+      return { worktree: w };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+  invoke('cockpit:worktreeInfo', allow('observe'), async (path: string) => {
+    const w = worktreeFor(path);
+    if (!w || !isAllowedPath(effFolders(), w.path)) return null;
+    return { worktree: w, changes: await worktreeChanges(w, worktreeGit) };
+  });
+  invoke('cockpit:removeWorktree', allow('spawn'), async (path: string, force?: unknown) => {
+    const w = worktreeFor(path);
+    if (!w || !isAllowedPath(effFolders(), w.path)) return { removed: false, reason: 'unknown' };
+    // A session still running in it would lose its folder under it.
+    if (cfg.ptyHost.list().some((s) => resolve(s.projectPath).toLowerCase() === resolve(w.path).toLowerCase())) return { removed: false, reason: 'running' };
+    try {
+      const out = await removeWorktree(w, worktreeGit, force === true);
+      if (out.removed) {
+        cfg.store.removeWorktreeRecord(w.path);
+        cfg.diagnostics?.write('info', 'worktree', `removed ${w.path}${force === true ? ' (forced)' : ''}`);
+      }
+      return out;
+    } catch (err) {
+      return { removed: false, reason: 'error', error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   invoke('cockpit:gitInfo', allow('observe'), (projectPath: string) => {
     // Same allowlist as every other path-taking handler — a compromised renderer must not be able
     // to point git at arbitrary filesystem locations.

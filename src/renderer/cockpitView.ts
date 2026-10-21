@@ -21,7 +21,7 @@ import { toast, reportSaveError } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 import { createIcon, type IconName } from './icons';
-import { deckFor, machineName, machineState, onMachineConnected, onMachinesChanged, LOCAL_MACHINE_ID } from './machineDeck';
+import { deckFor, machineName, machineState, onMachineConnected, onMachinesChanged, LOCAL_MACHINE_ID, HOST_TOO_OLD } from './machineDeck';
 import { parseRemoteId } from '../shared/link/machine';
 import { ptyCompatFor } from './ptyCompat';
 import { followPtySize, type TerminalDims } from '../shared/terminalSize';
@@ -85,6 +85,8 @@ interface Live {
   updateFailed: boolean;
   /** The person asked for that restart while a turn was running; it happens when the turn ends. */
   updateWhenIdle: boolean;
+  /** For a session in a parallel workspace (a git worktree): what it has done so far, or null. */
+  worktree: { files: number; commits: number; dirty: number; branch: string } | null;
   /** When this terminal last changed size: the repaint that follows is not the agent doing anything. */
   resizedAt: number;
 }
@@ -1169,7 +1171,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     // history to paint, so it writes through from the first byte.
     replayPending: adopting ? [] : null,
     ptyCap: null,
-    updateReady: false, updateFailed: false, updateWhenIdle: false, resizedAt: 0,
+    updateReady: false, updateFailed: false, updateWhenIdle: false, resizedAt: 0, worktree: null,
   });
   // Repaint what is already on that terminal. Without this, attaching to work in progress shows a
   // blank rectangle until the agent next speaks — which, while it is thinking, can be minutes, and
@@ -1634,6 +1636,70 @@ async function refreshMeta(id: string): Promise<void> {
   // hands re-selected everything they had typed (and broke an IME composition mid-syllable).
   if (!editingId) { renderList(); renderHeader(); }
 }
+
+/** A session's folder is one of DevDeck's parallel workspaces: `<repo>/.claude/worktrees/<name>`. */
+const WORKTREE_PATH_RE = /^(.*)[\\/]\.claude[\\/]worktrees[\\/]([^\\/]+)$/;
+
+/** Refresh what a workspace session has done, for its header. */
+async function refreshWorktree(id: string): Promise<void> {
+  const l = live.get(id); if (!l || !WORKTREE_PATH_RE.test(l.session.projectPath)) return;
+  const info = await deckFor(l.machineId).cockpit.worktreeInfo(l.session.projectPath).catch(() => null);
+  const next = info ? { files: info.changes.files, commits: info.changes.commits, dirty: info.changes.dirty, branch: info.worktree.branch } : null;
+  if (JSON.stringify(next) === JSON.stringify(l.worktree)) return;
+  l.worktree = next;
+  if (l.session.id === selectedId && !editingId) renderHeader();
+}
+
+/** "New session in a separate workspace": a git worktree on its own branch, and a session in it. */
+async function addSessionInWorktree(): Promise<void> {
+  const l = selectedId ? live.get(selectedId) : null; if (!l) return;
+  const s = l.session;
+  // From a workspace session, the new one starts from the same project, not inside the workspace.
+  const repo = WORKTREE_PATH_RE.exec(s.projectPath)?.[1] ?? s.projectPath;
+  toast(tr('cockpit.worktree_creating'));
+  const res: { worktree?: import('../main/worktrees').Worktree; error?: string } = await deckFor(l.machineId).cockpit.createWorktree(repo).catch((e: unknown) => ({ error: String(e) }));
+  if (!res.worktree) {
+    toast(res.error === HOST_TOO_OLD ? tr('cockpit.worktree_host_too_old', { machine: machineName(l.machineId) }) : tr('cockpit.worktree_failed', { reason: res.error ?? '' }));
+    return;
+  }
+  const w = res.worktree;
+  const name = `${basename(repo)} ⎇ ${w.branch.replace(/^devdeck\//, '')}`;
+  await createSession({ path: w.path, name, staleLevel: s.staleLevel, branch: w.branch, dirty: 0, mode: 'new', agentId: s.agentId, machineId: l.machineId });
+  toast(tr('cockpit.worktree_created', { branch: w.branch }));
+}
+
+/**
+ * Clean up a workspace: close its session, then remove the folder and its branch. What would be lost
+ * is said in the one question asked; work that exists nowhere else goes only on an explicit yes.
+ */
+async function cleanUpWorktree(id: string): Promise<void> {
+  const l = live.get(id); if (!l) return;
+  const deck = deckFor(l.machineId);
+  const path = l.session.projectPath;
+  const info = await deck.cockpit.worktreeInfo(path).catch(() => null);
+  if (!info) { toast(tr('cockpit.worktree_unknown')); return; }
+  const c = info.changes;
+  const losing = c.dirty > 0 || c.commits > 0;
+  const base = info.worktree.baseBranch ?? info.worktree.baseCommit.slice(0, 8);
+  // Only what is actually there: "0 commits" is not something that will be lost.
+  const what = [
+    c.dirty > 0 ? tr('cockpit.worktree_part_dirty', { n: String(c.dirty) }) : '',
+    c.commits > 0 ? tr('cockpit.worktree_part_commits', { n: String(c.commits), base }) : '',
+  ].filter(Boolean).join(', ');
+  const question = losing
+    ? tr('cockpit.worktree_cleanup_losing', { what, branch: info.worktree.branch, base })
+    : tr('cockpit.worktree_cleanup_clean', { branch: info.worktree.branch });
+  if (!(await confirmDialog(question, tr(losing ? 'cockpit.worktree_delete_anyway' : 'cockpit.worktree_cleanup')))) return;
+  closeSession(id);
+  // The session's processes take a moment to end, and Windows holds the folder until they have.
+  let out: { removed: boolean; reason?: string; error?: string } = { removed: false };
+  for (let attempt = 0; attempt < 12; attempt++) {
+    out = await deck.cockpit.removeWorktree(path, losing);
+    if (out.removed || (out.reason !== 'running' && out.reason !== 'error')) break;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  toast(out.removed ? tr('cockpit.worktree_removed', { branch: info.worktree.branch }) : tr('cockpit.worktree_remove_failed', { reason: out.error ?? out.reason ?? '' }));
+}
 /** Re-resolve WHICH on-disk conversation a live tile is actually writing to. /clear starts a
  *  brand-new session id in the same terminal, so the open-time id goes permanently stale — persisting
  *  it made a restart/update restore the PAST conversation. Evidence-gated (pickDriftedSessionId in
@@ -1709,7 +1775,7 @@ async function refreshGit(id: string): Promise<void> {
 // re-spawning git every tick is pure waste (matters most with many concurrent sessions).
 // The provider check runs BEFORE the id check so a re-attributed tile resolves its new id against the
 // right store on the same tick (one process listing in main is shared by every tile).
-function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshProvider(id).then(() => refreshSessionId(id)); void refreshMeta(id); void refreshGit(id); } }
+function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshProvider(id).then(() => refreshSessionId(id)); void refreshMeta(id); void refreshGit(id); void refreshWorktree(id); } }
 
 /**
  * Hide every terminal in the pane, by DOM rather than by walking `live`.
@@ -1738,6 +1804,7 @@ function select(id: string): void {
   renderList(); renderHeader();
   void refreshMeta(id);
   void refreshGit(id);
+  void refreshWorktree(id);
   void refreshImages(); // renderHeader pointed the strip at this session; a re-select re-reads it too
   markSelectedTerminal();
   void refreshTimeline();
@@ -2324,6 +2391,24 @@ function renderHeader(): void {
   if (l.meta && l.meta.activeMs > 0) { const tp = document.createElement('span'); tp.className = 'ck-pill'; tp.append(createIcon('clock'), formatDuration(l.meta.activeMs)); pills.push(tp); }
   const sp = document.createElement('span'); sp.className = 'sp';
   const newSession = actBtn('plus', tr('cockpit.new_session'), () => void addSessionToCurrentProject());
+  // Parallel work on the same project, each in its own git worktree — offered for a git project only.
+  const workspace: HTMLElement[] = [];
+  if (s.branch) {
+    const b = actBtn('branch', tr('cockpit.worktree_new'), () => void addSessionInWorktree());
+    b.classList.add('ck-wt-new');
+    newDot(b, 'worktree-sessions');
+    workspace.push(b);
+  }
+  if (WORKTREE_PATH_RE.test(s.projectPath)) {
+    const wt = l.worktree;
+    const pill = document.createElement('span'); pill.className = 'ck-pill ck-wt-pill';
+    pill.append(createIcon('branch'), wt ? tr('cockpit.worktree_pill', { files: String(wt.files), commits: String(wt.commits) }) : tr('cockpit.worktree_pill_plain'));
+    pill.title = [wt?.branch ?? '', tr('cockpit.worktree_pill_title')].filter(Boolean).join('\n');
+    pills.push(pill);
+    const clean = actBtn('trash', tr('cockpit.worktree_cleanup_button'), () => void cleanUpWorktree(s.id));
+    clean.classList.add('ck-wt-clean');
+    workspace.push(clean);
+  }
   const pin = actBtn('pin', tr(l.pinned ? 'cockpit.unpin' : 'cockpit.pin'), () => togglePin(s.id));
   const rename = actBtn('edit', tr('cockpit.rename'), () => beginRename(s.id));
   const folder = actBtn('folder', tr('cockpit.open_folder'), () => {
@@ -2391,7 +2476,7 @@ function renderHeader(): void {
     b.addEventListener('click', () => void updateAllClaude());
     update.push(b);
   }
-  headerEl.append(...pills, sp, ...update, reply, ...timeline, ...images, attach, newSession, pin, rename, folder, restart, close);
+  headerEl.append(...pills, sp, ...update, reply, ...timeline, ...images, attach, newSession, ...workspace, pin, rename, folder, restart, close);
 }
 
 /** "+ New session": spawn another, fresh conversation in the SAME project as the selected session. */

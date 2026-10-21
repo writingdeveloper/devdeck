@@ -57,7 +57,7 @@ beforeAll(() => {
       getTrayAlert: () => 'attention',
       getShutdownIdleMinutes: () => 10,
       getSessionSummary: () => true,
-      getAiSessionSummary: () => false, getProgramStatus: () => false,
+      getAiSessionSummary: () => false, getProgramStatus: () => false, getWorktrees: () => [],
     },
     sendError: vi.fn(),
     defaultLanguage: 'en',
@@ -344,4 +344,14 @@ it('allows revision-checked task saves only to write-authorized devices', () => 
   expect(mayCallRemotely(api['project:saveTodos'], ['write'])).toBe(true);
   expect(() => api['project:setTodos'].handler(ALLOWED_ROOT, [])).toThrow('TASKS_CLIENT_OUTDATED');
   return expect(Promise.resolve().then(() => api['project:saveTodos'].handler(join(process.cwd(), 'outside'), [], 0))).rejects.toThrow('allowed folders');
+});
+
+it('lets a paired device create or remove a workspace only with spawn, and look at one as an observer', async () => {
+  expect(mayCallRemotely(api['cockpit:createWorktree'], ['observe'])).toBe(false);
+  expect(mayCallRemotely(api['cockpit:createWorktree'], ['spawn'])).toBe(true);
+  expect(mayCallRemotely(api['cockpit:removeWorktree'], ['control'])).toBe(false);
+  expect(mayCallRemotely(api['cockpit:worktreeInfo'], ['observe'])).toBe(true);
+  await expect(api['cockpit:createWorktree'].handler(join(process.cwd(), 'outside'))).resolves.toEqual({ error: 'Path outside allowed folders' });
+  // A folder DevDeck did not make is not one it will remove.
+  await expect(api['cockpit:removeWorktree'].handler(join(process.cwd(), 'outside'), true)).resolves.toEqual({ removed: false, reason: 'unknown' });
 });
