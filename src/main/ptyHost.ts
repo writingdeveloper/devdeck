@@ -78,6 +78,11 @@ export const MAX_SESSIONS = 32;
 /** How long `taskkill` may take before the plain kill goes ahead without it. */
 const TREE_KILL_TIMEOUT_MS = 3_000;
 
+/** How long one ending terminal may hold up the next before it goes ahead anyway. */
+const KILL_STEP_TIMEOUT_MS = 4_000;
+/** Quitting waits at least this long for the terminals, and longer when there are many to end one by one. */
+const SHUTDOWN_PER_TERMINAL_MS = 1_500;
+
 export type TreeKiller = (pid: number) => Promise<void>;
 
 /**
@@ -156,6 +161,8 @@ interface Session {
   prefixTruncated: boolean;
   /** Whether this terminal answers Claude Code's status probe (and so receives its status reports). */
   programStatus: boolean;
+  /** Settles when the process has exited and node-pty has said so. */
+  exit: Promise<void>;
 }
 
 export class PtyHost {
@@ -163,6 +170,8 @@ export class PtyHost {
   private pendingExits = new Set<Promise<void>>();
   private stopping = false;
   private shutdownWork: Promise<void> | null = null;
+  /** The terminal being ended right now, until its exit lands; the next one waits for it. */
+  private ending: Promise<void> | null = null;
   constructor(private readonly spawn: PtySpawn) {}
 
   create(
@@ -205,6 +214,7 @@ export class PtyHost {
       bufferedLength: 0,
       prefixTruncated: false,
       programStatus: answerProbe,
+      exit,
     };
     this.sessions.set(id, session);
     proc.onData((data) => {
@@ -319,7 +329,18 @@ export class PtyHost {
     const s = this.sessions.get(id);
     if (!s) return;
     this.sessions.delete(id);
-    s.proc.kill();
+    // One at a time. On Windows, node-pty's exit threads remove a terminal from one shared list
+    // without a lock (fixed upstream only in a 0.15 beta), so two terminals ending at the same moment
+    // (quitting, Update all, closing a group) could corrupt it: an "Assertion failed:
+    // remove_pty_baton" dialog, or a crash on the way out. The next kill starts once the previous
+    // exit has been reported, and by then that thread is done with the list.
+    const step = (): Promise<void> => {
+      try { s.proc.kill(); } catch (error) { console.error('DevDeck: terminal close failed', error); }
+      return withTimeout(s.exit, KILL_STEP_TIMEOUT_MS, 'terminal exit').catch(() => undefined);
+    };
+    const next = this.ending ? this.ending.then(step) : step();
+    this.ending = next;
+    void next.then(() => { if (this.ending === next) this.ending = null; });
   }
   killAll(): void {
     for (const id of [...this.sessions.keys()]) {
@@ -335,12 +356,14 @@ export class PtyHost {
   }
 
   /** Drain native exit callbacks while Electron's Node environment is still alive. */
-  shutdown(timeoutMs = 5_000): Promise<void> {
+  shutdown(timeoutMs?: number): Promise<void> {
     if (this.shutdownWork) return this.shutdownWork;
     this.stopping = true;
     const exits = [...this.pendingExits]; // also includes terminals already closing
     this.killAll();
-    this.shutdownWork = withTimeout(Promise.all(exits), timeoutMs, 'terminal shutdown').then(() => {});
+    // Terminals end one by one (see kill), so many of them take longer than a few at once would.
+    const budget = timeoutMs ?? Math.max(5_000, exits.length * SHUTDOWN_PER_TERMINAL_MS);
+    this.shutdownWork = withTimeout(Promise.all(exits), budget, 'terminal shutdown').then(() => {});
     return this.shutdownWork;
   }
 }
