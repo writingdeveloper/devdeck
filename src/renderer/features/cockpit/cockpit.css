@@ -238,8 +238,85 @@
 .ck-img-caption {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+}
+
+.ck-img-headline,
+.ck-img-context {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
+}
+
+.ck-img-context {
+  font-size: 11.5px;
+  color: #9aa0ab;
+}
+
+.ck-img-context:empty {
+  display: none;
+}
+
+/* A new image, previewed over the terminal while the strip is closed. */
+.ck-img-preview {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--dd-focus) 45%, transparent);
+  border-radius: 8px;
+  background: var(--dd-surface-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  animation: ck-img-preview-in 160ms ease-out;
+}
+
+.ck-img-preview img {
+  display: block;
+  max-width: 220px;
+  max-height: 140px;
+  border-radius: 4px;
+  object-fit: contain;
+  background: #0a0b0e;
+}
+
+.ck-img-preview-cap {
+  font-size: 11.5px;
+  color: #c9ccd4;
+  text-align: left;
+}
+
+@keyframes ck-img-preview-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ck-img-preview { animation: none; }
+}
+
+/* Hovering an [Image] row in the terminal. */
+.ck-img-hover {
+  position: fixed;
+  z-index: 50;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: var(--dd-surface-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.ck-img-hover img {
+  display: block;
+  max-width: 240px;
+  max-height: 160px;
+  border-radius: 3px;
 }

@@ -27,7 +27,8 @@ import { ptyCompatFor } from './ptyCompat';
 import { followPtySize, type TerminalDims } from '../shared/terminalSize';
 import { basename } from '../shared/paths';
 import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
-import { imageStripState, initImageStrip, openSingleImage, refreshImages, showImagesFor, toggleImageStrip, type ImageSource } from './imageStrip';
+import { currentImageRefs, currentImageSourceKey, imageStripState, imageThumbUrl, initImageStrip, openImageById, openSingleImage, refreshImages, showImagesFor, toggleImageStrip, type ImageSource } from './imageStrip';
+import { jumpToPrompt, marksFor } from './termMarks';
 import { attachFiles, pathsAsPrompt } from './attachments';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
@@ -158,7 +159,7 @@ export function mountCockpit(): void {
   mainEl = document.querySelector('#view-cockpit .ck-main')!;
   const strip = document.getElementById('ck-images');
   // The strip opening or closing changes the terminal's height, and its count lives in the header.
-  if (strip) initImageStrip(strip, () => { if (!editingId) renderHeader(); scheduleLayout(); });
+  if (strip) initImageStrip(strip, () => { if (!editingId) renderHeader(); scheduleLayout(); }, { popupIn: termsEl, refsChanged: markSelectedTerminal });
   // Mid-turn, new screenshots show up as they are taken rather than at the end of the turn; between
   // turns a slow re-read still catches images written some other way (another process, a resume).
   // Only the selected session is ever read, and an unchanged transcript costs one stat.
@@ -168,7 +169,11 @@ export function mountCockpit(): void {
     const sel = selectedId ? live.get(selectedId) : null;
     if (!sel || sel.session.agentId !== 'claude') return;
     imageTick = (imageTick + 1) % 6;
-    if (sel.session.activity === 'working' || imageTick === 0) void refreshImages();
+    if (sel.session.activity === 'working' || imageTick === 0) {
+      void refreshImages();
+      // The screen can print an image's row after the transcript listed it; re-pair while it runs.
+      markSelectedTerminal();
+    }
   }, 5000);
   // The toolbar's Refresh is the button users already press when a terminal looks wrong; make it
   // mean that. The deck reload is wired separately, in projectsView — both listeners fire.
@@ -740,18 +745,58 @@ function pickAttachments(machineId: string, term: Terminal): void {
 }
 
 /** Where the image strip reads a session's images from: the machine running it. */
-function imageSourceFor(l: { session: CockpitSession; machineId: string; openedSessionId: string | null }): ImageSource | null {
+function imageSourceFor(l: { session: CockpitSession; machineId: string; openedSessionId: string | null; term?: Terminal }): ImageSource | null {
   const sid = l.openedSessionId;
   if (!sid || l.session.agentId !== 'claude') return null;
   const deck = deckFor(l.machineId);
   const projectPath = l.session.projectPath;
+  const term = l.term;
   return {
     key: `${l.machineId}|${projectPath}|${sid}`,
     list: () => deck.cockpit.sessionImages(projectPath, sid, 'claude'),
     get: (id, size) => deck.cockpit.sessionImage(projectPath, sid, id, size),
     openFile: l.machineId === LOCAL_MACHINE_ID ? (path) => { void window.devdeck.cockpit.openFile(projectPath, path); } : undefined,
+    canReveal: term ? (id) => marksFor(term).locate(id) !== null : undefined,
+    reveal: term ? (id) => { marksFor(term).reveal(id); term.focus(); } : undefined,
   };
 }
+
+/** Pair the selected session's images with the rows of its terminal they were printed on. */
+function markSelectedTerminal(): void {
+  const l = selectedId ? live.get(selectedId) : null;
+  if (!l) return;
+  // The strip follows the selection, but its list may still be the previous session's for a moment.
+  const src = imageSourceFor(l);
+  marksFor(l.term).update(src && currentImageSourceKey() === src.key ? currentImageRefs() : []);
+}
+
+const MARK_SETTLE_MS = 2500;
+let markTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleMarkSelected(): void {
+  if (markTimer || currentImageRefs().length === 0) return;
+  markTimer = setTimeout(() => { markTimer = null; markSelectedTerminal(); }, MARK_SETTLE_MS);
+}
+
+/** Hover preview for an image row in the terminal: a thumbnail beside the pointer. */
+let hoverPreview: HTMLElement | null = null;
+let hoverSeq = 0;
+function showHoverPreview(id: string, e: MouseEvent): void {
+  hideHoverPreview();
+  const seq = ++hoverSeq;
+  const el = document.createElement('div'); el.className = 'ck-img-hover';
+  const img = document.createElement('img'); img.alt = '';
+  el.appendChild(img);
+  el.style.left = `${Math.min(e.clientX + 14, window.innerWidth - 260)}px`;
+  // Above the pointer when there is room, below it near the top — never over the row being hovered.
+  el.style.top = `${e.clientY > 200 ? e.clientY - 180 : e.clientY + 18}px`;
+  void imageThumbUrl(id).then((url) => {
+    if (seq !== hoverSeq || !url) return;
+    img.src = url;
+    document.body.appendChild(el);
+    hoverPreview = el;
+  });
+}
+function hideHoverPreview(): void { hoverSeq++; hoverPreview?.remove(); hoverPreview = null; }
 
 async function pasteImageToRemote(machineId: string, term: Terminal): Promise<void> {
   let payload: { tooLarge: boolean; bytes: string | null } | null = null;
@@ -808,7 +853,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   el.classList.add('show');
   // No cursor blink: it is a repaint twice a second per visible terminal for the life of the app,
   // and the spinner beside the input already says whether the agent is busy.
-  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: false, scrollback: 10_000, windowsPty });
+  const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: false, scrollback: 10_000, windowsPty, allowProposedApi: true }); // markers and decorations (termMarks) are "proposed" API
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
   el.dataset.termRenderer = 'dom'; // read by the perf/link harnesses and by anyone debugging a slow machine
   // The size this terminal is actually drawing at. Written on every resize because a pty is shared:
@@ -870,6 +915,9 @@ async function buildTile(p: OpenReq): Promise<boolean> {
           range: toRange(h), text: h.url,
           activate: (_e: MouseEvent, text: string) => { void window.devdeck.cockpit.openLink(text); },
         })),
+        // An image row: the thumbnail on hover, the image on click. Which image it is was worked out
+        // when the rows were marked (termMarks); a row nothing was paired with links to nothing.
+        ...imageRowLinks(rows[rel]?.text ?? '', hoveredIdx),
         // Local file paths the agent printed (e.g. "> [image] assets\a.png", "› [file] SFX\bell.wav")
         // — click opens the OS default app (inert-content extensions only, re-checked in main).
         ...findFilePathLinks(rows).filter(onRow).map((h) => ({
@@ -890,6 +938,23 @@ async function buildTile(p: OpenReq): Promise<boolean> {
       callback(links.length ? links : undefined);
     },
   };
+  /** Links for the `[Image]` placeholders on one row, when they were paired with a known image. */
+  function imageRowLinks(text: string, row: number): { range: { start: { x: number; y: number }; end: { x: number; y: number } }; text: string; activate: (e: MouseEvent, text: string) => void; hover: (e: MouseEvent) => void; leave: () => void }[] {
+    if (!text.includes('[Image')) return [];
+    const out: ReturnType<typeof imageRowLinks> = [];
+    for (const m of text.matchAll(/\[Image(?: #\d{1,4})?\]/g)) {
+      const col = m.index ?? 0;
+      const id = marksFor(term).idAt(row, col);
+      if (!id) continue;
+      out.push({
+        range: { start: { x: col + 1, y: row + 1 }, end: { x: col + m[0].length, y: row + 1 } }, text: m[0],
+        activate: () => { hideHoverPreview(); openImageById(id); },
+        hover: (e) => showHoverPreview(id, e),
+        leave: () => hideHoverPreview(),
+      });
+    }
+    return out;
+  }
   term.registerLinkProvider(linkProvider);
   // Files dropped on the terminal are handed to the agent by path, as 📎 does (see attachments.ts).
   // preventDefault on dragover is what makes this a drop target at all — without it Electron would
@@ -926,12 +991,20 @@ async function buildTile(p: OpenReq): Promise<boolean> {
       return false;
     }
     if (action === 'find') { e.preventDefault(); openFindBar(); return false; } // Ctrl+F searches scrollback, never reaches the PTY
+    if (action === 'prompt-prev' || action === 'prompt-next') {
+      e.preventDefault();
+      if (!jumpToPrompt(term, action === 'prompt-prev' ? -1 : 1)) toast(tr('cockpit.prompt_none'));
+      return false;
+    }
     // Swallowed here so the PTY never sees it; the shell's own document listener does the focusing
     // (the DOM event still bubbles — returning false only stops xterm from forwarding it).
     if (action === 'quickopen') { e.preventDefault(); return false; }
     return true;
   });
   const search = new SearchAddon(); term.loadAddon(search);
+  // Image rows are re-paired once the screen settles after new output — only for the selected
+  // tile, and only when it has images at all, so a streaming session costs one scan every few seconds.
+  term.onWriteParsed(() => { if (selectedId && live.get(selectedId)?.term === term) scheduleMarkSelected(); });
   // Copy-on-select: selecting text copies it right away (like Claude Code's own auto-copy / classic
   // Windows quick-edit). This matters most while a TUI has mouse tracking ON — a plain drag goes to the
   // TUI, so the user selects with Shift+drag, and requiring another Ctrl+C afterwards was exactly the
@@ -1589,6 +1662,7 @@ function select(id: string): void {
   void refreshMeta(id);
   void refreshGit(id);
   void refreshImages(); // renderHeader pointed the strip at this session; a re-select re-reads it too
+  markSelectedTerminal();
   // Selecting a tile is when its provider is most visible (header mark + usage footer) — re-check it
   // here too instead of waiting up to 30s for the tick. Main's listing is cached, so this is cheap.
   void refreshProvider(id);
