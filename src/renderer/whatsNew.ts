@@ -24,6 +24,7 @@ export interface Feature {
 
 /** Newest first. A feature's NEW dot is shown on its `target` until the person uses it. */
 export const FEATURES: readonly Feature[] = [
+  { id: 'worktree-sessions', version: '1.43.0', icon: 'branch', target: { view: 'cockpit', selector: '#ck-header .ck-wt-new' } },
   { id: 'program-status', version: '1.42.0', icon: 'terminal', target: { view: 'settings', selector: '#set-program-status' } },
   { id: 'quick-replies', version: '1.41.0', icon: 'reply', target: { view: 'cockpit', selector: '#ck-header .ck-qr-btn' } },
   { id: 'timeline', version: '1.41.0', icon: 'timeline', target: { view: 'cockpit', selector: '#ck-header .ck-tl-toggle' } },

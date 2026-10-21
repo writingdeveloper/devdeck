@@ -2,7 +2,7 @@ export type IconName =
   | 'search' | 'projects' | 'sessions' | 'tasks' | 'usage'
   | 'settings' | 'refresh' | 'more' | 'play' | 'panel-left'
   | 'folder' | 'plus' | 'restart' | 'close' | 'pin' | 'edit' | 'brain' | 'clock'
-  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power' | 'globe' | 'machine' | 'image' | 'paperclip' | 'download' | 'copy' | 'terminal' | 'reply' | 'timeline' | 'pen' | 'send' | 'undo' | 'square' | 'arrow';
+  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power' | 'globe' | 'machine' | 'image' | 'paperclip' | 'download' | 'copy' | 'terminal' | 'reply' | 'timeline' | 'pen' | 'send' | 'undo' | 'square' | 'arrow' | 'branch';
 
 const paths: Record<IconName, string> = {
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>',
@@ -50,6 +50,7 @@ const paths: Record<IconName, string> = {
   undo: '<path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path>',
   square: '<rect x="4" y="4" width="16" height="16" rx="1.5"></rect>',
   arrow: '<path d="M5 19 19 5"></path><path d="M10 5h9v9"></path>',
+  branch: '<circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="7" r="2"></circle><path d="M6 7v10"></path><path d="M18 9c0 5-6 4-12 8"></path>',
 };
 
 export function iconMarkup(name: IconName): string {

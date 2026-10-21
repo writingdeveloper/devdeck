@@ -5,7 +5,7 @@
 // Run with npm run qa:cockpit-tools.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -24,6 +24,10 @@ const profile = join(sandbox, 'profile');
 const home = join(profile, 'home');
 for (const p of [repo, bin, home]) mkdirSync(p, { recursive: true });
 execFileSync('git', ['init', '-q', '-b', 'qa-tools'], { cwd: repo });
+// A first commit, so a separate workspace (a git worktree) can be started from it.
+writeFileSync(join(repo, 'README.md'), '# tools\n');
+execFileSync('git', ['-c', 'user.email=qa@example.invalid', '-c', 'user.name=QA', 'add', '.'], { cwd: repo });
+execFileSync('git', ['-c', 'user.email=qa@example.invalid', '-c', 'user.name=QA', 'commit', '-q', '-m', 'first'], { cwd: repo });
 
 const sid = '7a1c2b3d-2222-4333-8444-955566667777';
 const tdir = join(home, '.claude', 'projects', repo.replace(/[^a-zA-Z0-9]/g, '-'));
@@ -227,6 +231,36 @@ try {
     }, path);
     assert.ok(red > 200, `the marks are in the sent image (${red} red pixels)`);
     rmSync(path, { force: true });
+  });
+
+  await check('a separate workspace: its own branch and folder, its changes in the header, and a clean-up that warns', async () => {
+    const before = await win.locator('#shell-session-groups .shell-session').count();
+    await win.locator('#ck-header .ck-wt-new').click();
+    await win.waitForFunction((n) => document.querySelectorAll('#shell-session-groups .shell-session').length === n + 1, before, { timeout: 20000 });
+    await win.waitForSelector('#ck-header .ck-wt-pill');
+    const wtDir = join(repo, '.claude', 'worktrees');
+    const [name] = readdirSync(wtDir);
+    const wt = join(wtDir, name);
+    assert.equal(execFileSync('git', ['-C', wt, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim(), 'devdeck/' + name);
+    // The project itself does not see the workspace as a change.
+    assert.equal(execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' }).trim(), '');
+    // Work done in the workspace shows up in its header.
+    writeFileSync(join(wt, 'feature.txt'), 'new work\n');
+    await win.locator('#shell-session-groups .shell-session').first().click();
+    await win.locator('#shell-session-groups .shell-session', { hasText: name }).click();
+    await win.waitForFunction(() => document.querySelector('#ck-header .ck-wt-pill')?.textContent?.includes('파일 1 '), null, { timeout: 15000 });
+    await win.screenshot({ path: join(shots, '4-workspace.png') });
+    // Cleaning up says what would be lost before anything is.
+    await win.locator('#ck-header .ck-wt-clean').click();
+    await win.waitForSelector('.ck-confirm-msg');
+    const confirmText = await win.locator('.ck-confirm-msg').textContent();
+    assert.match(confirmText, /커밋하지 않은 변경 1개/);
+    assert.doesNotMatch(confirmText, /커밋 0개/, 'nothing that is not there is mentioned');
+    await win.screenshot({ path: join(shots, '4-workspace-cleanup.png') });
+    await win.locator('.ck-confirm-ok').click();
+    for (const until = Date.now() + 15000; existsSync(wt) && Date.now() < until;) await new Promise((r) => setTimeout(r, 250));
+    assert.equal(existsSync(wt), false, 'the workspace folder is gone');
+    assert.equal(execFileSync('git', ['-C', repo, 'branch', '--list', 'devdeck/' + name], { encoding: 'utf8' }).trim(), '', 'and its branch');
   });
 
   await check('a document sent from another machine lands in the temp directory under its own name', async () => {
