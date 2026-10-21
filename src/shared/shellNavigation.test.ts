@@ -217,7 +217,7 @@ describe('shell navigation', () => {
     expect(shellEntityKey('session', session.id)).toBe('session:session-42');
     expect(sessionAccessibleLabel(session, 'Awaiting you')).toBe('Review API, feature/api · Codex, Awaiting you');
     expect(sessionAccessibleLabel({ ...session, summary: 'Rewriting the auth guard' }, 'Awaiting you'))
-      .toBe('Review API, feature/api · Codex, Awaiting you, Rewriting the auth guard');
+      .toBe('Review API, feature/api · Codex, Rewriting the auth guard, Awaiting you'); // what is on screen, in order, then the state
   });
 });
 

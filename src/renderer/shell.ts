@@ -218,6 +218,7 @@ export function mountShell(options: {
   projectsToggle.append(
     createIcon('chevron-down', 'ui-icon shell-group-chevron'),
     Object.assign(document.createElement('span'), { className: 'shell-group-name' }),
+    document.createTextNode(' '),
     Object.assign(document.createElement('span'), { className: 'shell-group-count' }),
   );
   projectsToggle.addEventListener('click', () => {
@@ -381,7 +382,7 @@ export function mountShell(options: {
     if (!signal || !copy) {
       signal = document.createElement('span'); signal.className = 'shell-signal'; signal.setAttribute('aria-hidden', 'true');
       copy = document.createElement('span'); copy.className = 'shell-entity-copy';
-      copy.append(document.createElement('strong'), document.createElement('small'), document.createElement('em'));
+      copy.append(document.createElement('strong'), ' ', document.createElement('small'), ' ', document.createElement('em'));
       row.replaceChildren(signal, copy);
     }
     // Shape (not just hue) carries the state, and "working" spins — a still sidebar reads as a dead one.
@@ -439,6 +440,7 @@ export function mountShell(options: {
       // out is that you can tell, without reading, that these terminals are on another computer.
       ...(kind === 'remote' ? [createIcon('machine', 'ui-icon shell-group-machine')] : []),
       Object.assign(document.createElement('span'), { className: 'shell-group-name' }),
+      document.createTextNode(' '),
       Object.assign(document.createElement('span'), { className: 'shell-group-count' }),
     );
     toggle.addEventListener('click', () => {
@@ -556,9 +558,11 @@ export function mountShell(options: {
       // Screen readers get the plain word too: an unfamiliar machine name alone does not say that
       // these sessions are somewhere else.
       const spoken = group.kind === 'remote' ? `${tr(groupLabels.remote)}: ${name}` : name;
+      // The visible name and count come first and in order, so a voice command naming what is on
+      // screen finds the button (WCAG 2.5.3).
       toggle.setAttribute('aria-label', collapsed && waiting > 0
-        ? `${spoken}, ${group.items.length}, ${tr('shell.needs_you')} ${waiting}`
-        : `${spoken}, ${group.items.length}`);
+        ? `${spoken}, ${count}, ${tr('shell.needs_you')} ${waiting}`
+        : `${spoken}, ${count}`);
       toggle.title = tr(collapsed ? 'shell.group_expand' : 'shell.group_collapse', { name: spoken });
       section.classList.toggle('is-collapsed', collapsed);
       // Bulk close: live groups close their terminals, the saved group forgets its entries. Both are
@@ -672,7 +676,9 @@ export function mountShell(options: {
       if (signal.className === className && row.dataset.activityLang === currentLang()) continue;
       row.dataset.activityLang = currentLang();
       signal.className = className;
-      const label = state ? `${row.dataset.projectName ?? ''}, ${tr(state === 'attention' ? 'shell.needs_you' : 'shell.working')}` : row.dataset.projectName ?? '';
+      // The name and the branch line are on screen, so they lead the name, in that order (WCAG 2.5.3).
+      const status = state ? tr(state === 'attention' ? 'shell.needs_you' : 'shell.working') : '';
+      const label = [row.dataset.projectName, row.dataset.projectBranch, status].filter(Boolean).join(', ');
       row.setAttribute('aria-label', label);
       // The path is what disambiguates two repos with the same folder name, and it never fits the row.
       row.title = [label, row.dataset.projectPath].filter(Boolean).join('\n');
@@ -687,11 +693,12 @@ export function mountShell(options: {
     if (!copy) {
       const signal = document.createElement('span'); signal.className = 'shell-signal signal-blank'; signal.setAttribute('aria-hidden', 'true');
       copy = document.createElement('span'); copy.className = 'shell-entity-copy';
-      copy.append(document.createElement('strong'), document.createElement('small'));
+      copy.append(document.createElement('strong'), ' ', document.createElement('small'));
       row.replaceChildren(signal, copy);
     }
     copy.querySelector('strong')!.textContent = item.name;
     copy.querySelector('small')!.textContent = item.branch ?? '—';
+    if (row.dataset.projectBranch !== (item.branch ?? '')) { row.dataset.projectBranch = item.branch ?? ''; delete row.dataset.activityLang; }
     // The deck sorts pinned projects first; without a mark on the row, that ordering reads as arbitrary.
     const pin = row.querySelector('.shell-project-pin');
     if (item.pinned && !pin) {
@@ -770,7 +777,7 @@ export function mountShell(options: {
     const copy = document.createElement('span'); copy.className = 'shell-entity-copy';
     const strong = document.createElement('strong'); strong.textContent = title;
     const small = document.createElement('small'); small.textContent = detail;
-    copy.append(strong, small);
+    copy.append(strong, ' ', small);
     if (mark) button.append(mark);
     button.append(copy);
     button.setAttribute('aria-label', `${title}, ${detail}`);

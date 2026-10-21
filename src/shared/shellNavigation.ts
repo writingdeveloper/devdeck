@@ -108,8 +108,8 @@ export function sessionStatusCounts(items: readonly ShellSessionInput[]): { atte
 /** The row renders its summary as a third line, so assistive tech has to hear it too — the row is a
  *  single button whose aria-label replaces its contents. */
 export function sessionAccessibleLabel(item: ShellSessionInput, localizedStatus: string): string {
-  const base = `${item.label}, ${item.detail}, ${localizedStatus}`;
-  return item.summary ? `${base}, ${item.summary}` : base;
+  // What the row shows, in its order, then the state it shows only as a shape (WCAG 2.5.3).
+  return [item.label, item.detail, item.summary, localizedStatus].filter(Boolean).join(', ');
 }
 
 // Background sessions sit just under what is live here: they are work in progress, and the ones
