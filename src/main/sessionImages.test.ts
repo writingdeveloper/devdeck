@@ -93,3 +93,41 @@ describe('mergeImageRefs', () => {
     expect(mergeImageRefs([], [...b, ...c.add(pasted(), 30)], 1).map((r) => r.id)).toEqual(['30.0']);
   });
 });
+
+describe('image context', () => {
+  const said = (text: string) => JSON.stringify({ type: 'assistant', timestamp: TS, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+  it('says what led to each image: the call\'s target, the page its browser was on, and the agent\'s last words', () => {
+    const c = new SessionImageCollector();
+    const lines = [
+      said('Let me open the login page.\nThen check it.'),
+      toolCall('n1', 'mcp__playwright__browser_navigate', { url: 'http://localhost:3000/login' }),
+      said('Now the button state:'),
+      toolCall('s1', 'mcp__playwright__browser_take_screenshot', { element: 'Submit button', ref: 'e12' }),
+      toolResultWithImage('s1'),
+      toolCall('w1', 'mcp__windows-mcp__Screenshot'),
+      toolResultWithImage('w1'),
+    ];
+    const refs = lines.flatMap((l, i) => c.add(l, i * 1000));
+    expect(refs.map((r) => [r.detail, r.page, r.said])).toEqual([
+      ['Submit button', 'http://localhost:3000/login', 'Now the button state:'],
+      // Another server's screenshot is not of that page.
+      [null, null, 'Now the button state:'],
+    ]);
+  });
+
+  it('gives a pasted image the words the person sent with it, without the placeholder', () => {
+    const c = new SessionImageCollector();
+    const line = JSON.stringify({ type: 'user', timestamp: TS, message: { role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: PNG_B64 } },
+      { type: 'text', text: '[Image #1] 이 버튼 위치 이상해요' },
+    ] } });
+    expect(c.add(line, 0).map((r) => r.said)).toEqual(['이 버튼 위치 이상해요']);
+  });
+
+  it('never parses a huge call just for context, and still names its tool', () => {
+    const c = new SessionImageCollector();
+    c.add(toolCall('big', 'mcp__x__shot', { text: 'y'.repeat(200_000) }), 0);
+    const [ref] = c.add(toolResultWithImage('big'), 1);
+    expect([ref.tool, ref.detail]).toEqual(['mcp__x__shot', null]);
+  });
+});
