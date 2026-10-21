@@ -25,6 +25,7 @@ function makePtys() {
       sessions.set(id, { onExit });
     },
     list() { return [...sessions.keys()].map((id) => ({ id, projectPath: ALLOWED_ROOT, sessionId: null, agentId: 'claude', startedAtMs: 0, label: null })); },
+    programStatus() { return false; },
     kill(id: string) {
       const s = sessions.get(id); if (!s) return;
       sessions.delete(id); this.killed.push(id);
@@ -42,7 +43,7 @@ function build(link: Link | null) {
   const bundle = createDeckApi({
     win: { on: () => {}, isDestroyed: () => true, webContents: { send: () => {} } },
     defaultBaseDir: ALLOWED_ROOT,
-    store: { getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getAgent: () => 'claude', getSessionSummary: () => true, getAiSessionSummary: () => false, getCockpitSessions: () => [], setCockpitSessions: () => {}, setLastOpened: () => {} },
+    store: { getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getAgent: () => 'claude', getSessionSummary: () => true, getAiSessionSummary: () => false, getProgramStatus: () => false, getCockpitSessions: () => [], setCockpitSessions: () => {}, setLastOpened: () => {} },
     sendError: vi.fn(), defaultLanguage: 'en', ptyHost: ptys, ptyAvailable: true,
     tray: { applyCounts: vi.fn(), setAlertImage: vi.fn() }, shutdown: null, shutdownLog: null, bootTimeMs: () => 0,
     link: () => link,

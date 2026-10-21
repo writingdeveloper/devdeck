@@ -62,7 +62,7 @@ beforeAll(() => {
     store: {
       getFolders: () => [{ path: ALLOWED_ROOT, kind: 'root' }], getTrayAlert: () => 'attention',
       getShutdownIdleMinutes: () => 10,
-      getSessionSummary: () => true, getAiSessionSummary: () => false,
+      getSessionSummary: () => true, getAiSessionSummary: () => false, getProgramStatus: () => false,
       ...storeSpies,
     },
     sendError,
@@ -308,7 +308,7 @@ describe('effFolders fallback when no folders are configured', () => {
       store: {
         getFolders: () => [], getTrayAlert: () => 'attention',
         getShutdownIdleMinutes: () => 10,
-        getSessionSummary: () => true, getAiSessionSummary: () => false,
+        getSessionSummary: () => true, getAiSessionSummary: () => false, getProgramStatus: () => false,
         ...storeSpies,
       },
       sendError,

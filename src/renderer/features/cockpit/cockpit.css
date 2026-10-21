@@ -331,7 +331,7 @@
 #view-cockpit .ck-act.ck-qr-btn.ready::after {
   content: "";
   position: absolute;
-  top: 5px;
+  bottom: 5px;
   right: 5px;
   width: 6px;
   height: 6px;
@@ -590,4 +590,82 @@
   resize: vertical;
   font: inherit;
   line-height: 1.5;
+}
+
+/* ---- the agent's own status (Claude Code OSC 7501) in the session header ---- */
+#view-cockpit .ck-status-pill {
+  font-family: var(--dd-font-sans);
+  font-size: 12px;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 360px;
+  font-weight: 600;
+}
+
+#view-cockpit .ck-status-pill[hidden] {
+  display: none;
+}
+
+.ck-status-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ck-status-text {
+  flex: 0 0 auto;
+}
+
+.ck-status-msg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.ck-status-msg::before {
+  content: "· ";
+}
+
+#view-cockpit .ck-status-pill.st-working {
+  color: var(--dd-working);
+  border-color: color-mix(in srgb, var(--dd-working) 45%, transparent);
+}
+
+#view-cockpit .ck-status-pill.st-working .ck-status-dot {
+  animation: ck-status-pulse 1.4s ease-in-out infinite;
+}
+
+#view-cockpit .ck-status-pill.st-blocked {
+  color: #1a1206;
+  background: var(--dd-attention);
+  border-color: var(--dd-attention);
+}
+
+#view-cockpit .ck-status-pill.st-blocked .ck-status-dot {
+  background: #1a1206;
+}
+
+#view-cockpit .ck-status-pill.st-done {
+  color: var(--dd-success);
+  border-color: color-mix(in srgb, var(--dd-success) 45%, transparent);
+}
+
+#view-cockpit .ck-status-pill.st-error {
+  color: #ff8a7a;
+  border-color: color-mix(in srgb, #ff8a7a 45%, transparent);
+}
+
+@keyframes ck-status-pulse {
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #view-cockpit .ck-status-pill.st-working .ck-status-dot { animation: none; }
 }

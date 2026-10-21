@@ -59,21 +59,36 @@ out(${JSON.stringify(SHADE)} + '❯ 다음 단계' + ${JSON.stringify(RESET)} + 
 out(filler('second', 70));
 out('────────────────────────────────\\n❯ \\n────────────────────────────────\\n');
 out('FIXTURE_READY\\n');
+// Claude Code's status protocol (OSC 7501): ask the terminal, then report once answered.
+const status = (fields) => process.stdout.write('\\x1b]7501;' + fields + '\\x07');
+const b64 = (s) => Buffer.from(s).toString('base64');
+process.stdout.write('\\x1b]7501;?\\x07');
+let seenInput = '';
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
-process.stdin.on('data', (d) => fs.appendFileSync(${JSON.stringify(typedLog)}, d));
+process.stdin.on('data', (d) => {
+  fs.appendFileSync(${JSON.stringify(typedLog)}, d);
+  seenInput += d.toString();
+  if (seenInput.includes('\\x1b]7501;?')) { seenInput = seenInput.replace('\\x1b]7501;?', ''); status('state=working:app=claude-code:progress=30:msg=' + b64('테스트 실행 중')); }
+  if (seenInput.includes('BLOCKME')) { seenInput = ''; status('state=blocked:app=claude-code:kind=permission:msg=' + b64('Bash')); }
+  if (seenInput.includes('DONEME')) { seenInput = ''; status('state=done:app=claude-code:msg=' + b64('로그인 버그를 고쳤습니다')); }
+});
 setInterval(() => {}, 1 << 30);
 `);
 writeFileSync(join(bin, 'claude.cmd'), '@echo off\r\nnode "%~dp0agent.js" %*\r\n');
 
 writeFileSync(join(profile, 'state.json'), JSON.stringify({ projects: {}, settings: {
   language: 'ko', folders: [{ path: repo, kind: 'repo' }], viewMode: 'list',
+  // An install updated from 1.41.0, with Claude's status signal turned on.
+  whatsNewSeen: '1.41.0', programStatus: true,
   cockpitSessions: [{ tileId: 'tile-tools-1', projectPath: repo, name: 'tools-workspace', sessionId: sid, agentId: 'claude', label: 'Tools QA', lastActiveMs: Date.now() }],
 } }));
 const env = { ...process.env, HOME: home, USERPROFILE: home, CLAUDECODE: '', CLAUDE_CODE_SSE_PORT: '', CLAUDE_CODE_ENTRYPOINT: '' };
 const pathKey = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'PATH';
 env[pathKey] = bin + ';' + env[pathKey];
 
-const app = await electron.launch({ args: ['.', '--user-data-dir=' + profile, '--no-sandbox', '--disable-gpu'], cwd: root, env });
+// DEVDECK_EXECUTABLE runs it against a packaged build (release.yml), where the bundled ConPTY is what ships.
+const executablePath = process.env.DEVDECK_EXECUTABLE;
+const app = await electron.launch({ ...(executablePath ? { executablePath: resolve(executablePath) } : {}), args: [...(executablePath ? [] : ['.']), '--user-data-dir=' + profile, '--no-sandbox', '--disable-gpu'], cwd: root, env });
 const errors = [];
 let failed = false;
 const check = async (name, fn) => { await fn(); console.log('PASS ' + name); };
@@ -89,6 +104,23 @@ try {
   win.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   const topRow = () => win.evaluate(() => document.querySelector('.ck-term.show .xterm-rows > div')?.textContent ?? '');
 
+  const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+  await check('after an update, What\'s new lists what changed and shows where it is', async () => {
+    await win.waitForSelector('.wn-dialog', { timeout: 20000 });
+    assert.equal(await win.locator('#wn-title').textContent(), `DevDeck ${version}의 새로운 기능`);
+    // Only what is newer than the version the person last saw.
+    const versions = await win.locator('.wn-version').allTextContents();
+    assert.ok(versions.length >= 1 && !versions.includes('v1.41.0'), versions.join(','));
+    await win.screenshot({ path: join(shots, '0-whats-new.png') });
+    await win.locator('.wn-card', { hasText: 'Claude가 직접 상태를 알려 줍니다' }).locator('.wn-show').click();
+    await win.waitForSelector('.wn-dialog', { state: 'detached' });
+    await win.waitForSelector('#settings-form .set-row.dd-spotlight #set-program-status');
+    assert.equal(await win.locator('#set-program-status').isChecked(), true);
+    await win.screenshot({ path: join(shots, '0-spotlight.png') });
+    const seen = JSON.parse(readFileSync(join(profile, 'state.json'), 'utf8')).settings.whatsNewSeen;
+    assert.equal(seen, version, 'not shown again for this version');
+  });
+
   await check('session opens with the fixture screen', async () => {
     await win.waitForSelector('#shell-session-groups .shell-session', { timeout: 30000 });
     await win.locator('#shell-session-groups .shell-session').first().click();
@@ -96,8 +128,25 @@ try {
     await win.waitForFunction(() => document.querySelector('#ck-header .ck-img-count')?.textContent === '1');
   });
 
+  await check('Claude\'s own status shows in the header: working, needs approval, done', async () => {
+    // The host answered the probe, so the agent reports.
+    await waitTyped('\x1b]7501;?');
+    const pill = win.locator('#ck-header .ck-status-pill');
+    await win.waitForFunction(() => document.querySelector('#ck-header .ck-status-pill')?.textContent?.includes('작업 중 30%'));
+    assert.match(await pill.textContent(), /테스트 실행 중/);
+    await win.locator('.ck-term.show .xterm-screen').click();
+    await win.keyboard.type('BLOCKME');
+    await win.waitForFunction(() => document.querySelector('#ck-header .ck-status-pill.st-blocked')?.textContent?.includes('승인 필요'));
+    await win.screenshot({ path: join(shots, '1-status-blocked.png') });
+    await win.keyboard.type('DONEME');
+    await win.waitForFunction(() => document.querySelector('#ck-header .ck-status-pill.st-done')?.textContent?.includes('로그인 버그를 고쳤습니다'));
+    await win.screenshot({ path: join(shots, '1-status-done.png') });
+  });
+
   await check('a quick reply from the menu is typed and sent', async () => {
     const button = win.locator('#ck-header button[aria-label="빠른 답장"]');
+    // New since the last version the person ran: marked until it is used.
+    assert.equal(await button.locator('.dd-new-dot').count(), 1, 'a NEW dot on the quick reply button');
     // Waiting for the person: the button says so.
     await win.waitForFunction(() => document.querySelector('#ck-header .ck-qr-btn')?.classList.contains('ready'), null, { timeout: 20000 });
     await button.click();
@@ -107,6 +156,7 @@ try {
     await win.locator('.ck-qr-item').first().click();
     await waitTyped('네 계속 진행해줘\r');
     assert.equal(await win.locator('.ck-qr-menu').count(), 0, 'the menu closed');
+    assert.equal(await win.locator('#ck-header .ck-qr-btn .dd-new-dot').count(), 0, 'the NEW dot went once it was used');
   });
 
   await check('Ctrl+Shift+<n> sends the n-th quick reply from the terminal', async () => {

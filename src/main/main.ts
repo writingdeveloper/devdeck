@@ -1,5 +1,6 @@
 import { app, BrowserWindow, globalShortcut, crashReporter, powerMonitor, powerSaveBlocker, safeStorage, screen } from 'electron';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { uptime, homedir, tmpdir } from 'node:os';
 import { Store } from './store';
@@ -34,7 +35,10 @@ try { nodePty = require('@homebridge/node-pty-prebuilt-multiarch') as NodePty; }
 
 const realSpawn: PtySpawn = (file, args, opts) => {
   if (!nodePty) throw new Error('node-pty native binding unavailable — embedded terminals need Windows (or a matching prebuilt)');
-  const p = nodePty.spawn(file, args, { name: 'xterm-256color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows });
+  // The bundled conpty.dll is asked for only when it is actually there (it is copied in by
+  // node-pty's postinstall); without it the terminal falls back to Windows' own ConPTY.
+  const bundled = opts.bundledConpty === true && bundledConptyAvailable();
+  const p = nodePty.spawn(file, args, { name: 'xterm-256color', cwd: opts.cwd, cols: opts.cols, rows: opts.rows, useConptyDll: bundled });
   const proc: PtyProcess = {
     pid: p.pid,
     onData: (cb) => { p.onData(cb); },
@@ -42,11 +46,21 @@ const realSpawn: PtySpawn = (file, args, opts) => {
     write: (d) => p.write(d),
     resize: (c, r) => p.resize(c, r),
     kill: () => p.kill(),
+    bundledConpty: bundled,
   };
   // Closing a tile has to end what the agent started too (MCP servers, hidden dev servers), which
   // node-pty's console-only kill leaves running on Windows — see withTreeKill.
   return process.platform === 'win32' ? withTreeKill(proc, (pid) => taskkillTree(pid)) : proc;
 };
+let conptyDll: boolean | null = null;
+function bundledConptyAvailable(): boolean {
+  if (conptyDll !== null) return conptyDll;
+  try {
+    const dir = path.join(path.dirname(require.resolve('@homebridge/node-pty-prebuilt-multiarch/package.json')), 'build', 'Release', 'conpty');
+    conptyDll = fs.existsSync(path.join(dir, 'conpty.dll')) && fs.existsSync(path.join(dir, 'OpenConsole.exe'));
+  } catch { conptyDll = false; }
+  return conptyDll;
+}
 const ptyHost = new PtyHost(realSpawn);
 
 let win: BrowserWindow | null = null;

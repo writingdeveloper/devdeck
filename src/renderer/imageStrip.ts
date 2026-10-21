@@ -11,6 +11,7 @@ import { createIcon } from './icons';
 import { toast } from './loadError';
 import { fitPngBase64 } from './attachments';
 import { ImageMarkup, type MarkTool } from './imageMarkup';
+import { newDot } from './whatsNew';
 
 /** Everything the strip needs to know about one session — where its images come from. */
 export interface ImageSource {
@@ -298,6 +299,7 @@ function openViewer(src: ImageSource, list: SessionImageRef[], startIndex: numbe
   const clear = mk('trash', tr('cockpit.markup_clear'), () => markup.clear());
   tools.append(undo, clear);
   const markBtn = mk('pen', tr('cockpit.image_markup'), () => { markup.setEnabled(!markup.active); syncMarkup(); });
+  newDot(markBtn, 'image-markup');
   let sending = false;
   const send = mk('send', tr('cockpit.image_attach'), () => {
     if (!img.src || sending || !src.attach) return;

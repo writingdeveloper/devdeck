@@ -2,6 +2,7 @@ import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i1
 import { setCockpitContextWindow, setCockpitTrayAlert, setCockpitSessionSummary, setCockpitAiSummary, setCockpitQuickReplies } from './cockpitView';
 import { quickReplies } from './quickReplyMenu';
 import { parseQuickReplyText } from '../shared/quickReplies';
+import { markFeatureSeen, newDot, openWhatsNew } from './whatsNew';
 import type { Folder } from '../shared/types';
 import { IDLE_HOLD_CHOICES } from '../shared/shutdownIdle';
 import { basename, parentLabel } from '../shared/paths';
@@ -120,6 +121,17 @@ async function render(): Promise<void> {
       const aiWrap = document.createElement('div'); aiWrap.className = 'set-inline';
       const aiHint = document.createElement('span'); aiHint.className = 'set-hint'; aiHint.textContent = tr('set.ai_summary_hint');
       aiWrap.append(ai, aiHint); content.appendChild(field('set.ai_summary', aiWrap, ai));
+      // Claude Code's own status report. Opt-in on Windows: it runs new sessions on the ConPTY bundled
+      // with DevDeck instead of the one built into Windows.
+      const ps = document.createElement('input'); ps.type = 'checkbox'; ps.className = 'set-check'; ps.id = 'set-program-status'; ps.checked = s.programStatus;
+      bindCheck(ps, v => window.devdeck.setProgramStatus(v));
+      ps.addEventListener('change', () => markFeatureSeen('program-status'));
+      const psWrap = document.createElement('div'); psWrap.className = 'set-inline';
+      const psHint = document.createElement('span'); psHint.className = 'set-hint'; psHint.textContent = tr('set.program_status_hint');
+      psWrap.append(ps, psHint);
+      const psRow = field('set.program_status', psWrap, ps);
+      newDot(psRow.querySelector<HTMLElement>('.set-label')!, 'program-status');
+      content.appendChild(psRow);
       const hold = document.createElement('select'); hold.className = 'set-input';
       for (const m of IDLE_HOLD_CHOICES) {
         const o = document.createElement('option'); o.value = String(m); o.textContent = String(m); o.selected = m === s.shutdownIdleMinutes; hold.appendChild(o);
@@ -182,6 +194,9 @@ async function render(): Promise<void> {
       const b = document.createElement('button'); b.className = 'chip'; b.textContent = tr(labelKey);
       b.addEventListener('click', () => void window.devdeck.openExternal(url)); return b;
     };
+    const news = document.createElement('button'); news.className = 'chip wn-primary about-whatsnew'; news.textContent = tr('whatsnew.open');
+    news.addEventListener('click', () => openWhatsNew({ version: info.version, after: null }));
+    links.append(news);
     links.append(link('about.github', info.repoUrl), link('about.releases', info.repoUrl + '/releases/latest'), link('about.license', info.repoUrl + '/blob/main/LICENSE'), link('about.report_issue', info.repoUrl + '/issues'));
     const upd = document.createElement('div'); upd.className = 'about-upd';
     const check = document.createElement('button'); check.className = 'chip'; check.textContent = tr('about.check_updates');

@@ -42,7 +42,7 @@ beforeAll(() => {
       getThresholds: () => null,
       get: (p: string): StoreEntry => ({ note: '', pinned: false, hidden: false, lastOpened: null, todos: [], ...entries.get(p) }),
       getSessionSummary: () => true,
-      getAiSessionSummary: () => false,
+      getAiSessionSummary: () => false, getProgramStatus: () => false,
     },
     sendError: vi.fn(),
     defaultLanguage: 'en',

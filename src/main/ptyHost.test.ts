@@ -344,3 +344,50 @@ describe('Windows process-tree kill', () => {
     expect(spawnFn).not.toHaveBeenCalled();
   });
 });
+
+describe('Claude Code status probe (OSC 7501)', () => {
+  const PROBE = '\x1b]7501;?\x07';
+  const open = (programStatus: boolean, bundledConpty: boolean) => {
+    const proc = Object.assign(fakeProc(), { bundledConpty });
+    const spawn = vi.fn(() => proc) as unknown as PtySpawn;
+    const onData = vi.fn();
+    new PtyHost(spawn).create('s', 'pwsh', [], '.', 80, 24, onData, () => {}, { programStatus });
+    return { proc, spawn, onData };
+  };
+  const onWindowsOrElsewhere = process.platform === 'win32';
+
+  it('answers the probe once, even split across chunks, and still passes the output on', () => {
+    const { proc, onData } = open(true, true);
+    proc.emitData('banner\x1b]75');
+    proc.emitData('01;?\x07\x1b[c');
+    expect(proc.write).toHaveBeenCalledTimes(1);
+    expect(proc.write).toHaveBeenCalledWith(PROBE);
+    expect(onData.mock.calls.map((c) => c[0]).join('')).toContain('\x1b]7501;?');
+  });
+
+  it('asks Windows for the bundled ConPTY only when the status is wanted', () => {
+    const on = open(true, true), off = open(false, false);
+    const opts = (s: PtySpawn) => (s as unknown as ReturnType<typeof vi.fn>).mock.calls[0][2];
+    expect(opts(on.spawn).bundledConpty).toBe(onWindowsOrElsewhere ? true : undefined);
+    expect(opts(off.spawn).bundledConpty).toBeUndefined();
+  });
+
+  it('never answers when the status was not asked for', () => {
+    const { proc } = open(false, false);
+    proc.emitData(PROBE);
+    expect(proc.write).not.toHaveBeenCalled();
+  });
+
+  it('on Windows, does not answer through Windows\' own ConPTY, where the answer would arrive too late', () => {
+    const { proc } = open(true, false);
+    proc.emitData(PROBE);
+    if (onWindowsOrElsewhere) expect(proc.write).not.toHaveBeenCalled();
+    else expect(proc.write).toHaveBeenCalledWith(PROBE);
+  });
+});
+
+it('the tree-kill wrapper keeps saying which ConPTY the terminal runs on', () => {
+  // Dropping it here made every session look like it ran on Windows' own ConPTY, so the status
+  // probe was never answered (found by qa:cockpit-tools).
+  expect(withTreeKill(Object.assign(fakeProc(), { bundledConpty: true }), async () => {}).bundledConpty).toBe(true);
+});

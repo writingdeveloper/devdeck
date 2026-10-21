@@ -8,6 +8,7 @@ import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
 import { activateCockpitSession, closeCockpitSessionGroup, closeCockpitSessions, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, runningSessionsForAutoRestore, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary, setCockpitQuickReplies } from './cockpitView';
+import { openWhatsNew, setFeatureNavigator, whatsNewOnStart } from './whatsNew';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -288,6 +289,15 @@ async function boot(): Promise<void> {
     contextRestore?.cancel();
     if (view !== 'cockpit') localStorage.setItem(SHELL_CONTEXT_KEY, JSON.stringify({ kind: 'view', id: view }));
   });
+  // What changed since the last version the person ran: shown once after an update, never on a
+  // first run, and from Settings → About at any time.
+  setFeatureNavigator((view) => nav.show(view));
+  void window.devdeck.getAppInfo().then((info) => {
+    const plan = whatsNewOnStart(info.version, settings.whatsNewSeen, settings.usedBefore);
+    const markSeen = (): void => { void window.devdeck.setWhatsNewSeen(info.version); };
+    if (plan.show) setTimeout(() => openWhatsNew({ version: info.version, after: plan.after, onClose: markSeen }), 1500);
+    else if (settings.whatsNewSeen !== info.version) markSeen();
+  }).catch(() => { /* no version, no news */ });
   shellController = mountShell({
     initialCollapsed: settings.cockpitSidebarCollapsed,
     showView: nav.show,

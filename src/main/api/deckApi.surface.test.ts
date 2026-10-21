@@ -57,7 +57,7 @@ beforeAll(() => {
       getTrayAlert: () => 'attention',
       getShutdownIdleMinutes: () => 10,
       getSessionSummary: () => true,
-      getAiSessionSummary: () => false,
+      getAiSessionSummary: () => false, getProgramStatus: () => false,
     },
     sendError: vi.fn(),
     defaultLanguage: 'en',
