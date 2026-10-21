@@ -276,6 +276,7 @@ for (const { view, selector } of viewStates.filter(({ visible }) => visible)) {
   a11y[view] = res.violations.map((v) => ({
     id: v.id, impact: v.impact, n: v.nodes.length, help: v.help,
     targets: v.nodes.slice(0, 5).map((n) => n.target.join(' ')), // which elements — otherwise a violation is undebuggable from CI logs
+    html: v.nodes.slice(0, 5).map((n) => n.html.slice(0, 300)),
   }));
 }
 
