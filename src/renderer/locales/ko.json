@@ -562,5 +562,6 @@
   "cockpit.image_attached_marked": "표시한 이미지를 세션에 첨부했습니다",
   "cockpit.image_attach_failed": "이미지를 첨부하지 못했습니다 — 세션에는 아무것도 입력하지 않았습니다.",
   "set.quick_replies": "빠른 답장",
-  "set.quick_replies_hint": "한 줄에 하나씩, 최대 9개. 세션 상단의 💬 버튼이나 터미널에서 Ctrl+Shift+1…9로 보냅니다. 비워 두면 기본 문구를 씁니다."
+  "set.quick_replies_hint": "한 줄에 하나씩, 최대 9개. 세션 상단의 💬 버튼이나 터미널에서 Ctrl+Shift+1…9로 보냅니다. 비워 두면 기본 문구를 씁니다.",
+  "cockpit.timeline_host_too_old": "그 PC의 DevDeck이 타임라인을 지원하지 않는 버전입니다 — 1.41.0으로 업데이트하세요."
 }

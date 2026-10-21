@@ -11,6 +11,7 @@ import { imagesByTurn } from '../shared/timeline';
 import { tr } from './i18n-runtime';
 import { createIcon } from './icons';
 import { toast } from './loadError';
+import { HOST_TOO_OLD } from './machineDeck';
 
 export interface TimelineSource {
   /** Stable per session, like the image strip's. */
@@ -30,6 +31,8 @@ let host: HTMLElement | null = null;
 let panel: HTMLElement | null = null;
 let source: TimelineSource | null = null;
 let turns: SessionTurn[] = [];
+/** The session's machine runs a DevDeck older than the timeline. */
+let hostTooOld = false;
 let open = readOpenPref();
 let seq = 0;
 let onToggle: () => void = () => {};
@@ -65,6 +68,7 @@ export function showTimelineFor(next: TimelineSource | null): void {
   if (next?.key === source?.key) { source = next; return; }
   source = next;
   turns = [];
+  hostTooOld = false;
   render();
   if (open) void refreshTimeline();
 }
@@ -75,8 +79,14 @@ export async function refreshTimeline(): Promise<void> {
   if (!src || !open) return;
   const my = ++seq;
   let list: SessionTurn[];
-  try { list = await src.turns(); } catch { return; }
+  try { list = await src.turns(); }
+  catch (error) {
+    if (my !== seq || src.key !== source?.key) return;
+    if (error instanceof Error && error.message === HOST_TOO_OLD) { hostTooOld = true; render(); }
+    return;
+  }
   if (my !== seq || src.key !== source?.key) return;
+  hostTooOld = false;
   turns = list;
   render();
 }
@@ -101,7 +111,8 @@ function render(): void {
   head.append(title, close);
   const list = document.createElement('ol'); list.className = 'ck-tl-list';
   if (turns.length === 0) {
-    const empty = document.createElement('li'); empty.className = 'ck-tl-empty'; empty.textContent = tr('cockpit.timeline_empty');
+    const empty = document.createElement('li'); empty.className = 'ck-tl-empty';
+    empty.textContent = tr(hostTooOld ? 'cockpit.timeline_host_too_old' : 'cockpit.timeline_empty');
     list.appendChild(empty);
   }
   const rows = turns.length ? src.locate(turns) : new Map<string, number>();

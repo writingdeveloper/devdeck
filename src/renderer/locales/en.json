@@ -562,5 +562,6 @@
   "cockpit.image_attached_marked": "Marked-up image attached to the session",
   "cockpit.image_attach_failed": "Could not attach the image — nothing was typed into the session.",
   "set.quick_replies": "Quick replies",
-  "set.quick_replies_hint": "One per line, up to 9. Sent with the 💬 button in a session's header, or Ctrl+Shift+1…9 in its terminal. Leave empty for the defaults."
+  "set.quick_replies_hint": "One per line, up to 9. Sent with the 💬 button in a session's header, or Ctrl+Shift+1…9 in its terminal. Leave empty for the defaults.",
+  "cockpit.timeline_host_too_old": "The DevDeck on that PC is too old to show a timeline — update it to 1.41.0."
 }

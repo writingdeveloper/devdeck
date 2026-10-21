@@ -562,5 +562,6 @@
   "cockpit.image_attached_marked": "マークした画像をセッションに添付しました",
   "cockpit.image_attach_failed": "画像を添付できませんでした — セッションには何も入力していません。",
   "set.quick_replies": "クイック返信",
-  "set.quick_replies_hint": "1 行に 1 つ、最大 9 個。セッション上部の 💬 ボタン、またはターミナルで Ctrl+Shift+1…9 で送信します。空欄なら既定の文言を使います。"
+  "set.quick_replies_hint": "1 行に 1 つ、最大 9 個。セッション上部の 💬 ボタン、またはターミナルで Ctrl+Shift+1…9 で送信します。空欄なら既定の文言を使います。",
+  "cockpit.timeline_host_too_old": "その PC の DevDeck はタイムラインに対応していないバージョンです — 1.41.0 に更新してください。"
 }

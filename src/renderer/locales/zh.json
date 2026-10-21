@@ -562,5 +562,6 @@
   "cockpit.image_attached_marked": "已将标注后的图片附加到会话",
   "cockpit.image_attach_failed": "无法附加图片 — 没有向会话输入任何内容。",
   "set.quick_replies": "快捷回复",
-  "set.quick_replies_hint": "每行一条，最多 9 条。用会话顶部的 💬 按钮或在终端中按 Ctrl+Shift+1…9 发送。留空则使用默认文案。"
+  "set.quick_replies_hint": "每行一条，最多 9 条。用会话顶部的 💬 按钮或在终端中按 Ctrl+Shift+1…9 发送。留空则使用默认文案。",
+  "cockpit.timeline_host_too_old": "该电脑上的 DevDeck 版本过旧，无法显示时间线 — 请更新到 1.41.0。"
 }
