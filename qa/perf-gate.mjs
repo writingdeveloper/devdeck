@@ -194,3 +194,6 @@ try {
   await closeElectron(app).catch(() => {});
 }
 if (failures.length) { console.log(`\nFAIL: ${failures.join(', ')}`); process.exitCode = 1; } else console.log('\nPASS: performance gate');
+// Exit explicitly: on a Windows runner a handle left by the closed app once kept node alive after
+// the verdict was printed, until the job hit its 20-minute limit and the v1.42.0 release was cancelled.
+process.exit(process.exitCode ?? 0);
