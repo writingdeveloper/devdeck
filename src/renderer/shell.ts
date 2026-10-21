@@ -40,7 +40,7 @@ const viewLabels: Record<ViewId, string> = {
 const groupLabels: Record<string, string> = {
   attention: 'shell.needs_you', working: 'shell.working', pinned: 'cockpit.grp_pinned',
   remote: 'shell.grp_remote', turn: 'cockpit.grp_turn', quiet: 'cockpit.grp_idle',
-  previous: 'cockpit.prev_sessions',
+  previous: 'cockpit.prev_sessions', background: 'shell.grp_background',
 };
 
 const actionLabels: Record<ShellSessionAction, string> = {
@@ -60,7 +60,7 @@ const actionIcons: Record<ShellSessionAction, IconName> = {
  * session that is *waiting on you* behind a "show more" would defeat the reason the sidebar exists.
  */
 const groupLimits: Record<ShellGroupKind, number> = {
-  attention: Infinity, working: Infinity, pinned: 10, remote: 10, turn: 8, quiet: 6, previous: 5,
+  attention: Infinity, working: Infinity, background: 6, pinned: 10, remote: 10, turn: 8, quiet: 6, previous: 5,
 };
 
 /** Recent-first project rows shown before the list offers the full deck. Pinned ones are never cut. */
@@ -405,6 +405,8 @@ export function mountShell(options: {
     const actions = wrap.querySelector<HTMLButtonElement>('.shell-session-actions')!;
     actions.title = tr('shell.session_actions'); actions.setAttribute('aria-label', `${tr('shell.session_actions')}: ${item.label}`);
     const offered = new Set(sessionActionsFor(item));
+    // A row with nothing to offer (a background session) has no ⋯ at all, rather than an empty menu.
+    actions.classList.toggle('hidden', offered.size === 0);
     for (const entry of Array.from(wrap.querySelectorAll<HTMLButtonElement>('[data-session-action]'))) {
       const action = entry.dataset.sessionAction as ShellSessionAction;
       const shown = offered.has(action);
@@ -565,7 +567,8 @@ export function mountShell(options: {
       const bulkLabel = tr(group.kind === 'previous' ? 'shell.forget_group' : 'shell.close_group', { n: String(group.items.length), name: spoken });
       bulk.title = bulkLabel;
       bulk.setAttribute('aria-label', bulkLabel);
-      bulk.classList.toggle('hidden', collapsed || group.items.length < 2); // one row already has its own ⋯ close
+      // Background sessions are not DevDeck's to close in bulk.
+      bulk.classList.toggle('hidden', collapsed || group.items.length < 2 || group.kind === 'background'); // one row already has its own ⋯ close
       const body = section.querySelector<HTMLElement>('.shell-group-body')!;
       body.classList.toggle('hidden', collapsed);
       const cut = rendered.get(group.key)!;

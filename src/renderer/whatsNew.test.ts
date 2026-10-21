@@ -13,9 +13,9 @@ describe('when the What\'s new window opens', () => {
   });
 
   it('lists only what is newer than what was last shown, newest first', () => {
-    expect(featuresAfter('1.41.0').map((f) => f.version)).toEqual(['1.43.0', '1.42.0']);
+    expect(featuresAfter('1.41.0').map((f) => f.version)).toEqual(['1.44.0', '1.43.0', '1.42.0']);
     const all = featuresAfter(null).map((f) => f.version);
-    expect(all[0]).toBe('1.43.0');
+    expect(all[0]).toBe('1.44.0');
     expect([...all].sort((a, b) => compareVersions(b, a))).toEqual(all);
   });
 

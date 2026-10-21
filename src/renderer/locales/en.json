@@ -633,5 +633,14 @@
   "whatsnew.f.worktree-sessions.body": "Start another session on the same project in its own folder and git branch, so two agents never edit the same files. The header shows what it has changed; cleaning up warns before anything unmerged is lost.",
   "whatsnew.f.worktree-sessions.where": "The branch button in a session's header",
   "cockpit.worktree_part_dirty": "{n} uncommitted changes",
-  "cockpit.worktree_part_commits": "{n} commits that {base} does not have"
+  "cockpit.worktree_part_commits": "{n} commits that {base} does not have",
+  "shell.grp_background": "Claude background sessions",
+  "cockpit.bg_state_blocked": "waiting for you",
+  "cockpit.bg_state_running": "running",
+  "cockpit.bg_state_working": "working",
+  "cockpit.bg_state_idle": "idle",
+  "cockpit.bg_state_failed": "failed",
+  "whatsnew.f.background-agents.title": "Claude's background sessions in the sidebar",
+  "whatsnew.f.background-agents.body": "Sessions started with claude --bg or from Claude's agent view now show up, with the ones waiting for you marked. Click one to open it in a tile; it keeps running as it was.",
+  "whatsnew.f.background-agents.where": "The \"Claude background sessions\" group in the sidebar"
 }

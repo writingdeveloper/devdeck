@@ -37,6 +37,7 @@ import { quickReplySlot } from '../shared/quickReplies';
 import { activityFromProgramStatus, parseProgramStatus, type ProgramStatus } from '../shared/programStatus';
 import { IDLE_MS } from '../shared/sessionStatus';
 import { newDot } from './whatsNew';
+import type { BackgroundAgent } from '../shared/backgroundAgents';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
@@ -91,7 +92,7 @@ interface Live {
   resizedAt: number;
 }
 /** The renderer's display metadata plus the explicit provider launch intent. */
-export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; instanceId?: string; labelRevision?: number; /** Picked up because a machine announced it, not because anybody here asked: build it without taking the screen or the keyboard. */ background?: boolean; }
+export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; instanceId?: string; labelRevision?: number; /** Picked up because a machine announced it, not because anybody here asked: build it without taking the screen or the keyboard. */ background?: boolean; /** Open one of Claude Code's own background sessions by its short id (`claude attach`). */ attachId?: string; }
 
 const live = new Map<string, Live>();
 /** How long after a size change a terminal's output is taken to be the repaint, not the agent. */
@@ -178,6 +179,8 @@ export function mountCockpit(): void {
   if (strip) initImageStrip(strip, () => { if (!editingId) renderHeader(); scheduleLayout(); }, { popupIn: termsEl, refsChanged: () => { markSelectedTerminal(); void refreshTimeline(); } });
   // Floats over the terminal's right edge, so opening it never resizes the pty.
   initTimeline(termsEl, () => { if (!editingId) renderHeader(); });
+  void refreshBackgroundAgents();
+  setInterval(() => { if (!document.hidden) void refreshBackgroundAgents(); }, BACKGROUND_POLL_MS);
   // Mid-turn, new screenshots show up as they are taken rather than at the end of the turn; between
   // turns a slow re-read still catches images written some other way (another process, a resume).
   // Only the selected session is ever read, and an unchanged transcript costs one stat.
@@ -593,7 +596,53 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
     previous: true,
     conversationGone: missingConversations.has(prevKey(entry)),
   }));
-  return [...current, ...previous];
+  // Claude Code's own background sessions, except one already open in a tile here.
+  const openConversations = new Set(liveItems.map((l) => l.openedSessionId).filter(Boolean));
+  const background: ShellSessionInput[] = [];
+  for (const [machineId, list] of backgroundAgents) {
+    for (const b of list) {
+      if (openConversations.has(b.sessionId)) continue;
+      background.push({
+        id: backgroundNavigationId(machineId, b.id),
+        projectPath: b.cwd,
+        label: b.name ?? basename(b.cwd),
+        detail: [basename(b.cwd), tr(`cockpit.bg_state_${b.state}`), ...(machineId !== LOCAL_MACHINE_ID ? [machineName(machineId)] : [])].join(' · '),
+        activity: b.state === 'blocked' ? 'attention' : b.state === 'running' || b.state === 'working' ? 'working' : b.state === 'idle' ? 'turn' : 'idle',
+        pinned: false,
+        lastActiveMs: b.startedAt,
+        backgroundAgent: true,
+      });
+    }
+  }
+  return [...current, ...background, ...previous];
+}
+
+// ---- Claude Code's own background sessions ----
+/** Per machine, the background sessions its `claude agents` lists (see main/backgroundAgents). */
+const backgroundAgents = new Map<string, BackgroundAgent[]>();
+const BACKGROUND_POLL_MS = 30_000;
+
+function backgroundNavigationId(machineId: string, id: string): string { return `bg:${machineId}:${id}`; }
+
+/** Re-read every reachable machine's background sessions; the sidebar updates if anything changed. */
+async function refreshBackgroundAgents(): Promise<void> {
+  const machines = [LOCAL_MACHINE_ID, ...[...live.values()].map((l) => l.machineId).filter((m) => m !== LOCAL_MACHINE_ID && machineState(m) === 'connected')];
+  let changed = false;
+  for (const machineId of new Set(machines)) {
+    const list = await deckFor(machineId).cockpit.backgroundAgents().catch(() => [] as BackgroundAgent[]);
+    if (JSON.stringify(list) !== JSON.stringify(backgroundAgents.get(machineId) ?? [])) { backgroundAgents.set(machineId, list); changed = true; }
+  }
+  if (changed) publishCockpitNavigation();
+}
+
+/** Open a background session in a tile, attached to it — the conversation and the session go on as they were. */
+function openBackgroundAgent(id: string): boolean {
+  const m = /^bg:(.+):([0-9a-f]+)$/i.exec(id);
+  if (!m) return false;
+  const b = backgroundAgents.get(m[1])?.find((x) => x.id === m[2]);
+  if (!b) return false;
+  void createSession({ path: b.cwd, name: b.name ?? basename(b.cwd), staleLevel: 'neutral', branch: null, dirty: 0, mode: 'auto', sessionId: b.sessionId, attachId: b.id, agentId: 'claude', machineId: m[1] });
+  return true;
 }
 
 /** One-release migration map for shell contexts saved before opaque tile identities existed. */
@@ -649,7 +698,8 @@ export function activateCockpitSession(id: string): void {
   const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id || legacyCockpitNavigationId(navigationIdentity(entry)) === id);
   if (current) { select(current.session.id); return; }
   const previous = restorable.find((entry) => cockpitNavigationId(entry) === id || legacyCockpitNavigationId(entry) === id);
-  if (previous) void restoreSession(previous);
+  if (previous) { void restoreSession(previous); return; }
+  openBackgroundAgent(id);
 }
 
 /**
@@ -1114,7 +1164,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     try {
       // The machine that owns the project opens it. A remote answer carries an id already qualified
       // with that machine, which is what lets input/resize/close below stay machine-agnostic.
-      res = await deckFor(machineId).cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, mode: p.mode, agentId: p.agentId });
+      res = await deckFor(machineId).cockpit.open({ projectPath: p.path, sessionId: p.sessionId ?? null, cols, rows, mode: p.mode, agentId: p.agentId, ...(p.attachId ? { attachId: p.attachId } : {}) });
     } catch (err) {
       res = { id: '', agentId: 'claude', sessionId: null, error: err instanceof Error ? err.message : String(err) };
     }

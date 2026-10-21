@@ -633,5 +633,14 @@
   "whatsnew.f.worktree-sessions.body": "같은 프로젝트에 세션을 하나 더 띄우되, 자체 폴더와 git 브랜치를 써서 두 에이전트가 같은 파일을 건드리지 않습니다. 상단에 바뀐 파일·커밋 수가 보이고, 정리할 때 병합 안 된 작업이 있으면 먼저 경고합니다.",
   "whatsnew.f.worktree-sessions.where": "세션 상단의 브랜치 버튼",
   "cockpit.worktree_part_dirty": "커밋하지 않은 변경 {n}개",
-  "cockpit.worktree_part_commits": "{base}에 없는 커밋 {n}개"
+  "cockpit.worktree_part_commits": "{base}에 없는 커밋 {n}개",
+  "shell.grp_background": "Claude 백그라운드 세션",
+  "cockpit.bg_state_blocked": "응답 대기",
+  "cockpit.bg_state_running": "실행 중",
+  "cockpit.bg_state_working": "작업 중",
+  "cockpit.bg_state_idle": "대기",
+  "cockpit.bg_state_failed": "실패",
+  "whatsnew.f.background-agents.title": "Claude 백그라운드 세션을 사이드바에",
+  "whatsnew.f.background-agents.body": "claude --bg나 Claude 에이전트 화면에서 띄운 세션이 이제 보이고, 내 응답을 기다리는 세션은 따로 표시됩니다. 클릭하면 타일로 열리며 세션은 그대로 계속됩니다.",
+  "whatsnew.f.background-agents.where": "사이드바의 \"Claude 백그라운드 세션\" 그룹"
 }

@@ -23,6 +23,11 @@ export interface ShellSessionInput {
   machineId?: string | null;
   /** What that machine is called, for the group heading. */
   machineLabel?: string | null;
+  /**
+   * One of Claude Code's own background sessions (`claude --bg`), which DevDeck did not start:
+   * listed in a group of its own, and opened by attaching to it.
+   */
+  backgroundAgent?: boolean;
 }
 
 export interface ShellProjectInput {
@@ -33,7 +38,7 @@ export interface ShellProjectInput {
   pinned?: boolean;
 }
 
-export type ShellGroupKind = 'attention' | 'working' | 'pinned' | 'remote' | 'turn' | 'quiet' | 'previous';
+export type ShellGroupKind = 'attention' | 'working' | 'background' | 'pinned' | 'remote' | 'turn' | 'quiet' | 'previous';
 
 export interface ShellSessionGroup {
   kind: ShellGroupKind;
@@ -71,6 +76,7 @@ export type ShellSessionAction = 'pin' | 'unpin' | 'rename' | 'close' | 'forget'
  *  pinned or forgotten instead. Pin/unpin is one toggle, labelled by the row's current state. */
 export function sessionActionsFor(item: ShellSessionInput): ShellSessionAction[] {
   const pin: ShellSessionAction = item.pinned ? 'unpin' : 'pin';
+  if (item.backgroundAgent === true) return []; // nothing here to rename or close: opening it attaches
   return item.previous === true ? [pin, 'forget'] : [pin, 'rename', 'close'];
 }
 
@@ -106,10 +112,13 @@ export function sessionAccessibleLabel(item: ShellSessionInput, localizedStatus:
   return item.summary ? `${base}, ${item.summary}` : base;
 }
 
-const groupOrder: ShellGroupKind[] = ['attention', 'working', 'pinned', 'remote', 'turn', 'quiet', 'previous'];
+// Background sessions sit just under what is live here: they are work in progress, and the ones
+// waiting on the person were exactly what went unseen before they were listed.
+const groupOrder: ShellGroupKind[] = ['attention', 'working', 'background', 'pinned', 'remote', 'turn', 'quiet', 'previous'];
 
 function groupOf(item: ShellSessionInput): ShellGroupKind {
   if (item.previous) return 'previous'; // a saved entry has no terminal anywhere yet
+  if (item.backgroundAgent) return 'background';
   // Before its own group, a session on another computer sat among the local ones with a marker
   // buried in its detail line. Which machine a terminal is on decides where your keystrokes land,
   // so it outranks what the session happens to be doing — high enough in the order that an active
