@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { connect as netConnect } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { closeElectron } from './electron-lifecycle.mjs';
+import { sandboxDir } from './sandbox.mjs';
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -25,7 +26,7 @@ const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 // child processes down with it (renderer, GPU, network service, exit code -1, no dump). Bisected
 // across five builds before the pattern showed: every run from a worktree passed, every run from the
 // checkout crashed. A fresh repo has no conversation to continue.
-const fixtureRepo = mkdtempSync(join(tmpdir(), 'devdeck-link-fixture-'));
+const fixtureRepo = sandboxDir('devdeck-link-fixture-');
 writeFileSync(join(fixtureRepo, 'README.md'), '# fixture');
 execFileSync('git', ['init', '-q'], { cwd: fixtureRepo });
 execFileSync('git', ['-c', 'user.email=qa@devdeck', '-c', 'user.name=qa', 'add', '-A'], { cwd: fixtureRepo });
@@ -34,12 +35,12 @@ execFileSync('git', ['-c', 'user.email=qa@devdeck', '-c', 'user.name=qa', 'commi
 async function launch(tag, registerFolder, reuse = null) {
   // A relaunch keeps its user-data directory: that is where the machine's identity, its pairings and
   // its port live, and "the host came back" is only meaningful if it comes back as the same machine.
-  const userData = reuse?.userData ?? mkdtempSync(join(tmpdir(), `devdeck-rc-${tag}-`));
+  const userData = reuse?.userData ?? sandboxDir(`devdeck-rc-${tag}-`);
   // Its own temp directory. Both instances run against one filesystem here, so a pasted image landing
   // in the HOST's temp dir is the only thing that distinguishes "the bytes crossed the link and the
   // machine running the agent wrote the file" from "the local paste ran and typed a path that machine
   // cannot read" — which is the whole failure this feature exists to avoid, and it is silent.
-  const temp = reuse?.temp ?? mkdtempSync(join(tmpdir(), `devdeck-tmp-${tag}-`));
+  const temp = reuse?.temp ?? sandboxDir(`devdeck-tmp-${tag}-`);
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${userData}`, '--no-sandbox', '--disable-gpu'],
     cwd: repo,

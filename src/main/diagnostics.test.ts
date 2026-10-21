@@ -1,10 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { afterAll, describe, it, expect } from 'vitest';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DiagnosticsLog, adoptLegacyErrorLog, formatDiagLine } from './diagnostics';
 
-const dir = (): string => mkdtempSync(join(tmpdir(), 'devdeck-diag-'));
+const made: string[] = [];
+const dir = (): string => { const d = mkdtempSync(join(tmpdir(), 'devdeck-diag-')); made.push(d); return d; };
+afterAll(() => { for (const d of made) rmSync(d, { recursive: true, force: true, maxRetries: 3 }); });
 const at = new Date('2026-08-26T01:02:03.000Z');
 
 describe('formatDiagLine', () => {

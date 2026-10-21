@@ -5,12 +5,13 @@ import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sandboxDir } from './sandbox.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const out = join(root, 'qa', 'shots');
 mkdirSync(out, { recursive: true });
 
-const userData = mkdtempSync(join(tmpdir(), 'devdeck-qa-'));
+const userData = sandboxDir('devdeck-qa-');
 const app = await electron.launch({
   args: ['.', `--user-data-dir=${userData}`, '--no-sandbox', '--disable-gpu'],
   cwd: root,

@@ -17,20 +17,21 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closeElectron } from './electron-lifecycle.mjs';
+import { sandboxDir } from './sandbox.mjs';
 
 const repo = dirname(dirname(fileURLToPath(import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const stamp = () => new Date().toISOString().slice(11, 19);
 
-const fixtureRepo = mkdtempSync(join(tmpdir(), 'devdeck-close-fixture-'));
+const fixtureRepo = sandboxDir('devdeck-close-fixture-');
 writeFileSync(join(fixtureRepo, 'README.md'), '# fixture');
 execFileSync('git', ['init', '-q'], { cwd: fixtureRepo });
 execFileSync('git', ['-c', 'user.email=qa@devdeck', '-c', 'user.name=qa', 'add', '-A'], { cwd: fixtureRepo });
 execFileSync('git', ['-c', 'user.email=qa@devdeck', '-c', 'user.name=qa', 'commit', '-q', '-m', 'fixture'], { cwd: fixtureRepo });
 
 async function launch(tag, registerFolder) {
-  const userData = mkdtempSync(join(tmpdir(), `devdeck-close-${tag}-`));
-  const temp = mkdtempSync(join(tmpdir(), `devdeck-closetmp-${tag}-`));
+  const userData = sandboxDir(`devdeck-close-${tag}-`);
+  const temp = sandboxDir(`devdeck-closetmp-${tag}-`);
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${userData}`, '--no-sandbox', '--disable-gpu'],
     cwd: repo,

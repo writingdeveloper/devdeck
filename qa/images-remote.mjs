@@ -11,11 +11,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closeElectron } from './electron-lifecycle.mjs';
+import { sandboxDir } from './sandbox.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const shots = resolve(process.env.DEVDECK_IMAGES_OUT || join(root, 'qa', 'shots', 'images-remote'));
 mkdirSync(shots, { recursive: true });
-const sandbox = mkdtempSync(join(tmpdir(), 'devdeck-images-remote-'));
+const sandbox = sandboxDir('devdeck-images-remote-');
 const repo = join(sandbox, 'host-workspace');
 const bin = join(sandbox, 'bin');
 for (const p of [repo, bin]) mkdirSync(p, { recursive: true });
@@ -146,7 +147,7 @@ try {
 
   await check('a Claude in Chrome screenshot in the host temp directory travels; other temp files do not', async () => {
     const shotDir = mkdtempSync(join(tmpdir(), 'claude-chrome-screenshots-'));
-    const other = mkdtempSync(join(tmpdir(), 'devdeck-qa-other-'));
+    const other = sandboxDir('devdeck-qa-other-');
     copyFileSync(join(root, 'build', 'icon.png'), join(shotDir, 'screenshot-1-1.jpg'));
     copyFileSync(join(root, 'build', 'icon.png'), join(other, 'shot.png'));
     try {

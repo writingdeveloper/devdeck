@@ -11,10 +11,11 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closeElectron } from './electron-lifecycle.mjs';
+import { sandboxDir } from './sandbox.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 if (process.platform !== 'win32') { console.log('SKIP: Windows native PTY required'); process.exit(0); }
-const sandbox = mkdtempSync(join(tmpdir(), 'devdeck-restore-pacing-'));
+const sandbox = sandboxDir('devdeck-restore-pacing-');
 const repo = join(sandbox, 'pacing-workspace');
 const bin = join(sandbox, 'bin');
 const profile = join(sandbox, 'profile');
