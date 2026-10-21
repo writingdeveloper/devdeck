@@ -26,14 +26,14 @@ describe('PtyHost', () => {
     const work = host.shutdown();
     expect(host.shutdown()).toBe(work);
     expect(a.kill).toHaveBeenCalledTimes(1);
-    expect(b.kill).toHaveBeenCalledTimes(1);
+    expect(b.kill).not.toHaveBeenCalled(); // waits for a to finish exiting
     expect(() => host.create('c', 'cmd', [], '.', 80, 24, () => {}, () => {})).toThrow('shutting down');
     let finished = false;
     void work.then(() => { finished = true; });
-    b.emitExit(0);
-    await Promise.resolve();
-    expect(finished).toBe(false);
     a.emitExit(0);
+    await vi.waitFor(() => expect(b.kill).toHaveBeenCalledTimes(1));
+    expect(finished).toBe(false);
+    b.emitExit(0);
     await work;
     expect(finished).toBe(true);
   });
@@ -71,7 +71,7 @@ describe('PtyHost', () => {
     expect(onData).toHaveBeenCalledWith('hello');
   });
 
-  it('write/resize/kill delegate to the right process; killAll kills everything', () => {
+  it('write/resize/kill delegate to the right process; killAll kills everything', async () => {
     const a = fakeProc(), b = fakeProc();
     const spawn = vi.fn().mockReturnValueOnce(a).mockReturnValueOnce(b) as unknown as PtySpawn;
     const host = new PtyHost(spawn);
@@ -80,7 +80,29 @@ describe('PtyHost', () => {
     host.write('a', 'x'); expect(a.write).toHaveBeenCalledWith('x');
     host.resize('b', 120, 40); expect(b.resize).toHaveBeenCalledWith(120, 40);
     host.kill('a'); expect(a.kill).toHaveBeenCalled();
-    host.killAll(); expect(b.kill).toHaveBeenCalled();
+    host.killAll(); expect(b.kill).not.toHaveBeenCalled();
+    a.emitExit(0);
+    await vi.waitFor(() => expect(b.kill).toHaveBeenCalled());
+  });
+
+  it('ends terminals one at a time, each after the previous exit (node-pty races two exits on Windows)', async () => {
+    vi.useFakeTimers();
+    try {
+      const procs = [fakeProc(), fakeProc(), fakeProc()];
+      const spawn = vi.fn();
+      for (const p of procs) spawn.mockReturnValueOnce(p);
+      const host = new PtyHost(spawn as unknown as PtySpawn);
+      for (const id of ['a', 'b', 'c']) host.create(id, 'pwsh', [], '.', 80, 24, () => {}, () => {});
+      host.killAll();
+      const killed = () => procs.map((p) => (p.kill as ReturnType<typeof vi.fn>).mock.calls.length);
+      expect(killed()).toEqual([1, 0, 0]);
+      procs[0].emitExit(0);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(killed()).toEqual([1, 1, 0]);
+      // A terminal that never reports its exit holds the next one up only for a while.
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(killed()).toEqual([1, 1, 1]);
+    } finally { vi.useRealTimers(); }
   });
 
   it('onExit fires the per-id callback and drops the process (write after exit is a no-op)', () => {
