@@ -28,8 +28,12 @@ import { followPtySize, type TerminalDims } from '../shared/terminalSize';
 import { basename } from '../shared/paths';
 import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
 import { currentImageRefs, currentImageSourceKey, imageStripState, imageThumbUrl, initImageStrip, openImageById, openSingleImage, refreshImages, showImagesFor, toggleImageStrip, type ImageSource } from './imageStrip';
-import { jumpToPrompt, marksFor } from './termMarks';
-import { attachFiles, pathsAsPrompt } from './attachments';
+import { jumpToPrompt, marksFor, promptRows, revealRow } from './termMarks';
+import { attachFiles, pathsAsPrompt, REMOTE_ACCEPT } from './attachments';
+import { initTimeline, isTimelineOpen, refreshTimeline, showTimelineFor, toggleTimeline, type TimelineSource } from './timeline';
+import { pairTurnsWithRows } from '../shared/timeline';
+import { isQuickReplyMenuOpen, quickReplies, setQuickReplies, toggleQuickReplyMenu } from './quickReplyMenu';
+import { quickReplySlot } from '../shared/quickReplies';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
@@ -129,6 +133,8 @@ export function setCockpitSessionSummary(on: boolean): void {
 }
 /** The opt-in AI refinement — the renderer needs it only to know whether a result is worth waiting for. */
 export function setCockpitAiSummary(on: boolean): void { aiSummaryEnabled = on === true; }
+/** The person's quick replies (null = the defaults for the language); set at boot and from settings. */
+export function setCockpitQuickReplies(list: string[] | null): void { setQuickReplies(list); }
 let searchEl: HTMLInputElement, groupsEl: HTMLElement, headerEl: HTMLElement, termsEl: HTMLElement, emptyEl: HTMLElement, mainEl: HTMLElement;
 let mounted = false;
 // Session-sidebar collapse (terminal gets the full width) — set from settings at boot + on toggle.
@@ -159,7 +165,9 @@ export function mountCockpit(): void {
   mainEl = document.querySelector('#view-cockpit .ck-main')!;
   const strip = document.getElementById('ck-images');
   // The strip opening or closing changes the terminal's height, and its count lives in the header.
-  if (strip) initImageStrip(strip, () => { if (!editingId) renderHeader(); scheduleLayout(); }, { popupIn: termsEl, refsChanged: markSelectedTerminal });
+  if (strip) initImageStrip(strip, () => { if (!editingId) renderHeader(); scheduleLayout(); }, { popupIn: termsEl, refsChanged: () => { markSelectedTerminal(); void refreshTimeline(); } });
+  // Floats over the terminal's right edge, so opening it never resizes the pty.
+  initTimeline(termsEl, () => { if (!editingId) renderHeader(); });
   // Mid-turn, new screenshots show up as they are taken rather than at the end of the turn; between
   // turns a slow re-read still catches images written some other way (another process, a resume).
   // Only the selected session is ever read, and an unchanged transcript costs one stat.
@@ -717,11 +725,12 @@ function pasteClipboardText(term: Terminal): void {
   void window.devdeck.clipboard.readText().then((t) => { if (t) term.paste(t); });
 }
 
-/** Give files to a session: by their own path locally, as uploaded images on another machine. */
+/** Give files to a session: by their own path locally, as uploaded copies on another machine. */
 async function attachToTerminal(files: File[], machineId: string, term: Terminal): Promise<void> {
   const out = await attachFiles(files, {
     local: machineId === LOCAL_MACHINE_ID,
     receiveImage: (b64) => deckFor(machineId).cockpit.receiveImage(b64),
+    receiveFile: (name, b64) => deckFor(machineId).cockpit.receiveFile(name, b64),
     pathForFile: (f) => window.devdeck.cockpit.pathForFile(f),
   });
   if (out.paths.length) { term.paste(pathsAsPrompt(out.paths)); term.focus(); }
@@ -729,7 +738,8 @@ async function attachToTerminal(files: File[], machineId: string, term: Terminal
   // one the person goes on talking about while the agent never saw it.
   const notes: string[] = [];
   if (out.paths.length) notes.push(tr('cockpit.attached', { count: String(out.paths.length) }));
-  if (out.skippedNonImage) notes.push(tr('cockpit.attach_images_only', { count: String(out.skippedNonImage), machine: machineName(machineId) }));
+  if (out.skippedNonImage) notes.push(tr('cockpit.attach_kinds_only', { count: String(out.skippedNonImage), machine: machineName(machineId) }));
+  if (out.hostTooOld) notes.push(tr('cockpit.attach_host_too_old', { count: String(out.hostTooOld), machine: machineName(machineId) }));
   if (out.tooLarge) notes.push(tr('cockpit.remote_image_too_large'));
   if (out.failed) notes.push(tr('cockpit.remote_image_failed'));
   if (notes.length) toast(notes.join(' · '));
@@ -738,8 +748,8 @@ async function attachToTerminal(files: File[], machineId: string, term: Terminal
 /** 📎: the same as a drop, through the system file picker. */
 function pickAttachments(machineId: string, term: Terminal): void {
   const input = document.createElement('input'); input.type = 'file'; input.multiple = true;
-  // A remote session can only take images, so the picker offers only those there.
-  if (machineId !== LOCAL_MACHINE_ID) input.accept = 'image/png,image/jpeg,image/gif,image/webp,image/bmp';
+  // A remote session takes images and documents (see shared/sentFiles), so the picker offers those there.
+  if (machineId !== LOCAL_MACHINE_ID) input.accept = REMOTE_ACCEPT;
   input.addEventListener('change', () => { const files = Array.from(input.files ?? []); if (files.length) void attachToTerminal(files, machineId, term); });
   input.click();
 }
@@ -758,7 +768,50 @@ function imageSourceFor(l: { session: CockpitSession; machineId: string; openedS
     openFile: l.machineId === LOCAL_MACHINE_ID ? (path) => { void window.devdeck.cockpit.openFile(projectPath, path); } : undefined,
     canReveal: term ? (id) => marksFor(term).locate(id) !== null : undefined,
     reveal: term ? (id) => { marksFor(term).reveal(id); term.focus(); } : undefined,
+    attach: term ? (png) => attachPicture(l.machineId, term, png) : undefined,
   };
+}
+
+/**
+ * A picture from the viewer — marked up or as it was — handed to the session the way a pasted
+ * screenshot is: written where the session runs, its path typed into the prompt.
+ */
+async function attachPicture(machineId: string, term: Terminal, png: string): Promise<boolean> {
+  let path: string | null = null;
+  try { path = await deckFor(machineId).cockpit.receiveImage(png); } catch { path = null; }
+  if (!path) return false;
+  term.paste(path + ' ');
+  term.focus();
+  return true;
+}
+
+/** Where the timeline reads a session's turns from, and how it finds them in the terminal. */
+function timelineSourceFor(l: Live): TimelineSource | null {
+  const sid = l.openedSessionId;
+  if (!sid || l.session.agentId !== 'claude') return null;
+  const deck = deckFor(l.machineId);
+  const projectPath = l.session.projectPath;
+  const term = l.term;
+  const key = `${l.machineId}|${projectPath}|${sid}`;
+  return {
+    key,
+    turns: () => deck.cockpit.sessionTurns(projectPath, sid, 'claude'),
+    // Shared with the image strip, which reads the same session's list.
+    images: () => (currentImageSourceKey() === key ? currentImageRefs() : []),
+    locate: (turns) => pairTurnsWithRows(turns, promptRows(term)),
+    reveal: (row) => { revealRow(term, row); term.focus(); },
+    openImage: (id) => { openImageById(id); },
+  };
+}
+
+/** Type a quick reply into a session and send it, as if the person had typed it and pressed Enter. */
+function sendQuickReply(id: string, text: string): void {
+  const l = live.get(id);
+  if (!l || l.session.status === 'exited') return;
+  l.term.paste(text);
+  // Enter on its own, after the paste: inside the paste it would be text, not a submit.
+  setTimeout(() => l.term.input(String.fromCharCode(13)), 30);
+  l.term.focus();
 }
 
 /** Pair the selected session's images with the rows of its terminal they were printed on. */
@@ -991,6 +1044,16 @@ async function buildTile(p: OpenReq): Promise<boolean> {
       return false;
     }
     if (action === 'find') { e.preventDefault(); openFindBar(); return false; } // Ctrl+F searches scrollback, never reaches the PTY
+    const slot = quickReplySlot(e);
+    if (slot !== null) {
+      e.preventDefault();
+      const text = quickReplies()[slot];
+      // By terminal, not by the session declared below: a key can arrive while the tile is still opening.
+      const owner = [...live.values()].find((x) => x.term === term);
+      if (!text) toast(tr('cockpit.quick_reply_none', { n: String(slot + 1) }));
+      else if (owner) sendQuickReply(owner.session.id, text);
+      return false;
+    }
     if (action === 'prompt-prev' || action === 'prompt-next') {
       e.preventDefault();
       if (!jumpToPrompt(term, action === 'prompt-prev' ? -1 : 1)) toast(tr('cockpit.prompt_none'));
@@ -1663,6 +1726,7 @@ function select(id: string): void {
   void refreshGit(id);
   void refreshImages(); // renderHeader pointed the strip at this session; a re-select re-reads it too
   markSelectedTerminal();
+  void refreshTimeline();
   // Selecting a tile is when its provider is most visible (header mark + usage footer) — re-check it
   // here too instead of waiting up to 30s for the tick. Main's listing is cached, so this is cheap.
   void refreshProvider(id);
@@ -1796,8 +1860,9 @@ function tickActivity(): void {
     }
     if (next !== prev) {
       l.session.activity = next; changed = true;
+      if (l.session.id === selectedId) headerEl.querySelector('.ck-qr-btn')?.classList.toggle('ready', next === 'turn' || next === 'idle');
       // A turn just ended: whatever it looked at is in the transcript now.
-      if (prev === 'working' && l.session.id === selectedId) void refreshImages();
+      if (prev === 'working' && l.session.id === selectedId) { void refreshImages(); void refreshTimeline(); }
       // A turn just finished → a new assistant model may have been logged; refresh so the sidebar model
       // isn't stuck on the previous turn's model after a /model switch (only otherwise refreshed on the
       // 30s tick). The drift check rides along so a /clear is adopted within seconds of the next turn,
@@ -2180,6 +2245,7 @@ function renderHeader(): void {
   headerEl.replaceChildren();
   const l = selectedId ? live.get(selectedId) : null;
   showImagesFor(l ? imageSourceFor(l) : null);
+  showTimelineFor(l ? timelineSourceFor(l) : null);
   if (!l) return;
   const s = l.session;
   const title = document.createElement('span'); title.className = 'title';
@@ -2213,12 +2279,24 @@ function renderHeader(): void {
   });
   const restart = actBtn('restart', tr('cockpit.restart'), () => restartSession(s.id));
   const attach = actBtn('paperclip', tr(l.machineId === LOCAL_MACHINE_ID ? 'cockpit.attach' : 'cockpit.attach_remote'), () => pickAttachments(l.machineId, l.term));
+  // Quick replies: lit up when the session is waiting for the person, which is when they are for.
+  const reply = actBtn('reply', tr('cockpit.quick_replies'), () => toggleQuickReplyMenu(reply, (text) => sendQuickReply(s.id, text)));
+  reply.classList.add('ck-qr-btn');
+  reply.setAttribute('aria-haspopup', 'menu'); reply.setAttribute('aria-expanded', String(isQuickReplyMenuOpen()));
+  reply.classList.toggle('ready', s.activity === 'turn' || s.activity === 'idle');
+  const timeline: HTMLElement[] = [];
+  if (s.agentId === 'claude') {
+    const b = actBtn('timeline', tr(isTimelineOpen() ? 'cockpit.timeline_hide' : 'cockpit.timeline_show'), () => toggleTimeline());
+    b.classList.toggle('on', isTimelineOpen()); b.setAttribute('aria-pressed', String(isTimelineOpen()));
+    timeline.push(b);
+  }
   // The image strip's toggle, with how many images there are — and how many arrived unseen, which is
   // the reason to open it.
   const images: HTMLElement[] = [];
   if (s.agentId === 'claude') {
     const st = imageStripState();
     const b = actBtn('image', tr(st.open ? 'cockpit.images_hide' : 'cockpit.images_show'), () => toggleImageStrip());
+    b.classList.add('ck-img-toggle');
     b.classList.toggle('on', st.open); b.setAttribute('aria-pressed', String(st.open));
     if (st.total > 0) {
       const n = document.createElement('span'); n.className = `ck-img-count${st.unseen > 0 ? ' new' : ''}`;
@@ -2250,7 +2328,7 @@ function renderHeader(): void {
     b.addEventListener('click', () => void updateAllClaude());
     update.push(b);
   }
-  headerEl.append(...pills, sp, ...update, ...images, attach, newSession, pin, rename, folder, restart, close);
+  headerEl.append(...pills, sp, ...update, reply, ...timeline, ...images, attach, newSession, pin, rename, folder, restart, close);
 }
 
 /** "+ New session": spawn another, fresh conversation in the SAME project as the selected session. */

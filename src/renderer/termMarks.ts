@@ -9,6 +9,7 @@
 import type { IDecoration, IMarker, Terminal } from '@xterm/xterm';
 import type { SessionImageRef } from '../shared/sessionImages';
 import { findImagePlaceholders, findPromptRows, nextPromptRow, pairPlaceholders, type PromptRowInput } from '../shared/terminalMarks';
+import type { PromptRow } from '../shared/timeline';
 
 const MARK_BG = '#1f3352';
 const MARK_FG = '#a8cdff';
@@ -99,9 +100,8 @@ export function flashRow(term: Terminal, row: number): void {
  * Scroll to the previous (-1) or next (+1) prompt the person sent, from the top of the viewport.
  * Past the last one is the bottom. Returns false when the screen holds no prompt to go to.
  */
-export function jumpToPrompt(term: Terminal, dir: -1 | 1): boolean {
+function readPromptInputs(term: Terminal): PromptRowInput[] {
   const buf = term.buffer.active;
-  if (buf.type !== 'normal') return false;
   const rows: PromptRowInput[] = new Array(buf.length);
   for (let i = 0; i < buf.length; i++) {
     const line = buf.getLine(i);
@@ -111,7 +111,26 @@ export function jumpToPrompt(term: Terminal, dir: -1 | 1): boolean {
     const cell = at >= 0 ? line?.getCell(at) : undefined;
     rows[i] = { text, shaded: !!cell && !cell.isBgDefault() };
   }
-  const prompts = findPromptRows(rows);
+  return rows;
+}
+
+/** The person's earlier prompts on screen, with their text, top to bottom. */
+export function promptRows(term: Terminal): PromptRow[] {
+  if (term.buffer.active.type !== 'normal') return [];
+  const rows = readPromptInputs(term);
+  return findPromptRows(rows).map((row) => ({ row, text: rows[row].text }));
+}
+
+/** Scroll so `row` is at the top of the viewport, and highlight it for a moment. */
+export function revealRow(term: Terminal, row: number): void {
+  term.scrollToLine(Math.max(0, row));
+  flashRow(term, row);
+}
+
+export function jumpToPrompt(term: Terminal, dir: -1 | 1): boolean {
+  const buf = term.buffer.active;
+  if (buf.type !== 'normal') return false;
+  const prompts = findPromptRows(readPromptInputs(term));
   if (prompts.length === 0) return false;
   // At the bottom, the newest prompt may be on screen already — going back starts from it, not above it.
   const from = dir < 0 && buf.viewportY >= buf.baseY ? buf.length : buf.viewportY;

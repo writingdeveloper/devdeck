@@ -7,7 +7,7 @@ import type { ShellSessionInput } from '../shared/shellNavigation';
 import { mountUsage, showUsage } from './usageView';
 import { mountSettings, showSettings } from './settingsView';
 import { mountNext, showNext } from './nextView';
-import { activateCockpitSession, closeCockpitSessionGroup, closeCockpitSessions, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, runningSessionsForAutoRestore, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { activateCockpitSession, closeCockpitSessionGroup, closeCockpitSessions, cockpitNavigationAliases, cockpitNavigationItems, manageCockpitSessionAction, mountCockpit, onCockpitNavigationChange, onCockpitSessionsLoaded, onCockpitSessionSelected, restoreAllCockpitSessions, setCockpitNavigationCallback, showCockpit, liveSessionCount, runningSessionsForAutoRestore, refreshLiveSessionIds, setCockpitContextWindow, setCockpitTrayAlert, setCockpitSidebarCollapsed, refreshCockpitSidebar, setCockpitSessionSummary, setCockpitAiSummary, setCockpitQuickReplies } from './cockpitView';
 import { isCockpitAvailable } from '../shared/cockpitModel';
 import { setLanguage, tr, currentLang, languageName, SUPPORTED } from './i18n-runtime';
 import { toast } from './loadError';
@@ -280,7 +280,7 @@ async function boot(): Promise<void> {
   mountNext();
   mountUsageBar();
   mountShutdown(settings.platform);
-  if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); setCockpitTrayAlert(settings.trayAlert); setCockpitSidebarCollapsed(settings.cockpitSidebarCollapsed); setCockpitSessionSummary(settings.sessionSummary); setCockpitAiSummary(settings.aiSessionSummary); }
+  if (cockpitOn) { mountCockpit(); setCockpitContextWindow(settings.contextWindow); setCockpitTrayAlert(settings.trayAlert); setCockpitSidebarCollapsed(settings.cockpitSidebarCollapsed); setCockpitSessionSummary(settings.sessionSummary); setCockpitAiSummary(settings.aiSessionSummary); setCockpitQuickReplies(settings.quickReplies); }
   const nav = mountNav((view) => {
     if (view === 'usage') showUsage(); if (view === 'settings') showSettings(); if (view === 'next') showNext(); if (view === 'cockpit') showCockpit();
     shellController?.setActiveProject(null);

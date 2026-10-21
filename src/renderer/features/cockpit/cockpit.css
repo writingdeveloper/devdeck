@@ -320,3 +320,274 @@
   max-height: 160px;
   border-radius: 3px;
 }
+
+/* ---- quick replies ---- */
+/* The session is waiting for the person: a dot on the button says a reply is what it needs. */
+#view-cockpit .ck-act.ck-qr-btn.ready {
+  position: relative;
+  color: var(--text);
+}
+
+#view-cockpit .ck-act.ck-qr-btn.ready::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dd-success);
+}
+
+.ck-qr-menu {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--dd-surface-raised);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.ck-qr-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ck-qr-item:hover,
+.ck-qr-item:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.ck-qr-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ck-qr-key {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.ck-qr-hint {
+  padding: 6px 10px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  font-size: var(--fs-meta);
+  color: var(--text-faint);
+}
+
+/* ---- timeline: floats over the terminal's right edge, so opening it never resizes the pty ---- */
+.ck-timeline {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: min(320px, 45%);
+  border-left: 1px solid var(--border-strong);
+  background: color-mix(in srgb, var(--dd-surface-raised) 96%, transparent);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+
+.ck-tl-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ck-tl-title {
+  flex: 1;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ck-tl-head .ck-act {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+}
+
+.ck-tl-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.ck-tl-day {
+  padding: 8px 12px 2px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.ck-tl-empty {
+  padding: 16px 12px;
+  font-size: var(--fs-body);
+  color: var(--text-dim);
+}
+
+.ck-tl-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 0 6px;
+}
+
+.ck-tl-jump {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 1px;
+  padding: 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ck-tl-jump:hover,
+.ck-tl-jump:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.ck-tl-time {
+  grid-row: span 2;
+  padding-top: 1px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.ck-tl-text {
+  font-size: var(--fs-body);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.ck-tl-reply {
+  grid-column: 2;
+  font-size: var(--fs-meta);
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Known from the transcript but no longer in the scrollback: shown, not jumpable. */
+.ck-tl-item.gone .ck-tl-jump {
+  cursor: default;
+}
+
+.ck-tl-item.gone .ck-tl-text {
+  color: var(--text-dim);
+}
+
+.ck-tl-images {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 5px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.ck-tl-images:hover,
+.ck-tl-images:focus-visible {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.ck-tl-images svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ---- image markup ---- */
+.ck-img-markup {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.ck-img-markup.on {
+  pointer-events: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.ck-img-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ck-img-tools[hidden] {
+  display: none;
+}
+
+.ck-img-bar .ck-act.on {
+  color: #fff;
+  background: rgba(255, 59, 48, 0.28);
+}
+
+/* ---- settings ---- */
+#settings-form .set-quick-replies {
+  width: 100%;
+  min-height: 7em;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.5;
+}
