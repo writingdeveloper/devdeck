@@ -6,7 +6,7 @@
 // branch of their own. Inside the repository folder, so the scan allowlist that admits the project
 // admits its workspaces too; listed in `.git/info/exclude`, so they never show up as changes in the
 // project they came from.
-import { appendFile, mkdir, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, realpath, rm } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { GitRunner } from './gitInfo';
@@ -60,7 +60,7 @@ export function repoOfWorktree(path: string): string | null {
 /** Start a workspace on a new branch from the repository's current commit. */
 export async function createWorktree(repo: string, run: GitRunner, now = new Date()): Promise<Worktree> {
   const top = (await run(['-C', repo, 'rev-parse', '--show-toplevel'])).trim();
-  if (!top || resolve(top).toLowerCase() !== resolve(repo).toLowerCase()) {
+  if (!top || !(await sameDir(top, repo))) {
     throw new Error('not the top folder of a git repository');
   }
   const baseCommit = (await run(['-C', repo, 'rev-parse', '--verify', 'HEAD'])).trim();
@@ -132,6 +132,17 @@ export async function removeWorktree(w: Pick<Worktree, 'path' | 'repo' | 'branch
 
 async function isRegistered(repo: string, path: string, run: GitRunner): Promise<boolean> {
   const list = await run(['-C', repo, 'worktree', 'list', '--porcelain']).catch(() => '');
-  const want = resolve(path).toLowerCase();
-  return list.split(/\r?\n/).some((l) => l.startsWith('worktree ') && resolve(l.slice(9)).toLowerCase() === want);
+  for (const l of list.split(/\r?\n/)) if (l.startsWith('worktree ') && await sameDir(l.slice(9), path)) return true;
+  return false;
+}
+
+/**
+ * Whether two paths name the same folder. git reports long, real paths; the ones handed in can be
+ * Windows 8.3 short names (`C:\Users\RUNNER~1`) or go through a symlink (`/var` is `/private/var` on
+ * macOS) — compared as written, a repository's own top folder failed to match itself.
+ */
+async function sameDir(a: string, b: string): Promise<boolean> {
+  const real = async (p: string): Promise<string> => { try { return await realpath(resolve(p)); } catch { return resolve(p); } };
+  const [ra, rb] = await Promise.all([real(a), real(b)]);
+  return process.platform === 'win32' || process.platform === 'darwin' ? ra.toLowerCase() === rb.toLowerCase() : ra === rb;
 }

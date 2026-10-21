@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createGitRunner } from './gitInfo';
@@ -104,4 +104,16 @@ it('finishes the job when git has dropped a workspace but left its folder behind
   writeFileSync(join(w.path, 'leftover.txt'), 'x');
   expect(await removeWorktree(w, run, true)).toEqual({ removed: true });
   expect(existsSync(w.path)).toBe(false);
+});
+
+it('knows a repository reached through another spelling of its path (8.3 name, symlink, junction)', async () => {
+  // CI's temp folder is C:\Users\RUNNER~1\..., macOS's /var is /private/var: git answers with the
+  // long, real path, and a plain comparison refused the repository's own top folder.
+  const link = join(tmpdir(), `devdeck-wt-link-${Date.now()}`);
+  symlinkSync(repo, link, process.platform === 'win32' ? 'junction' : 'dir');
+  try {
+    const w = await createWorktree(link, run);
+    expect(existsSync(join(w.path, 'a.txt'))).toBe(true);
+    expect(await removeWorktree(w, run, false)).toEqual({ removed: true });
+  } finally { rmSync(link, { recursive: false, force: true }); }
 });
