@@ -40,8 +40,21 @@ function isWithin(base: string, incoming: string): boolean {
  */
 export function isAllowedPath(folders: Folder[], incoming: string): boolean {
   return folders.some((f) => (f.kind === 'repo'
-    ? canon(incoming) === canon(f.path)
+    ? canon(incoming) === canon(f.path) || isWorktreeFolderOf(f.path, incoming)
     : isWithin(f.path, incoming)));
+}
+
+/**
+ * A repo's parallel-session workspace — `<repo>/.claude/worktrees/<name>`, exactly one level down —
+ * is the same project on another branch, so it is admitted wherever the repo is. Nothing else inside
+ * the repo is.
+ */
+function isWorktreeFolderOf(repo: string, incoming: string): boolean {
+  const prefix = canon(repo) + sep + ['.claude', 'worktrees'].join(sep) + sep;
+  const r = canon(incoming);
+  if (!r.startsWith(prefix)) return false;
+  const name = r.slice(prefix.length);
+  return name.length > 0 && !name.includes(sep) && name !== '..' && name !== '.';
 }
 
 /**

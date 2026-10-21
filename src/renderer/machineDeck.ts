@@ -45,6 +45,9 @@ export interface DeckFacade {
     gitInfo: (projectPath: string) => Promise<{ branch: string | null; dirty: number } | null>;
     receiveImage: (base64: string) => Promise<string | null>;
     receiveFile: (name: string, base64: string) => Promise<string | null>;
+    createWorktree: (repoPath: string) => Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
+    worktreeInfo: (path: string) => Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
+    removeWorktree: (path: string, force: boolean) => Promise<{ removed: boolean; reason?: string; error?: string }>;
     sessionTurns: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionTurn[]>;
     sessionImages: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionImageRef[]>;
     sessionImage: (projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full') => Promise<import('../main/imageView').ViewImage | null>;
@@ -109,6 +112,10 @@ export function deckFor(machineId: string): DeckFacade {
       receiveImage: (base64) => remote.cockpit.receiveImage(base64),
       // An older host has no receiveFile: its 'no such method' is passed on, so the sender can say why.
       receiveFile: (name, base64) => remote.cockpit.receiveFile(name, base64),
+      // An older host has no workspaces: creating one says so, reading one finds none.
+      createWorktree: (repoPath) => remote.cockpit.createWorktree(repoPath).catch((error: unknown) => ({ error: /no such method/.test(String(error)) ? HOST_TOO_OLD : String(error) })),
+      worktreeInfo: (path) => remote.cockpit.worktreeInfo(path).catch(() => null),
+      removeWorktree: (path, force) => remote.cockpit.removeWorktree(path, force).catch((error: unknown) => ({ removed: false, reason: 'error', error: String(error) })),
       // A host older than the timeline is said so (the panel tells the person to update it); any other
       // failure is an empty list for now, read again on the next turn.
       sessionTurns: (projectPath, sessionId, agentId) => remote.cockpit.sessionTurns(projectPath, sessionId, agentId).catch((error: unknown) => {

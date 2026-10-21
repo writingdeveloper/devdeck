@@ -66,6 +66,9 @@ declare global {
           gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
           receiveImage(base64: string): Promise<string | null>;
           receiveFile(name: string, base64: string): Promise<string | null>;
+          createWorktree(repoPath: string): Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
+          worktreeInfo(path: string): Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
+          removeWorktree(path: string, force: boolean): Promise<{ removed: boolean; reason?: string; error?: string }>;
           sessionTurns(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionTurn[]>;
           sessionImages(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionImageRef[]>;
           sessionImage(projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
@@ -162,6 +165,9 @@ declare global {
         openFile(projectPath: string, filePath: string): Promise<string>;
         receiveImage(base64: string): Promise<string | null>;
         receiveFile(name: string, base64: string): Promise<string | null>;
+        createWorktree(repoPath: string): Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
+        worktreeInfo(path: string): Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
+        removeWorktree(path: string, force: boolean): Promise<{ removed: boolean; reason?: string; error?: string }>;
         sessionTurns(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionTurn[]>;
         sessionImages(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionImageRef[]>;
         sessionImage(projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
