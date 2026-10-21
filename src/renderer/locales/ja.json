@@ -633,5 +633,14 @@
   "whatsnew.f.worktree-sessions.body": "同じプロジェクトにもう 1 つセッションを開きますが、専用のフォルダーと git ブランチを使うので 2 つのエージェントが同じファイルを触りません。ヘッダーに変更ファイル数とコミット数が表示され、片付ける前に未マージの作業があれば警告します。",
   "whatsnew.f.worktree-sessions.where": "セッションヘッダーのブランチボタン",
   "cockpit.worktree_part_dirty": "未コミットの変更 {n} 件",
-  "cockpit.worktree_part_commits": "{base} にないコミット {n} 件"
+  "cockpit.worktree_part_commits": "{base} にないコミット {n} 件",
+  "shell.grp_background": "Claude バックグラウンドセッション",
+  "cockpit.bg_state_blocked": "返答待ち",
+  "cockpit.bg_state_running": "実行中",
+  "cockpit.bg_state_working": "作業中",
+  "cockpit.bg_state_idle": "待機",
+  "cockpit.bg_state_failed": "失敗",
+  "whatsnew.f.background-agents.title": "Claude のバックグラウンドセッションをサイドバーに",
+  "whatsnew.f.background-agents.body": "claude --bg や Claude のエージェント画面から始めたセッションが表示され、返答を待っているものは区別して示されます。クリックするとタイルで開き、セッションはそのまま続きます。",
+  "whatsnew.f.background-agents.where": "サイドバーの「Claude バックグラウンドセッション」グループ"
 }

@@ -24,6 +24,8 @@ export interface Feature {
 
 /** Newest first. A feature's NEW dot is shown on its `target` until the person uses it. */
 export const FEATURES: readonly Feature[] = [
+  // No Show me: the group exists only while Claude has background sessions running.
+  { id: 'background-agents', version: '1.44.0', icon: 'sessions' },
   { id: 'worktree-sessions', version: '1.43.0', icon: 'branch', target: { view: 'cockpit', selector: '#ck-header .ck-wt-new' } },
   { id: 'program-status', version: '1.42.0', icon: 'terminal', target: { view: 'settings', selector: '#set-program-status' } },
   { id: 'quick-replies', version: '1.41.0', icon: 'reply', target: { view: 'cockpit', selector: '#ck-header .ck-qr-btn' } },

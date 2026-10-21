@@ -52,8 +52,19 @@ writeFileSync(transcript, [
 
 const SHADE = '\x1b[48;5;237m';
 const RESET = '\x1b[0m';
+const BG_ID = '0a1b2c3d';
+const BG_SESSION = '0a1b2c3d-1111-4222-8333-944455556666';
 writeFileSync(join(bin, 'agent.js'), `
 const fs = require('fs');
+// \`claude agents --json --all\`: one background session waiting on the person.
+if (process.argv.includes('agents') && process.argv.includes('--json')) {
+  process.stdout.write(JSON.stringify([
+    { id: ${JSON.stringify(BG_ID)}, cwd: ${JSON.stringify(repo)}, kind: 'background', startedAt: Date.now() - 60000, sessionId: ${JSON.stringify(BG_SESSION)}, name: '백그라운드 QA 작업', state: 'blocked' },
+    { pid: 1, cwd: ${JSON.stringify(repo)}, kind: 'interactive', startedAt: Date.now(), sessionId: ${JSON.stringify(sid)}, name: 'x', status: 'busy' },
+  ]));
+  process.exit(0);
+}
+if (process.argv.includes('attach')) process.stdout.write('ATTACHED:' + process.argv[process.argv.indexOf('attach') + 1] + '\\r\\n');
 const out = (s) => process.stdout.write(s.replace(/\\n/g, '\\r\\n'));
 const filler = (tag, n) => Array.from({ length: n }, (_, i) => '  ' + tag + ' output line ' + i).join('\\n') + '\\n';
 out(${JSON.stringify(SHADE)} + '❯ 로그인 화면 확인해줘' + ${JSON.stringify(RESET)} + '\\n');
@@ -127,7 +138,7 @@ try {
 
   await check('session opens with the fixture screen', async () => {
     await win.waitForSelector('#shell-session-groups .shell-session', { timeout: 30000 });
-    await win.locator('#shell-session-groups .shell-session').first().click();
+    await win.locator('#shell-session-groups .shell-session', { hasText: 'Tools QA' }).click();
     await win.waitForFunction(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].some((r) => r.textContent.includes('FIXTURE_READY')), null, { timeout: 20000 });
     await win.waitForFunction(() => document.querySelector('#ck-header .ck-img-count')?.textContent === '1');
   });
@@ -178,7 +189,7 @@ try {
     await win.waitForFunction(() => document.querySelector('#settings-form .set-quick-replies')?.closest('.set-row')?.querySelector('.set-save-status')?.textContent === '저장됨');
     const saved = JSON.parse(readFileSync(join(profile, 'state.json'), 'utf8')).settings.quickReplies;
     assert.deepEqual(saved, ['배포 전 체크리스트 확인해줘', '로그 다시 봐줘']);
-    await win.locator('#shell-session-groups .shell-session').first().click();
+    await win.locator('#shell-session-groups .shell-session', { hasText: 'Tools QA' }).click();
     await win.locator('#ck-header button[aria-label="빠른 답장"]').click();
     assert.deepEqual(await win.locator('.ck-qr-item .ck-qr-text').allTextContents(), ['배포 전 체크리스트 확인해줘', '로그 다시 봐줘']);
     await win.keyboard.press('Escape');
@@ -246,7 +257,7 @@ try {
     assert.equal(execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' }).trim(), '');
     // Work done in the workspace shows up in its header.
     writeFileSync(join(wt, 'feature.txt'), 'new work\n');
-    await win.locator('#shell-session-groups .shell-session').first().click();
+    await win.locator('#shell-session-groups .shell-session', { hasText: 'Tools QA' }).click();
     await win.locator('#shell-session-groups .shell-session', { hasText: name }).click();
     await win.waitForFunction(() => document.querySelector('#ck-header .ck-wt-pill')?.textContent?.includes('파일 1 '), null, { timeout: 15000 });
     await win.screenshot({ path: join(shots, '4-workspace.png') });
@@ -261,6 +272,21 @@ try {
     for (const until = Date.now() + 15000; existsSync(wt) && Date.now() < until;) await new Promise((r) => setTimeout(r, 250));
     assert.equal(existsSync(wt), false, 'the workspace folder is gone');
     assert.equal(execFileSync('git', ['-C', repo, 'branch', '--list', 'devdeck/' + name], { encoding: 'utf8' }).trim(), '', 'and its branch');
+  });
+
+  await check('Claude\'s own background sessions are listed, the waiting one marked, and open by attaching', async () => {
+    const row = win.locator('#shell-session-groups .group-background .shell-session', { hasText: '백그라운드 QA 작업' });
+    await row.waitFor({ timeout: 45000 });
+    assert.match(await win.locator('#shell-session-groups .group-background').textContent(), /Claude 백그라운드 세션/);
+    assert.match(await row.textContent(), /응답 대기/);
+    await win.screenshot({ path: join(shots, '5-background.png') });
+    await row.click();
+    // The tile is that session, started by attaching to it (the fixture's own output scrolls past).
+    await win.waitForFunction(() => document.querySelector('#ck-header .title')?.textContent?.includes('백그라운드 QA 작업'), null, { timeout: 20000 });
+    const log = readFileSync(join(profile, 'devdeck.log'), 'utf8');
+    assert.match(log, /conversation=0a1b2c3d-1111-4222-8333-944455556666 .*cmd=claude attach 0a1b2c3d/);
+    // Open in a tile now, so it is no longer listed as a background session here.
+    await win.waitForFunction(() => !document.querySelector('#shell-session-groups .group-background'), null, { timeout: 10000 });
   });
 
   await check('a document sent from another machine lands in the temp directory under its own name', async () => {

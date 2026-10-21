@@ -4,7 +4,7 @@
 // Never starts a real agent. Run with npm run qa:images-remote.
 import { _electron as electron } from 'playwright';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -20,7 +20,7 @@ const repo = join(sandbox, 'host-workspace');
 const bin = join(sandbox, 'bin');
 for (const p of [repo, bin]) mkdirSync(p, { recursive: true });
 execFileSync('git', ['init', '-q', '-b', 'qa-remote-images'], { cwd: repo });
-writeFileSync(join(bin, 'echo.js'), "process.stdout.write('FIXTURE_READY\\r\\n'); if (process.stdin.isTTY) process.stdin.setRawMode(true); process.stdin.on('data', (d) => process.stdout.write('GOT:' + d.toString().replace(/\\r/g, '') + '\\r\\n'));\n");
+writeFileSync(join(bin, 'echo.js'), "if (process.argv.includes('agents')) { process.stdout.write('[]'); process.exit(0); } process.stdout.write('FIXTURE_READY\\r\\n'); if (process.stdin.isTTY) process.stdin.setRawMode(true); process.stdin.on('data', (d) => process.stdout.write('GOT:' + d.toString().replace(/\\r/g, '') + '\\r\\n'));\n");
 writeFileSync(join(bin, 'claude.cmd'), '@echo off\r\nnode "%~dp0echo.js"\r\n');
 copyFileSync(join(root, 'build', 'icon.png'), join(repo, 'render.png'));
 writeFileSync(join(repo, 'secret.png'), 'not an image: TOKEN=abc');
@@ -142,6 +142,22 @@ try {
       };
     }, [machineId, repo]);
     assert.deepEqual(r, { real: true, fake: null, unindexed: null });
+  });
+
+  await check('a Claude in Chrome screenshot in the host temp directory travels; other temp files do not', async () => {
+    const shotDir = mkdtempSync(join(tmpdir(), 'claude-chrome-screenshots-'));
+    const other = mkdtempSync(join(tmpdir(), 'devdeck-qa-other-'));
+    copyFileSync(join(root, 'build', 'icon.png'), join(shotDir, 'screenshot-1-1.jpg'));
+    copyFileSync(join(root, 'build', 'icon.png'), join(other, 'shot.png'));
+    try {
+      const r = await viewer.win.evaluate(async ([id, path, shot, stray]) => {
+        const m = window.devdeck.machine(id).cockpit;
+        return { shot: !!(await m.imageFile(path, shot, 'full')), stray: await m.imageFile(path, stray, 'full') };
+      }, [machineId, repo, join(shotDir, 'screenshot-1-1.jpg'), join(other, 'shot.png')]);
+      assert.deepEqual(r, { shot: true, stray: null });
+    } finally {
+      rmSync(shotDir, { recursive: true, force: true }); rmSync(other, { recursive: true, force: true });
+    }
   });
 
   assert.deepEqual(errors, [], 'no page/console errors');

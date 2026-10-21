@@ -1,7 +1,7 @@
 import { createSessionLabels } from '../sessionLabels';
 import { dialog, shell, app, clipboard, nativeImage, type BrowserWindow } from 'electron';
 import { homedir, release, tmpdir } from 'node:os';
-import path, { join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -12,9 +12,11 @@ import { applyOpenAtLogin, effectiveOpenAtLogin } from '../autostart';
 import { scanFolders, isRepo } from '../scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, createGitRunner, type GitRunner } from '../gitInfo';
 import { createWorktree, removeWorktree, worktreeChanges, type Worktree } from '../worktrees';
+import { listBackgroundAgents, pauseBackgroundAgents } from '../backgroundAgents';
+import { isBackgroundAgentId } from '../../shared/backgroundAgents';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
 import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
-import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../../shared/pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, tempImageRoot, AGENT_OPEN_EXT } from '../../shared/pathGuard';
 import { basename, cwdKey } from '../../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../../shared/externalUrl';
 import { makeTtlCache } from '../../shared/ttlCache';
@@ -635,7 +637,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       return null;
     }
   });
-  invoke('cockpit:open', allow('spawn'), async (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode?: OpenMode; agentId?: AgentId }) => {
+  invoke('cockpit:open', allow('spawn'), async (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode?: OpenMode; agentId?: AgentId; attachId?: string }) => {
     const folders = effFolders();
     // A refusal travels back IN THE ANSWER. `sendError` reaches this machine's own window — which, for
     // an open asked over the link, is not where the person who pressed Open is looking: they saw a
@@ -655,7 +657,10 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       // Resolve BOTH the launch command and the concrete session id to persist (so each session
       // restores to its OWN conversation — required once a project can hold several sessions).
       const history = forceNew ? [] : await providerHistory(a, req.projectPath);
-      const resolved = resolveOpenSession(a, {
+      // Opening one of Claude Code's own background sessions: attach to it by its short id. Nothing
+      // but that validated id reaches the command line.
+      const attach = a.id === 'claude' && isBackgroundAgentId(req.attachId) && typeof req.sessionId === 'string';
+      const resolved = attach ? { command: `claude attach ${req.attachId}`, sessionId: req.sessionId } : resolveOpenSession(a, {
         fresh: forceNew,
         // count/latestId are consulted only on the automatic new/continue path.
         sessionCount: forceNew ? 1 : history.length,
@@ -1098,6 +1103,16 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     }
   });
 
+  /**
+   * Claude Code's own background sessions on this machine (`claude --bg`, the agent view), for the
+   * sidebar — only those working in a folder DevDeck is allowed to show.
+   */
+  invoke('agents:background', allow('observe'), async () => {
+    if (!cfg.ptyAvailable) return [];
+    const folders = effFolders();
+    return (await listBackgroundAgents()).filter((b) => isAllowedFilePath(folders, b.cwd));
+  });
+
   invoke('cockpit:gitInfo', allow('observe'), (projectPath: string) => {
     // Same allowlist as every other path-taking handler — a compromised renderer must not be able
     // to point git at arbitrary filesystem locations.
@@ -1321,13 +1336,15 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const resolved = resolveAgentFilePath(projectPath, filePath, homedir());
     if (!VIEWABLE_IMAGE_EXT.test(resolved)) return null;
     const tmp = tmpdir();
-    const isPaste = path.dirname(resolved).toLowerCase() === tmp.toLowerCase() && path.basename(resolved).startsWith(PASTE_IMAGE_PREFIX);
+    const tempRoot = tempImageRoot(tmp, resolved, PASTE_IMAGE_PREFIX);
     const roots = [...folders.map((f) => f.path), join(tmp, 'claude')];
     const lexicalRoots = roots.filter((r) => isAllowedFilePath([], resolved, [r]));
-    if (!isPaste && lexicalRoots.length === 0) return null;
+    if (!tempRoot && lexicalRoots.length === 0) return null;
     try {
       const real = await realpath(resolved);
-      const realRoots = isPaste ? [await realpath(tmp)] : await Promise.all(lexicalRoots.map((r) => realpath(r).catch(() => r)));
+      // A temp folder that is itself a link must still land inside the real temp directory.
+      if (tempRoot && !isAllowedFilePath([], real, [await realpath(tmp)])) return null;
+      const realRoots = tempRoot ? [await realpath(tempRoot)] : await Promise.all(lexicalRoots.map((r) => realpath(r).catch(() => r)));
       if (!isAllowedFilePath([], real, realRoots)) return null;
       const st = await stat(real);
       if (!st.isFile() || st.size > MAX_VIEW_IMAGE_FILE_BYTES) return null;
@@ -1336,7 +1353,12 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   }
 
   /** Run `claude update` here; the cockpit has already stopped every Claude session holding the executable. */
-  invoke('agent:updateClaude', localOnly, () => runClaudeUpdate());
+  // Background-session polls start claude itself; one landing mid-update would hold the executable
+  // the update is replacing, so they pause until it is done.
+  invoke('agent:updateClaude', localOnly, async () => {
+    await pauseBackgroundAgents(true);
+    try { return await runClaudeUpdate(); } finally { void pauseBackgroundAgents(false); }
+  });
 
   // One-shot idle shutdown (win32 only — cfg.shutdown is null elsewhere so none of this registers).
   // Lifecycle invokes return the fresh status so the renderer can update without a round-trip race.

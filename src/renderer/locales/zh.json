@@ -633,5 +633,14 @@
   "whatsnew.f.worktree-sessions.body": "在同一项目上再开一个会话，但使用独立的文件夹和 git 分支，两个智能体不会改到相同文件。顶部显示改动的文件数和提交数；清理前若有未合并的工作会先提醒。",
   "whatsnew.f.worktree-sessions.where": "会话顶部的分支按钮",
   "cockpit.worktree_part_dirty": "{n} 处未提交的改动",
-  "cockpit.worktree_part_commits": "{n} 个 {base} 没有的提交"
+  "cockpit.worktree_part_commits": "{n} 个 {base} 没有的提交",
+  "shell.grp_background": "Claude 后台会话",
+  "cockpit.bg_state_blocked": "等待你回应",
+  "cockpit.bg_state_running": "运行中",
+  "cockpit.bg_state_working": "工作中",
+  "cockpit.bg_state_idle": "空闲",
+  "cockpit.bg_state_failed": "失败",
+  "whatsnew.f.background-agents.title": "侧边栏显示 Claude 后台会话",
+  "whatsnew.f.background-agents.body": "用 claude --bg 或在 Claude 智能体视图中启动的会话现在会显示出来，等待你回应的会单独标出。点击即可在面板中打开，会话照常继续。",
+  "whatsnew.f.background-agents.where": "侧边栏中的“Claude 后台会话”分组"
 }

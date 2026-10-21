@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { join, resolve, sep } from 'node:path';
-import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from './pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, tempImageRoot, AGENT_OPEN_EXT } from './pathGuard';
 
 // Build OS-native absolute paths so the test exercises the same separator/`resolve`
 // semantics the guard uses on whatever platform runs it (CI runs ubuntu/macos/windows).
@@ -152,5 +152,24 @@ describe('a repo\'s parallel-session workspaces', () => {
     expect(isAllowedPath(folders, join(repo, '.claude', 'worktrees', 'a', 'b'))).toBe(false);
     expect(isAllowedPath(folders, join(repo, '.claude', 'worktrees', '..', '..', '..', 'other'))).toBe(false);
     expect(isAllowedPath(folders, join(repo, 'src'))).toBe(false);
+  });
+});
+
+describe('tempImageRoot (images a remote viewer may read from the temp directory)', () => {
+  const tmp = resolve(sep, 'tmp');
+  const shots = join(tmp, 'claude-chrome-screenshots-1Zrl6r');
+  it('admits a Claude in Chrome screenshot, rooted at its own folder', () => {
+    expect(tempImageRoot(tmp, join(shots, 'screenshot-1792616816783-10.jpg'), 'devdeck-paste-')).toBe(shots);
+  });
+  it('admits a DevDeck pasted image directly in temp', () => {
+    expect(tempImageRoot(tmp, join(tmp, 'devdeck-paste-abc.png'), 'devdeck-paste-')).toBe(tmp);
+  });
+  it('refuses every other temp file', () => {
+    expect(tempImageRoot(tmp, join(tmp, 'other.png'), 'devdeck-paste-')).toBeNull();
+    expect(tempImageRoot(tmp, join(tmp, 'someapp', 'shot.png'), 'devdeck-paste-')).toBeNull();
+    expect(tempImageRoot(tmp, join(shots, 'deeper', 'shot.png'), 'devdeck-paste-')).toBeNull();
+    expect(tempImageRoot(tmp, join(tmp, 'claude-chrome-screenshots-', 'shot.png'), 'devdeck-paste-')).toBeNull();
+    expect(tempImageRoot(tmp, join(shots, '..', 'other.png'), 'devdeck-paste-')).toBeNull();
+    expect(tempImageRoot(tmp, resolve(sep, 'tmp2', 'devdeck-paste-a.png'), 'devdeck-paste-')).toBeNull();
   });
 });

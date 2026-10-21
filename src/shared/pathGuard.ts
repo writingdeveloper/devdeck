@@ -68,6 +68,27 @@ export function isAllowedFilePath(folders: Folder[], incoming: string, extraRoot
   return bases.some((base) => isWithin(base, incoming));
 }
 
+/** Claude in Chrome keeps its screenshots in `<temp>/claude-chrome-screenshots-<random>/`. */
+const CHROME_SHOT_DIR = /^claude-chrome-screenshots-[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Which folder of the temp directory an image a session named may be served from, or null when the
+ * file is not in one. Only two shapes count, not the whole temp directory (other applications' files
+ * live there too): one of DevDeck's own pasted images directly in temp (`pastePrefix`), and a
+ * screenshot Claude in Chrome saved in its own folder one level down — the path Claude prints as
+ * `[image] ~\AppData\Local\Temp\claude-chrome-screenshots-…\screenshot-….jpg`.
+ */
+export function tempImageRoot(tmp: string, file: string, pastePrefix: string): string | null {
+  const t = canon(tmp);
+  const f = canon(file);
+  if (!f.startsWith(t + sep)) return null;
+  const parts = f.slice(t.length + 1).split(sep);
+  if (parts.length === 1) return parts[0].startsWith(FOLD_CASE ? pastePrefix.toLowerCase() : pastePrefix) ? resolve(tmp) : null;
+  const dir = resolve(file, '..');
+  const name = dir.slice(dir.lastIndexOf(sep) + 1);
+  return parts.length === 2 && CHROME_SHOT_DIR.test(name) ? dir : null;
+}
+
 /**
  * File extensions the terminal click-to-open accepts (opened via the OS DEFAULT handler, so this is
  * a strict inert-content allowlist): raster images, audio, video, and plain documents. Deliberately

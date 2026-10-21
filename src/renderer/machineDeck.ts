@@ -36,7 +36,7 @@ export interface DeckFacade {
   setHidden: (path: string, hidden: boolean) => Promise<void>;
   usageReport: (sinceMs: number) => Promise<import('../shared/types').UsageReport>;
   cockpit: {
-    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }) => Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string; adopted?: boolean }>;
+    open: (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string; attachId?: string }) => Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string; adopted?: boolean }>;
     sessionMeta: (projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean) => Promise<never>;
     sessionIds: (projectPath: string, agentId?: string) => Promise<string[]>;
     sessionsExist: (items: { projectPath: string; sessionId: string | null; agentId?: string }[]) => Promise<boolean[]>;
@@ -46,6 +46,7 @@ export interface DeckFacade {
     receiveImage: (base64: string) => Promise<string | null>;
     receiveFile: (name: string, base64: string) => Promise<string | null>;
     createWorktree: (repoPath: string) => Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
+    backgroundAgents: () => Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
     worktreeInfo: (path: string) => Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
     removeWorktree: (path: string, force: boolean) => Promise<{ removed: boolean; reason?: string; error?: string }>;
     sessionTurns: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionTurn[]>;
@@ -115,6 +116,8 @@ export function deckFor(machineId: string): DeckFacade {
       // An older host has no workspaces: creating one says so, reading one finds none.
       createWorktree: (repoPath) => remote.cockpit.createWorktree(repoPath).catch((error: unknown) => ({ error: /no such method/.test(String(error)) ? HOST_TOO_OLD : String(error) })),
       worktreeInfo: (path) => remote.cockpit.worktreeInfo(path).catch(() => null),
+      // An older host does not list them; it simply has none to show.
+      backgroundAgents: () => remote.cockpit.backgroundAgents().catch(() => []),
       removeWorktree: (path, force) => remote.cockpit.removeWorktree(path, force).catch((error: unknown) => ({ removed: false, reason: 'error', error: String(error) })),
       // A host older than the timeline is said so (the panel tells the person to update it); any other
       // failure is an empty list for now, read again on the next turn.

@@ -32,6 +32,8 @@ const log = ${JSON.stringify(log)}; const locks = ${JSON.stringify(sandbox)};
 const running = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const alive = () => fs.readdirSync(locks).filter((f) => f.startsWith('alive-') && running(Number(f.slice(6)))).length;
 const args = process.argv.slice(2);
+// The sidebar's background-session listing: not a session, and never counted as one.
+if (args[0] === 'agents') { fs.appendFileSync(log, 'list alive=' + alive() + '\\n'); process.stdout.write('[]'); process.exit(0); }
 if (args[0] === 'update') { fs.appendFileSync(log, 'update alive=' + alive() + '\\n'); console.log('Successfully updated from 2.1.1 to 2.1.2'); process.exit(0); }
 const me = path.join(locks, 'alive-' + process.pid); fs.writeFileSync(me, '');
 const bye = () => { try { fs.unlinkSync(me); } catch {} process.exit(0); };
