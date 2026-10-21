@@ -6,6 +6,7 @@ import { uptime, homedir, tmpdir } from 'node:os';
 import { Store } from './store';
 import { registerIpc } from './ipc';
 import { PtyHost, taskkillTree, withTreeKill, type PtyProcess, type PtySpawn } from './ptyHost';
+import { stopBackgroundAgentListing } from './backgroundAgents';
 import { setupTray } from './tray';
 import { registerUpdater } from './updater';
 import { applyOpenAtLogin } from './autostart';
@@ -325,6 +326,8 @@ if (!gotLock) {
     event.preventDefault();
     if (quitWork) return; // repeated Quit cannot bypass or duplicate native cleanup
     (app as typeof app & { isQuitting?: boolean }).isQuitting = true;
+    // A background-session listing still running would outlive the app (and hold its output pipes).
+    stopBackgroundAgentListing();
     quitWork = Promise.allSettled([
       ptyHost.shutdown(),
       withTimeout(Promise.resolve(linkService?.dispose()), 5_000, 'link shutdown'),

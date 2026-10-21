@@ -12,7 +12,7 @@ import { applyOpenAtLogin, effectiveOpenAtLogin } from '../autostart';
 import { scanFolders, isRepo } from '../scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, createGitRunner, type GitRunner } from '../gitInfo';
 import { createWorktree, removeWorktree, worktreeChanges, type Worktree } from '../worktrees';
-import { listBackgroundAgents } from '../backgroundAgents';
+import { listBackgroundAgents, pauseBackgroundAgents } from '../backgroundAgents';
 import { isBackgroundAgentId } from '../../shared/backgroundAgents';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
 import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
@@ -1351,7 +1351,12 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   }
 
   /** Run `claude update` here; the cockpit has already stopped every Claude session holding the executable. */
-  invoke('agent:updateClaude', localOnly, () => runClaudeUpdate());
+  // Background-session polls start claude itself; one landing mid-update would hold the executable
+  // the update is replacing, so they pause until it is done.
+  invoke('agent:updateClaude', localOnly, async () => {
+    await pauseBackgroundAgents(true);
+    try { return await runClaudeUpdate(); } finally { void pauseBackgroundAgents(false); }
+  });
 
   // One-shot idle shutdown (win32 only — cfg.shutdown is null elsewhere so none of this registers).
   // Lifecycle invokes return the fresh status so the renderer can update without a round-trip race.

@@ -626,6 +626,8 @@ function backgroundNavigationId(machineId: string, id: string): string { return 
 
 /** Re-read every reachable machine's background sessions; the sidebar updates if anything changed. */
 async function refreshBackgroundAgents(): Promise<void> {
+  // "Update all" stops every claude before replacing it; a listing would start one again.
+  if (claudeUpdateRunning) return;
   const machines = [LOCAL_MACHINE_ID, ...[...live.values()].map((l) => l.machineId).filter((m) => m !== LOCAL_MACHINE_ID && machineState(m) === 'connected')];
   let changed = false;
   for (const machineId of new Set(machines)) {
