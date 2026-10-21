@@ -12,6 +12,8 @@ import { applyOpenAtLogin, effectiveOpenAtLogin } from '../autostart';
 import { scanFolders, isRepo } from '../scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, createGitRunner, type GitRunner } from '../gitInfo';
 import { createWorktree, removeWorktree, worktreeChanges, type Worktree } from '../worktrees';
+import { listBackgroundAgents } from '../backgroundAgents';
+import { isBackgroundAgentId } from '../../shared/backgroundAgents';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
 import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../../shared/pathGuard';
@@ -635,7 +637,7 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       return null;
     }
   });
-  invoke('cockpit:open', allow('spawn'), async (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode?: OpenMode; agentId?: AgentId }) => {
+  invoke('cockpit:open', allow('spawn'), async (req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode?: OpenMode; agentId?: AgentId; attachId?: string }) => {
     const folders = effFolders();
     // A refusal travels back IN THE ANSWER. `sendError` reaches this machine's own window — which, for
     // an open asked over the link, is not where the person who pressed Open is looking: they saw a
@@ -655,7 +657,10 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       // Resolve BOTH the launch command and the concrete session id to persist (so each session
       // restores to its OWN conversation — required once a project can hold several sessions).
       const history = forceNew ? [] : await providerHistory(a, req.projectPath);
-      const resolved = resolveOpenSession(a, {
+      // Opening one of Claude Code's own background sessions: attach to it by its short id. Nothing
+      // but that validated id reaches the command line.
+      const attach = a.id === 'claude' && isBackgroundAgentId(req.attachId) && typeof req.sessionId === 'string';
+      const resolved = attach ? { command: `claude attach ${req.attachId}`, sessionId: req.sessionId } : resolveOpenSession(a, {
         fresh: forceNew,
         // count/latestId are consulted only on the automatic new/continue path.
         sessionCount: forceNew ? 1 : history.length,
@@ -1096,6 +1101,16 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     } catch (err) {
       return { removed: false, reason: 'error', error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  /**
+   * Claude Code's own background sessions on this machine (`claude --bg`, the agent view), for the
+   * sidebar — only those working in a folder DevDeck is allowed to show.
+   */
+  invoke('agents:background', allow('observe'), async () => {
+    if (!cfg.ptyAvailable) return [];
+    const folders = effFolders();
+    return (await listBackgroundAgents()).filter((b) => isAllowedFilePath(folders, b.cwd));
   });
 
   invoke('cockpit:gitInfo', allow('observe'), (projectPath: string) => {

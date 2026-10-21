@@ -57,7 +57,7 @@ declare global {
         availableAgents(): Promise<import('../shared/types').AgentId[]>;
         appInfo(): Promise<{ version: string; electron: string; repoUrl: string; packaged: boolean; machineId: string; machineName: string; gpu?: boolean }>;
         cockpit: {
-          open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string; adopted?: boolean }>;
+          open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: string; attachId?: string }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string; adopted?: boolean }>;
           sessionMeta(projectPath: string, sessionId: string, agentId?: string, wantAi?: boolean): Promise<unknown>;
           sessionIds(projectPath: string, agentId?: string): Promise<string[]>;
           sessionsExist(items: { projectPath: string; sessionId: string | null; agentId?: string }[]): Promise<boolean[]>;
@@ -67,6 +67,7 @@ declare global {
           receiveImage(base64: string): Promise<string | null>;
           receiveFile(name: string, base64: string): Promise<string | null>;
           createWorktree(repoPath: string): Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
+          backgroundAgents(): Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
           worktreeInfo(path: string): Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
           removeWorktree(path: string, force: boolean): Promise<{ removed: boolean; reason?: string; error?: string }>;
           sessionTurns(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionTurn[]>;
@@ -134,7 +135,7 @@ declare global {
         readImageBytes(): Promise<{ tooLarge: boolean; bytes: string | null } | null>;
       };
       cockpit: {
-        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: import('../shared/types').AgentId }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string; adopted?: boolean }>;
+        open(req: { projectPath: string; sessionId: string | null; cols: number; rows: number; mode: import('../shared/types').OpenMode; agentId: import('../shared/types').AgentId; attachId?: string }): Promise<{ id: string; agentId: import('../shared/types').AgentId; sessionId: string | null; error?: string; adopted?: boolean }>;
         input(id: string, data: string): void;
         resize(id: string, cols: number, rows: number): void;
         close(id: string): void;
@@ -166,6 +167,7 @@ declare global {
         receiveImage(base64: string): Promise<string | null>;
         receiveFile(name: string, base64: string): Promise<string | null>;
         createWorktree(repoPath: string): Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
+          backgroundAgents(): Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
         worktreeInfo(path: string): Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
         removeWorktree(path: string, force: boolean): Promise<{ removed: boolean; reason?: string; error?: string }>;
         sessionTurns(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionTurn[]>;
