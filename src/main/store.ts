@@ -13,7 +13,7 @@ import { LINK_DEFAULT_PORT } from './link/protocol';
 
 interface StateFile {
   projects: Record<string, StoreEntry>;
-  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; quickReplies?: string[]; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
+  settings?: { language?: string; baseDir?: string; folders?: Folder[]; thresholds?: { freshDays: number; warnDays: number; neglectedDays: number }; agent?: string; openAtLogin?: boolean; viewMode?: 'cards' | 'list'; cockpitSessions?: PersistedSession[]; trayAlert?: 'off' | 'attention' | 'all'; pendingAutoRestore?: PersistedSession[]; contextWindow?: number; shutdownIdleMinutes?: number; cockpitSidebarCollapsed?: boolean; sessionSummary?: boolean; aiSessionSummary?: boolean; quickReplies?: string[]; programStatus?: boolean; whatsNewSeen?: string; windowBounds?: WindowBounds; machineId?: string; machineName?: string; linkHostMode?: boolean; linkPort?: number; linkDevices?: PairedDevice[]; linkHosts?: KnownHost[] };
 }
 
 /** Error codes Windows returns while another process (AV scan, indexer, OneDrive) briefly holds the file. */
@@ -287,6 +287,14 @@ export class Store {
   /** The person's quick replies, or null while they have never edited them (the defaults are per language). */
   getQuickReplies(): string[] | null { const q = this.state.settings?.quickReplies; return Array.isArray(q) ? sanitizeQuickReplies(q) : null; }
   setQuickReplies(list: unknown): void { this.state.settings = { ...(this.state.settings ?? {}), quickReplies: sanitizeQuickReplies(list) }; this.save(); }
+  /** Ask Claude Code for its own status (OSC 7501). On Windows this runs sessions on the bundled ConPTY, so it is opt-in there. */
+  getProgramStatus(): boolean { return this.state.settings?.programStatus === true; }
+  setProgramStatus(on: boolean): void { this.state.settings = { ...(this.state.settings ?? {}), programStatus: on === true }; this.save(); }
+  /** The version whose new features were last shown; null before 1.42.0 recorded one. */
+  getWhatsNewSeen(): string | null { const v = this.state.settings?.whatsNewSeen; return typeof v === 'string' && /^\d+\.\d+\.\d+$/.test(v) ? v : null; }
+  setWhatsNewSeen(v: string): void { if (!/^\d+\.\d+\.\d+$/.test(v)) return; this.state.settings = { ...(this.state.settings ?? {}), whatsNewSeen: v }; this.save(); }
+  /** Whether this install has been used before (a window was ever saved) — an upgrade, not a first run. */
+  hasUsedBefore(): boolean { return this.state.settings?.windowBounds !== undefined; }
 
   getTrayAlert(): 'off' | 'attention' | 'all' { const t = this.state.settings?.trayAlert; return t === 'off' || t === 'all' ? t : 'attention'; }
   setTrayAlert(t: 'off' | 'attention' | 'all'): void { this.state.settings = { ...(this.state.settings ?? {}), trayAlert: t === 'off' || t === 'all' ? t : 'attention' }; this.save(); }

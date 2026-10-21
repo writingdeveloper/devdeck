@@ -403,3 +403,21 @@ describe('renameWithRetry (state.json commit on Windows)', () => {
     expect(Date.now() - t0).toBeGreaterThanOrEqual(15);
   });
 });
+
+describe('Claude status signal and What\'s new bookkeeping', () => {
+  it('keeps the status signal off until turned on, and only records real version numbers', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'devdeck-store-wn-'));
+    const file = join(dir, 'state.json');
+    const store = new Store(file);
+    expect(store.getProgramStatus()).toBe(false);
+    expect(store.getWhatsNewSeen()).toBeNull();
+    expect(store.hasUsedBefore()).toBe(false);
+    store.setProgramStatus(true);
+    store.setWhatsNewSeen('../../evil');
+    expect(store.getWhatsNewSeen()).toBeNull();
+    store.setWhatsNewSeen('1.42.0');
+    const again = new Store(file);
+    expect([again.getProgramStatus(), again.getWhatsNewSeen()]).toEqual([true, '1.42.0']);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

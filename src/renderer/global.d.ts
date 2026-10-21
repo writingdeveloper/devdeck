@@ -18,7 +18,7 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; osRelease: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean; sessionSummary: boolean; aiSessionSummary: boolean; quickReplies: string[] | null }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; osRelease: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean; sessionSummary: boolean; aiSessionSummary: boolean; quickReplies: string[] | null; programStatus: boolean; whatsNewSeen: string | null; usedBefore: boolean }>;
       link: {
         hostStatus(): Promise<import('../main/link/linkService').HostStatus>;
         setHostMode(on: boolean): Promise<import('../main/link/linkService').HostStatus>;
@@ -97,6 +97,8 @@ declare global {
       setSessionSummary(on: boolean): Promise<void>;
       setAiSessionSummary(on: boolean): Promise<void>;
       setQuickReplies(list: string[]): Promise<void>;
+      setProgramStatus(on: boolean): Promise<void>;
+      setWhatsNewSeen(version: string): Promise<void>;
       usageSnapshot(): Promise<import('../shared/usageWindows').UsageSnapshot | null>;
       refreshUsageProviders(opts?: { force?: boolean }): Promise<import('../shared/usageWindows').UsageSnapshot>;
       openUsageLogin(providerId: 'claude' | 'codex', cols: number, rows: number): Promise<{ id: string; providerId: 'claude' | 'codex' } | null>;

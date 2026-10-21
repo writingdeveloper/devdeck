@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('devdeck', {
   setSessionSummary: (on: boolean) => ipcRenderer.invoke('settings:setSessionSummary', on),
   setAiSessionSummary: (on: boolean) => ipcRenderer.invoke('settings:setAiSessionSummary', on),
   setQuickReplies: (list: string[]) => ipcRenderer.invoke('settings:setQuickReplies', list),
+  setProgramStatus: (on: boolean) => ipcRenderer.invoke('settings:setProgramStatus', on),
+  setWhatsNewSeen: (version: string) => ipcRenderer.invoke('settings:setWhatsNewSeen', version),
   usageSnapshot: () => ipcRenderer.invoke('usage:snapshot'),
   refreshUsageProviders: (opts?: { force?: boolean }) => ipcRenderer.invoke('usage:refresh', { force: opts?.force === true }),
   openUsageLogin: (providerId: 'claude' | 'codex', cols: number, rows: number) => ipcRenderer.invoke('usage:login', providerId, cols, rows),

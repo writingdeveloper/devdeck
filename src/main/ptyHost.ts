@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawn as spawnChild } from 'node:child_process';
 import { withTimeout } from '../shared/withTimeout';
+import { hasProgramStatusProbe, PROGRAM_STATUS_REPLY } from '../shared/programStatus';
 
 export interface PtyProcess {
   pid: number;
@@ -9,6 +10,8 @@ export interface PtyProcess {
   write(data: string): void;
   resize(cols: number, rows: number): void;
   kill(): void;
+  /** True when this terminal runs on the conpty.dll bundled with node-pty rather than Windows' own. */
+  bundledConpty?: boolean;
 }
 
 /**
@@ -21,7 +24,7 @@ export interface PtyProcess {
 export interface PtyScreen { data: string; cols: number; rows: number }
 
 export type PtySpawn = (
-  file: string, args: string[], opts: { cwd: string; cols: number; rows: number }
+  file: string, args: string[], opts: { cwd: string; cols: number; rows: number; bundledConpty?: boolean }
 ) => PtyProcess;
 
 /**
@@ -109,6 +112,7 @@ export function withTreeKill(proc: PtyProcess, killTree: TreeKiller): PtyProcess
   let killing = false;
   return {
     get pid() { return proc.pid; },
+    bundledConpty: proc.bundledConpty,
     onData: (cb) => proc.onData(cb),
     onExit: (cb) => proc.onExit(cb),
     write: (d) => proc.write(d),
@@ -150,6 +154,8 @@ interface Session {
   bufferedLength: number;
   /** Only a truncated prefix needs discarding through the next complete line. */
   prefixTruncated: boolean;
+  /** Whether this terminal answers Claude Code's status probe (and so receives its status reports). */
+  programStatus: boolean;
 }
 
 export class PtyHost {
@@ -162,14 +168,21 @@ export class PtyHost {
   create(
     id: string, file: string, args: string[], cwd: string, cols: number, rows: number,
     onData: (data: string) => void, onExit: (e: { exitCode: number }) => void,
-    info?: Partial<Omit<PtySessionInfo, 'id'>> & { internal?: boolean },
+    info?: Partial<Omit<PtySessionInfo, 'id'>> & { internal?: boolean; programStatus?: boolean },
   ): void {
     if (this.stopping) throw new Error('Terminals are shutting down');
     if (this.sessions.has(id)) throw new Error(`Terminal already exists: ${id}`);
     if (info?.internal !== true && this.list().length >= MAX_SESSIONS) {
       throw new Error(`Too many terminals open (${MAX_SESSIONS}). Close some sessions first.`);
     }
-    const proc = this.spawn(file, args, { cwd, cols, rows });
+    // Claude Code reports its own state (OSC 7501) only to a terminal that answers its probe. On
+    // Windows the probe has to REACH a terminal for that: Windows' own ConPTY answers the device
+    // query Claude Code sends after it, so the probe looks unanswered before any reply can arrive.
+    // The conpty.dll bundled with node-pty passes both through.
+    const wantStatus = info?.programStatus === true;
+    const proc = this.spawn(file, args, wantStatus && process.platform === 'win32' ? { cwd, cols, rows, bundledConpty: true } : { cwd, cols, rows });
+    const answerProbe = wantStatus && (process.platform !== 'win32' || proc.bundledConpty === true);
+    let probeTail = '';
     let exited!: () => void;
     const exit = new Promise<void>((resolve) => { exited = resolve; });
     this.pendingExits.add(exit);
@@ -191,9 +204,20 @@ export class PtyHost {
       chunks: [],
       bufferedLength: 0,
       prefixTruncated: false,
+      programStatus: answerProbe,
     };
     this.sessions.set(id, session);
-    proc.onData((data) => { this.remember(session, data); onData(data); });
+    proc.onData((data) => {
+      // Answered here, once, before the output reaches any viewer: every attached terminal would
+      // otherwise answer for itself, and a session nobody is looking at would never be answered.
+      if (answerProbe) {
+        const seen = probeTail + data;
+        if (hasProgramStatusProbe(seen)) { proc.write(PROGRAM_STATUS_REPLY); probeTail = ''; }
+        else probeTail = seen.slice(-16);
+      }
+      this.remember(session, data);
+      onData(data);
+    });
     proc.onExit((e) => {
       if (this.sessions.get(id) === session) this.sessions.delete(id);
       this.pendingExits.delete(exit);
@@ -222,6 +246,9 @@ export class PtyHost {
   pid(id: string): number | null { return this.sessions.get(id)?.proc.pid ?? null; }
 
   /** Every project session running here, for a viewer asking "what is already going on over there". */
+  /** Whether a session answers Claude Code's status probe; false for one that does not exist. */
+  programStatus(id: string): boolean { return this.sessions.get(id)?.programStatus === true; }
+
   list(): PtySessionInfo[] {
     return [...this.sessions.values()].filter((s) => !s.internal).map((s) => ({ ...s.info }));
   }

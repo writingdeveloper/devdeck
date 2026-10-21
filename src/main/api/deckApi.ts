@@ -399,7 +399,11 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     cockpitSidebarCollapsed: cfg.store.getCockpitSidebarCollapsed(),
     sessionSummary: cfg.store.getSessionSummary(), aiSessionSummary: cfg.store.getAiSessionSummary(),
     quickReplies: cfg.store.getQuickReplies(),
+    programStatus: cfg.store.getProgramStatus(),
+    whatsNewSeen: cfg.store.getWhatsNewSeen(), usedBefore: cfg.store.hasUsedBefore(),
   }));
+  invoke('settings:setProgramStatus', localOnly, (on: boolean) => cfg.store.setProgramStatus(on === true));
+  invoke('settings:setWhatsNewSeen', localOnly, (v: unknown) => cfg.store.setWhatsNewSeen(String(v)));
   invoke('settings:setSessionSummary', localOnly, (on: boolean) => cfg.store.setSessionSummary(on === true));
   invoke('settings:setQuickReplies', localOnly, (list: unknown) => cfg.store.setQuickReplies(list));
   invoke('settings:setAiSessionSummary', localOnly, (on: boolean) => {
@@ -691,12 +695,14 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
           emit('cockpit:exit', closedBy ? { id, exitCode: e.exitCode, closed: true, closedBy } : { id, exitCode: e.exitCode });
           publishSessions();
         },
-        { projectPath: req.projectPath, sessionId: resolved.sessionId, agentId: a.id },
+        // Claude Code's own status report: always asked for off Windows; on Windows only when the
+        // person turned it on, because it moves the session onto the bundled ConPTY.
+        { projectPath: req.projectPath, sessionId: resolved.sessionId, agentId: a.id, programStatus: a.id === 'claude' && (process.platform !== 'win32' || cfg.store.getProgramStatus()) },
       );
       // Every terminal this machine starts, and WHY. A session appearing that nobody opened is the
       // shape of more than one bug we have shipped, and until this line there was no way to tell a
       // restore from a deck click from a paired machine's request after the fact.
-      cfg.diagnostics?.write('info', 'pty', `open ${id} agent=${a.id} mode=${req.mode ?? 'auto'} conversation=${resolved.sessionId ?? '-'} cmd=${resolved.command}`);
+      cfg.diagnostics?.write('info', 'pty', `open ${id} agent=${a.id} mode=${req.mode ?? 'auto'} conversation=${resolved.sessionId ?? '-'} status=${cfg.ptyHost.programStatus(id) ? 'on' : 'off'} cmd=${resolved.command}`);
       publishSessions();
       cfg.store.setLastOpened(req.projectPath, new Date().toISOString());
       const started = cfg.ptyHost.list().find(s => s.id === id);
