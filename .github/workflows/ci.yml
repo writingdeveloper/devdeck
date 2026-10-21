@@ -133,6 +133,9 @@ jobs:
       - name: Images tied to their terminal rows
         if: runner.os == 'Windows'
         run: node qa/image-rows.mjs
+      - name: Quick replies, timeline, image markup and sent documents
+        if: runner.os == 'Windows'
+        run: node qa/cockpit-tools.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -145,4 +148,5 @@ jobs:
             qa/shots/images/
             qa/shots/images-remote/
             qa/shots/image-rows/
+            qa/shots/cockpit-tools/
             qa/shots/claude-update/
