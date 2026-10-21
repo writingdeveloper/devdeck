@@ -1,7 +1,7 @@
 import { createSessionLabels } from '../sessionLabels';
 import { dialog, shell, app, clipboard, nativeImage, type BrowserWindow } from 'electron';
 import { homedir, release, tmpdir } from 'node:os';
-import path, { join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -16,7 +16,7 @@ import { listBackgroundAgents, pauseBackgroundAgents } from '../backgroundAgents
 import { isBackgroundAgentId } from '../../shared/backgroundAgents';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
 import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
-import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, AGENT_OPEN_EXT } from '../../shared/pathGuard';
+import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, tempImageRoot, AGENT_OPEN_EXT } from '../../shared/pathGuard';
 import { basename, cwdKey } from '../../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../../shared/externalUrl';
 import { makeTtlCache } from '../../shared/ttlCache';
@@ -1336,13 +1336,15 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const resolved = resolveAgentFilePath(projectPath, filePath, homedir());
     if (!VIEWABLE_IMAGE_EXT.test(resolved)) return null;
     const tmp = tmpdir();
-    const isPaste = path.dirname(resolved).toLowerCase() === tmp.toLowerCase() && path.basename(resolved).startsWith(PASTE_IMAGE_PREFIX);
+    const tempRoot = tempImageRoot(tmp, resolved, PASTE_IMAGE_PREFIX);
     const roots = [...folders.map((f) => f.path), join(tmp, 'claude')];
     const lexicalRoots = roots.filter((r) => isAllowedFilePath([], resolved, [r]));
-    if (!isPaste && lexicalRoots.length === 0) return null;
+    if (!tempRoot && lexicalRoots.length === 0) return null;
     try {
       const real = await realpath(resolved);
-      const realRoots = isPaste ? [await realpath(tmp)] : await Promise.all(lexicalRoots.map((r) => realpath(r).catch(() => r)));
+      // A temp folder that is itself a link must still land inside the real temp directory.
+      if (tempRoot && !isAllowedFilePath([], real, [await realpath(tmp)])) return null;
+      const realRoots = tempRoot ? [await realpath(tempRoot)] : await Promise.all(lexicalRoots.map((r) => realpath(r).catch(() => r)));
       if (!isAllowedFilePath([], real, realRoots)) return null;
       const st = await stat(real);
       if (!st.isFile() || st.size > MAX_VIEW_IMAGE_FILE_BYTES) return null;
