@@ -19,6 +19,15 @@ export interface SessionImageRef {
   tool: string | null;
   /** For `file`: the path exactly as the tool named it. */
   path: string | null;
+  /**
+   * What the tool was asked to do, as one line — the element, file or URL it was pointed at. Absent
+   * from hosts older than 1.40.0, so read as optional.
+   */
+  detail?: string | null;
+  /** The page that tool's browser was last sent to, for a screenshot from a browser tool. */
+  page?: string | null;
+  /** The agent's last words before this image — or, for a pasted image, what the person wrote with it. */
+  said?: string | null;
 }
 
 const IMAGE_FILE_RE = /\.(?:png|jpe?g|gif|webp|bmp)$/i;
@@ -27,13 +36,61 @@ const PATH_FIELDS = ['file_path', 'path', 'filePath', 'output_path', 'outputPath
 /** How long a tool name is worth remembering for: tool results follow their call within a few lines. */
 const TOOL_NAME_MEMORY = 256;
 const TOOL_USE_RE = /"type":"tool_use","id":"([^"]{1,100})","name":"([^"]{1,200})"/g;
+/**
+ * Lines past this are not parsed just for context: they are the ones carrying a whole file in a
+ * Write call or a screenshot, and JSON-parsing megabytes per tool call would dwarf the index itself.
+ */
+const CONTEXT_PARSE_MAX = 64 * 1024;
+const CONTEXT_MAX_CHARS = 160;
+/** Tool-input fields worth showing as "what it was asked", most telling first. */
+const DETAIL_FIELDS = ['url', 'element', 'selector', 'filename', 'file_path', 'path', 'filePath', 'name', 'description', 'query', 'text'];
 
 /** Cheap pre-filter on the raw bytes of a line, so most lines are never JSON-parsed at all. */
 export function lineMayHoldImage(line: string): boolean {
   return line.includes('"type":"image"') || (line.includes('"tool_use"') && /\.(?:png|jpe?g|gif|webp|bmp)"/i.test(line));
 }
 
-interface Block { type?: unknown; source?: unknown; content?: unknown; tool_use_id?: unknown; id?: unknown; name?: unknown; input?: unknown }
+interface Block { type?: unknown; source?: unknown; content?: unknown; tool_use_id?: unknown; id?: unknown; name?: unknown; input?: unknown; text?: unknown }
+
+/** One line of at most CONTEXT_MAX_CHARS: the first non-empty line of `text`, whitespace collapsed. */
+export function oneLine(text: string): string | null {
+  const first = text.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ').trim()).find((l) => l.length > 0);
+  if (!first) return null;
+  return first.length > CONTEXT_MAX_CHARS ? first.slice(0, CONTEXT_MAX_CHARS - 1) + '…' : first;
+}
+
+/** The input field that best says what a tool call was aimed at. */
+export function toolDetail(input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const rec = input as Record<string, unknown>;
+  for (const field of DETAIL_FIELDS) {
+    const v = rec[field];
+    if (typeof v === 'string' && v.trim() && v.length <= 2000) return oneLine(v);
+  }
+  return null;
+}
+
+/** `mcp__playwright__browser_navigate` → `playwright`; a built-in tool has no server. */
+export function toolServer(tool: string | null): string | null {
+  return tool ? /^mcp__(.+?)__/.exec(tool)?.[1] ?? null : null;
+}
+
+function textOf(content: unknown[]): string | null {
+  let out: string | null = null;
+  for (const raw of content) {
+    const b = (raw ?? {}) as Block;
+    if (b.type === 'text' && typeof b.text === 'string') {
+      const t = oneLine(stripImageNoise(b.text));
+      if (t) out = t; // the LAST thing said is the one that leads into what follows
+    }
+  }
+  return out;
+}
+
+/** The placeholders an agent writes where an image was, which say nothing on their own. */
+function stripImageNoise(text: string): string {
+  return text.replace(/\[Image\b[^\]]*\]/gi, ' ').replace(/\S*devdeck-paste-[0-9a-f-]+\.(?:png|jpe?g|gif|webp)/gi, ' ');
+}
 
 function isEmbeddedImage(b: Block): boolean {
   if (b.type !== 'image' || !b.source || typeof b.source !== 'object') return false;
@@ -71,47 +128,71 @@ export function embeddedImageBlocks(entry: unknown): { block: { media_type: stri
  * recent calls are remembered (boundedly) as their lines go by.
  */
 export class SessionImageCollector {
-  private toolNames = new Map<string, string>();
+  private toolNames = new Map<string, { name: string; detail: string | null }>();
+  /** Per MCP server, the page its browser was last sent to. */
+  private pages = new Map<string, string>();
+  private lastSaid: string | null = null;
 
   /** `line` is one complete transcript line; `offset` is the byte offset it starts at. */
   add(line: string, offset: number): SessionImageRef[] {
-    // Tool calls are named on every line that makes one — most never hold an image, so this is a
-    // regex over the raw text rather than a parse.
-    if (line.includes('"tool_use"')) {
-      for (const m of line.matchAll(TOOL_USE_RE)) this.remember(m[1], m[2]);
-    }
-    if (!lineMayHoldImage(line)) return [];
+    const mayHoldImage = lineMayHoldImage(line);
+    // Context comes from lines that hold no image: the calls that led up to one and what the agent
+    // said meanwhile. Only small lines are parsed for it; the rest are named by a regex alone.
+    const small = line.length <= CONTEXT_PARSE_MAX;
     let entry: unknown;
-    try { entry = JSON.parse(line); } catch { return []; }
-    const tsRaw = (entry as { timestamp?: unknown }).timestamp;
+    if (mayHoldImage || (small && (line.includes('"tool_use"') || line.includes('"type":"text"')))) {
+      try { entry = JSON.parse(line); } catch { entry = undefined; }
+    }
+    if (entry === undefined && line.includes('"tool_use"')) {
+      for (const m of line.matchAll(TOOL_USE_RE)) this.remember(m[1], m[2], null);
+    }
+    const content = (entry as { message?: { role?: unknown; content?: unknown } } | undefined)?.message?.content;
+    const role = (entry as { message?: { role?: unknown } } | undefined)?.message?.role;
+    const blocks = Array.isArray(content) ? content : [];
+    const refs: SessionImageRef[] = [];
+    const tsRaw = (entry as { timestamp?: unknown } | undefined)?.timestamp;
     const parsedTs = typeof tsRaw === 'string' ? Date.parse(tsRaw) : NaN;
     const ts = Number.isFinite(parsedTs) ? parsedTs : null;
-    const refs: SessionImageRef[] = [];
 
-    const content = (entry as { message?: { content?: unknown } })?.message?.content;
-    if (Array.isArray(content)) {
-      for (const raw of content) {
-        const b = (raw ?? {}) as Block;
-        if (b.type !== 'tool_use' || typeof b.name !== 'string') continue;
-        if (typeof b.id === 'string') this.remember(b.id, b.name);
-        const input = (b.input ?? {}) as Record<string, unknown>;
-        for (const field of PATH_FIELDS) {
-          const p = input[field];
-          if (typeof p === 'string' && p.length < 1024 && IMAGE_FILE_RE.test(p)) {
-            refs.push({ id: `f:${p}`, kind: 'file', ts, tool: b.name, path: p });
-            break;
-          }
+    for (const raw of blocks) {
+      const b = (raw ?? {}) as Block;
+      if (b.type !== 'tool_use' || typeof b.name !== 'string') continue;
+      const detail = toolDetail(b.input);
+      if (typeof b.id === 'string') this.remember(b.id, b.name, detail);
+      const input = (b.input ?? {}) as Record<string, unknown>;
+      const server = toolServer(b.name);
+      if (server && typeof input.url === 'string' && /^https?:\/\//i.test(input.url)) this.pages.set(server, oneLine(input.url) ?? input.url);
+      if (!mayHoldImage) continue;
+      for (const field of PATH_FIELDS) {
+        const p = input[field];
+        if (typeof p === 'string' && p.length < 1024 && IMAGE_FILE_RE.test(p)) {
+          refs.push({ id: `f:${p}`, kind: 'file', ts, tool: b.name, path: p, detail, page: null, said: this.lastSaid });
+          break;
         }
       }
     }
-    embeddedImageBlocks(entry).forEach((img, n) => {
-      refs.push({ id: `${offset}.${n}`, kind: img.kind, ts, tool: img.toolUseId ? this.toolNames.get(img.toolUseId) ?? null : null, path: null });
-    });
+    // What the agent said; a user line's text belongs to that user's own images, read below.
+    const said = blocks.length ? textOf(blocks) : null;
+    if (role === 'assistant' && said) this.lastSaid = said;
+
+    if (mayHoldImage && entry !== undefined) {
+      embeddedImageBlocks(entry).forEach((img, n) => {
+        const call = img.toolUseId ? this.toolNames.get(img.toolUseId) : undefined;
+        const tool = call?.name ?? null;
+        const server = toolServer(tool);
+        refs.push({
+          id: `${offset}.${n}`, kind: img.kind, ts, tool, path: null,
+          detail: call?.detail ?? null,
+          page: server && /browser|chrome|playwright|puppeteer/i.test(tool ?? '') ? this.pages.get(server) ?? null : null,
+          said: img.kind === 'pasted' ? said : this.lastSaid,
+        });
+      });
+    }
     return refs;
   }
 
-  private remember(id: string, name: string): void {
-    this.toolNames.set(id, name);
+  private remember(id: string, name: string, detail: string | null): void {
+    this.toolNames.set(id, { name, detail });
     if (this.toolNames.size > TOOL_NAME_MEMORY) this.toolNames.delete(this.toolNames.keys().next().value as string);
   }
 }

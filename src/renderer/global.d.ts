@@ -122,6 +122,7 @@ declare global {
         writeText(text: string): void;
         readText(): Promise<string>;
         readImage(): Promise<string | null>;
+        writeImage(dataUrl: string): Promise<boolean>;
         readImageBytes(): Promise<{ tooLarge: boolean; bytes: string | null } | null>;
       };
       cockpit: {

@@ -1,4 +1,4 @@
-export type KeyAction = 'copy' | 'paste' | 'find' | 'quickopen' | 'pass';
+export type KeyAction = 'copy' | 'paste' | 'find' | 'quickopen' | 'prompt-prev' | 'prompt-next' | 'pass';
 
 /** The keyboard-event shape we need — a subset of DOM KeyboardEvent, so it's unit-testable without a DOM. */
 export interface KeyLike {
@@ -24,6 +24,8 @@ export interface KeyLike {
  * - Ctrl+Shift+P -> quickopen (the sidebar's search). Shift does not change the control character a
  *   terminal derives from a letter, so without this the chord would reach the PTY as a plain Ctrl+P
  *   (readline's "previous history") while the user was trying to jump to another session.
+ * - Ctrl+Up / Ctrl+Down -> prompt-prev / prompt-next: scroll to the previous or next prompt the person
+ *   sent. Claude Code binds neither; a shell would read them as plain arrows, which they are not.
  * - Everything else passes through to the PTY unchanged.
  *
  * Alt is excluded so Alt+C / Alt+V (rare app bindings) are never hijacked.
@@ -48,5 +50,7 @@ export function decideKeyAction(e: KeyLike, hasSelection: boolean): KeyAction {
   if (k === 'c' && hasSelection) return 'copy';
   if (k === 'v') return 'paste';
   if (k === 'f') return 'find';
+  if (!e.shiftKey && e.key === 'ArrowUp') return 'prompt-prev';
+  if (!e.shiftKey && e.key === 'ArrowDown') return 'prompt-next';
   return 'pass';
 }

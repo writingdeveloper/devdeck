@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('devdeck', {
     writeText: (text: string) => ipcRenderer.send('clipboard:writeText', text),
     readText: (): Promise<string> => ipcRenderer.invoke('clipboard:readText'),
     readImage: (): Promise<string | null> => ipcRenderer.invoke('clipboard:readImage'),
+    writeImage: (dataUrl: string): Promise<boolean> => ipcRenderer.invoke('clipboard:writeImage', dataUrl),
     readImageBytes: (): Promise<{ tooLarge: boolean; bytes: string | null } | null> => ipcRenderer.invoke('clipboard:readImageBytes'),
   },
   // Diagnostics: one file per machine, readable by a person or an agent sitting at it.

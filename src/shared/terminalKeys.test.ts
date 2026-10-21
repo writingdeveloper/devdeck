@@ -57,6 +57,12 @@ describe('decideKeyAction', () => {
     expect(decideKeyAction(key({ ctrlKey: true, key: 'f' }), false)).toBe('find');
     expect(decideKeyAction(key({ ctrlKey: true, key: 'F' }), true)).toBe('find');
   });
+  it('Ctrl+Up / Ctrl+Down step between prompts; plain and shifted arrows still reach the agent', () => {
+    expect(decideKeyAction(key({ ctrlKey: true, key: 'ArrowUp' }), false)).toBe('prompt-prev');
+    expect(decideKeyAction(key({ ctrlKey: true, key: 'ArrowDown' }), true)).toBe('prompt-next');
+    expect(decideKeyAction(key({ key: 'ArrowUp' }), false)).toBe('pass');
+    expect(decideKeyAction(key({ ctrlKey: true, shiftKey: true, key: 'ArrowUp' }), false)).toBe('pass');
+  });
   it('Alt+F / plain f still pass through', () => {
     expect(decideKeyAction(key({ ctrlKey: true, altKey: true, key: 'f' }), false)).toBe('pass');
     expect(decideKeyAction(key({ key: 'f' }), false)).toBe('pass');

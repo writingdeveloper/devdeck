@@ -130,6 +130,9 @@ jobs:
       - name: Restored agents start one at a time
         if: runner.os == 'Windows'
         run: node qa/restore-pacing.mjs
+      - name: Images tied to their terminal rows
+        if: runner.os == 'Windows'
+        run: node qa/image-rows.mjs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
@@ -141,4 +144,5 @@ jobs:
             qa/shots/perf-gate/
             qa/shots/images/
             qa/shots/images-remote/
+            qa/shots/image-rows/
             qa/shots/claude-update/

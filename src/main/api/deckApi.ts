@@ -1,5 +1,5 @@
 import { createSessionLabels } from '../sessionLabels';
-import { dialog, shell, app, clipboard, type BrowserWindow } from 'electron';
+import { dialog, shell, app, clipboard, nativeImage, type BrowserWindow } from 'electron';
 import { homedir, release, tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -77,6 +77,8 @@ const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
 /** Paste-image ceiling. A screenshot is around a megabyte; this is generous and still far below the
  *  link's frame limit once base64 expansion is counted. */
 const MAX_PASTE_IMAGE_BYTES = 5 * 1024 * 1024;
+/** A full-size view is at most 5MB of image, so ~7MB as a data URL; this leaves room and no more. */
+const MAX_CLIPBOARD_IMAGE_CHARS = 12 * 1024 * 1024;
 const REMOTE_IMAGE_BYTES_PER_HOUR = 200 * 1024 * 1024;
 /**
  * Image reads decode and re-encode on THIS process. Opening the strip asks for dozens of thumbnails
@@ -1095,6 +1097,14 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   // navigator.clipboard reliably). Used so Ctrl+C copies a selection instead of sending SIGINT.
   send('clipboard:writeText', localOnly, (text: string) => clipboard.writeText(String(text ?? '')));
   invoke('clipboard:readText', localOnly, () => clipboard.readText());
+  /** Put an image the viewer is showing on the clipboard. Only image data URLs; never a path. */
+  invoke('clipboard:writeImage', localOnly, (dataUrl: string) => {
+    if (typeof dataUrl !== 'string' || !/^data:image\/(?:png|jpeg);base64,/.test(dataUrl) || dataUrl.length > MAX_CLIPBOARD_IMAGE_CHARS) return false;
+    const img = nativeImage.createFromDataURL(dataUrl);
+    if (img.isEmpty()) return false;
+    clipboard.writeImage(img);
+    return true;
+  });
   // Paste a CLIPBOARD IMAGE (e.g. a screenshot) into the terminal: Claude Code can't read the OS
   // clipboard (esp. native Windows), but it DOES read an image off a file path. So on Ctrl+V with an
   // image on the clipboard, write it to a temp PNG and return the path for the renderer to inject as
