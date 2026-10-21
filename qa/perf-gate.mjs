@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { closeElectron } from './electron-lifecycle.mjs';
+import { sandboxDir } from './sandbox.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const out = resolve(process.env.DEVDECK_PERF_OUT || join(root, 'qa', 'shots', 'perf-gate'));
@@ -41,7 +42,7 @@ const LIMITS = {
   streamSeconds: 45,          // the stream must finish drawing at all
 };
 
-const sandbox = mkdtempSync(join(tmpdir(), 'devdeck-perf-gate-'));
+const sandbox = sandboxDir('devdeck-perf-gate-');
 const repo = join(sandbox, 'perf-workspace');
 const bin = join(sandbox, 'bin');
 const profile = join(sandbox, 'profile');

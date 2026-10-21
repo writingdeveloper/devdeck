@@ -19,6 +19,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sandboxDir } from './sandbox.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const SESSIONS = Number(process.argv[2] ?? 4);
@@ -26,7 +27,7 @@ assert.ok(Number.isInteger(SESSIONS) && SESSIONS >= 1 && SESSIONS <= 16, 'reques
 if (!process.argv.includes('--allow-live-agents')) throw new Error('Manual live-agent benchmark. Pass --allow-live-agents explicitly; do not run unattended.');
 const IDLE_MS = 10_000;
 
-const qaUserData = mkdtempSync(join(tmpdir(), 'devdeck-perf-'));
+const qaUserData = sandboxDir('devdeck-perf-');
 writeFileSync(join(qaUserData, 'state.json'), JSON.stringify({
   projects: {}, settings: { folders: [{ path: root, kind: 'repo' }], viewMode: 'list', cockpitSessions: [] },
 }, null, 2));

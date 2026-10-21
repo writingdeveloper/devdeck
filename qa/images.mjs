@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sandboxDir } from './sandbox.mjs';
 
 // Windows harness (fixture claude.cmd on PATH). Run with npm run qa:images.
 const root = resolve(process.argv[2] ?? dirname(dirname(fileURLToPath(import.meta.url))));
@@ -14,7 +15,7 @@ const shots = resolve(process.argv[3] ?? join(root, 'qa', 'shots', 'images'));
 mkdirSync(shots, { recursive: true });
 const { closeElectron } = await import('file:///' + join(root, 'qa', 'electron-lifecycle.mjs').replace(/\\/g, '/'));
 
-const sandbox = mkdtempSync(join(tmpdir(), 'devdeck-images-'));
+const sandbox = sandboxDir('devdeck-images-');
 const repo = join(sandbox, 'image-workspace');
 const bin = join(sandbox, 'bin');
 const profile = join(sandbox, 'profile');
