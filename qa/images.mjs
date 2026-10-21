@@ -79,7 +79,7 @@ try {
   });
 
   await check('toggle opens the strip with three thumbnails, newest first', async () => {
-    await win.locator('#ck-header button[aria-pressed]').click();
+    await win.locator('#ck-header button.ck-img-toggle').click();
     await win.waitForFunction(() => document.querySelectorAll('#ck-images .ck-img-thumb img[src^="data:image"]').length === 3);
     const kinds = await win.evaluate(() => [...document.querySelectorAll('#ck-images .ck-img-thumb')].map((b) => b.className.match(/kind-(\w+)/)[1]));
     assert.deepEqual(kinds, ['file', 'pasted', 'screenshot']);
@@ -120,7 +120,7 @@ try {
   });
 
   await check('a new image in the transcript shows up as unseen when the strip is closed', async () => {
-    await win.locator('#ck-header button[aria-pressed="true"]').click(); // close
+    await win.locator('#ck-header button.ck-img-toggle').click(); // close
     writeFileSync(join(tdir, sid + '.jsonl'), readFileSync(join(tdir, sid + '.jsonl'), 'utf8') + JSON.stringify({ type: 'user', timestamp: new Date().toISOString(), message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: pngB } }] } }) + '\n');
     // Re-select to refresh (a turn end does the same in real use).
     await win.evaluate(() => window.dispatchEvent(new Event('focus')));

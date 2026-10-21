@@ -1,7 +1,7 @@
 import { tr } from './i18n-runtime';
 import { reportSaveError } from './loadError';
 
-type Control = HTMLInputElement | HTMLSelectElement;
+type Control = HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 interface Setting<T> {
   read(): T;
   restore(value: T): void;

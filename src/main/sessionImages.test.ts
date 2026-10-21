@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { listSessionImages, readEmbeddedImage, _clearSessionImageCache } from './sessionImages';
+import { listSessionImages, listSessionTurns, readEmbeddedImage, _clearSessionImageCache } from './sessionImages';
 import { mergeImageRefs, SessionImageCollector } from '../shared/sessionImages';
 
 const PNG_B64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]).toString('base64');
@@ -129,5 +129,39 @@ describe('image context', () => {
     c.add(toolCall('big', 'mcp__x__shot', { text: 'y'.repeat(200_000) }), 0);
     const [ref] = c.add(toolResultWithImage('big'), 1);
     expect([ref.tool, ref.detail]).toEqual(['mcp__x__shot', null]);
+  });
+});
+
+describe('session turns', () => {
+  const said = (text: string) => JSON.stringify({ type: 'assistant', timestamp: TS, message: { role: 'assistant', content: [{ type: 'text', text }] } });
+
+  it('keeps what the person typed, with its time and the reply that came back', () => {
+    const c = new SessionImageCollector();
+    const lines = [
+      plain('fix the login page\nit fails on submit'),
+      said('Looking at it.'),
+      toolCall('s1', 'mcp__playwright__browser_take_screenshot'),
+      toolResultWithImage('s1'),
+      said('Fixed: the handler was not awaited.'),
+      pasted(),
+      plain('<command-name>/clear</command-name>'),
+      JSON.stringify({ type: 'user', isMeta: true, timestamp: TS, message: { role: 'user', content: 'Caveat: hidden' } }),
+      plain('[Request interrupted by user]'),
+      JSON.stringify({ type: 'user', isCompactSummary: true, isVisibleInTranscriptOnly: true, timestamp: TS, message: { role: 'user', content: 'This session is being continued from a previous conversation' } }),
+      plain('\n\n<pasted_content id="3a1d">\nRead CLAUDE.md first.\nThen continue.\n</pasted_content id="3a1d">\n'),
+    ];
+    lines.forEach((l, i) => c.add(l, i * 100));
+    expect(c.turns).toEqual([
+      { id: 't0', ts: Date.parse(TS), text: 'fix the login page', pasted: 0, reply: 'Fixed: the handler was not awaited.' },
+      { id: 't500', ts: Date.parse(TS), text: 'look', pasted: 1, reply: null },
+      { id: 't1000', ts: Date.parse(TS), text: 'Read CLAUDE.md first.', pasted: 0, reply: null },
+    ]);
+  });
+
+  it('is listed from the same pass as the images', async () => {
+    writeFileSync(file, [plain('first'), said('ok'), plain('second')].join('\n') + '\n');
+    expect((await listSessionTurns(file)).map((t) => [t.text, t.reply])).toEqual([['first', 'ok'], ['second', null]]);
+    appendFileSync(file, said('done') + '\n');
+    expect((await listSessionTurns(file)).map((t) => t.reply)).toEqual(['ok', 'done']);
   });
 });

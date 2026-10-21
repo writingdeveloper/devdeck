@@ -24,14 +24,15 @@ import type { WtTab } from '../../shared/wtArgs';
 import { scanUsage } from '../usageScan';
 import { scanCodexUsage } from '../codexUsageScan';
 import { combineLocalUsageScans } from '../localUsageReport';
-import { PASTE_IMAGE_PREFIX } from '../tempClean';
+import { PASTE_IMAGE_PREFIX, SENT_FILE_PREFIX } from '../tempClean';
+import { MAX_SENT_FILE_BYTES, safeSentFileName, sentFileContentOk } from '../../shared/sentFiles';
 import { listClaudeProjectDirs } from '../usageProjectsScan';
 import { classifyUsageProjects } from '../../shared/usageProjects';
 import { validThresholds } from '../../shared/settingsValidation';
 import { sanitizeTodos } from '../../shared/tasks';
 import { getClaudeUsage, readClaudeCredentials, fetchUsageApi } from '../claudeUsage';
 import { getCodexUsage, spawnCodexAppServer } from '../codexUsage';
-import { claudeTranscriptPath, listSessionImages, readEmbeddedImage } from '../sessionImages';
+import { claudeTranscriptPath, listSessionImages, listSessionTurns, readEmbeddedImage } from '../sessionImages';
 import { encodeImageForView, MAX_VIEW_IMAGE_FILE_BYTES, VIEWABLE_IMAGE_EXT, type ViewImage } from '../imageView';
 import { runClaudeUpdate } from '../agentUpdate';
 import { UsageCoordinator, antigravityUsage } from '../usageProviders';
@@ -397,8 +398,10 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     shutdownIdleMinutes: cfg.store.getShutdownIdleMinutes(),
     cockpitSidebarCollapsed: cfg.store.getCockpitSidebarCollapsed(),
     sessionSummary: cfg.store.getSessionSummary(), aiSessionSummary: cfg.store.getAiSessionSummary(),
+    quickReplies: cfg.store.getQuickReplies(),
   }));
   invoke('settings:setSessionSummary', localOnly, (on: boolean) => cfg.store.setSessionSummary(on === true));
+  invoke('settings:setQuickReplies', localOnly, (list: unknown) => cfg.store.setQuickReplies(list));
   invoke('settings:setAiSessionSummary', localOnly, (on: boolean) => {
     cfg.store.setAiSessionSummary(on === true);
     aiSummarizer.setEnabled(on === true); // takes effect on the next meta refresh, no restart
@@ -1156,6 +1159,27 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     try { writeFileSync(file, png); } catch { return null; }
     return file;
   });
+  /**
+   * Land a document another machine attached to a session here — a log, a data file, a PDF — and
+   * hand back its path. The same narrowness as receiveImage: a fixed list of inert kinds whose bytes
+   * must match the name (see shared/sentFiles), written only into the temp directory under a name
+   * the sweeper owns, never at a caller-chosen path, and counted against the same hourly budget.
+   */
+  invoke('cockpit:receiveFile', allow('control'), (name: unknown, base64: unknown) => {
+    if (typeof name !== 'string' || typeof base64 !== 'string' || base64.length > MAX_SENT_FILE_BYTES * 2) return null;
+    const safe = safeSentFileName(name);
+    if (!safe) return null;
+    let bytes: Buffer;
+    try { bytes = Buffer.from(base64, 'base64'); } catch { return null; }
+    if (bytes.length === 0 || !sentFileContentOk(safe, bytes)) return null;
+    const now = Date.now();
+    if (now - remoteImageWindow.startMs > 3_600_000) { remoteImageWindow.startMs = now; remoteImageWindow.bytes = 0; }
+    if (remoteImageWindow.bytes + bytes.length > REMOTE_IMAGE_BYTES_PER_HOUR) return null;
+    remoteImageWindow.bytes += bytes.length;
+    const file = join(tmpdir(), `${SENT_FILE_PREFIX}${randomUUID()}-${safe}`);
+    try { writeFileSync(file, bytes); } catch { return null; }
+    return file;
+  });
 
   // Open a clicked terminal link. Terminal output is arbitrary, so (unlike shell:openExternal, which is
   // locked to DevDeck's own repo) any host is allowed — but only the http/https scheme, never file:/etc.
@@ -1193,6 +1217,13 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     if (!isAllowedPath(effFolders(), pp) || agentFor(agentId).id !== 'claude' || typeof sessionId !== 'string') return [];
     const file = claudeTranscriptPath(pp, sessionId, CLAUDE_PROJECTS);
     return file ? listSessionImages(file) : [];
+  });
+  /** The prompts the person sent in a session, with when and what came back, for the cockpit's timeline. */
+  invoke('cockpit:sessionTurns', allow('observe'), async (projectPath: string, sessionId: string, agentId?: AgentId) => {
+    const pp = String(projectPath);
+    if (!isAllowedPath(effFolders(), pp) || agentFor(agentId).id !== 'claude' || typeof sessionId !== 'string') return [];
+    const file = claudeTranscriptPath(pp, sessionId, CLAUDE_PROJECTS);
+    return file ? listSessionTurns(file) : [];
   });
   /**
    * One of those images, as a thumbnail or at full size.

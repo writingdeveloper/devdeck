@@ -88,7 +88,7 @@ try {
   });
 
   await check('thumbnails and the full view travel over the link', async () => {
-    await viewer.win.locator('#ck-header button[aria-pressed]').click();
+    await viewer.win.locator('#ck-header button.ck-img-toggle').click();
     await viewer.win.waitForFunction(() => document.querySelectorAll('#ck-images .ck-img-thumb img[src^="data:image"]').length === 2);
     await viewer.win.locator('#ck-images .ck-img-thumb.kind-screenshot').click();
     await viewer.win.waitForFunction(() => document.querySelector('.ck-img-viewer .ck-img-stage img')?.getAttribute('src')?.startsWith('data:image'));
@@ -108,7 +108,7 @@ try {
       }, [join(root, 'build', 'icon.png'), jpg]);
     });
     const chooser = viewer.win.waitForEvent('filechooser');
-    await viewer.win.locator('#ck-header .ck-act').filter({ has: viewer.win.locator('svg') }).and(viewer.win.locator('[title*="이미지 첨부"]')).click();
+    await viewer.win.locator('#ck-header .ck-act').filter({ has: viewer.win.locator('svg') }).and(viewer.win.locator('[title*="이미지·문서 첨부"]')).click();
     await (await chooser).setFiles(jpg);
     await rowsInclude(viewer.win, 'devdeck-paste-');
     const typed = await host.win.evaluate(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].map((r) => r.textContent).join('\n'));
@@ -117,6 +117,19 @@ try {
     const head = readFileSync(m[1]).subarray(0, 8);
     assert.equal(head.toString('hex'), '89504e470d0a1a0a', 'the file on the host is a PNG');
     await viewer.win.screenshot({ path: join(shots, 'viewer-attached.png') });
+  });
+
+  await check('a log file attached on the viewer lands on the host under its own name and its host path is typed', async () => {
+    const log = join(sandbox, 'build.log');
+    writeFileSync(log, 'step 1 ok\nstep 2 failed\n');
+    const chooser = viewer.win.waitForEvent('filechooser');
+    await viewer.win.locator('#ck-header .ck-act[title*="이미지·문서 첨부"]').click();
+    await (await chooser).setFiles(log);
+    await rowsInclude(viewer.win, 'build.log');
+    const typed = await host.win.evaluate(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].map((r) => r.textContent).join('\n'));
+    const m = /GOT:(\S*devdeck-file-[0-9a-f-]{36}-build\.log)/.exec(typed.replace(/\n/g, ''));
+    assert.ok(m, 'host typed the sent file path:\n' + typed);
+    assert.equal(readFileSync(m[1], 'utf8'), 'step 1 ok\nstep 2 failed\n');
   });
 
   await check('over the link, a real image is served and a fake .png or unindexed id is refused', async () => {

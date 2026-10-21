@@ -9,6 +9,8 @@ import type { ViewImage } from '../main/imageView';
 import { tr } from './i18n-runtime';
 import { createIcon } from './icons';
 import { toast } from './loadError';
+import { fitPngBase64 } from './attachments';
+import { ImageMarkup, type MarkTool } from './imageMarkup';
 
 /** Everything the strip needs to know about one session — where its images come from. */
 export interface ImageSource {
@@ -22,6 +24,8 @@ export interface ImageSource {
   canReveal?(id: string): boolean;
   /** Scroll the session's terminal to the row this image was shown on. */
   reveal?(id: string): void;
+  /** Give a picture (base64 PNG) to the session, as a pasted image; false when it did not arrive. */
+  attach?(pngBase64: string): Promise<boolean>;
 }
 
 const THUMB_CACHE_LIMIT = 240;
@@ -269,7 +273,8 @@ function openViewer(src: ImageSource, list: SessionImageRef[], startIndex: numbe
   const openBtn = mk('folder', tr('cockpit.image_open_file'), () => { const r = list[index]; if (r.path && src.openFile) src.openFile(r.path); });
   const copy = mk('copy', tr('cockpit.image_copy'), () => {
     if (!img.src) return;
-    void toPngDataUrl(img).then((url) => window.devdeck.clipboard.writeImage(url))
+    const marked = markup.count > 0 ? markup.composite() : null;
+    void (marked ? Promise.resolve(marked.toDataURL('image/png')) : toPngDataUrl(img)).then((url) => window.devdeck.clipboard.writeImage(url))
       .then((ok) => toast(tr(ok ? 'cockpit.image_copied' : 'cockpit.image_copy_failed')))
       .catch(() => toast(tr('cockpit.image_copy_failed')));
   });
@@ -280,8 +285,48 @@ function openViewer(src: ImageSource, list: SessionImageRef[], startIndex: numbe
     done();
     src.reveal?.(id);
   });
+  // Mark it up, then hand it back: "this, here" as a picture rather than a paragraph.
+  const markup = new ImageMarkup(img, stage, () => syncMarkup());
+  const tools = document.createElement('div'); tools.className = 'ck-img-tools'; tools.setAttribute('role', 'toolbar');
+  tools.setAttribute('aria-label', tr('cockpit.image_markup'));
+  const toolBtns = new Map<MarkTool, HTMLButtonElement>();
+  for (const [tool, icon, key] of [['box', 'square', 'cockpit.markup_box'], ['arrow', 'arrow', 'cockpit.markup_arrow'], ['pen', 'pen', 'cockpit.markup_pen']] as const) {
+    const b = mk(icon, tr(key), () => { markup.tool = tool; syncMarkup(); });
+    toolBtns.set(tool, b); tools.appendChild(b);
+  }
+  const undo = mk('undo', tr('cockpit.markup_undo'), () => markup.undo());
+  const clear = mk('trash', tr('cockpit.markup_clear'), () => markup.clear());
+  tools.append(undo, clear);
+  const markBtn = mk('pen', tr('cockpit.image_markup'), () => { markup.setEnabled(!markup.active); syncMarkup(); });
+  let sending = false;
+  const send = mk('send', tr('cockpit.image_attach'), () => {
+    if (!img.src || sending || !src.attach) return;
+    sending = true; syncMarkup();
+    const marked = markup.count > 0 ? markup.composite() : null;
+    void (async () => {
+      let ok = false;
+      try {
+        await img.decode().catch(() => undefined);
+        const png = marked ? await fitPngBase64(marked, marked.width, marked.height) : await fitPngBase64(img, img.naturalWidth, img.naturalHeight);
+        ok = !!png && await src.attach!(png);
+      } catch { ok = false; }
+      sending = false;
+      if (ok) { toast(tr(marked ? 'cockpit.image_attached_marked' : 'cockpit.image_attached')); done(false); }
+      else { toast(tr('cockpit.image_attach_failed')); syncMarkup(); }
+    })();
+  });
+  const syncMarkup = (): void => {
+    tools.hidden = !markup.active;
+    markBtn.classList.toggle('on', markup.active); markBtn.setAttribute('aria-pressed', String(markup.active));
+    for (const [tool, b] of toolBtns) { b.classList.toggle('on', markup.tool === tool); b.setAttribute('aria-pressed', String(markup.tool === tool)); }
+    undo.disabled = clear.disabled = markup.count === 0;
+    send.hidden = !src.attach; send.disabled = sending;
+    send.title = tr(markup.count > 0 ? 'cockpit.image_attach_marked' : 'cockpit.image_attach');
+    send.setAttribute('aria-label', send.title);
+    prev.disabled = markup.active || index >= list.length - 1; next.disabled = markup.active || index <= 0;
+  };
   const close = mk('close', tr('cockpit.close'), () => done());
-  bar.append(prev, counter, next, caption, reveal, copy, save, openBtn, close);
+  bar.append(prev, counter, next, caption, tools, markBtn, send, reveal, copy, save, openBtn, close);
   overlay.append(stage, bar);
 
   let seq = 0;
@@ -299,6 +344,7 @@ function openViewer(src: ImageSource, list: SessionImageRef[], startIndex: numbe
     reveal.title = tr(locatable ? 'cockpit.image_reveal' : 'cockpit.image_reveal_gone');
     reveal.setAttribute('aria-label', reveal.title);
     prev.disabled = index >= list.length - 1; next.disabled = index <= 0; // prev = newer, next = older
+    syncMarkup();
     status.textContent = tr('cockpit.image_loading'); img.removeAttribute('src');
     void src.get(ref.id, 'full').then((v) => {
       if (my !== seq) return;
@@ -310,17 +356,27 @@ function openViewer(src: ImageSource, list: SessionImageRef[], startIndex: numbe
   /** +1 = one newer, -1 = one older. */
   const step = (d: number): void => {
     const to = index + d;
-    if (to < 0 || to >= list.length) return;
+    if (to < 0 || to >= list.length || markup.active) return;
+    markup.clear(); // marks belong to the picture they were drawn on
     index = to; show();
   };
   const onKey = (e: KeyboardEvent): void => {
+    if (markup.active) {
+      if (e.key === 'Escape') { e.preventDefault(); markup.setEnabled(false); syncMarkup(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); markup.undo(); return; }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') return;
+    }
     if (e.key === 'Escape') { e.preventDefault(); done(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); step(-1); }
   };
   const restoreFocus = document.activeElement as HTMLElement | null;
-  const done = (): void => { document.removeEventListener('keydown', onKey, true); overlay.remove(); restoreFocus?.focus?.(); };
-  overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target === stage) done(); });
+  /** `refocus` = false when the session's terminal has just been given the focus instead. */
+  const done = (refocus = true): void => {
+    document.removeEventListener('keydown', onKey, true); markup.dispose(); overlay.remove();
+    if (refocus) restoreFocus?.focus?.();
+  };
+  overlay.addEventListener('click', (e) => { if (!markup.active && (e.target === overlay || e.target === stage || e.target === markup.canvas)) done(); });
   document.addEventListener('keydown', onKey, true);
   document.body.appendChild(overlay);
   close.focus();

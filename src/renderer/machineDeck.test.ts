@@ -54,3 +54,32 @@ describe('machine selection lifecycle', () => {
     expect(listener).toHaveBeenCalledOnce();
   });
 });
+
+describe('a paired PC on an older DevDeck', () => {
+  const olderHost = () => {
+    const missing = (name: string) => vi.fn().mockRejectedValue(new Error(`no such method: ${name}`));
+    vi.stubGlobal('window', { devdeck: { machine: () => ({ cockpit: {
+      sessionTurns: missing('cockpit:sessionTurns'),
+      receiveFile: missing('cockpit:receiveFile'),
+      sessionImages: missing('cockpit:sessionImages'),
+    } }) } });
+  };
+
+  it('says the timeline needs that PC updated, rather than showing an empty one', async () => {
+    olderHost();
+    const deck = await import('./machineDeck.js');
+    await expect(deck.deckFor('remote').cockpit.sessionTurns('/p', 's', 'claude')).rejects.toThrow(deck.HOST_TOO_OLD);
+  });
+
+  it('passes a missing receiveFile on, so the sender can say why a document did not go', async () => {
+    olderHost();
+    const deck = await import('./machineDeck.js');
+    await expect(deck.deckFor('remote').cockpit.receiveFile('a.log', 'eA==')).rejects.toThrow(/no such method/);
+  });
+
+  it('keeps an older host\'s missing image methods quiet, as before', async () => {
+    olderHost();
+    const deck = await import('./machineDeck.js');
+    await expect(deck.deckFor('remote').cockpit.sessionImages('/p', 's', 'claude')).resolves.toEqual([]);
+  });
+});

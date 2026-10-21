@@ -15,6 +15,8 @@ import { LOCAL_MACHINE_ID, parseRemoteId } from '../shared/link/machine';
 import type { MachineStatus } from '../main/link/linkService';
 
 export { LOCAL_MACHINE_ID };
+/** The error a call to another machine fails with when that machine's DevDeck predates the method. */
+export const HOST_TOO_OLD = 'host-too-old';
 
 /** The subset of the deck API the views actually call. Local and remote both satisfy it. */
 export interface DeckFacade {
@@ -42,6 +44,8 @@ export interface DeckFacade {
     liveAgent: (id: string) => Promise<import('../shared/types').AgentId | null>;
     gitInfo: (projectPath: string) => Promise<{ branch: string | null; dirty: number } | null>;
     receiveImage: (base64: string) => Promise<string | null>;
+    receiveFile: (name: string, base64: string) => Promise<string | null>;
+    sessionTurns: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionTurn[]>;
     sessionImages: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionImageRef[]>;
     sessionImage: (projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full') => Promise<import('../main/imageView').ViewImage | null>;
     imageFile: (projectPath: string, filePath: string, size?: 'thumb' | 'full') => Promise<import('../main/imageView').ViewImage | null>;
@@ -103,6 +107,14 @@ export function deckFor(machineId: string): DeckFacade {
       liveAgent: (id) => remote.cockpit.liveAgent(parseRemoteId(id).hostId),
       gitInfo: (projectPath) => remote.cockpit.gitInfo(projectPath),
       receiveImage: (base64) => remote.cockpit.receiveImage(base64),
+      // An older host has no receiveFile: its 'no such method' is passed on, so the sender can say why.
+      receiveFile: (name, base64) => remote.cockpit.receiveFile(name, base64),
+      // A host older than the timeline is said so (the panel tells the person to update it); any other
+      // failure is an empty list for now, read again on the next turn.
+      sessionTurns: (projectPath, sessionId, agentId) => remote.cockpit.sessionTurns(projectPath, sessionId, agentId).catch((error: unknown) => {
+        if (/no such method/.test(error instanceof Error ? error.message : String(error))) throw new Error(HOST_TOO_OLD);
+        return [];
+      }),
       // A host older than the image panel has no such method; it simply has no images to show.
       sessionImages: (projectPath, sessionId, agentId) => remote.cockpit.sessionImages(projectPath, sessionId, agentId).catch(() => []),
       sessionImage: (projectPath, sessionId, imageId, size) => remote.cockpit.sessionImage(projectPath, sessionId, imageId, size).catch(() => null),

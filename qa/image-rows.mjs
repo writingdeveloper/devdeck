@@ -171,7 +171,7 @@ try {
   });
 
   await check('the viewer says what led to an image and goes to its row in the terminal', async () => {
-    await win.locator('#ck-header button[aria-pressed]').click();
+    await win.locator('#ck-header button.ck-img-toggle').click();
     await win.waitForFunction(() => document.querySelectorAll('#ck-images .ck-img-thumb').length === 2);
     await win.locator('#ck-images .ck-img-thumb').nth(1).click(); // oldest: the login screenshot
     await win.waitForFunction(() => document.querySelector('.ck-img-viewer .ck-img-stage img')?.getAttribute('src')?.startsWith('data:image'));
@@ -193,7 +193,7 @@ try {
     assert.ok(spans.some((s) => s.row.includes('[Image]')), 'the login screenshot row is on screen');
     assert.ok((await screenText()).some((r) => r.includes('browser_take_screenshot (MCP)(element: "Submit button")')), 'with its call above it');
     await win.screenshot({ path: join(shots, '4-revealed.png') });
-    await win.locator('#ck-header button[aria-pressed]').click(); // close the strip again
+    await win.locator('#ck-header button.ck-img-toggle').click(); // close the strip again
     await win.waitForFunction(() => document.querySelector('#ck-images')?.classList.contains('hidden'));
   });
 

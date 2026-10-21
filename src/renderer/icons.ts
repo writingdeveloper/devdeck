@@ -2,7 +2,7 @@ export type IconName =
   | 'search' | 'projects' | 'sessions' | 'tasks' | 'usage'
   | 'settings' | 'refresh' | 'more' | 'play' | 'panel-left'
   | 'folder' | 'plus' | 'restart' | 'close' | 'pin' | 'edit' | 'brain' | 'clock'
-  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power' | 'globe' | 'machine' | 'image' | 'paperclip' | 'download' | 'copy' | 'terminal';
+  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power' | 'globe' | 'machine' | 'image' | 'paperclip' | 'download' | 'copy' | 'terminal' | 'reply' | 'timeline' | 'pen' | 'send' | 'undo' | 'square' | 'arrow';
 
 const paths: Record<IconName, string> = {
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>',
@@ -43,6 +43,13 @@ const paths: Record<IconName, string> = {
   download: '<path d="M12 4v11"></path><path d="m7 10 5 5 5-5"></path><path d="M5 20h14"></path>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>',
   terminal: '<rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="m7 9 3 3-3 3"></path><path d="M12 15h5"></path>',
+  reply: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12Z"></path><path d="M9 11h6"></path><path d="M9 14.5h3.5"></path>',
+  timeline: '<path d="M6 4v16"></path><circle cx="6" cy="7" r="1.6"></circle><circle cx="6" cy="17" r="1.6"></circle><path d="M10 7h10"></path><path d="M10 12h7"></path><path d="M10 17h10"></path>',
+  pen: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z"></path><path d="m13.5 6.5 4 4"></path>',
+  send: '<path d="M21 3 10 14"></path><path d="M21 3 14.5 21l-4.5-7-7-4.5L21 3Z"></path>',
+  undo: '<path d="M9 14 4 9l5-5"></path><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"></path>',
+  square: '<rect x="4" y="4" width="16" height="16" rx="1.5"></rect>',
+  arrow: '<path d="M5 19 19 5"></path><path d="M10 5h9v9"></path>',
 };
 
 export function iconMarkup(name: IconName): string {

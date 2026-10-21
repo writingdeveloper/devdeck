@@ -6,6 +6,10 @@ import { join } from 'node:path';
 export const PASTE_IMAGE_PREFIX = 'devdeck-paste-';
 // Matches the files clipboard:readImage writes (<prefix><uuid>.png) — nothing else.
 const PASTE_IMAGE_RE = new RegExp(`^${PASTE_IMAGE_PREFIX}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\.png$`, 'i');
+/** Prefix for a file another machine sent to a session here (cockpit:receiveFile); swept the same way. */
+export const SENT_FILE_PREFIX = 'devdeck-file-';
+// <prefix><uuid>-<the sender's file name>
+const SENT_FILE_RE = new RegExp(`^${SENT_FILE_PREFIX}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-.+$`, 'i');
 
 /**
  * Best-effort sweep of stale clipboard-paste images from the OS temp dir. They're written so the
@@ -18,7 +22,7 @@ export async function cleanupPasteImages(dir: string, nowMs: number, maxAgeMs = 
   try { names = await readdir(dir); } catch { return 0; }
   let removed = 0;
   for (const name of names) {
-    if (!PASTE_IMAGE_RE.test(name)) continue;
+    if (!PASTE_IMAGE_RE.test(name) && !SENT_FILE_RE.test(name)) continue;
     const file = join(dir, name);
     try {
       if (nowMs - (await stat(file)).mtimeMs > maxAgeMs) { await unlink(file); removed++; }

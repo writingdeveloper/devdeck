@@ -1,6 +1,6 @@
 {
   "name": "devdeck",
-  "version": "1.40.0",
+  "version": "1.41.0",
   "description": "Project command deck — at-a-glance state + Claude Code, Codex, and Antigravity resume",
   "main": "dist/main/main.js",
   "type": "commonjs",
@@ -43,6 +43,7 @@
     "qa:session-sync": "npm run build && node qa/session-sync.mjs",
     "qa:images": "npm run build && node qa/images.mjs",
     "qa:image-rows": "npm run build && node qa/image-rows.mjs",
+    "qa:cockpit-tools": "npm run build && node qa/cockpit-tools.mjs",
     "qa:images-remote": "npm run build && node qa/images-remote.mjs",
     "qa:update": "npm run build && node qa/claude-update.mjs",
     "qa:restore-pacing": "npm run build && node qa/restore-pacing.mjs"

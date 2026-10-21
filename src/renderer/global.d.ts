@@ -18,7 +18,7 @@ declare global {
       getAgent(): Promise<import('../shared/types').AgentId>;
       setAgent(id: string): Promise<void>;
       availableAgents(): Promise<import('../shared/types').AgentId[]>;
-      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; osRelease: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean; sessionSummary: boolean; aiSessionSummary: boolean }>;
+      getSettings(): Promise<{ baseDir: string; thresholds: { freshDays: number; warnDays: number; neglectedDays: number }; language: string; openAtLogin: boolean; platform: string; osRelease: string; ptyAvailable: boolean; viewMode: 'cards' | 'list'; trayAlert: 'off' | 'attention' | 'all'; contextWindow: number; shutdownIdleMinutes: number; cockpitSidebarCollapsed: boolean; sessionSummary: boolean; aiSessionSummary: boolean; quickReplies: string[] | null }>;
       link: {
         hostStatus(): Promise<import('../main/link/linkService').HostStatus>;
         setHostMode(on: boolean): Promise<import('../main/link/linkService').HostStatus>;
@@ -65,6 +65,8 @@ declare global {
           liveAgent(id: string): Promise<import('../shared/types').AgentId | null>;
           gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
           receiveImage(base64: string): Promise<string | null>;
+          receiveFile(name: string, base64: string): Promise<string | null>;
+          sessionTurns(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionTurn[]>;
           sessionImages(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionImageRef[]>;
           sessionImage(projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
           imageFile(projectPath: string, filePath: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
@@ -94,6 +96,7 @@ declare global {
       setCockpitSidebar(collapsed: boolean): Promise<void>;
       setSessionSummary(on: boolean): Promise<void>;
       setAiSessionSummary(on: boolean): Promise<void>;
+      setQuickReplies(list: string[]): Promise<void>;
       usageSnapshot(): Promise<import('../shared/usageWindows').UsageSnapshot | null>;
       refreshUsageProviders(opts?: { force?: boolean }): Promise<import('../shared/usageWindows').UsageSnapshot>;
       openUsageLogin(providerId: 'claude' | 'codex', cols: number, rows: number): Promise<{ id: string; providerId: 'claude' | 'codex' } | null>;
@@ -156,6 +159,8 @@ declare global {
         openLink(url: string): Promise<void>;
         openFile(projectPath: string, filePath: string): Promise<string>;
         receiveImage(base64: string): Promise<string | null>;
+        receiveFile(name: string, base64: string): Promise<string | null>;
+        sessionTurns(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionTurn[]>;
         sessionImages(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionImageRef[]>;
         sessionImage(projectPath: string, sessionId: string, imageId: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;
         imageFile(projectPath: string, filePath: string, size?: 'thumb' | 'full'): Promise<import('../main/imageView').ViewImage | null>;

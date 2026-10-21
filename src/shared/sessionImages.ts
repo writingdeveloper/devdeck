@@ -5,6 +5,7 @@
 // Claude Desktop shows those inline; a terminal cannot, so the cockpit shows them beside it. The
 // transcript is the only record that covers every source — a screenshot from an MCP tool exists
 // nowhere else on disk, only as a base64 block inside the tool result that carried it.
+import { isWrapper } from './sessionParse';
 
 /** `screenshot` = an image a tool returned; `pasted` = an image the person sent; `file` = an image path a tool touched. */
 export type SessionImageKind = 'screenshot' | 'pasted' | 'file';
@@ -29,6 +30,22 @@ export interface SessionImageRef {
   /** The agent's last words before this image — or, for a pasted image, what the person wrote with it. */
   said?: string | null;
 }
+
+/** One prompt the person sent, for the cockpit's timeline. */
+export interface SessionTurn {
+  /** `t<byte offset of the prompt's line>` — stable for as long as the transcript is. */
+  id: string;
+  ts: number | null;
+  /** The prompt's first line; '' for a prompt that was only a pasted image. */
+  text: string;
+  /** How many images the person pasted with it. */
+  pasted: number;
+  /** The agent's last words in reply, as one line; null until it has said something. */
+  reply: string | null;
+}
+
+/** How many turns a session's index keeps — far more than a terminal's scrollback shows. */
+export const MAX_SESSION_TURNS = 500;
 
 const IMAGE_FILE_RE = /\.(?:png|jpe?g|gif|webp|bmp)$/i;
 /** Tool-input fields that name a file the tool reads or writes. */
@@ -132,6 +149,8 @@ export class SessionImageCollector {
   /** Per MCP server, the page its browser was last sent to. */
   private pages = new Map<string, string>();
   private lastSaid: string | null = null;
+  /** The person's prompts, oldest first, at most MAX_SESSION_TURNS. */
+  readonly turns: SessionTurn[] = [];
 
   /** `line` is one complete transcript line; `offset` is the byte offset it starts at. */
   add(line: string, offset: number): SessionImageRef[] {
@@ -140,7 +159,7 @@ export class SessionImageCollector {
     // said meanwhile. Only small lines are parsed for it; the rest are named by a regex alone.
     const small = line.length <= CONTEXT_PARSE_MAX;
     let entry: unknown;
-    if (mayHoldImage || (small && (line.includes('"tool_use"') || line.includes('"type":"text"')))) {
+    if (mayHoldImage || (small && (line.includes('"tool_use"') || line.includes('"type":"text"') || line.includes('"type":"user"')))) {
       try { entry = JSON.parse(line); } catch { entry = undefined; }
     }
     if (entry === undefined && line.includes('"tool_use"')) {
@@ -173,7 +192,12 @@ export class SessionImageCollector {
     }
     // What the agent said; a user line's text belongs to that user's own images, read below.
     const said = blocks.length ? textOf(blocks) : null;
-    if (role === 'assistant' && said) this.lastSaid = said;
+    if (role === 'assistant' && said) {
+      this.lastSaid = said;
+      const turn = this.turns[this.turns.length - 1];
+      if (turn) turn.reply = said;
+    }
+    if (role === 'user' && entry !== undefined) this.noteTurn(entry, content, offset, ts);
 
     if (mayHoldImage && entry !== undefined) {
       embeddedImageBlocks(entry).forEach((img, n) => {
@@ -189,6 +213,33 @@ export class SessionImageCollector {
       });
     }
     return refs;
+  }
+
+  /** A user line that is something the person typed — not a tool result, a command or a reminder. */
+  private noteTurn(entry: unknown, content: unknown, offset: number, ts: number | null): void {
+    const e = entry as { type?: unknown; isMeta?: unknown; isSidechain?: unknown; isCompactSummary?: unknown; isVisibleInTranscriptOnly?: unknown };
+    if (e.type !== 'user' || e.isMeta === true || e.isSidechain === true) return;
+    // The summary Claude Code writes when it compacts a conversation is filed as a user line.
+    if (e.isCompactSummary === true || e.isVisibleInTranscriptOnly === true) return;
+    let raw = '';
+    let pasted = 0;
+    if (typeof content === 'string') raw = content;
+    else if (Array.isArray(content)) {
+      for (const item of content) {
+        const b = (item ?? {}) as Block;
+        if (b.type === 'tool_result') return; // the agent's own tool coming back, not a prompt
+        if (b.type === 'text' && typeof b.text === 'string') raw += (raw ? '\n' : '') + b.text;
+        else if (isEmbeddedImage(b)) pasted++;
+      }
+    } else return;
+    if (raw && isWrapper(raw)) return;
+    if (/^\s*\[Request interrupted/.test(raw)) return;
+    // Pasted text is recorded inside a <pasted_content> wrapper; what matters is what was pasted.
+    raw = raw.replace(/<\/?pasted_content\b[^>]*>/g, '');
+    const text = oneLine(stripImageNoise(raw)) ?? '';
+    if (!text && pasted === 0) return;
+    this.turns.push({ id: `t${offset}`, ts, text, pasted, reply: null });
+    if (this.turns.length > MAX_SESSION_TURNS) this.turns.splice(0, this.turns.length - MAX_SESSION_TURNS);
   }
 
   private remember(id: string, name: string, detail: string | null): void {

@@ -1,5 +1,7 @@
 import { tr, SUPPORTED, languageName, setLanguage as setRuntimeLang } from './i18n-runtime';
-import { setCockpitContextWindow, setCockpitTrayAlert, setCockpitSessionSummary, setCockpitAiSummary } from './cockpitView';
+import { setCockpitContextWindow, setCockpitTrayAlert, setCockpitSessionSummary, setCockpitAiSummary, setCockpitQuickReplies } from './cockpitView';
+import { quickReplies } from './quickReplyMenu';
+import { parseQuickReplyText } from '../shared/quickReplies';
 import type { Folder } from '../shared/types';
 import { IDLE_HOLD_CHOICES } from '../shared/shutdownIdle';
 import { basename, parentLabel } from '../shared/paths';
@@ -151,6 +153,22 @@ async function render(): Promise<void> {
         foot.append(count, clear); hist.appendChild(foot);
       };
       await renderHistory(); content.appendChild(field('shutdown.history', hist));
+    }
+
+    if (s.ptyAvailable) {
+      // One phrase per line, saved when the field loses focus. Empty means the language's defaults.
+      const ta = document.createElement('textarea'); ta.className = 'set-input set-quick-replies'; ta.rows = 5;
+      ta.value = (s.quickReplies?.length ? s.quickReplies : quickReplies()).join('\n'); ta.placeholder = tr('cockpit.quick_default_1');
+      bindSetting([ta], {
+        read: () => parseQuickReplyText(ta.value),
+        restore: (v) => { ta.value = v.join('\n'); },
+        write: (v) => window.devdeck.setQuickReplies(v),
+        apply: (v) => { setCockpitQuickReplies(v); if (!v.length) ta.value = quickReplies().join('\n'); },
+      });
+      const qrWrap = document.createElement('div');
+      const qrHint = document.createElement('p'); qrHint.className = 'set-hint'; qrHint.textContent = tr('set.quick_replies_hint');
+      qrWrap.append(ta, qrHint);
+      content.appendChild(field('set.quick_replies', qrWrap, ta));
     }
 
     const linkSection = await withTimeout(renderLinkSettings(() => { void render(); }), 15_000, 'link settings');
