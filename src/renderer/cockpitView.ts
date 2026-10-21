@@ -34,6 +34,9 @@ import { initTimeline, isTimelineOpen, refreshTimeline, showTimelineFor, toggleT
 import { pairTurnsWithRows } from '../shared/timeline';
 import { isQuickReplyMenuOpen, quickReplies, setQuickReplies, toggleQuickReplyMenu } from './quickReplyMenu';
 import { quickReplySlot } from '../shared/quickReplies';
+import { activityFromProgramStatus, parseProgramStatus, type ProgramStatus } from '../shared/programStatus';
+import { IDLE_MS } from '../shared/sessionStatus';
+import { newDot } from './whatsNew';
 
 /** What cockpit:sessionMeta answers with: the log-derived facts plus the ready-made summary line. */
 type SessionMetaView = { model: string | null; activeMs: number; contextTokens: number; contextWindow?: number; summary: string | null };
@@ -42,6 +45,11 @@ interface Live {
   tileId: string; session: CockpitSession; term: Terminal; fit: FitAddon; search: SearchAddon; el: HTMLElement;
   /** The GPU renderer, when the machine could give us one; null means xterm is drawing with DOM nodes. */
   lastDataAt: number; lastInputAt: number; recentOutput: string;
+  /**
+   * What the agent itself last reported (Claude Code's OSC 7501), and since when — or null for a
+   * session that does not report, whose state is read off its screen instead.
+   */
+  native: { status: ProgramStatus; since: number } | null;
   openedSessionId: string | null; openedAt: number; idCheckAt: number;
   labelVersion: SessionLabelVersion | null;
   customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number;
@@ -1009,6 +1017,12 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     return out;
   }
   term.registerLinkProvider(linkProvider);
+  // Claude Code's own status report. xterm draws nothing for it; the handler only records it.
+  term.parser.registerOscHandler(7501, (payload) => {
+    const status = parseProgramStatus(payload);
+    if (status) noteProgramStatus(term, status);
+    return true;
+  });
   // Files dropped on the terminal are handed to the agent by path, as 📎 does (see attachments.ts).
   // preventDefault on dragover is what makes this a drop target at all — without it Electron would
   // navigate the window to the dropped file.
@@ -1145,7 +1159,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   if (displaced && displaced.el !== el) { displaced.el.remove(); displaced.term.dispose(); }
   live.set(res.id, {
     machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el,
-    lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '',
+    lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', native: null,
     openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(),
     labelVersion: hasLabelVersion(res) ? { instanceId: res.instanceId, labelRevision: res.labelRevision } : null,
     customLabel: adopting ? adopted.label : null, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now(),
@@ -1838,7 +1852,10 @@ function tickActivity(): void {
     const screenText = liveScreenTail(l);
     // spinnerReliable: only Claude's spinner glyph is one we match, so only there can we trust "spinner
     // gone ⇒ turn" and skip the timing hysteresis (avoids 작업중 lingering ~10s after each Claude turn).
-    const next = l.offline && l.session.status !== 'exited' ? 'offline' : computeActivity({
+    const next = l.offline && l.session.status !== 'exited' ? 'offline'
+      // The agent's own word beats any reading of its screen.
+      : l.native && l.session.status !== 'exited' ? activityFromProgramStatus(l.native.status, l.native.since, now, IDLE_MS)
+      : computeActivity({
       exited: l.session.status === 'exited', lastDataAt: l.lastDataAt, lastInputAt: l.lastInputAt, now,
       recentOutput: l.recentOutput, screenText, prev: prev === 'offline' ? 'idle' : prev, spinnerReliable: l.session.agentId === 'claude',
     });
@@ -2106,10 +2123,46 @@ function togglePrevPin(r: PersistedSession): void {
 }
 
 /** OS toast for "this session needs you" — clicking it raises the window and jumps to the session. */
+/** Record a status report from a session's agent, and show it at once if that session is on screen. */
+function noteProgramStatus(term: Terminal, status: ProgramStatus): void {
+  const l = [...live.values()].find((x) => x.term === term);
+  if (!l) return;
+  const prev = l.native?.status;
+  const changed = !prev || prev.state !== status.state || prev.kind !== status.kind;
+  l.native = { status, since: changed ? Date.now() : l.native!.since };
+  if (l.session.id === selectedId) {
+    const pill = headerEl?.querySelector<HTMLElement>('.ck-status-pill');
+    if (pill) fillStatusPill(pill, l);
+  }
+  if (changed) tickActivity();
+}
+
+/** What the agent says it is doing, in the header — absent for a session that does not say. */
+function fillStatusPill(pill: HTMLElement, l: Live): void {
+  const n = l.native?.status;
+  pill.hidden = !n || n.state === 'idle';
+  if (!n || n.state === 'idle') return;
+  const key = n.state === 'blocked' ? `cockpit.status_blocked_${n.kind ?? 'other'}` : `cockpit.status_${n.state}`;
+  let text = tr(key);
+  if (n.state === 'working' && n.progress !== null) text += ` ${n.progress}%`;
+  pill.className = `ck-pill ck-status-pill st-${n.state}${n.kind ? ` kind-${n.kind}` : ''}`;
+  const dot = document.createElement('span'); dot.className = 'ck-status-dot';
+  const label = document.createElement('span'); label.className = 'ck-status-text'; label.textContent = text;
+  pill.replaceChildren(dot, label);
+  if (n.msg && n.state !== 'blocked') {
+    const msg = document.createElement('span'); msg.className = 'ck-status-msg'; msg.textContent = n.msg;
+    pill.appendChild(msg);
+  }
+  pill.title = [text, n.msg, tr('cockpit.status_source')].filter(Boolean).join('\n');
+}
+
 function notifyAttention(l: Live): void {
   const name = liveLabels.get(l.session.id) ?? l.customLabel ?? l.session.name;
+  // When the agent said WHY it stopped, the notification says it too.
+  const kind = l.native?.status.state === 'blocked' ? l.native.status.kind : null;
+  const body = kind ? tr(`cockpit.notify_blocked_${kind}`) : tr('cockpit.notify_attention');
   try {
-    const n = new Notification(name, { body: tr('cockpit.notify_attention'), tag: `devdeck-attn-${l.session.id}` });
+    const n = new Notification(name, { body, tag: `devdeck-attn-${l.session.id}` });
     n.onclick = () => {
       void window.devdeck.windowControls.show();
       const target = cockpitNavigationIdForRuntime([...live.values()].map(navigationIdentity), l.session.id);
@@ -2263,6 +2316,9 @@ function renderHeader(): void {
   const pills: HTMLElement[] = [title, branch, ag];
   const model = friendlyModel(l.meta?.model ?? null);
   if (model) { const mp = document.createElement('span'); mp.className = 'ck-pill'; mp.textContent = model; pills.push(mp); }
+  const statusPill = document.createElement('span'); statusPill.className = 'ck-pill ck-status-pill';
+  fillStatusPill(statusPill, l);
+  pills.push(statusPill);
   const ctxPct = contextPercent(l.meta?.contextTokens ?? 0, windowFor(l.meta));
   if (ctxPct !== null) { const cp = document.createElement('span'); cp.className = 'ck-pill'; cp.append(createIcon('brain'), `${ctxPct}%`); cp.title = tr('cockpit.context'); pills.push(cp); }
   if (l.meta && l.meta.activeMs > 0) { const tp = document.createElement('span'); tp.className = 'ck-pill'; tp.append(createIcon('clock'), formatDuration(l.meta.activeMs)); pills.push(tp); }
@@ -2279,14 +2335,20 @@ function renderHeader(): void {
   });
   const restart = actBtn('restart', tr('cockpit.restart'), () => restartSession(s.id));
   const attach = actBtn('paperclip', tr(l.machineId === LOCAL_MACHINE_ID ? 'cockpit.attach' : 'cockpit.attach_remote'), () => pickAttachments(l.machineId, l.term));
+  attach.classList.add('ck-attach-btn');
+  // Documents are new only for a session on another PC; a local one always took any file.
+  if (l.machineId !== LOCAL_MACHINE_ID) newDot(attach, 'remote-documents');
   // Quick replies: lit up when the session is waiting for the person, which is when they are for.
   const reply = actBtn('reply', tr('cockpit.quick_replies'), () => toggleQuickReplyMenu(reply, (text) => sendQuickReply(s.id, text)));
   reply.classList.add('ck-qr-btn');
+  newDot(reply, 'quick-replies');
   reply.setAttribute('aria-haspopup', 'menu'); reply.setAttribute('aria-expanded', String(isQuickReplyMenuOpen()));
   reply.classList.toggle('ready', s.activity === 'turn' || s.activity === 'idle');
   const timeline: HTMLElement[] = [];
   if (s.agentId === 'claude') {
     const b = actBtn('timeline', tr(isTimelineOpen() ? 'cockpit.timeline_hide' : 'cockpit.timeline_show'), () => toggleTimeline());
+    b.classList.add('ck-tl-toggle');
+    newDot(b, 'timeline');
     b.classList.toggle('on', isTimelineOpen()); b.setAttribute('aria-pressed', String(isTimelineOpen()));
     timeline.push(b);
   }
@@ -2297,6 +2359,7 @@ function renderHeader(): void {
     const st = imageStripState();
     const b = actBtn('image', tr(st.open ? 'cockpit.images_hide' : 'cockpit.images_show'), () => toggleImageStrip());
     b.classList.add('ck-img-toggle');
+    newDot(b, 'image-strip');
     b.classList.toggle('on', st.open); b.setAttribute('aria-pressed', String(st.open));
     if (st.total > 0) {
       const n = document.createElement('span'); n.className = `ck-img-count${st.unseen > 0 ? ' new' : ''}`;
