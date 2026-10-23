@@ -13,7 +13,7 @@ import { formatDuration } from '../shared/usage';
 import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
-import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, partitionLaunchRestore, takeLaunchRestoreCandidates, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, partitionLaunchRestore, takeLaunchRestoreCandidates, takeUpdateRestoreCandidates, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
 import { OPEN_FOLDER_MISSING, toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
@@ -332,20 +332,14 @@ export function mountCockpit(): void {
  *  latest conversation (via restoreSession). They're removed from the "Previous" list first so they
  *  aren't shown as restorable AND opened. Sequential to avoid a simultaneous PTY burst. */
 async function autoRestoreAfterUpdate(pending: PersistedSession[]): Promise<void> {
-  // Entries on a machine that is not reachable right now stay saved — they come back by adoption the
-  // moment that machine connects and is found running them, or by a click. Asking now would only
-  // produce one "offline" toast per entry; one per machine is enough.
-  const offlineByMachine = new Map<string, number>();
-  const now = pending.filter((entry) => {
-    const machineId = entry.machineId ?? LOCAL_MACHINE_ID;
-    if (machineId === LOCAL_MACHINE_ID || machineState(machineId) === 'connected') return true;
-    offlineByMachine.set(machineId, (offlineByMachine.get(machineId) ?? 0) + 1);
-    return false;
-  });
-  for (const [machineId, n] of offlineByMachine) toast(tr('cockpit.restore_machine_offline_n', { n: String(n), machine: machineName(machineId) }));
-  restorable = removeAutoRestoreMatches(restorable, now);
+  // Only this machine's tiles (takeUpdateRestoreCandidates says why). A remote tile stays a saved
+  // entry and comes back by adoption when its machine announces it — restoring it from here too raced
+  // that adoption and started a second conversation on that machine, once per entry, per update.
+  const { own, remote } = takeUpdateRestoreCandidates(pending);
+  if (remote.length) window.devdeck.logDiagnostic(`update restore: ${own.length} tile(s) of this pc restored here; ${remote.length} remote tile(s) left to adoption`, 'info', 'restore');
+  restorable = removeAutoRestoreMatches(restorable, own);
   renderList();
-  await restoreInTurn(now);
+  await restoreInTurn(own);
 }
 
 const START_QUIET_MS = 1500;
@@ -2857,6 +2851,19 @@ async function deliverPendingCloses(machineId: string): Promise<void> {
 // tile, and now that an unopenable conversation comes back fresh, as an empty one.
 const restoring = new Set<string>();
 
+/**
+ * The live tile already holding a saved entry's conversation on its machine, if any. Typically an
+ * adoption that landed while the entry waited its turn in a restore loop: the machine announced the
+ * terminal, syncMachineSessions built a tile for it. The restore is then already DONE — opening anything
+ * now would be a second conversation under the same name on that machine (which is how two consecutive
+ * updates took the paired machine from 7 to 29 running sessions).
+ */
+function liveTileHolding(entry: PersistedSession): Live | undefined {
+  if (!entry.sessionId) return undefined;
+  return [...live.values()].find((l) => l.openedSessionId === entry.sessionId && l.session.status !== 'exited'
+    && sameScope({ machineId: l.machineId, projectPath: l.session.projectPath, agentId: l.session.agentId }, entry));
+}
+
 /** Bring a previous session back to life via its resume command — under the SAME provider it was
  *  opened with, whatever the globally selected agent is now (a Claude conversation must never be
  *  handed to `codex`). Unrecognized legacy ids fall back to the active agent, as they always did. */
@@ -2871,14 +2878,21 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
     // a FRESH one under the same name. Never a substitute: this tile carries the user's own label and
     // pin, and handing it someone else's conversation is what made a renamed tile come back showing
     // unrelated work (and silently ate the entry that really owned that conversation).
-    const liveIds = new Set(liveSessionsForPersist().filter(l => sameScope(l, entry)).map(l => l.sessionId).filter((x): x is string => !!x));
-    // Conversations the other not-yet-restored entries are waiting for — an id-less entry must not
-    // take one of those out from under them.
-    const reserved = new Set(restorable.filter(r => sameScope(r, entry)).map((r) => r.sessionId).filter((x): x is string => !!x));
     // A saved entry names a project by PATH, and the same path exists on both machines — so the
     // conversation list has to come from the machine the tile actually ran on. Reading it locally
     // would resolve the tile against unrelated work that happens to live at the same path.
     const machineId = entry.machineId ?? LOCAL_MACHINE_ID;
+    const where = machineId === LOCAL_MACHINE_ID ? 'this pc' : machineName(machineId);
+    // Already a live tile here (adopted from its machine's announcement while this entry waited its
+    // turn): the restore is done. The entry is consumed — its pin carries over — and nothing starts.
+    // Checked again below after each await, because that adoption can land at any of them.
+    const merged = (held: Live, when: string): void => {
+      if (entry.pinned && !held.pinned) held.pinned = true;
+      persist(); renderList();
+      window.devdeck.logDiagnostic(`restore ${entry.label || entry.name} on ${where}: saved=${entry.sessionId} -> already open here as ${held.session.id} (${when}); nothing started`, 'info', 'restore');
+    };
+    const heldNow = liveTileHolding(entry);
+    if (heldNow) { merged(heldNow, 'before asking'); return; }
     if (machineId !== LOCAL_MACHINE_ID && machineState(machineId) !== 'connected') {
       // Its machine is not reachable. Leave the entry saved and say so, rather than opening a local
       // terminal in a path that means something different here.
@@ -2915,13 +2929,20 @@ async function restoreSession(entry: PersistedSession): Promise<void> {
       toast(tr('cockpit.restore_machine_offline', { name: entry.label || entry.name, machine: machineName(machineId) }));
       throw new Error('could not read the conversation list');
     }
+    // Last look before anything starts: the awaits above are where an adoption lands.
+    const heldMeanwhile = liveTileHolding(entry);
+    if (heldMeanwhile) { merged(heldMeanwhile, 'while asking'); return; }
+    const liveIds = new Set(liveSessionsForPersist().filter(l => sameScope(l, entry)).map(l => l.sessionId).filter((x): x is string => !!x));
+    // Conversations the other not-yet-restored entries are waiting for — an id-less entry must not
+    // take one of those out from under them.
+    const reserved = new Set(restorable.filter(r => sameScope(r, entry)).map((r) => r.sessionId).filter((x): x is string => !!x));
     const target = resolveRestoreTarget(entry, ids, liveIds, reserved);
     const ok = await createSession({ path: entry.projectPath, name: entry.name, staleLevel: 'neutral', branch: null, dirty: 0, tileId: entry.tileId, sessionId: target.sessionId, mode: target.fresh ? 'new' : 'auto', label: entry.label ?? null, pinned: entry.pinned, agentId: owner, machineId });
     // The decision, on the record. A restore that opens the wrong thing — or opens anything at all
     // when it should not have — is invisible from the outside, and reading it back off a machine
     // nobody is sitting at was impossible until this line.
     window.devdeck.logDiagnostic(
-      `restore ${entry.label || entry.name} on ${machineId === LOCAL_MACHINE_ID ? 'this pc' : machineName(machineId)}: `
+      `restore ${entry.label || entry.name} on ${where}: `
       + `saved=${entry.sessionId ?? '-'} onDisk=${ids.length} -> ${target.fresh ? 'fresh' : 'resume'} ${target.sessionId ?? '(new id)'} ok=${ok}`,
       'info', 'restore',
     );

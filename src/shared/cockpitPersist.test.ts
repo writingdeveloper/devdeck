@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cockpitNavigationId, cockpitNavigationIdForRuntime, persistedSessionKey, partitionLaunchRestore, takeLaunchRestoreCandidates, LAUNCH_RESTORE_MAX_IDLE_MS, removeAutoRestoreMatches, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
+import { cockpitNavigationId, cockpitNavigationIdForRuntime, persistedSessionKey, partitionLaunchRestore, takeLaunchRestoreCandidates, takeUpdateRestoreCandidates, LAUNCH_RESTORE_MAX_IDLE_MS, removeAutoRestoreMatches, sanitizePersistedList, pickRestoreSessionId, resolveRestoreTarget, adoptRestorableMatch, pickDriftedSessionId, pickAdoptedSessionId, type PersistedSession, type SessionFileStat } from './cockpitPersist';
 
 describe('cockpit navigation identity', () => {
   it('keeps a live session context addressable after it becomes a persisted session', () => {
@@ -132,6 +132,24 @@ describe('takeLaunchRestoreCandidates', () => {
     expect(kept.wasLive).toBe(true);
     const [plain] = sanitizePersistedList([{ projectPath: 'C:/p/y', sessionId: 's-y', wasLive: 'yes' }]);
     expect(plain.wasLive).toBeUndefined();
+  });
+});
+
+describe('takeUpdateRestoreCandidates', () => {
+  const entry = (tileId: string, extra: Partial<PersistedSession> = {}): PersistedSession =>
+    ({ tileId, projectPath: `C:/p/${tileId}`, name: tileId, sessionId: `s-${tileId}`, agentId: 'claude', ...extra });
+
+  it("restores only this machine's tiles itself; remote ones are left to adoption", () => {
+    const own = entry('own');
+    const remote = entry('remote', { machineId: 'm-0123456789abcdef', label: '개선', pinned: true });
+    const result = takeUpdateRestoreCandidates([remote, own]);
+    expect(result.own).toEqual([own]);
+    expect(result.remote).toEqual([remote]);
+  });
+
+  it('keeps the order of the entries it restores', () => {
+    const list = [entry('a'), entry('r1', { machineId: 'm-1' }), entry('b'), entry('c')];
+    expect(takeUpdateRestoreCandidates(list).own.map((e) => e.tileId)).toEqual(['a', 'b', 'c']);
   });
 });
 

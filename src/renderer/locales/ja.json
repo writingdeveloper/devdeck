@@ -464,7 +464,6 @@
   "cockpit.restore_machine_offline": "「{name}」を復元できません — {machine} に接続できません。項目は保持されます。",
   "cockpit.prev_machine_offline": "オフライン — 接続時に復元",
   "cockpit.machine_offline_input": "{machine} はオフラインです — 再接続まで入力は届きません",
-  "cockpit.restore_machine_offline_n": "{machine} の {n} 件のセッションは接続時に復元されます",
   "cockpit.restore_idle_left": "2 日以上使われていないセッション {n} 件は以前のセッションに残しました — クリックで開きます",
   "cockpit.stale_to_previous": "{machine} で実行されていないセッション {n} 件を以前のセッションへ移動しました",
   "cockpit.remote_file_unavailable": "そのファイルはこの PC ではなく {machine} にあります。",
