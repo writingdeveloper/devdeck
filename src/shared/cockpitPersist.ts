@@ -119,6 +119,25 @@ export function takeLaunchRestoreCandidates(list: readonly PersistedSession[]): 
 }
 
 /**
+ * The tiles an update relaunch restores ITSELF: this machine's. A remote tile's terminal is still
+ * running on its machine (the relaunch was ours), or that machine is relaunching too and restores it on
+ * its own launch — either way it comes back here by adoption when that machine announces it, and its
+ * saved entry supplies the tile id, label and pin.
+ *
+ * Restoring it from here as well raced that adoption. The announced terminal became a tile first; the
+ * restore for the same saved entry then found its conversation "already open in another tile" and
+ * started a NEW conversation under the same name on that machine — once per saved remote entry, per
+ * update. Measured on the reporter's pair: 7 → 14 → 29 sessions running on the other machine across two
+ * consecutive updates, every extra one an empty agent process nobody had asked for.
+ */
+export function takeUpdateRestoreCandidates(pending: readonly PersistedSession[]): { own: PersistedSession[]; remote: PersistedSession[] } {
+  const own: PersistedSession[] = [];
+  const remote: PersistedSession[] = [];
+  for (const entry of pending) (entry.machineId ? remote : own).push(entry);
+  return { own, remote };
+}
+
+/**
  * Split a launch restore into what to reopen now and what to leave saved, by when each conversation
  * was last USED — `usedAtMs[i]` for `entries[i]`, normally its transcript's mtime.
  *
