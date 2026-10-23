@@ -14,7 +14,7 @@ import { decideKeyAction, selectionCellLength } from '../shared/terminalKeys';
 import { unwrapCopiedUrl } from '../shared/urlCopy';
 import { findUrlLinks, findFilePathLinks, type BufferRow } from '../shared/linkWrap';
 import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId, legacyCockpitNavigationId, persistedSessionKey, partitionLaunchRestore, takeLaunchRestoreCandidates, removeAutoRestoreMatches, sanitizePersistedList, resolveRestoreTarget, adoptRestorableMatch, type PersistedSession } from '../shared/cockpitPersist';
-import { toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
+import { OPEN_FOLDER_MISSING, toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
 import { toast, reportSaveError, progressToast } from './loadError';
@@ -1201,7 +1201,8 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     // vanish read as "the click did nothing", whether the cause was a path outside the allowlist, a
     // deleted folder, or a machine that would not answer.
     el.remove(); term.dispose(); if (selectedId) select(selectedId);
-    toast(res.error ? `${tr('cockpit.open_failed', { name: p.name })} — ${res.error}` : tr('cockpit.open_failed', { name: p.name }));
+    const why = res.error === OPEN_FOLDER_MISSING ? tr('cockpit.open_folder_missing', { path: p.path }) : res.error;
+    toast(why ? `${tr('cockpit.open_failed', { name: p.name })} — ${why}` : tr('cockpit.open_failed', { name: p.name }));
     return false;
   }
   const session: CockpitSession = { id: res.id, projectPath: p.path, name: p.name, agentId: res.agentId, status: 'running', staleLevel: p.staleLevel, branch: p.branch, dirty: p.dirty, activity: 'working' };

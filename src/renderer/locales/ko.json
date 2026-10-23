@@ -275,6 +275,7 @@
   "cockpit.prev_gone_tip": "이 대화가 디스크에 없습니다 — 복원하면 같은 이름으로 새 세션이 열립니다",
   "cockpit.already_open": "이미 열려 있는 세션으로 이동했습니다: {name}",
   "cockpit.open_failed": "{name}에서 세션을 열지 못했습니다",
+  "cockpit.open_folder_missing": "폴더가 더 이상 없습니다: {path} (삭제되었거나 옮겨졌습니다)",
   "cockpit.forget": "지우기",
   "cockpit.empty_prev": "이전 세션을 복원하거나 프로젝트에서 새로 여세요.",
   "usage.bar_5h": "5시간",

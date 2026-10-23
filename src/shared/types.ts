@@ -11,6 +11,8 @@ export type {
 export type AgentId = 'claude' | 'antigravity' | 'codex';
 
 export type OpenMode = 'auto' | 'new';
+/** `cockpit:open`'s error when the session's folder no longer exists; the opener words it. */
+export const OPEN_FOLDER_MISSING = 'folder-missing';
 
 /** The complete launch intent crossing the renderer → main-process boundary. */
 export interface ProjectOpenIntent {

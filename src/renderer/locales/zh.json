@@ -275,6 +275,7 @@
   "cockpit.prev_gone_tip": "该对话不在磁盘上 — 恢复将以相同名称打开新会话",
   "cockpit.already_open": "该会话已打开，已切换过去：{name}",
   "cockpit.open_failed": "无法在 {name} 中打开会话",
+  "cockpit.open_folder_missing": "文件夹已不存在: {path} (已删除或移动)",
   "cockpit.forget": "移除",
   "cockpit.empty_prev": "恢复上次会话，或从项目中打开。",
   "usage.bar_5h": "5小时",
