@@ -66,6 +66,10 @@ declare global {
           gitInfo(projectPath: string): Promise<{ branch: string | null; dirty: number } | null>;
           receiveImage(base64: string): Promise<string | null>;
           receiveFile(name: string, base64: string): Promise<string | null>;
+          uploadStart(name: string, size: number): Promise<import('../shared/sentFiles').UploadStart>;
+          uploadChunk(id: string, offset: number, base64: string): Promise<number | null>;
+          uploadFinish(id: string): Promise<string | null>;
+          uploadAbort(id: string): Promise<void>;
           createWorktree(repoPath: string): Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
           backgroundAgents(): Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
           worktreeInfo(path: string): Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
@@ -166,6 +170,10 @@ declare global {
         openFile(projectPath: string, filePath: string): Promise<string>;
         receiveImage(base64: string): Promise<string | null>;
         receiveFile(name: string, base64: string): Promise<string | null>;
+        uploadStart(name: string, size: number): Promise<import('../shared/sentFiles').UploadStart>;
+        uploadChunk(id: string, offset: number, base64: string): Promise<number | null>;
+        uploadFinish(id: string): Promise<string | null>;
+        uploadAbort(id: string): Promise<void>;
         createWorktree(repoPath: string): Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
           backgroundAgents(): Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
         worktreeInfo(path: string): Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;

@@ -13,6 +13,7 @@ import { scanFolders, isRepo } from '../scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, createGitRunner, type GitRunner } from '../gitInfo';
 import { createWorktree, removeWorktree, worktreeChanges, type Worktree } from '../worktrees';
 import { listBackgroundAgents, pauseBackgroundAgents } from '../backgroundAgents';
+import { createUploads } from '../fileUploads';
 import { isBackgroundAgentId } from '../../shared/backgroundAgents';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
 import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
@@ -1243,6 +1244,15 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     try { writeFileSync(file, bytes); } catch { return null; }
     return file;
   });
+  /**
+   * A file of any kind and size sent here in pieces (receiveFile above stays for senders older than
+   * this): start, chunks in order, finish → its path. See main/fileUploads for what is and is not checked.
+   */
+  const uploads = createUploads({ dir: tmpdir(), prefix: SENT_FILE_PREFIX });
+  invoke('cockpit:uploadStart', allow('control'), (name: unknown, size: unknown) => uploads.start(name, size));
+  invoke('cockpit:uploadChunk', allow('control'), (id: unknown, offset: unknown, base64: unknown) => uploads.chunk(id, offset, base64));
+  invoke('cockpit:uploadFinish', allow('control'), (id: unknown) => uploads.finish(id));
+  invoke('cockpit:uploadAbort', allow('control'), (id: unknown) => uploads.abort(id));
 
   // Open a clicked terminal link. Terminal output is arbitrary, so (unlike shell:openExternal, which is
   // locked to DevDeck's own repo) any host is allowed — but only the http/https scheme, never file:/etc.

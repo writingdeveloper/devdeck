@@ -45,6 +45,10 @@ export interface DeckFacade {
     gitInfo: (projectPath: string) => Promise<{ branch: string | null; dirty: number } | null>;
     receiveImage: (base64: string) => Promise<string | null>;
     receiveFile: (name: string, base64: string) => Promise<string | null>;
+    uploadStart: (name: string, size: number) => Promise<import('../shared/sentFiles').UploadStart>;
+    uploadChunk: (id: string, offset: number, base64: string) => Promise<number | null>;
+    uploadFinish: (id: string) => Promise<string | null>;
+    uploadAbort: (id: string) => Promise<void>;
     createWorktree: (repoPath: string) => Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
     backgroundAgents: () => Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
     worktreeInfo: (path: string) => Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
@@ -113,6 +117,11 @@ export function deckFor(machineId: string): DeckFacade {
       receiveImage: (base64) => remote.cockpit.receiveImage(base64),
       // An older host has no receiveFile: its 'no such method' is passed on, so the sender can say why.
       receiveFile: (name, base64) => remote.cockpit.receiveFile(name, base64),
+      // An older host has no uploads either; the sender falls back to receiveFile on 'no such method'.
+      uploadStart: (name, size) => remote.cockpit.uploadStart(name, size),
+      uploadChunk: (id, offset, base64) => remote.cockpit.uploadChunk(id, offset, base64),
+      uploadFinish: (id) => remote.cockpit.uploadFinish(id),
+      uploadAbort: (id) => remote.cockpit.uploadAbort(id).catch(() => undefined),
       // An older host has no workspaces: creating one says so, reading one finds none.
       createWorktree: (repoPath) => remote.cockpit.createWorktree(repoPath).catch((error: unknown) => ({ error: /no such method/.test(String(error)) ? HOST_TOO_OLD : String(error) })),
       worktreeInfo: (path) => remote.cockpit.worktreeInfo(path).catch(() => null),

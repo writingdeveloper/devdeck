@@ -109,7 +109,7 @@ try {
       }, [join(root, 'build', 'icon.png'), jpg]);
     });
     const chooser = viewer.win.waitForEvent('filechooser');
-    await viewer.win.locator('#ck-header .ck-act').filter({ has: viewer.win.locator('svg') }).and(viewer.win.locator('[title*="이미지·문서 첨부"]')).click();
+    await viewer.win.locator('#ck-header .ck-act').filter({ has: viewer.win.locator('svg') }).and(viewer.win.locator('[title*="파일 첨부"]')).click();
     await (await chooser).setFiles(jpg);
     await rowsInclude(viewer.win, 'devdeck-paste-');
     const typed = await host.win.evaluate(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].map((r) => r.textContent).join('\n'));
@@ -124,13 +124,29 @@ try {
     const log = join(sandbox, 'build.log');
     writeFileSync(log, 'step 1 ok\nstep 2 failed\n');
     const chooser = viewer.win.waitForEvent('filechooser');
-    await viewer.win.locator('#ck-header .ck-act[title*="이미지·문서 첨부"]').click();
+    await viewer.win.locator('#ck-header .ck-act[title*="파일 첨부"]').click();
     await (await chooser).setFiles(log);
     await rowsInclude(viewer.win, 'build.log');
     const typed = await host.win.evaluate(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].map((r) => r.textContent).join('\n'));
     const m = /GOT:(\S*devdeck-file-[0-9a-f-]{36}-build\.log)/.exec(typed.replace(/\n/g, ''));
     assert.ok(m, 'host typed the sent file path:\n' + typed);
     assert.equal(readFileSync(m[1], 'utf8'), 'step 1 ok\nstep 2 failed\n');
+  });
+
+  await check('any kind of file past the old 5MB limit crosses in pieces, byte for byte, with its progress shown', async () => {
+    const big = join(sandbox, 'dataset.bin');
+    const bytes = Buffer.alloc(9 * 1024 * 1024 + 17); for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 31) % 256;
+    writeFileSync(big, bytes);
+    const chooser = viewer.win.waitForEvent('filechooser');
+    await viewer.win.locator('#ck-header .ck-act[title*="파일 첨부"]').click();
+    await (await chooser).setFiles(big);
+    await viewer.win.waitForFunction(() => [...document.querySelectorAll('#toast-host .toast')].some((t) => /dataset\.bin.*%/.test(t.textContent)), null, { timeout: 15000 });
+    await rowsInclude(viewer.win, 'dataset.bin');
+    const typed = await host.win.evaluate(() => [...document.querySelectorAll('.ck-term.show .xterm-rows')].map((r) => r.textContent).join('\n'));
+    const m = /GOT:(\S*devdeck-file-[0-9a-f-]{36}-dataset\.bin)/.exec(typed.replace(/\n/g, ''));
+    assert.ok(m, 'host typed the sent file path:\n' + typed);
+    assert.ok(readFileSync(m[1]).equals(bytes), 'the file on the host is the same bytes');
+    rmSync(m[1], { force: true });
   });
 
   await check('over the link, a real image is served and a fake .png or unindexed id is refused', async () => {

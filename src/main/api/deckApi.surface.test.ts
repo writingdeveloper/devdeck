@@ -333,6 +333,24 @@ describe('receiving a document from another machine', () => {
   });
 });
 
+describe('receiving a file of any kind in pieces', () => {
+  it('needs control at every step, like a document', () => {
+    for (const m of ['cockpit:uploadStart', 'cockpit:uploadChunk', 'cockpit:uploadFinish', 'cockpit:uploadAbort']) {
+      expect(mayCallRemotely(api[m], ['observe']), m).toBe(false);
+      expect(mayCallRemotely(api[m], ['control']), m).toBe(true);
+    }
+  });
+
+  it('lands a kind receiveFile refuses in the temp directory, under its own name', async () => {
+    const start = await api['cockpit:uploadStart'].handler('tool.exe', 2) as { id: string };
+    expect(await api['cockpit:uploadChunk'].handler(start.id, 0, Buffer.from('MZ').toString('base64'))).toBe(2);
+    const written = await api['cockpit:uploadFinish'].handler(start.id) as string;
+    expect(dirname(written)).toBe(tmpdir());
+    expect(basename(written)).toMatch(/^devdeck-file-[0-9a-f-]{36}-tool\.exe$/);
+    rmSync(written);
+  });
+});
+
 it('reads a session timeline only for an allowed project, as an observer may', async () => {
   expect(mayCallRemotely(api['cockpit:sessionTurns'], ['observe'])).toBe(true);
   await expect(api['cockpit:sessionTurns'].handler(join(process.cwd(), 'outside'), '00000000-0000-0000-0000-000000000000', 'claude')).resolves.toEqual([]);
