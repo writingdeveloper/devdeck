@@ -17,7 +17,7 @@ import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId
 import { toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
-import { toast, reportSaveError } from './loadError';
+import { toast, reportSaveError, progressToast } from './loadError';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 import { createIcon, type IconName } from './icons';
@@ -29,7 +29,7 @@ import { basename } from '../shared/paths';
 import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
 import { currentImageRefs, currentImageSourceKey, imageStripState, imageThumbUrl, initImageStrip, openImageById, openSingleImage, refreshImages, showImagesFor, toggleImageStrip, type ImageSource } from './imageStrip';
 import { jumpToPrompt, marksFor, promptRows, revealRow } from './termMarks';
-import { attachFiles, pathsAsPrompt, REMOTE_ACCEPT } from './attachments';
+import { attachFiles, pathsAsPrompt, sendInPieces } from './attachments';
 import { initTimeline, isTimelineOpen, refreshTimeline, showTimelineFor, toggleTimeline, type TimelineSource } from './timeline';
 import { pairTurnsWithRows } from '../shared/timeline';
 import { isQuickReplyMenuOpen, quickReplies, setQuickReplies, toggleQuickReplyMenu } from './quickReplyMenu';
@@ -791,12 +791,22 @@ function pasteClipboardText(term: Terminal): void {
 
 /** Give files to a session: by their own path locally, as uploaded copies on another machine. */
 async function attachToTerminal(files: File[], machineId: string, term: Terminal): Promise<void> {
+  // A file that takes more than a moment to send says how far it has got, so a large one does not
+  // look like nothing happened.
+  let progress = null as ReturnType<typeof progressToast> | null;
   const out = await attachFiles(files, {
     local: machineId === LOCAL_MACHINE_ID,
     receiveImage: (b64) => deckFor(machineId).cockpit.receiveImage(b64),
     receiveFile: (name, b64) => deckFor(machineId).cockpit.receiveFile(name, b64),
+    upload: (file, onProgress) => sendInPieces(file, deckFor(machineId).cockpit, onProgress),
     pathForFile: (f) => window.devdeck.cockpit.pathForFile(f),
+    onProgress: (file, sent) => {
+      if (file.size < 8 * 1024 * 1024) return;
+      progress ??= progressToast();
+      progress.set(tr('cockpit.attach_sending', { name: file.name, percent: String(Math.floor((sent / file.size) * 100)), size: formatBytes(file.size) }));
+    },
   });
+  progress?.close();
   if (out.paths.length) { term.paste(pathsAsPrompt(out.paths)); term.focus(); }
   // Every file that did not make it is said out loud: an attachment that silently went missing is
   // one the person goes on talking about while the agent never saw it.
@@ -804,16 +814,20 @@ async function attachToTerminal(files: File[], machineId: string, term: Terminal
   if (out.paths.length) notes.push(tr('cockpit.attached', { count: String(out.paths.length) }));
   if (out.skippedNonImage) notes.push(tr('cockpit.attach_kinds_only', { count: String(out.skippedNonImage), machine: machineName(machineId) }));
   if (out.hostTooOld) notes.push(tr('cockpit.attach_host_too_old', { count: String(out.hostTooOld), machine: machineName(machineId) }));
-  if (out.tooLarge) notes.push(tr('cockpit.remote_image_too_large'));
-  if (out.failed) notes.push(tr('cockpit.remote_image_failed'));
+  if (out.tooLarge) notes.push(tr('cockpit.attach_too_large', { count: String(out.tooLarge) }));
+  if (out.noSpace) notes.push(tr('cockpit.attach_no_space', { count: String(out.noSpace), machine: machineName(machineId) }));
+  if (out.failed) notes.push(tr('cockpit.attach_failed', { count: String(out.failed) }));
   if (notes.length) toast(notes.join(' · '));
+}
+
+function formatBytes(n: number): string {
+  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`;
+  return `${Math.max(1, Math.round(n / 1024 ** 2))} MB`;
 }
 
 /** 📎: the same as a drop, through the system file picker. */
 function pickAttachments(machineId: string, term: Terminal): void {
   const input = document.createElement('input'); input.type = 'file'; input.multiple = true;
-  // A remote session takes images and documents (see shared/sentFiles), so the picker offers those there.
-  if (machineId !== LOCAL_MACHINE_ID) input.accept = REMOTE_ACCEPT;
   input.addEventListener('change', () => { const files = Array.from(input.files ?? []); if (files.length) void attachToTerminal(files, machineId, term); });
   input.click();
 }

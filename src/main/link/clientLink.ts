@@ -109,6 +109,8 @@ const HEAVY_REQUEST_TIMEOUT_MS: Record<string, number> = {
   'projects:list': 120_000,
   'usage:report': 120_000,
   'project:memory': 120_000,
+  // A 2MB piece of a file being sent; on a slow connection that is well past the default.
+  'cockpit:uploadChunk': 120_000,
 };
 
 export function requestTimeoutFor(method: string, fallback = DEFAULT_REQUEST_TIMEOUT_MS): number {

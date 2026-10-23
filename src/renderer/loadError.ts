@@ -24,6 +24,14 @@ export function toast(message: string): void {
   setTimeout(() => el.remove(), 6000);
 }
 
+/** A toast that stays and can be rewritten while something long runs (a large file being sent). */
+export function progressToast(): { set(message: string): void; close(): void } {
+  const host = document.getElementById('toast-host');
+  const el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status');
+  host?.appendChild(el);
+  return { set: (message) => { el.textContent = message; }, close: () => el.remove() };
+}
+
 /** Handled write failures still belong in diagnostics; never include the user's draft text. */
 export function reportSaveError(error: unknown): void {
   toast(tr('common.save_failed'));
