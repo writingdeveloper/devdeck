@@ -275,6 +275,7 @@
   "cockpit.prev_gone_tip": "That conversation is not on disk — restoring opens a new session under the same name",
   "cockpit.already_open": "Already open — switched to it: {name}",
   "cockpit.open_failed": "Could not open a session in {name}",
+  "cockpit.open_folder_missing": "its folder no longer exists: {path} (deleted or moved)",
   "cockpit.forget": "Forget",
   "cockpit.empty_prev": "Restore a previous session, or open one from Projects.",
   "usage.bar_5h": "5h",

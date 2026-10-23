@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { basename, dirname, join } from 'node:path';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 // deckApi reaches Electron for dialogs/clipboard/app info; none of that is exercised here — this file
@@ -17,7 +17,9 @@ import { createDeckApi, type DeckApiConfig } from './deckApi';
 import { mayCallRemotely, sessionIdArgOf, type DeckApi, type LinkPermission } from './methods';
 import type { EventHub } from './events';
 
-const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
+// A real folder: opening a session checks that its folder exists.
+const ALLOWED_ROOT = mkdtempSync(join(tmpdir(), 'devdeck-surface-root-'));
+afterAll(() => { rmSync(ALLOWED_ROOT, { recursive: true, force: true }); });
 const EVERY_PERMISSION: LinkPermission[] = ['observe', 'control', 'spawn', 'write', 'power'];
 
 let api: DeckApi;

@@ -1,8 +1,9 @@
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi, afterAll } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 
-const { handlers, claudeStats, codexStats, codexIndex, codexSessions, claudeIds, probe } = vi.hoisted(() => ({
+const { handlers, claudeStats, codexStats, codexIndex, codexSessions, claudeIds, probe, background } = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   claudeStats: vi.fn(() => []),
   codexStats: vi.fn(() => []),
@@ -12,6 +13,7 @@ const { handlers, claudeStats, codexStats, codexIndex, codexSessions, claudeIds,
   // The real prober spawns a process listing; the handler's contract (resolve the tile's pid, answer
   // null when there is no pty) is what this file checks.
   probe: vi.fn(async (_pid: number): Promise<string | null> => 'claude'),
+  background: vi.fn(async (): Promise<{ id: string; cwd: string }[]> => []),
 }));
 
 vi.mock('electron', () => ({
@@ -49,6 +51,7 @@ vi.mock('./codexSessions', () => ({
 }));
 vi.mock('./antigravitySessions', () => ({ indexAntigravitySessionsByCwd: () => new Map() }));
 vi.mock('./agentProcess', () => ({ makeAgentProbe: () => probe }));
+vi.mock('./backgroundAgents', () => ({ listBackgroundAgents: background, pauseBackgroundAgents: async () => {}, stopBackgroundAgentListing: () => {} }));
 // Which agents are "installed" must not depend on the test machine's home directory.
 vi.mock('./agents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./agents')>()),
@@ -58,8 +61,11 @@ vi.mock('./agents', async (importOriginal) => ({
 import { registerIpc, type IpcConfig } from './ipc';
 import { getProvider, resolveOpenSession } from './agents';
 import { cwdKey } from '../shared/paths';
+import { OPEN_FOLDER_MISSING } from '../shared/types';
 
-const ALLOWED_ROOT = join(process.cwd(), 'cockpit-allowed-root');
+// A real folder: opening a session checks that its folder exists.
+const ALLOWED_ROOT = mkdtempSync(join(tmpdir(), 'devdeck-cockpit-root-'));
+afterAll(() => { rmSync(ALLOWED_ROOT, { recursive: true, force: true }); });
 let storedAgent = 'claude';
 const ptyCreate = vi.fn();
 const ptyNote = vi.fn((_id: string, _patch: Record<string, unknown>) => false);
@@ -129,8 +135,25 @@ describe('resolveOpenSession', () => {
 
 // A session belongs to the provider it was opened with: flipping the global selection must NOT hand a
 // Claude conversation to `codex` on restore/restart/"+ new session" (the multi-provider mix-up bug).
+describe('a session whose folder is gone', () => {
+  it('is refused with a reason the opener can word, and no terminal is started', async () => {
+    ptyCreate.mockClear();
+    const res = await handlers.get('cockpit:open')!(null, { projectPath: join(ALLOWED_ROOT, 'deleted-project'), sessionId: null, cols: 80, rows: 24, mode: 'new', agentId: 'claude' });
+    expect(res).toMatchObject({ id: '', error: OPEN_FOLDER_MISSING });
+    expect(ptyCreate).not.toHaveBeenCalled();
+  });
+
+  it('is not offered among Claude background sessions (attaching would start in that folder)', async () => {
+    const here = join(ALLOWED_ROOT, 'bg-here'); mkdirSync(here, { recursive: true });
+    background.mockResolvedValueOnce([{ id: 'aaaa1111', cwd: here }, { id: 'bbbb2222', cwd: join(ALLOWED_ROOT, 'bg-deleted') }]);
+    const list = await handlers.get('agents:background')!(null) as { id: string }[];
+    expect(list.map((b) => b.id)).toEqual(['aaaa1111']);
+  });
+});
+
 describe('session-scoped provider', () => {
   const projectPath = join(ALLOWED_ROOT, 'project');
+  mkdirSync(projectPath, { recursive: true });
   const launchCommand = () => String((ptyCreate.mock.calls.at(-1)![2] as string[])[2]);
 
   it('cockpit:open honors the request\'s agentId over the globally selected agent', async () => {

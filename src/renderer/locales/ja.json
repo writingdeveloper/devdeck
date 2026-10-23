@@ -275,6 +275,7 @@
   "cockpit.prev_gone_tip": "この会話はディスクにありません — 復元すると同じ名前で新しいセッションが開きます",
   "cockpit.already_open": "すでに開いているセッションに移動しました: {name}",
   "cockpit.open_failed": "{name} でセッションを開けませんでした",
+  "cockpit.open_folder_missing": "フォルダーが存在しません: {path} (削除または移動されました)",
   "cockpit.forget": "削除",
   "cockpit.empty_prev": "前回のセッションを復元するか、プロジェクトから開いてください。",
   "usage.bar_5h": "5時間",

@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 vi.mock('electron', () => ({
@@ -14,7 +16,9 @@ import type { DeckApi } from './methods';
 import { remoteCallContext } from '../link/hostServer';
 import { qualifyRemoteId } from '../../shared/link/machine';
 
-const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
+// A real folder: opening a session checks that its folder exists.
+const ALLOWED_ROOT = mkdtempSync(join(tmpdir(), 'devdeck-close-root-'));
+afterAll(() => { rmSync(ALLOWED_ROOT, { recursive: true, force: true }); });
 
 /** A pty table whose terminals exit when killed, the way node-pty reports it: asynchronously. */
 function makePtys() {

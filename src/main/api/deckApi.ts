@@ -16,7 +16,7 @@ import { listBackgroundAgents, pauseBackgroundAgents } from '../backgroundAgents
 import { createUploads } from '../fileUploads';
 import { isBackgroundAgentId } from '../../shared/backgroundAgents';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
-import { toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
+import { OPEN_FOLDER_MISSING, toAgentId, type AgentId, type CloseResult, type Folder, type OpenMode, type ProjectOpenIntent, type SessionMeta } from '../../shared/types';
 import { isAllowedPath, isAllowedFilePath, resolveAgentFilePath, tempImageRoot, AGENT_OPEN_EXT } from '../../shared/pathGuard';
 import { basename, cwdKey } from '../../shared/paths';
 import { isAllowedExternalUrl, isSafeRepoUrl, isOpenableTerminalLink } from '../../shared/externalUrl';
@@ -82,6 +82,10 @@ const REPO_URL = 'https://github.com/writingdeveloper/devdeck';
 /** Paste-image ceiling. A screenshot is around a megabyte; this is generous and still far below the
  *  link's frame limit once base64 expansion is counted. */
 const MAX_PASTE_IMAGE_BYTES = 5 * 1024 * 1024;
+
+async function isDirectory(p: string): Promise<boolean> {
+  try { return (await stat(p)).isDirectory(); } catch { return false; }
+}
 /** A full-size view is at most 5MB of image, so ~7MB as a data URL; this leaves room and no more. */
 const MAX_CLIPBOARD_IMAGE_CHARS = 12 * 1024 * 1024;
 const REMOTE_IMAGE_BYTES_PER_HOUR = 200 * 1024 * 1024;
@@ -648,6 +652,12 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
       cfg.diagnostics?.write('warn', 'pty', `open refused: ${error}`);
       return { id: '', agentId: agentFor(req?.agentId).id, sessionId: null, error };
     }
+    // A folder deleted since the session was saved or listed: say so, instead of the spawn failing
+    // with Windows' bare "Cannot create process, error code: 267".
+    if (!(await isDirectory(req.projectPath))) {
+      cfg.diagnostics?.write('warn', 'pty', `open refused: folder missing: ${req.projectPath}`);
+      return { id: '', agentId: agentFor(req?.agentId).id, sessionId: null, error: OPEN_FOLDER_MISSING };
+    }
     const a = agentFor(req.agentId);
     const forceNew = req.mode === 'new';
     // A failed open must come back as the same refusal shape the allowlist path returns (id: '') —
@@ -1111,7 +1121,12 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   invoke('agents:background', allow('observe'), async () => {
     if (!cfg.ptyAvailable) return [];
     const folders = effFolders();
-    return (await listBackgroundAgents()).filter((b) => isAllowedFilePath(folders, b.cwd));
+    // Claude keeps a background session listed after its folder is deleted (one from July, still
+    // "waiting", in a folder long gone). Attaching starts in that folder, so Windows refused with
+    // error 267; there is nothing to open, so it is not offered.
+    const listed = (await listBackgroundAgents()).filter((b) => isAllowedFilePath(folders, b.cwd));
+    const present = await Promise.all(listed.map((b) => isDirectory(b.cwd)));
+    return listed.filter((_, i) => present[i]);
   });
 
   invoke('cockpit:gitInfo', allow('observe'), (projectPath: string) => {
