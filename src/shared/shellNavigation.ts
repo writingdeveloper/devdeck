@@ -73,10 +73,13 @@ export type ShellSessionAction = 'pin' | 'unpin' | 'rename' | 'close' | 'forget'
 
 /** Which actions a row offers. A LIVE session can be pinned, renamed, and closed exactly as it could
  *  from the old cockpit list; a not-yet-restored entry has no terminal to rename or close, so it is
- *  pinned or forgotten instead. Pin/unpin is one toggle, labelled by the row's current state. */
+ *  pinned or forgotten instead. Pin/unpin is one toggle, labelled by the row's current state.
+ *  One of Claude Code's background sessions can only be closed (`claude stop` + `claude rm`): DevDeck
+ *  keeps no pin or name for it, and opening it attaches. Without this a session that finished months
+ *  ago sat under "Background" with no way to make it leave, short of the terminal. */
 export function sessionActionsFor(item: ShellSessionInput): ShellSessionAction[] {
   const pin: ShellSessionAction = item.pinned ? 'unpin' : 'pin';
-  if (item.backgroundAgent === true) return []; // nothing here to rename or close: opening it attaches
+  if (item.backgroundAgent === true) return ['close'];
   return item.previous === true ? [pin, 'forget'] : [pin, 'rename', 'close'];
 }
 

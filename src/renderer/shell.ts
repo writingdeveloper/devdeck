@@ -406,7 +406,7 @@ export function mountShell(options: {
     const actions = wrap.querySelector<HTMLButtonElement>('.shell-session-actions')!;
     actions.title = tr('shell.session_actions'); actions.setAttribute('aria-label', `${tr('shell.session_actions')}: ${item.label}`);
     const offered = new Set(sessionActionsFor(item));
-    // A row with nothing to offer (a background session) has no ⋯ at all, rather than an empty menu.
+    // A row with nothing to offer has no ⋯ at all, rather than an empty menu.
     actions.classList.toggle('hidden', offered.size === 0);
     for (const entry of Array.from(wrap.querySelectorAll<HTMLButtonElement>('[data-session-action]'))) {
       const action = entry.dataset.sessionAction as ShellSessionAction;
@@ -571,8 +571,7 @@ export function mountShell(options: {
       const bulkLabel = tr(group.kind === 'previous' ? 'shell.forget_group' : 'shell.close_group', { n: String(group.items.length), name: spoken });
       bulk.title = bulkLabel;
       bulk.setAttribute('aria-label', bulkLabel);
-      // Background sessions are not DevDeck's to close in bulk.
-      bulk.classList.toggle('hidden', collapsed || group.items.length < 2 || group.kind === 'background'); // one row already has its own ⋯ close
+      bulk.classList.toggle('hidden', collapsed || group.items.length < 2); // one row already has its own ⋯ close
       const body = section.querySelector<HTMLElement>('.shell-group-body')!;
       body.classList.toggle('hidden', collapsed);
       const cut = rendered.get(group.key)!;

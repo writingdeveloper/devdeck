@@ -12,7 +12,7 @@ import { applyOpenAtLogin, effectiveOpenAtLogin } from '../autostart';
 import { scanFolders, isRepo } from '../scanner';
 import { getGitInfo, getRepoUrl, getGitBranchDirty, getRecentCommits, createGitRunner, type GitRunner } from '../gitInfo';
 import { createWorktree, removeWorktree, worktreeChanges, type Worktree } from '../worktrees';
-import { listBackgroundAgents, pauseBackgroundAgents } from '../backgroundAgents';
+import { closeBackgroundAgent, listBackgroundAgents, pauseBackgroundAgents } from '../backgroundAgents';
 import { createUploads } from '../fileUploads';
 import { isBackgroundAgentId } from '../../shared/backgroundAgents';
 import { getProvider, availableAgents, resolveOpenSession, resolveProjectOpenCommand } from '../agents';
@@ -1127,6 +1127,17 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const listed = (await listBackgroundAgents()).filter((b) => isAllowedFilePath(folders, b.cwd));
     const present = await Promise.all(listed.map((b) => isDirectory(b.cwd)));
     return listed.filter((_, i) => present[i]);
+  });
+
+  // Close a background session (`claude stop` + `claude rm`; the conversation stays). Only one this
+  // deck is shown — same allowlist as the listing — so a paired machine cannot name others.
+  invoke('agents:backgroundClose', allow('control'), async (id: unknown) => {
+    if (!cfg.ptyAvailable) return { ok: false, error: 'failed' } as const;
+    const folders = effFolders();
+    const listed = (await listBackgroundAgents()).filter((b) => isAllowedFilePath(folders, b.cwd));
+    const result = await closeBackgroundAgent(id, listed);
+    cfg.diagnostics?.write(result.ok ? 'info' : 'warn', 'agents', `close background ${String(id).slice(0, 16)}: ${result.ok ? 'removed' : result.error}`);
+    return result;
   });
 
   invoke('cockpit:gitInfo', allow('observe'), (projectPath: string) => {

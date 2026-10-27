@@ -24,8 +24,10 @@ export interface Feature {
 
 /** Newest first. A feature's NEW dot is shown on its `target` until the person uses it. */
 export const FEATURES: readonly Feature[] = [
-  // No Show me: the group exists only while Claude has background sessions running.
+  // No Show me: the ⋯ of a background row exists only while Claude has background sessions.
+  { id: 'bg-close', version: '1.46.0', icon: 'close' },
   { id: 'send-any-file', version: '1.45.0', icon: 'paperclip', target: { view: 'cockpit', selector: '#ck-header .ck-attach-btn' } },
+  // No Show me: the group exists only while Claude has background sessions running.
   { id: 'background-agents', version: '1.44.0', icon: 'sessions' },
   { id: 'worktree-sessions', version: '1.43.0', icon: 'branch', target: { view: 'cockpit', selector: '#ck-header .ck-wt-new' } },
   { id: 'program-status', version: '1.42.0', icon: 'terminal', target: { view: 'settings', selector: '#set-program-status' } },
