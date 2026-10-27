@@ -48,7 +48,9 @@ function run(): Promise<string> {
   return runClaude(['agents', '--json', '--all'], TIMEOUT_MS, (child) => { current = child; });
 }
 
-export type BackgroundCloseResult = { ok: true } | { ok: false; error: 'bad-id' | 'not-listed' | 'failed' };
+export type BackgroundCloseResult =
+  | { ok: true; serviceStarted?: boolean }
+  | { ok: false; error: 'bad-id' | 'not-listed' | 'failed'; detail?: string };
 
 /**
  * Close one of Claude Code's background sessions: `claude stop <id>` (ends it if it is still running;
@@ -60,34 +62,100 @@ export type BackgroundCloseResult = { ok: true } | { ok: false; error: 'bad-id' 
  * (Claude Code 2.1.311): `stop` prints "stopped <id>", `rm` prints "removed <id>" and the
  * `~/.claude/jobs/<id>` folder is gone.
  *
+ * Both commands talk to Claude Code's background service (its on-demand daemon). When it is not
+ * running — the usual state: it exits 50 s after its last client, and a Claude Code update leaves
+ * none behind — `stop` and `rm` can answer "couldn't remove <id> — the background service may be
+ * restarting. Try again in a moment." without starting one (seen on Claude Code 2.1.312, on this
+ * PC and on a paired one). Trying again in a moment does not help; opening `claude agents` once
+ * does, because that starts the service. So when `rm` refuses, DevDeck starts the service the way
+ * Claude Code itself does (`claude daemon run --origin transient`, which exits again on its own
+ * once idle) and runs the two commands once more.
+ *
  * Only an id the listing currently shows is acted on: the id is the one thing put on the command
  * line, and this keeps a remote deck from naming sessions it was never shown.
  */
-export async function closeBackgroundAgent(id: unknown, listed: readonly BackgroundAgent[]): Promise<BackgroundCloseResult> {
+export async function closeBackgroundAgent(id: unknown, listed: readonly BackgroundAgent[], opts: { serviceWaitMs?: number } = {}): Promise<BackgroundCloseResult> {
   if (!isBackgroundAgentId(id)) return { ok: false, error: 'bad-id' };
   if (!listed.some((b) => b.id === id)) return { ok: false, error: 'not-listed' };
-  await runClaude(['stop', id], CLOSE_TIMEOUT_MS).catch(() => ''); // already exited → nothing to stop
-  const removed = await runClaude(['rm', id], CLOSE_TIMEOUT_MS).then(() => true, () => false);
+  let refusal = await stopAndRemove(id);
+  let serviceStarted = false;
+  if (refusal !== null && await startBackgroundService(opts.serviceWaitMs)) {
+    serviceStarted = true;
+    refusal = await stopAndRemove(id);
+  }
   cached = null; // the next listing must show it gone (or still there, if rm refused)
-  return removed ? { ok: true } : { ok: false, error: 'failed' };
+  if (refusal !== null) return { ok: false, error: 'failed', detail: refusal };
+  return serviceStarted ? { ok: true, serviceStarted } : { ok: true };
+}
+
+/** `claude stop` then `claude rm`; null once the session is gone, else what `rm` answered. */
+async function stopAndRemove(id: string): Promise<string | null> {
+  await runClaude(['stop', id], CLOSE_TIMEOUT_MS).catch(() => ''); // already exited → nothing to stop
+  return runClaude(['rm', id], CLOSE_TIMEOUT_MS).then(
+    () => null,
+    // Listed a moment ago and gone now: that is the outcome asked for.
+    (e: Error) => (/no job matching/i.test(e.message) ? null : e.message),
+  );
+}
+
+/**
+ * Start Claude Code's background service as Claude Code does on demand, and wait until `claude
+ * daemon status` sees it (about a second; a few more on a busy PC). The transient service ends
+ * itself 50 s after its last client, so nothing is left running for DevDeck to clean up. False
+ * when it did not come up in time — the close is then reported as refused, with the reason.
+ */
+async function startBackgroundService(waitMs = SERVICE_WAIT_MS): Promise<boolean> {
+  const how = cliInvocation(resolveAgentCliPath('claude'), ['daemon', 'run', '--origin', 'transient']);
+  try {
+    const child = spawn(how.file, how.args, { cwd: homedir(), env: claudeEnv(), detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: how.windowsVerbatimArguments });
+    child.on('error', () => undefined);
+    child.unref();
+  } catch {
+    return false;
+  }
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    if (await runClaude(['daemon', 'status'], SERVICE_STATUS_TIMEOUT_MS).then(() => true, () => false)) return true;
+    const left = deadline - Date.now();
+    if (left <= 0) return false;
+    await new Promise((r) => setTimeout(r, Math.min(SERVICE_POLL_MS, left)));
+  }
 }
 
 const CLOSE_TIMEOUT_MS = 20_000;
+const SERVICE_WAIT_MS = 10_000;
+const SERVICE_POLL_MS = 500;
+const SERVICE_STATUS_TIMEOUT_MS = 5_000;
 
-/** Run `claude <args>` detached from this session's own Claude environment; resolves to stdout on exit 0. */
+/** This process's environment without Claude Code's own session variables. */
+function claudeEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  // A DevDeck started from inside Claude Code must not make this look like a nested session.
+  for (const k of Object.keys(env)) if (/^CLAUDE/i.test(k)) delete env[k];
+  return env;
+}
+
+/**
+ * Run `claude <args>` detached from this session's own Claude environment; resolves to stdout on
+ * exit 0. On any other exit the error carries what the command said on stderr — that is where
+ * `rm` explains a refusal, and the diagnostics log is where it has to end up.
+ */
 function runClaude(args: string[], timeoutMs: number, started?: (child: ChildProcess) => void): Promise<string> {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env };
-    // A DevDeck started from inside Claude Code must not make this look like a nested session.
-    for (const k of Object.keys(env)) if (/^CLAUDE/i.test(k)) delete env[k];
     const how = cliInvocation(resolveAgentCliPath('claude'), args);
-    const child = spawn(how.file, how.args, { cwd: homedir(), env, windowsHide: true, windowsVerbatimArguments: how.windowsVerbatimArguments, stdio: ['ignore', 'pipe', 'ignore'] });
+    const child = spawn(how.file, how.args, { cwd: homedir(), env: claudeEnv(), windowsHide: true, windowsVerbatimArguments: how.windowsVerbatimArguments, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
+    let err = '';
     const timer = setTimeout(() => { killChildTree(child); reject(new Error(`claude ${args[0]} timed out`)); }, timeoutMs);
     started?.(child);
     child.on('close', () => { if (current === child) current = null; });
-    child.stdout.on('data', (b: Buffer) => { if (out.length < 2_000_000) out += b.toString('utf8'); });
+    child.stdout?.on('data', (b: Buffer) => { if (out.length < 2_000_000) out += b.toString('utf8'); });
+    child.stderr?.on('data', (b: Buffer) => { if (err.length < 4_000) err += b.toString('utf8'); });
     child.on('error', (e) => { clearTimeout(timer); reject(e); });
-    child.on('close', (code) => { clearTimeout(timer); if (code === 0) resolve(out); else reject(new Error(`claude ${args[0]} exited ${code}`)); });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(out);
+      else reject(new Error(`claude ${args[0]} exited ${code}${err.trim() ? `: ${err.trim().replace(/\s+/g, ' ').slice(0, 300)}` : ''}`));
+    });
   });
 }

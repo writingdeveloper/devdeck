@@ -1137,7 +1137,8 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
     const folders = effFolders();
     const listed = (await listBackgroundAgents()).filter((b) => isAllowedFilePath(folders, b.cwd));
     const result = await closeBackgroundAgent(id, listed);
-    cfg.diagnostics?.write(result.ok ? 'info' : 'warn', 'agents', `close background ${String(id).slice(0, 16)}: ${result.ok ? 'removed' : result.error}`);
+    const how = result.ok ? `removed${result.serviceStarted ? ' (after starting the background service)' : ''}` : `${result.error}${result.detail ? ` (${result.detail})` : ''}`;
+    cfg.diagnostics?.write(result.ok ? 'info' : 'warn', 'agents', `close background ${String(id).slice(0, 16)}: ${how}`);
     return result;
   });
 
