@@ -38,7 +38,10 @@ vi.mock('./projectMemory', () => ({
 
 import { registerIpc, type IpcConfig } from './ipc';
 import { getGitBranchDirty } from './gitInfo';
-import { dialog, clipboard } from 'electron';
+import { dialog } from 'electron';
+import { readClipboardPng } from './clipboardImage';
+// Electron 44 reads images through the W3C-shaped clipboard.read(); the helper is what the handlers call.
+vi.mock('./clipboardImage', () => ({ readClipboardPng: vi.fn(), writeClipboardPng: vi.fn() }));
 
 const ALLOWED_ROOT = join(process.cwd(), 'allowed-root');
 const sendError = vi.fn();
@@ -245,13 +248,13 @@ describe('settings:addFolder picker handshake', () => {
 
 describe('clipboard:readImage (paste a screenshot into the terminal)', () => {
   it('returns null when the clipboard holds no image', async () => {
-    vi.mocked(clipboard.readImage).mockReturnValue({ isEmpty: () => true } as never);
+    vi.mocked(readClipboardPng).mockResolvedValue(null);
     expect(await handlers.get('clipboard:readImage')!(null)).toBeNull();
   });
 
   it('writes the clipboard image to a temp .png under tmpdir and returns its path', async () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]); // PNG magic bytes
-    vi.mocked(clipboard.readImage).mockReturnValue({ isEmpty: () => false, toPNG: () => png } as never);
+    vi.mocked(readClipboardPng).mockResolvedValue(png);
     const p = (await handlers.get('clipboard:readImage')!(null)) as string;
     expect(p).toMatch(/devdeck-paste-.+\.png$/);
     expect(p.startsWith(tmpdir())).toBe(true);

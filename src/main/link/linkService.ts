@@ -187,7 +187,7 @@ export interface LinkService {
   revokeDevice(fingerprint: string): void;
   disconnectDevice(fingerprint: string): void;
   /** A pasteable code sitting in the clipboard right now, for the "add a machine" banner. */
-  clipboardInvite(): { code: string; machineName: string } | null;
+  clipboardInvite(): Promise<{ code: string; machineName: string } | null>;
   call(machineId: string, method: string, args: unknown[]): Promise<unknown>;
   notify(machineId: string, method: string, args: unknown[]): void;
   /**
@@ -639,11 +639,12 @@ export function createLinkService(options: LinkServiceOptions): LinkService {
 
     disconnectDevice(fingerprint) { server?.disconnect(fingerprint); changed(); },
 
-    clipboardInvite() {
+    async clipboardInvite() {
       // Read at the moment the screen asks, never stored: the clipboard is a shared surface and its
-      // contents are none of DevDeck's business a second later.
+      // contents are none of DevDeck's business a second later. (Async since Electron 44, which
+      // aligned `clipboard.readText` with the W3C API.)
       let text = '';
-      try { text = clipboard.readText(); } catch { return null; }
+      try { text = await clipboard.readText(); } catch { return null; }
       const code = findInviteCodeInText(text);
       if (!code) return null;
       const parsed = parseInviteCode(code, now());

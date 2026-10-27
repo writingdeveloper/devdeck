@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { readClipboardPng, writeClipboardPng } from '../clipboardImage';
 import type { Store } from '../store';
 import type { PtyHost } from '../ptyHost';
 import { PtyBatcher } from '../ptyBatch';
@@ -1191,29 +1192,28 @@ export function createDeckApi(cfg: DeckApiConfig): DeckApiBundle {
   send('clipboard:writeText', localOnly, (text: string) => clipboard.writeText(String(text ?? '')));
   invoke('clipboard:readText', localOnly, () => clipboard.readText());
   /** Put an image the viewer is showing on the clipboard. Only image data URLs; never a path. */
-  invoke('clipboard:writeImage', localOnly, (dataUrl: string) => {
+  invoke('clipboard:writeImage', localOnly, async (dataUrl: string) => {
     if (typeof dataUrl !== 'string' || !/^data:image\/(?:png|jpeg);base64,/.test(dataUrl) || dataUrl.length > MAX_CLIPBOARD_IMAGE_CHARS) return false;
     const img = nativeImage.createFromDataURL(dataUrl);
     if (img.isEmpty()) return false;
-    clipboard.writeImage(img);
+    try { await writeClipboardPng(img.toPNG()); } catch { return false; }
     return true;
   });
   // Paste a CLIPBOARD IMAGE (e.g. a screenshot) into the terminal: Claude Code can't read the OS
   // clipboard (esp. native Windows), but it DOES read an image off a file path. So on Ctrl+V with an
   // image on the clipboard, write it to a temp PNG and return the path for the renderer to inject as
   // text — the one image-input method that works cross-platform. null when the clipboard has no image.
-  invoke('clipboard:readImage', localOnly, () => {
-    const img = clipboard.readImage();
-    if (img.isEmpty()) return null;
+  invoke('clipboard:readImage', localOnly, async () => {
+    const png = await readClipboardPng();
+    if (!png) return null;
     const file = join(tmpdir(), `${PASTE_IMAGE_PREFIX}${randomUUID()}.png`);
-    try { writeFileSync(file, img.toPNG()); } catch { return null; }
+    try { writeFileSync(file, png); } catch { return null; }
     return file;
   });
   /** The same clipboard image, as bytes, so it can be sent to the machine running the session. */
-  invoke('clipboard:readImageBytes', localOnly, () => {
-    const img = clipboard.readImage();
-    if (img.isEmpty()) return null;
-    const png = img.toPNG();
+  invoke('clipboard:readImageBytes', localOnly, async () => {
+    const png = await readClipboardPng();
+    if (!png) return null;
     // Bounded well under the protocol's frame ceiling, base64 expansion included. A screenshot is
     // ~1MB; anything past this is not a paste, and refusing beats a dropped connection.
     if (png.length > MAX_PASTE_IMAGE_BYTES) return { tooLarge: true, bytes: null };
