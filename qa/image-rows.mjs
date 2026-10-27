@@ -100,7 +100,13 @@ const errors = [];
 let failed = false;
 const check = async (name, fn) => { await fn(); console.log('PASS ' + name); };
 // The person's clipboard is put back afterwards: this harness copies an image onto it.
-const savedClip = await app.evaluate(({ clipboard }) => ({ text: clipboard.readText(), image: clipboard.readImage().toDataURL() }));
+// (Electron 44: the clipboard is read through the W3C-shaped read(); readImage() is gone.)
+const savedClip = await app.evaluate(async ({ clipboard }) => {
+  const items = await clipboard.read().catch(() => []);
+  const item = items.find((i) => i.types.includes('image/png'));
+  const image = item ? Buffer.from(await (await item.getType('image/png')).arrayBuffer()).toString('base64') : null;
+  return { text: await clipboard.readText().catch(() => ''), image };
+});
 try {
   const win = await app.firstWindow();
   win.setDefaultTimeout(15000);
@@ -185,7 +191,7 @@ try {
 
     await win.locator('.ck-img-bar button[aria-label="이미지 복사"]').click();
     await win.waitForFunction(() => document.body.textContent.includes('이미지를 클립보드에 복사했습니다'));
-    assert.equal(await app.evaluate(({ clipboard }) => clipboard.readImage().isEmpty()), false, 'an image is on the clipboard');
+    assert.equal(await app.evaluate(async ({ clipboard }) => (await clipboard.read()).some((i) => i.types.includes('image/png'))), true, 'an image is on the clipboard');
 
     await win.locator('.ck-img-bar button[aria-label="터미널에서 위치 보기"]').click();
     await win.waitForSelector('.ck-img-viewer', { state: 'detached' });
@@ -220,9 +226,9 @@ try {
   failed = true;
   try { const w = await app.firstWindow(); await w.screenshot({ path: join(shots, 'failure.png') }); } catch { /* window gone */ }
 } finally {
-  await app.evaluate(({ clipboard, nativeImage }, saved) => {
-    if (saved.image && saved.image !== 'data:image/png;base64,') clipboard.writeImage(nativeImage.createFromDataURL(saved.image));
-    else clipboard.writeText(saved.text);
+  await app.evaluate(async ({ clipboard, ClipboardItem }, saved) => {
+    if (saved.image) await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(Buffer.from(saved.image, 'base64'))], { type: 'image/png' }) })]);
+    else await clipboard.writeText(saved.text);
   }, savedClip).catch(() => {});
   await closeElectron(app).catch(() => {});
 }

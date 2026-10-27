@@ -188,13 +188,13 @@ describe('the clipboard banner', () => {
     const viewer = makeService('laptop', { machineId: '11111111-2222-4333-8444-555555555555' });
     const status = await host.service.createInvite();
     clipboardText.value = `여기 코드: ${status.invite!.code}`;
-    expect(viewer.service.clipboardInvite()).toEqual({ code: status.invite!.code, machineName: 'SIHYEONG-MAIN' });
+    expect(await viewer.service.clipboardInvite()).toEqual({ code: status.invite!.code, machineName: 'SIHYEONG-MAIN' });
   });
 
-  it('stays quiet for unrelated clipboard contents', () => {
+  it('stays quiet for unrelated clipboard contents', async () => {
     const viewer = makeService('laptop');
     clipboardText.value = 'git commit -m "wip"';
-    expect(viewer.service.clipboardInvite()).toBeNull();
+    expect(await viewer.service.clipboardInvite()).toBeNull();
   });
 
   it('stays quiet once that machine is already paired — re-adding it would be a confusing no-op', async () => {
@@ -205,7 +205,7 @@ describe('the clipboard banner', () => {
 
     const second = await host.service.createInvite();
     clipboardText.value = second.invite!.code;
-    expect(viewer.service.clipboardInvite()).toBeNull();
+    expect(await viewer.service.clipboardInvite()).toBeNull();
   });
 });
 

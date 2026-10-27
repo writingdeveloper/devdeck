@@ -322,10 +322,11 @@ try {
   // key handler is what decides, not the harness.
   // Watched at the PTY INPUT rather than on screen: what the paste types is sent to the agent, and
   // whether the agent happens to echo it back is its business, not this feature's.
-  await viewer.app.evaluate(({ ipcMain, clipboard, nativeImage }, png) => {
+  await viewer.app.evaluate(async ({ ipcMain, clipboard, ClipboardItem }, png) => {
     globalThis.__typed = '';
     ipcMain.on('cockpit:input', (_e, _id, data) => { globalThis.__typed += String(data); });
-    clipboard.writeImage(nativeImage.createFromBuffer(Buffer.from(png, 'base64')));
+    // Electron 44: images go on the clipboard through write() + ClipboardItem (writeImage is gone).
+    await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(Buffer.from(png, 'base64'))], { type: 'image/png' }) })]);
   }, await viewer.win.screenshot({ type: 'png' }).then((buf) => buf.toString('base64')));
   await viewer.win.evaluate(() => {
     const box = document.querySelector('.ck-term.show .xterm-helper-textarea');
