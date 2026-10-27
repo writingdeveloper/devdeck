@@ -222,11 +222,11 @@ describe('shell navigation', () => {
 });
 
 describe('Claude background sessions in the sidebar', () => {
-  it('get a group of their own, under what is live here, and offer no close or rename', () => {
+  it('get a group of their own, under what is live here, and offer close only (no pin, no rename)', () => {
     const live: ShellSessionInput = { id: 'a', projectPath: 'C:/a', label: 'a', detail: '', activity: 'turn', pinned: false };
     const bg: ShellSessionInput = { id: 'bg:local:09644674', projectPath: 'C:/b', label: 'b', detail: '', activity: 'attention', pinned: false, backgroundAgent: true };
     expect(buildSessionGroups([live, bg]).map((g) => g.kind)).toEqual(['background', 'turn']);
-    expect(sessionActionsFor(bg)).toEqual([]);
+    expect(sessionActionsFor(bg)).toEqual(['close']);
     // Waiting on the person, so the collapsed rail still counts it.
     expect(sessionStatusCounts([live, bg]).attention).toBe(1);
   });

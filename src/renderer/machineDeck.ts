@@ -51,6 +51,7 @@ export interface DeckFacade {
     uploadAbort: (id: string) => Promise<void>;
     createWorktree: (repoPath: string) => Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
     backgroundAgents: () => Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
+    backgroundClose: (id: string) => Promise<import('../main/backgroundAgents').BackgroundCloseResult | { ok: false; error: 'host-too-old' }>;
     worktreeInfo: (path: string) => Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
     removeWorktree: (path: string, force: boolean) => Promise<{ removed: boolean; reason?: string; error?: string }>;
     sessionTurns: (projectPath: string, sessionId: string, agentId?: string) => Promise<import('../shared/sessionImages').SessionTurn[]>;
@@ -127,6 +128,8 @@ export function deckFor(machineId: string): DeckFacade {
       worktreeInfo: (path) => remote.cockpit.worktreeInfo(path).catch(() => null),
       // An older host does not list them; it simply has none to show.
       backgroundAgents: () => remote.cockpit.backgroundAgents().catch(() => []),
+      // An older host cannot close one; the person is told to update that machine.
+      backgroundClose: (id) => remote.cockpit.backgroundClose(id).catch(() => ({ ok: false as const, error: 'host-too-old' as const })),
       removeWorktree: (path, force) => remote.cockpit.removeWorktree(path, force).catch((error: unknown) => ({ removed: false, reason: 'error', error: String(error) })),
       // A host older than the timeline is said so (the panel tells the person to update it); any other
       // failure is an empty list for now, read again on the next turn.

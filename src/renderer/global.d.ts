@@ -72,6 +72,7 @@ declare global {
           uploadAbort(id: string): Promise<void>;
           createWorktree(repoPath: string): Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
           backgroundAgents(): Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
+          backgroundClose(id: string): Promise<import('../main/backgroundAgents').BackgroundCloseResult>;
           worktreeInfo(path: string): Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
           removeWorktree(path: string, force: boolean): Promise<{ removed: boolean; reason?: string; error?: string }>;
           sessionTurns(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionTurn[]>;
@@ -176,6 +177,7 @@ declare global {
         uploadAbort(id: string): Promise<void>;
         createWorktree(repoPath: string): Promise<{ worktree?: import('../main/worktrees').Worktree; error?: string }>;
           backgroundAgents(): Promise<import('../shared/backgroundAgents').BackgroundAgent[]>;
+          backgroundClose(id: string): Promise<import('../main/backgroundAgents').BackgroundCloseResult>;
         worktreeInfo(path: string): Promise<{ worktree: import('../main/worktrees').Worktree; changes: import('../main/worktrees').WorktreeChanges } | null>;
         removeWorktree(path: string, force: boolean): Promise<{ removed: boolean; reason?: string; error?: string }>;
         sessionTurns(projectPath: string, sessionId: string, agentId?: string): Promise<import('../shared/sessionImages').SessionTurn[]>;

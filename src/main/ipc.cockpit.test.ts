@@ -51,7 +51,8 @@ vi.mock('./codexSessions', () => ({
 }));
 vi.mock('./antigravitySessions', () => ({ indexAntigravitySessionsByCwd: () => new Map() }));
 vi.mock('./agentProcess', () => ({ makeAgentProbe: () => probe }));
-vi.mock('./backgroundAgents', () => ({ listBackgroundAgents: background, pauseBackgroundAgents: async () => {}, stopBackgroundAgentListing: () => {} }));
+const backgroundClose = vi.hoisted(() => vi.fn(async () => ({ ok: true })));
+vi.mock('./backgroundAgents', () => ({ listBackgroundAgents: background, closeBackgroundAgent: backgroundClose, pauseBackgroundAgents: async () => {}, stopBackgroundAgentListing: () => {} }));
 // Which agents are "installed" must not depend on the test machine's home directory.
 vi.mock('./agents', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./agents')>()),
@@ -148,6 +149,16 @@ describe('a session whose folder is gone', () => {
     background.mockResolvedValueOnce([{ id: 'aaaa1111', cwd: here }, { id: 'bbbb2222', cwd: join(ALLOWED_ROOT, 'bg-deleted') }]);
     const list = await handlers.get('agents:background')!(null) as { id: string }[];
     expect(list.map((b) => b.id)).toEqual(['aaaa1111']);
+  });
+
+  it('closes a background session only among the ones this deck is shown (same allowlist)', async () => {
+    const here = join(ALLOWED_ROOT, 'bg-here'); mkdirSync(here, { recursive: true });
+    background.mockResolvedValue([{ id: 'aaaa1111', cwd: here }, { id: 'cccc3333', cwd: 'C:/elsewhere/outside' }]);
+    backgroundClose.mockClear();
+    await handlers.get('agents:backgroundClose')!(null, 'aaaa1111');
+    const [id, listed] = backgroundClose.mock.calls[0] as unknown as [string, { id: string }[]];
+    expect(id).toBe('aaaa1111');
+    expect(listed.map((b) => b.id)).toEqual(['aaaa1111']); // the one outside the allowlist is not offered to close
   });
 });
 

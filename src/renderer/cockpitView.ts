@@ -643,6 +643,38 @@ function openBackgroundAgent(id: string): boolean {
   return true;
 }
 
+/**
+ * Close background sessions (sidebar ids `bg:<machine>:<id>`): the machine runs `claude stop` then
+ * `claude rm`, so the session leaves Claude Code's list; its conversation stays on disk. Until now a
+ * background row offered nothing, so a session that finished months ago sat under "Background" for
+ * good. `ask` is false when a bulk action already confirmed the whole set.
+ */
+async function closeBackgroundAgents(ids: readonly string[], ask: boolean): Promise<void> {
+  const targets: Array<{ machineId: string; agent: BackgroundAgent }> = [];
+  for (const id of ids) {
+    const m = /^bg:(.+):([0-9a-f]+)$/i.exec(id);
+    const agent = m ? backgroundAgents.get(m[1])?.find((x) => x.id === m[2]) : undefined;
+    if (m && agent) targets.push({ machineId: m[1], agent });
+  }
+  if (!targets.length) return;
+  const nameOf = (a: BackgroundAgent): string => a.name ?? basename(a.cwd);
+  if (ask && !(await confirmDialog(tr('cockpit.bg_close_confirm', { name: nameOf(targets[0].agent) }), tr('cockpit.close')))) return;
+  for (const { machineId, agent } of targets) {
+    const result = await deckFor(machineId).cockpit.backgroundClose(agent.id);
+    window.devdeck.logDiagnostic(`close background ${agent.id} on ${machineId === LOCAL_MACHINE_ID ? 'this pc' : machineName(machineId)}: ${result.ok ? 'removed' : result.error}`, result.ok ? 'info' : 'warn', 'sidebar');
+    if (result.ok) {
+      // Gone from the list it came from; drop the row now rather than at the next 30 s poll.
+      backgroundAgents.set(machineId, (backgroundAgents.get(machineId) ?? []).filter((x) => x.id !== agent.id));
+      toast(tr('cockpit.bg_closed', { name: nameOf(agent) }));
+    } else if (result.error === 'host-too-old') {
+      toast(tr('cockpit.bg_close_old_host', { machine: machineName(machineId) }));
+    } else {
+      toast(tr('cockpit.bg_close_failed', { name: nameOf(agent), id: agent.id }));
+    }
+  }
+  publishCockpitNavigation();
+}
+
 /** One-release migration map for shell contexts saved before opaque tile identities existed. */
 export function cockpitNavigationAliases(): ReadonlyMap<string, string> {
   const aliases = new Map<string, string>();
@@ -2306,6 +2338,7 @@ function notifyAttention(l: Live): void {
  *  the persisted record (pin / forget). Renaming a live session needs its editor on screen, so it
  *  brings the cockpit forward first — the same navigation an attention notification click performs. */
 export function manageCockpitSessionAction(id: string, action: ShellSessionAction): void {
+  if (id.startsWith('bg:')) { if (action === 'close') void closeBackgroundAgents([id], true); return; }
   const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id || legacyCockpitNavigationId(navigationIdentity(entry)) === id);
   if (current) {
     const sid = current.session.id;
@@ -2343,7 +2376,9 @@ export async function closeCockpitSessionGroup(group: ShellSessionGroup): Promis
   );
   if (!ok) return;
   window.devdeck.logDiagnostic(`bulk ${forgetting ? 'forget' : 'close'} ${ids.length} in ${group.key}`, 'info', 'sidebar');
+  void closeBackgroundAgents(ids.filter((id) => id.startsWith('bg:')), false); // asked above, once
   for (const id of ids) {
+    if (id.startsWith('bg:')) continue;
     // Resolved per id at the moment it is acted on: the list was captured before the confirmation,
     // and a session can exit or be closed while the question is on screen.
     const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
@@ -2366,7 +2401,9 @@ export async function closeCockpitSessions(ids: readonly string[]): Promise<bool
   const ok = await confirmDialog(tr('shell.close_selected_confirm', { n: String(ids.length) }), tr('cockpit.close'));
   if (!ok) return false;
   window.devdeck.logDiagnostic(`bulk close ${ids.length} selected`, 'info', 'sidebar');
+  void closeBackgroundAgents(ids.filter((id) => id.startsWith('bg:')), false); // asked above, once
   for (const id of ids) {
+    if (id.startsWith('bg:')) continue;
     const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
     if (current) { closeSession(current.session.id); continue; }
     const entry = restorable.find((item) => cockpitNavigationId(item) === id);
@@ -2381,7 +2418,7 @@ export async function closeCockpitSessions(ids: readonly string[]): Promise<bool
 const GROUP_CONFIRM_LABELS: Record<string, string> = {
   attention: 'shell.needs_you', working: 'shell.working', pinned: 'cockpit.grp_pinned',
   remote: 'shell.grp_remote', turn: 'cockpit.grp_turn', quiet: 'cockpit.grp_idle',
-  previous: 'cockpit.prev_sessions',
+  previous: 'cockpit.prev_sessions', background: 'shell.grp_background',
 };
 
 export function restoreAllCockpitSessions(): void { void restoreAll(); }
