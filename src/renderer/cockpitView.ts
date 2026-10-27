@@ -22,6 +22,7 @@ import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 import { createIcon, type IconName } from './icons';
 import { deckFor, machineName, machineState, onMachineConnected, onMachinesChanged, LOCAL_MACHINE_ID, HOST_TOO_OLD } from './machineDeck';
+import { agentProbeDue, backgroundPollDue, gitRefreshDue, screenScanDue } from '../shared/idleCadence';
 import { parseRemoteId } from '../shared/link/machine';
 import { ptyCompatFor } from './ptyCompat';
 import { followPtySize, type TerminalDims } from '../shared/terminalSize';
@@ -52,6 +53,12 @@ interface Live {
    */
   native: { status: ProgramStatus; since: number } | null;
   openedSessionId: string | null; openedAt: number; idCheckAt: number;
+  /** When the tile's agent was last probed off the process tree — a quiet tile is not probed again. */
+  providerCheckAt: number;
+  /** When the terminal was last written to (output, a replayed screen, a repaint) — unlike lastDataAt, never withheld. */
+  screenDirtyAt: number;
+  /** The screen tail the activity tick last read, and when — reused while nothing is written. */
+  screenText: string; screenScanAt: number;
   labelVersion: SessionLabelVersion | null;
   customLabel: string | null; meta: SessionMetaView | null; pinned: boolean; lastSelectedAt: number;
   /**
@@ -181,7 +188,14 @@ export function mountCockpit(): void {
   initTimeline(termsEl, () => { if (!editingId) renderHeader(); });
   // Not at start-up: restoring sessions comes first, and the list is not urgent.
   setTimeout(() => void refreshBackgroundAgents(), BACKGROUND_FIRST_POLL_MS);
-  setInterval(() => { if (!document.hidden) void refreshBackgroundAgents(); }, BACKGROUND_POLL_MS);
+  // Each listing starts a claude process (~340 ms) here and on every connected machine — so 30 s only
+  // while someone is looking at a group that has rows; a minute when it is empty, two unfocused.
+  setInterval(() => {
+    if (document.hidden) return;
+    // A background session opened in a tile is still in the listing, so the listing alone tells.
+    const hasRows = [...backgroundAgents.values()].some((list) => list.length > 0);
+    if (backgroundPollDue({ now: Date.now(), lastPollMs: backgroundPolledAt, windowFocused: document.hasFocus(), hasRows })) void refreshBackgroundAgents();
+  }, BACKGROUND_TICK_MS);
   // Mid-turn, new screenshots show up as they are taken rather than at the end of the turn; between
   // turns a slow re-read still catches images written some other way (another process, a resume).
   // Only the selected session is ever read, and an unchanged transcript costs one stat.
@@ -223,6 +237,7 @@ export function mountCockpit(): void {
     // Held back only while a repaint is in flight (see Live.replayPending) so the screen underneath
     // cannot land on top of newer output. Activity tracking is not gated: the session IS producing.
     if (l.replayPending) holdForReplay(l, chunk); else l.term.write(chunk);
+    l.screenDirtyAt = Date.now(); // the screen changes either way — a repaint too, which is not counted as output below
     // ConPTY answers every size change with a full repaint of the screen. Counted as output, one window
     // resize (or the usage bar appearing) turned every idle session "working" and reshuffled the
     // recency order; and the repainted screen's OLD text could read as a fresh prompt.
@@ -615,7 +630,9 @@ export function cockpitNavigationItems(): ShellSessionInput[] {
 // ---- Claude Code's own background sessions ----
 /** Per machine, the background sessions its `claude agents` lists (see main/backgroundAgents). */
 const backgroundAgents = new Map<string, BackgroundAgent[]>();
-const BACKGROUND_POLL_MS = 30_000;
+/** The poll's own tick; whether a listing is due on it is `backgroundPollDue`'s call. */
+const BACKGROUND_TICK_MS = 30_000;
+let backgroundPolledAt = 0;
 const BACKGROUND_FIRST_POLL_MS = 15_000;
 
 function backgroundNavigationId(machineId: string, id: string): string { return `bg:${machineId}:${id}`; }
@@ -624,6 +641,7 @@ function backgroundNavigationId(machineId: string, id: string): string { return 
 async function refreshBackgroundAgents(): Promise<void> {
   // "Update all" stops every claude before replacing it; a listing would start one again.
   if (claudeUpdateRunning) return;
+  backgroundPolledAt = Date.now();
   const machines = [LOCAL_MACHINE_ID, ...[...live.values()].map((l) => l.machineId).filter((m) => m !== LOCAL_MACHINE_ID && machineState(m) === 'connected')];
   let changed = false;
   for (const machineId of new Set(machines)) {
@@ -1261,6 +1279,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
     machineId, tileId: adopted.tileId ?? createCockpitTileId(), session, term, fit, search, el,
     lastDataAt: Date.now(), lastInputAt: 0, recentOutput: '', native: null,
     openedSessionId: res.sessionId ?? null, openedAt: Date.now(), idCheckAt: Date.now(),
+    providerCheckAt: 0, screenDirtyAt: Date.now(), screenText: '', screenScanAt: 0,
     labelVersion: hasLabelVersion(res) ? { instanceId: res.instanceId, labelRevision: res.labelRevision } : null,
     customLabel: adopting ? adopted.label : null, meta: null, pinned: adopted.pinned, lastSelectedAt: Date.now(),
     offline: false, detachedAt: null, offlineToldAt: 0,
@@ -1543,6 +1562,7 @@ function flushReplayHold(l: Live): void {
   const held = l.replayPending;
   l.replayPending = null;
   if (held?.length) l.term.write(held.join(''));
+  l.screenDirtyAt = Date.now(); // the replayed screen (and anything held behind it) is on the terminal now
 }
 
 /**
@@ -1831,8 +1851,12 @@ async function refreshSessionId(id: string): Promise<void> {
  *  store. Main answers from the pty's process tree; null (bare prompt / probe failed) keeps what we have.
  *  On a change the tile's session id is dropped: it named a conversation in the OLD provider's store,
  *  and the id probe re-adopts the new provider's live one on the next tick. */
-async function refreshProvider(id: string): Promise<void> {
+async function refreshProvider(id: string, opts: { onlyIfOutput?: boolean } = {}): Promise<void> {
   const l = live.get(id); if (!l || l.session.status === 'exited') return;
+  // Main answers off a listing of every process (PowerShell on Windows, ~500 ms); only a tile that
+  // printed since the last probe can be running something else.
+  if (opts.onlyIfOutput && !agentProbeDue({ lastDataAt: l.lastDataAt, probedAt: l.providerCheckAt })) return;
+  l.providerCheckAt = Date.now(); // before the hop: output during the probe is seen next tick, not lost
   let actual: AgentId | null = null;
   try { actual = await deckFor(l.machineId).cockpit.liveAgent(id); } catch { return; }
   if (!actual || actual === l.session.agentId || !live.has(id)) return; // tile may have closed mid-await
@@ -1873,7 +1897,21 @@ async function refreshGit(id: string): Promise<void> {
 // re-spawning git every tick is pure waste (matters most with many concurrent sessions).
 // The provider check runs BEFORE the id check so a re-attributed tile resolves its new id against the
 // right store on the same tick (one process listing in main is shared by every tile).
-function refreshAllMeta(): void { if (editingId) return; for (const [id, l] of live) { if (l.session.status === 'exited') continue; void refreshProvider(id).then(() => refreshSessionId(id)); void refreshMeta(id); void refreshGit(id); void refreshWorktree(id); } }
+let metaTick = 0;
+function refreshAllMeta(): void {
+  if (editingId) return;
+  const tick = metaTick++;
+  for (const [id, l] of live) {
+    if (l.session.status === 'exited') continue;
+    // The agent probe lists every process on the machine; a tile that printed nothing cannot have
+    // changed agent, so it keeps what it has (the update-restart path still probes every tile).
+    void refreshProvider(id, { onlyIfOutput: true }).then(() => refreshSessionId(id));
+    void refreshMeta(id);
+    // Git is two processes per tile, more for a workspace: the selected tile every tick, the
+    // others' rows every fourth, none while the window is hidden. A select refreshes at once.
+    if (gitRefreshDue({ tick, selected: id === selectedId, windowHidden: document.hidden })) { void refreshGit(id); void refreshWorktree(id); }
+  }
+}
 
 /**
  * Hide every terminal in the pane, by DOM rather than by walking `live`.
@@ -2014,7 +2052,10 @@ function tickActivity(): void {
   let changed = false;
   for (const l of live.values()) {
     const prev = l.session.activity;
-    const screenText = liveScreenTail(l);
+    // Reading the screen walks up to 12 rows of the terminal's buffer; a tile whose terminal was not
+    // written to since the last tick (and a moment for xterm to draw it) still shows what it showed then.
+    if (screenScanDue({ writtenAt: l.screenDirtyAt, scannedAt: l.screenScanAt })) { l.screenScanAt = now; l.screenText = liveScreenTail(l); }
+    const screenText = l.screenText;
     // spinnerReliable: only Claude's spinner glyph is one we match, so only there can we trust "spinner
     // gone ⇒ turn" and skip the timing hysteresis (avoids 작업중 lingering ~10s after each Claude turn).
     const next = l.offline && l.session.status !== 'exited' ? 'offline'
