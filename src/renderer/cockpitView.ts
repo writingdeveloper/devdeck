@@ -668,8 +668,11 @@ async function closeBackgroundAgents(ids: readonly string[], ask: boolean): Prom
       toast(tr('cockpit.bg_closed', { name: nameOf(agent) }));
     } else if (result.error === 'host-too-old') {
       toast(tr('cockpit.bg_close_old_host', { machine: machineName(machineId) }));
-    } else {
+    } else if (machineId === LOCAL_MACHINE_ID) {
       toast(tr('cockpit.bg_close_failed', { name: nameOf(agent), id: agent.id }));
+    } else {
+      // The command has to run on the PC that has the session — the one named here, not this one.
+      toast(tr('cockpit.bg_close_failed_on_machine', { name: nameOf(agent), id: agent.id, machine: machineName(machineId) }));
     }
   }
   publishCockpitNavigation();
