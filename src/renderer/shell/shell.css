@@ -120,6 +120,9 @@
   color: var(--dd-text-faint); cursor: pointer; opacity: 0;
 }
 .shell-group-heading { display: flex; align-items: center; }
+/* The heading proper (the fold toggle with name and count) fills the bar; the checkbox and the bulk
+   close sit beside it, outside the section's accessible name. */
+.shell-group-title { flex: 1 1 auto; min-width: 0; display: flex; margin: 0; font-size: inherit; font-weight: inherit; }
 .shell-group-heading:hover .shell-group-bulk,
 .shell-group-heading:focus-within .shell-group-bulk { opacity: 1; }
 .shell-group-bulk:hover, .shell-group-bulk:focus-visible { background: var(--dd-surface-raised); color: var(--dd-destructive); opacity: 1; }
@@ -182,8 +185,46 @@
 .shell-session-wrap.is-selected .shell-session { background: color-mix(in srgb, var(--dd-accent, #58a6ff) 16%, transparent); box-shadow: inset 2px 0 0 var(--dd-accent, #58a6ff); }
 .shell-session.activity-offline .shell-entity-copy { opacity: .55; }
 .shell-session.activity-offline .shell-signal { background: transparent; border: 1px dashed var(--dd-text-faint); }
-.shell-selection { display: flex; align-items: center; gap: 6px; padding: 4px 8px; margin: 0 6px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--dd-surface-raised); font-size: 12px; }
-.shell-selection-count { flex: 1; min-width: 0; color: var(--dd-text); }
+.shell-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; margin: 0 6px 4px; border: 1px solid var(--dd-accent, #58a6ff); border-radius: 6px; background: var(--dd-surface-raised); font-size: 12px; }
+.shell-selection.hidden { display: none; }
+.shell-selection-count { flex: 1; min-width: 0; color: var(--dd-text); font-variant-numeric: tabular-nums; }
+.shell-selection .chip:disabled { opacity: .5; cursor: default; }
+/* The bar's Close is the destructive one and has to look it; the class existed, the style did not. */
+.chip.chip-danger { border-color: color-mix(in srgb, var(--dd-destructive) 60%, var(--dd-border)); color: var(--dd-destructive); }
+.chip.chip-danger:not(:disabled):hover, .chip.chip-danger:focus-visible { background: color-mix(in srgb, var(--dd-destructive) 14%, transparent); border-color: var(--dd-destructive); }
+
+/* The way INTO a selection. Ctrl+click was the only way, and nothing on screen said so, so decks
+   were closed one row at a time. A small, always-present button above the groups turns the mode on;
+   while it is on, the bar above takes its place. */
+.shell-session-tools { display: flex; justify-content: flex-end; padding: 2px 6px 0; }
+.shell-session-tools.hidden { display: none; }
+.shell-select-toggle {
+  position: relative; display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 8px;
+  border: 1px solid transparent; border-radius: var(--dd-radius-sm); background: transparent;
+  color: var(--dd-text-muted); font-size: var(--dd-fs-meta); cursor: pointer;
+}
+.shell-select-toggle:hover, .shell-select-toggle:focus-visible { background: var(--dd-surface-raised); color: var(--dd-text); border-color: var(--dd-border); }
+
+/* Checkboxes exist only in the mode: the rows stay as quiet as before until a selection is wanted.
+   Drawn with a box and a tick (not color alone) so a picked row reads the same in monochrome. */
+.shell-session-check, .shell-group-check {
+  display: none; flex: 0 0 auto; width: 16px; height: 16px; box-sizing: border-box;
+  align-items: center; justify-content: center;
+  border: 1.5px solid var(--dd-text-faint); border-radius: 4px; background: var(--dd-canvas); color: transparent;
+}
+.shell-session-check-mark { width: 12px; height: 12px; }
+#shell-session-groups.is-selecting .shell-session-check { display: inline-flex; }
+#shell-session-groups.is-selecting .shell-group-check { display: inline-flex; margin-right: 6px; padding: 0; cursor: pointer; }
+.shell-session-wrap.is-selected .shell-session-check,
+.shell-group-check.is-checked { border-color: var(--dd-accent, #58a6ff); background: var(--dd-accent, #58a6ff); color: #fff; }
+.shell-group-check.is-mixed { border-color: var(--dd-accent, #58a6ff); }
+.shell-group-check.is-mixed::after { content: ''; width: 8px; height: 2px; border-radius: 1px; background: var(--dd-accent, #58a6ff); }
+.shell-group-check.is-mixed .shell-session-check-mark { display: none; }
+.shell-group-check:focus-visible { outline: 2px solid var(--dd-accent, #58a6ff); outline-offset: 1px; }
+/* While picking, the rows are a list of checkboxes — the ⋯ and its hover affordance step back. */
+#shell-session-groups.is-selecting .shell-session-actions { opacity: .5; }
+/* A pinned row wears its pin: in the groups that come before "Pinned", pinning moves nothing. */
+.shell-session-pin { flex: 0 0 auto; width: 12px; height: 12px; color: var(--dd-text-faint); }
 
 .shell-collapsed-status {
   align-self: center; min-height: 26px; margin: 2px 0; padding: 0 7px;

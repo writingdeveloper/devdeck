@@ -17,11 +17,34 @@ export function renderLoadError(container: HTMLElement, retry: () => void): void
 
 /** Transient toast in the shared #toast-host (same pattern main.ts uses for main-process errors). */
 export function toast(message: string): void {
+  if (collecting) { collecting.push(message); return; }
   const host = document.getElementById('toast-host');
   if (!host) return;
   const el = document.createElement('div'); el.className = 'toast'; el.textContent = message;
   host.appendChild(el);
   setTimeout(() => el.remove(), 6000);
+}
+
+/** Messages gathered by collectToasts while it runs, or null outside one. */
+let collecting: string[] | null = null;
+
+/**
+ * Run a bulk action and show the toasts it raises as ONE toast when there are many.
+ *
+ * Closing a dozen sessions on a PC that refuses, or restoring ten saved entries for a PC that is
+ * offline, toasted once per row — a stack past the top of the window, every line saying the same
+ * thing with a different name. Up to two messages are shown as they are; more become one line from
+ * `summary`, which gets them all (the diagnostics log keeps the individual ones).
+ */
+export async function collectToasts<T>(run: () => Promise<T>, summary: (messages: string[]) => string): Promise<T> {
+  if (collecting) return run(); // already inside one: the outer collection takes these too
+  const mine: string[] = [];
+  collecting = mine;
+  try { return await run(); } finally {
+    collecting = null;
+    if (mine.length <= 2) for (const message of mine) toast(message);
+    else toast(summary(mine));
+  }
 }
 
 /** A toast that stays and can be rewritten while something long runs (a large file being sent). */

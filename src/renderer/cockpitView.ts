@@ -17,7 +17,8 @@ import { cockpitNavigationId, cockpitNavigationIdForRuntime, createCockpitTileId
 import { OPEN_FOLDER_MISSING, toAgentId, type AgentId, type OpenMode, type StaleLevel } from '../shared/types';
 import { createProviderLogo, providerName } from './providerLogo';
 import { tr, currentLang } from './i18n-runtime';
-import { toast, reportSaveError, progressToast } from './loadError';
+import { toast, reportSaveError, progressToast, undoToast, collectToasts } from './loadError';
+import { closeBreakdown, describeBreakdown } from '../shared/sessionSelection';
 import { setActiveUsageProvider } from './usageBar';
 import { reportShutdownActivity } from './shutdown';
 import { createIcon, type IconName } from './icons';
@@ -672,28 +673,76 @@ async function closeBackgroundAgents(ids: readonly string[], ask: boolean): Prom
   for (const id of ids) {
     const m = /^bg:(.+):([0-9a-f]+)$/i.exec(id);
     const agent = m ? backgroundAgents.get(m[1])?.find((x) => x.id === m[2]) : undefined;
-    if (m && agent) targets.push({ machineId: m[1], agent });
+    if (m && agent && !targets.some((t) => t.machineId === m[1] && t.agent.id === agent.id)) targets.push({ machineId: m[1], agent });
   }
   if (!targets.length) return;
   const nameOf = (a: BackgroundAgent): string => a.name ?? basename(a.cwd);
   if (ask && !(await confirmDialog(tr('cockpit.bg_close_confirm', { name: nameOf(targets[0].agent) }), tr('cockpit.close')))) return;
-  for (const { machineId, agent } of targets) {
-    const result = await deckFor(machineId).cockpit.backgroundClose(agent.id);
-    window.devdeck.logDiagnostic(`close background ${agent.id} on ${machineId === LOCAL_MACHINE_ID ? 'this pc' : machineName(machineId)}: ${result.ok ? 'removed' : result.error}`, result.ok ? 'info' : 'warn', 'sidebar');
-    if (result.ok) {
-      // Gone from the list it came from; drop the row now rather than at the next 30 s poll.
-      backgroundAgents.set(machineId, (backgroundAgents.get(machineId) ?? []).filter((x) => x.id !== agent.id));
-      toast(tr('cockpit.bg_closed', { name: nameOf(agent) }));
-    } else if (result.error === 'host-too-old') {
-      toast(tr('cockpit.bg_close_old_host', { machine: machineName(machineId) }));
-    } else if (machineId === LOCAL_MACHINE_ID) {
-      toast(tr('cockpit.bg_close_failed', { name: nameOf(agent), id: agent.id }));
-    } else {
-      // The command has to run on the PC that has the session — the one named here, not this one.
-      toast(tr('cockpit.bg_close_failed_on_machine', { name: nameOf(agent), id: agent.id, machine: machineName(machineId) }));
+  const many = targets.length > 1;
+  // Several at once: one progress line while they go, one summary after — not a toast per session.
+  // Each `claude stop` + `claude rm` is a process or two (and up to ten seconds more the first time
+  // the background service has to be started), so a dozen sessions take a while, and the rows leave
+  // the list one by one as they are confirmed gone.
+  const progress = many ? progressToast() : null;
+  let done = 0;
+  progress?.set(tr('cockpit.bg_closing', { done: '0', total: String(targets.length) }));
+  const closed: BackgroundAgent[] = [];
+  const failed: Array<{ machineId: string; agent: BackgroundAgent; error: string }> = [];
+  // Machines side by side; within a machine one after another, so that the first refusal starts
+  // its background service once and the rest find it running.
+  const byMachine = new Map<string, BackgroundAgent[]>();
+  for (const { machineId, agent } of targets) byMachine.set(machineId, [...(byMachine.get(machineId) ?? []), agent]);
+  await Promise.all([...byMachine].map(async ([machineId, agents]) => {
+    for (const agent of agents) {
+      const result = await deckFor(machineId).cockpit.backgroundClose(agent.id)
+        .catch((err): { ok: false; error: 'failed'; detail: string } => ({ ok: false, error: 'failed', detail: String(err) }));
+      window.devdeck.logDiagnostic(`close background ${agent.id} on ${machineId === LOCAL_MACHINE_ID ? 'this pc' : machineName(machineId)}: ${result.ok ? 'removed' : result.error}`, result.ok ? 'info' : 'warn', 'sidebar');
+      if (result.ok) {
+        // Gone from the list it came from; drop the row now rather than at the next poll.
+        backgroundAgents.set(machineId, (backgroundAgents.get(machineId) ?? []).filter((x) => x.id !== agent.id));
+        closed.push(agent);
+      } else failed.push({ machineId, agent, error: result.error });
+      done += 1;
+      progress?.set(tr('cockpit.bg_closing', { done: String(done), total: String(targets.length) }));
+      publishCockpitNavigation();
     }
+  }));
+  progress?.close();
+  if (!many) {
+    const { machineId, agent } = targets[0];
+    const failure = failed[0];
+    if (!failure) toast(tr('cockpit.bg_closed', { name: nameOf(agent) }));
+    else if (failure.error === 'host-too-old') toast(tr('cockpit.bg_close_old_host', { machine: machineName(machineId) }));
+    else if (machineId === LOCAL_MACHINE_ID) toast(tr('cockpit.bg_close_failed', { name: nameOf(agent), id: agent.id }));
+    // The command has to run on the PC that has the session — the one named here, not this one.
+    else toast(tr('cockpit.bg_close_failed_on_machine', { name: nameOf(agent), id: agent.id, machine: machineName(machineId) }));
+  } else {
+    if (closed.length) toast(tr('cockpit.bg_closed_many', { n: String(closed.length) }));
+    for (const machineId of new Set(failed.filter((f) => f.error === 'host-too-old').map((f) => f.machineId))) {
+      toast(tr('cockpit.bg_close_old_host', { machine: machineName(machineId) }));
+    }
+    const refused = failed.filter((f) => f.error !== 'host-too-old');
+    if (refused.length) toast(tr('cockpit.bg_close_failed_many', { n: String(refused.length), names: refused.map((f) => nameOf(f.agent)).join(', ') }));
   }
   publishCockpitNavigation();
+}
+
+/**
+ * Among these sidebar rows, the live tiles attached to one of Claude's background sessions (on the
+ * tile's own machine), with the session each is attached to. Closing such a tile ends only the
+ * `claude attach`: the session runs on, and its row comes straight back under "Background" to be
+ * closed a second time — so a close of the tile offers to end the session too.
+ */
+function attachedBackground(ids: readonly string[]): Array<{ machineId: string; agent: BackgroundAgent }> {
+  const out: Array<{ machineId: string; agent: BackgroundAgent }> = [];
+  for (const id of ids) {
+    if (id.startsWith('bg:')) continue;
+    const l = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
+    if (!l?.openedSessionId || l.session.agentId !== 'claude') continue;
+    const agent = backgroundAgents.get(l.machineId)?.find((b) => b.sessionId === l.openedSessionId);
+    if (agent && !out.some((o) => o.machineId === l.machineId && o.agent.id === agent.id)) out.push({ machineId: l.machineId, agent });
+  }
+  return out;
 }
 
 /** One-release migration map for shell contexts saved before opaque tile identities existed. */
@@ -2393,7 +2442,17 @@ export function manageCockpitSessionAction(id: string, action: ShellSessionActio
   }
   const entry = restorable.find((item) => cockpitNavigationId(item) === id || legacyCockpitNavigationId(item) === id);
   if (!entry) return;
-  if (action === 'forget') { forgetSession(entry); return; }
+  if (action === 'forget') {
+    // The one destructive row action with no question: it is a saved entry, not a running agent,
+    // so it goes at once — with a way back, since the ⋯ menu puts it right under Pin.
+    forgetSession(entry);
+    undoToast(tr('cockpit.forgot', { name: entry.label ?? entry.name }), tr('shell.undo'), () => {
+      if (restorable.includes(entry)) return;
+      restorable = [entry, ...restorable];
+      persist(); renderList();
+    });
+    return;
+  }
   if (action === 'rename' || action === 'close') return; // no terminal to rename or close yet
   entry.pinned = action === 'pin' ? true : undefined;
   persist(); renderList();
@@ -2414,47 +2473,85 @@ export async function closeCockpitSessionGroup(group: ShellSessionGroup): Promis
   if (!ids.length) return;
   const forgetting = group.kind === 'previous';
   const name = group.kind === 'remote' ? (group.machineLabel ?? '') : tr(GROUP_CONFIRM_LABELS[group.kind]);
-  const ok = await confirmDialog(
-    tr(forgetting ? 'shell.forget_group_confirm' : 'shell.close_group_confirm', { n: String(ids.length), name }),
-    tr(forgetting ? 'cockpit.forget' : 'cockpit.close'),
-  );
-  if (!ok) return;
-  window.devdeck.logDiagnostic(`bulk ${forgetting ? 'forget' : 'close'} ${ids.length} in ${group.key}`, 'info', 'sidebar');
-  void closeBackgroundAgents(ids.filter((id) => id.startsWith('bg:')), false); // asked above, once
-  for (const id of ids) {
-    if (id.startsWith('bg:')) continue;
-    // Resolved per id at the moment it is acted on: the list was captured before the confirmation,
-    // and a session can exit or be closed while the question is on screen.
-    const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
-    if (current) { closeSession(current.session.id); continue; }
-    const entry = restorable.find((item) => cockpitNavigationId(item) === id);
-    if (entry) restorable = restorable.filter((r) => r !== entry);
-  }
-  persist();
-  renderList();
+  await closeRows(ids, {
+    question: tr(forgetting ? 'shell.forget_group_confirm' : 'shell.close_group_confirm', { n: String(ids.length), name }),
+    confirmLabel: tr(forgetting ? 'cockpit.forget' : 'cockpit.close'),
+    log: `bulk ${forgetting ? 'forget' : 'close'} ${ids.length} in ${group.key}`,
+  });
 }
 
 /**
  * Close (or forget) the sessions the person selected in the sidebar, asked about once.
  *
- * Groups close whole headings; this closes exactly what was picked — Ctrl+click and Shift+click in
- * the sidebar — because "these six, but not that one" is how a deck actually gets tidied.
+ * Groups close whole headings; this closes exactly what was picked — the Select button's checkboxes,
+ * Ctrl+click and Shift+click in the sidebar — because "these six, but not that one" is how a deck
+ * actually gets tidied.
  */
 export async function closeCockpitSessions(ids: readonly string[]): Promise<boolean> {
   if (!ids.length) return false;
-  const ok = await confirmDialog(tr('shell.close_selected_confirm', { n: String(ids.length) }), tr('cockpit.close'));
-  if (!ok) return false;
-  window.devdeck.logDiagnostic(`bulk close ${ids.length} selected`, 'info', 'sidebar');
-  void closeBackgroundAgents(ids.filter((id) => id.startsWith('bg:')), false); // asked above, once
-  for (const id of ids) {
-    if (id.startsWith('bg:')) continue;
-    const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
-    if (current) { closeSession(current.session.id); continue; }
-    const entry = restorable.find((item) => cockpitNavigationId(item) === id);
-    if (entry) restorable = restorable.filter((r) => r !== entry);
+  // One picked row gets the single row's own question ("Close session 'x'?"), not "1 sessions".
+  const one = ids.length === 1 ? cockpitNavigationItems().find((item) => item.id === ids[0]) : undefined;
+  const question = !one ? tr('shell.close_selected_confirm', { n: String(ids.length) })
+    : one.backgroundAgent ? tr('cockpit.bg_close_confirm', { name: one.label })
+      : one.previous ? tr('shell.forget_group_confirm', { n: '1', name: one.label })
+        : one.machineId && one.machineId !== LOCAL_MACHINE_ID ? tr('cockpit.close_confirm_remote', { name: one.label, machine: machineName(one.machineId) })
+          : tr('cockpit.close_confirm', { name: one.label });
+  return closeRows(ids, {
+    question,
+    confirmLabel: tr(one?.previous ? 'cockpit.forget' : 'cockpit.close'),
+    log: `bulk close ${ids.length} selected`,
+  });
+}
+
+/**
+ * Close (or forget) a set of sidebar rows, asked about ONCE — and the question says what the set
+ * holds: how many here, how many on which other PC (each of those stops an agent in front of
+ * someone else), how many background, how many saved. When some of the tiles are attached to Claude
+ * background sessions it also offers to end those, since closing only the tile leaves the session
+ * running and its row straight back under "Background".
+ *
+ * The tiles go first, in one batch: with a dozen of them, re-selecting and re-rendering after each
+ * one was a visible stall, so the pane settles once at the end. Background sessions go after the
+ * tiles (their `claude attach` must be gone before `claude stop`), with their own progress.
+ */
+async function closeRows(ids: readonly string[], opts: { question: string; confirmLabel: string; log: string }): Promise<boolean> {
+  const parts = describeBreakdown(closeBreakdown(cockpitNavigationItems(), ids), {
+    local: (n) => tr('shell.close_breakdown_local', { n: String(n) }),
+    remote: (n, machine) => tr('shell.close_breakdown_remote', { n: String(n), machine }),
+    background: (n) => tr('shell.close_breakdown_background', { n: String(n) }),
+    previous: (n) => tr('shell.close_breakdown_previous', { n: String(n) }),
+  });
+  const attached = attachedBackground(ids);
+  const message = parts.length > 1 ? `${opts.question}\n${parts.join(' · ')}` : opts.question;
+  const option = attached.length ? { label: tr('cockpit.close_also_background', { n: String(attached.length) }), checked: true } : undefined;
+  const answer = await openConfirm(message, opts.confirmLabel, option);
+  if (!answer.ok) return false;
+  window.devdeck.logDiagnostic(opts.log, 'info', 'sidebar');
+  const delivered: Promise<boolean>[] = [];
+  closingMany = true;
+  try {
+    for (const id of ids) {
+      if (id.startsWith('bg:')) continue;
+      // Resolved per id at the moment it is acted on: the list was captured before the confirmation,
+      // and a session can exit or be closed while the question is on screen.
+      const current = [...live.values()].find((entry) => navigationIdForLive(entry) === id);
+      if (current) { delivered.push(closeSession(current.session.id)); continue; }
+      const entry = restorable.find((item) => cockpitNavigationId(item) === id);
+      if (entry) restorable = restorable.filter((r) => r !== entry);
+    }
+  } finally {
+    closingMany = false;
   }
+  settleAfterBulkClose();
   persist();
-  renderList();
+  // Closes on other PCs answer later, and each refusal or owed close toasts: for a group of them,
+  // one line instead of a stack.
+  if (delivered.length > 2) {
+    void collectToasts(() => Promise.allSettled(delivered), (messages) => tr('cockpit.bulk_notices', { first: messages[0], m: String(messages.length - 1) }));
+  }
+  const background = ids.filter((id) => id.startsWith('bg:'));
+  if (answer.checked) for (const { machineId, agent } of attached) background.push(backgroundNavigationId(machineId, agent.id));
+  void closeBackgroundAgents(background, false); // asked above, once
   return true;
 }
 
@@ -2792,6 +2889,28 @@ function waitForExit(id: string, timeoutMs: number): Promise<void> {
 
 /** Small in-app confirmation modal (a DOM overlay, NOT window.confirm). Resolves true on confirm. */
 function confirmDialog(message: string, confirmLabel: string): Promise<boolean> {
+  return openConfirm(message, confirmLabel).then((answer) => answer.ok);
+}
+
+/** The confirmation that is on screen, if any: a second question is never stacked on the first. */
+let confirmOpen = false;
+
+/**
+ * The confirmation, with an optional checkbox for one more thing the action may do ("also end the
+ * background session"), answered in the same breath. `checked` is the box's final state, false
+ * when there was none.
+ *
+ * One at a time: a ⋯ menu that stayed open above the first question could ask a second, and one
+ * Enter then answered both. While it is open, keyboard chords (the quick-open palette and the like)
+ * are kept out of the app behind it, so focus cannot leave the question and a later Enter cannot
+ * land on it from somewhere else.
+ */
+function openConfirm(message: string, confirmLabel: string, option?: { label: string; checked: boolean }): Promise<{ ok: boolean; checked: boolean }> {
+  if (confirmOpen) return Promise.resolve({ ok: false, checked: false });
+  confirmOpen = true;
+  // The keyboard goes back where it was (the row, the bar's Close, the ⋯ item): after Cancel, a
+  // second Delete or Enter should act on the same thing, not on nothing.
+  const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   return new Promise((resolve) => {
     const overlay = document.createElement('div'); overlay.className = 'ck-confirm-overlay';
     const panel = document.createElement('div'); panel.className = 'ck-confirm';
@@ -2800,29 +2919,50 @@ function confirmDialog(message: string, confirmLabel: string): Promise<boolean> 
     // stray text over the terminal, with no indication that the app is waiting on an answer.
     panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-label', message);
     const msg = document.createElement('div'); msg.className = 'ck-confirm-msg'; msg.textContent = message;
+    let box: HTMLInputElement | null = null;
+    const extra: HTMLElement[] = [];
+    if (option) {
+      const label = document.createElement('label'); label.className = 'ck-confirm-option';
+      box = document.createElement('input'); box.type = 'checkbox'; box.checked = option.checked;
+      label.append(box, document.createTextNode(option.label));
+      extra.push(label);
+    }
     const acts = document.createElement('div'); acts.className = 'ck-confirm-acts';
     const cancel = document.createElement('button'); cancel.className = 'ck-confirm-cancel'; cancel.textContent = tr('cockpit.cancel');
     const ok = document.createElement('button'); ok.className = 'ck-confirm-ok'; ok.textContent = confirmLabel;
-    const done = (v: boolean) => { document.removeEventListener('keydown', onKey, true); overlay.remove(); resolve(v); };
+    const stops: HTMLElement[] = [...(box ? [box] : []), cancel, ok];
+    const done = (v: boolean) => {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove(); confirmOpen = false;
+      if (before?.isConnected && !before.closest('.hidden')) before.focus();
+      resolve({ ok: v, checked: v && box ? box.checked : false });
+    };
     const onKey = (e: KeyboardEvent) => {
-      // Tab stays between the two buttons: the terminal behind this is focusable, and tabbing into it
+      // Tab stays inside the question: the terminal behind this is focusable, and tabbing into it
       // leaves the question open with the caret somewhere that will answer it by accident.
       if (e.key === 'Tab') {
         e.preventDefault(); e.stopPropagation();
-        (document.activeElement === ok ? cancel : ok).focus();
+        const at = stops.indexOf(document.activeElement as HTMLElement);
+        stops[(at + (e.shiftKey ? -1 : 1) + stops.length) % stops.length].focus();
         return;
       }
+      // A chord (Ctrl+Shift+P…) would move focus behind the question; nothing else is listening.
+      if (e.ctrlKey || e.metaKey || e.altKey) { e.stopPropagation(); return; }
       if (e.key !== 'Escape' && e.key !== 'Enter') return;
       e.preventDefault(); e.stopPropagation(); // keep Esc/Enter inside the dialog (don't leak to terminal/rename)
-      // Enter presses the FOCUSED button. Confirming regardless meant tabbing to Cancel and pressing
-      // Enter closed (or restarted) the sessions anyway.
+      // A key held down from before the question appeared (auto-repeat) is not an answer to it.
+      if (e.repeat) return;
+      // Enter presses the FOCUSED button, and only one inside this question. Confirming regardless
+      // meant tabbing to Cancel and pressing Enter closed (or restarted) the sessions anyway.
+      if (e.key === 'Enter' && !panel.contains(document.activeElement)) { ok.focus(); return; }
+      if (e.key === 'Enter' && document.activeElement === box) { box!.checked = !box!.checked; return; }
       done(e.key === 'Enter' && document.activeElement !== cancel);
     };
     cancel.addEventListener('click', () => done(false));
     ok.addEventListener('click', () => done(true));
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) done(false); });
     document.addEventListener('keydown', onKey, true);
-    acts.append(cancel, ok); panel.append(msg, acts); overlay.append(panel);
+    acts.append(cancel, ok); panel.append(msg, ...extra, acts); overlay.append(panel);
     document.body.appendChild(overlay);
     ok.focus();
   });
@@ -2836,19 +2976,31 @@ async function requestClose(id: string): Promise<void> {
   const question = l.machineId === LOCAL_MACHINE_ID
     ? tr('cockpit.close_confirm', { name })
     : tr('cockpit.close_confirm_remote', { name, machine: machineName(l.machineId) });
-  if (await confirmDialog(question, tr('cockpit.close'))) closeSession(id);
+  // A tile attached to one of Claude's background sessions: closing it alone leaves the session
+  // running, and its row comes straight back under "Background" — so the question offers both.
+  const attached = attachedBackground([navigationIdForLive(l)]);
+  const answer = await openConfirm(question, tr('cockpit.close'), attached.length ? { label: tr('cockpit.close_also_background_one'), checked: true } : undefined);
+  if (!answer.ok || !live.has(id)) return;
+  closeSession(id);
+  if (answer.checked) void closeBackgroundAgents(attached.map(({ machineId, agent }) => backgroundNavigationId(machineId, agent.id)), false);
 }
 
-function closeSession(id: string): void {
-  const l = live.get(id); if (!l) return;
+/** Close a tile. Resolves once the machine running it has answered — at once for this PC. */
+function closeSession(id: string): Promise<boolean> {
+  const l = live.get(id); if (!l) return Promise.resolve(false);
   // Remembered BEFORE anything is sent: the machine's next announcement can be one it made before it
   // processed this close, and it must not bring the tile straight back (see CloseTombstones).
   closedTiles.add(l.machineId, id);
-  if (l.machineId === LOCAL_MACHINE_ID) window.devdeck.cockpit.close(id);
-  else void deliverClose(l.machineId, id, liveLabels.get(id) ?? l.customLabel ?? l.session.name);
+  let delivered: Promise<boolean>;
+  if (l.machineId === LOCAL_MACHINE_ID) { window.devdeck.cockpit.close(id); delivered = Promise.resolve(true); }
+  else delivered = deliverClose(l.machineId, id, liveLabels.get(id) ?? l.customLabel ?? l.session.name);
   removeTile(l);
-  persist(); // close = forget (the closed session drops out of persistence)
+  if (!closingMany) persist(); // close = forget (the closed session drops out of persistence); a batch persists once
+  return delivered;
 }
+
+/** Set while a bulk close takes tiles down: the pane settles once afterwards, not after each one. */
+let closingMany = false;
 
 /**
  * Take a tile off the screen and out of `live`, and hand the selection to the session that was
@@ -2857,12 +3009,21 @@ function closeSession(id: string): void {
 function removeTile(l: Live): void {
   const id = l.session.id;
   l.term.dispose(); l.el.remove(); live.delete(id); updateRailBadge();
+  if (closingMany) { if (selectedId === id) selectedId = null; return; } // settleAfterBulkClose does the rest, once
   if (selectedId === id) {
     const next = [...live.values()].sort((a, b) => b.lastSelectedAt - a.lastSelectedAt)[0]?.session.id ?? null;
     selectedId = null;
     if (next) select(next);
     else { hideAllTerminals(); setActiveUsageProvider(null); renderAll(); mainEl.classList.toggle('has-session', false); } // no session → footer goes back to the cross-provider max
   } else renderList();
+}
+
+/** After a batch of removeTile calls: select what is left (most recently looked at), or show the empty pane. */
+function settleAfterBulkClose(): void {
+  if (selectedId !== null) { renderList(); return; }
+  const next = [...live.values()].sort((a, b) => b.lastSelectedAt - a.lastSelectedAt)[0]?.session.id ?? null;
+  if (next) select(next);
+  else { hideAllTerminals(); setActiveUsageProvider(null); renderAll(); mainEl.classList.toggle('has-session', false); }
 }
 
 /** Closes owed to a machine that could not be reached when they were pressed. */
@@ -3115,7 +3276,8 @@ function renameInput(id: string, current: string): HTMLElement {
 }
 
 async function restoreAll(): Promise<void> {
-  await restoreInTurn([...restorable]);
+  // Ten saved entries for a PC that is offline toasted ten times; one line says it once.
+  await collectToasts(() => restoreInTurn([...restorable]), (messages) => tr('cockpit.bulk_notices', { first: messages[0], m: String(messages.length - 1) }));
 }
 
 function forgetSession(entry: PersistedSession): void {

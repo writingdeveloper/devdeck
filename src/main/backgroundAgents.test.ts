@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const spawn = vi.fn();
@@ -84,5 +87,64 @@ describe('closing a background session when the background service is not runnin
     expect(await m.closeBackgroundAgent('00cf1408', LISTED)).toEqual({ ok: false, error: 'not-listed' });
     expect(await m.closeBackgroundAgent('8e64da40; rm -rf /', LISTED)).toEqual({ ok: false, error: 'bad-id' });
     expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
+describe('listing off the job records before starting a claude process', () => {
+  const LISTING = JSON.stringify([{ id: '8e64da40', cwd: 'C:/g/shipwright', kind: 'background', startedAt: 1, sessionId: '8e64da40-4c50-4e80-ae72-bddba02e6bcb', name: 'triage', state: 'blocked' }]);
+  const dirs: string[] = [];
+  const jobsDir = (): string => { const d = mkdtempSync(join(tmpdir(), 'devdeck-jobs-')); dirs.push(d); return d; };
+  const record = (dir: string, id: string, body = '{}'): void => { mkdirSync(join(dir, id), { recursive: true }); writeFileSync(join(dir, id, 'state.json'), body); };
+  afterEach(async () => {
+    const m = await import('./backgroundAgents.js'); m._clearBackgroundAgentCache(); spawn.mockReset();
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it('answers an empty list without starting claude when there are no records (or no folder)', async () => {
+    fakeClaude(() => ({ code: 0 }));
+    const m = await import('./backgroundAgents.js');
+    const dir = jobsDir();
+    writeFileSync(join(dir, 'pins.json'), '[]'); // not a record
+    expect(await m.listBackgroundAgents(Date.now(), { jobsDir: dir })).toEqual([]);
+    m._clearBackgroundAgentCache();
+    expect(await m.listBackgroundAgents(Date.now(), { jobsDir: join(dir, 'missing') })).toEqual([]);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('runs the listing when a record exists, and not again while the records are unchanged', async () => {
+    spawn.mockImplementation((_file: string, args: string[]) => {
+      const child = Object.assign(new EventEmitter(), { stdout: new EventEmitter(), stderr: new EventEmitter(), pid: 1, kill: () => true, unref: () => undefined });
+      setTimeout(() => { if (args[0] === 'agents') child.stdout.emit('data', Buffer.from(LISTING)); child.emit('close', 0); }, 0);
+      return child;
+    });
+    const m = await import('./backgroundAgents.js');
+    const dir = jobsDir();
+    record(dir, '8e64da40');
+    const t0 = Date.now();
+    const first = await m.listBackgroundAgents(t0, { jobsDir: dir });
+    expect(first.map((b) => b.id)).toEqual(['8e64da40']);
+    expect(calls()).toEqual(['agents --json --all']);
+    // Past the short cache, same records: the last answer, no process.
+    expect(await m.listBackgroundAgents(t0 + 60_000, { jobsDir: dir })).toBe(first);
+    expect(calls()).toHaveLength(1);
+    // A record changed (the session moved on, or one was added): the listing runs again.
+    record(dir, '8e64da40', '{"state":"idle"}');
+    expect(await m.listBackgroundAgents(t0 + 120_000, { jobsDir: dir })).toEqual(first);
+    expect(calls()).toHaveLength(2);
+    // Unchanged for longer than the reuse window: listed again regardless.
+    expect(await m.listBackgroundAgents(t0 + 120_000 + 6 * 60_000, { jobsDir: dir })).toEqual(first);
+    expect(calls()).toHaveLength(3);
+  });
+
+  it('signs the records by name, change time and size, ignoring other files', async () => {
+    const m = await import('./backgroundAgents.js');
+    const dir = jobsDir();
+    writeFileSync(join(dir, 'pins.json'), '[]');
+    expect(await m.jobRecordsSignature(dir)).toBe('');
+    record(dir, 'b54cc363', '{"a":1}');
+    record(dir, '09644674', '{"a":1}');
+    const sig = await m.jobRecordsSignature(dir);
+    expect(sig).toMatch(/^09644674:\d+:7\|b54cc363:\d+:7$/);
+    expect(await m.jobRecordsSignature(join(dir, 'nope'))).toBe('');
   });
 });

@@ -2,7 +2,7 @@ export type IconName =
   | 'search' | 'projects' | 'sessions' | 'tasks' | 'usage'
   | 'settings' | 'refresh' | 'more' | 'play' | 'panel-left'
   | 'folder' | 'plus' | 'restart' | 'close' | 'pin' | 'edit' | 'brain' | 'clock'
-  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power' | 'globe' | 'machine' | 'image' | 'paperclip' | 'download' | 'copy' | 'terminal' | 'reply' | 'timeline' | 'pen' | 'send' | 'undo' | 'square' | 'arrow' | 'branch';
+  | 'trash' | 'chevron-left' | 'chevron-right' | 'chevron-down' | 'minimize' | 'maximize' | 'restore' | 'moon' | 'power' | 'globe' | 'machine' | 'image' | 'paperclip' | 'download' | 'copy' | 'terminal' | 'reply' | 'timeline' | 'pen' | 'send' | 'undo' | 'square' | 'arrow' | 'branch' | 'check' | 'select';
 
 const paths: Record<IconName, string> = {
   search: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>',
@@ -51,6 +51,9 @@ const paths: Record<IconName, string> = {
   square: '<rect x="4" y="4" width="16" height="16" rx="1.5"></rect>',
   arrow: '<path d="M5 19 19 5"></path><path d="M10 5h9v9"></path>',
   branch: '<circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="7" r="2"></circle><path d="M6 7v10"></path><path d="M18 9c0 5-6 4-12 8"></path>',
+  // A tick on its own (inside a row's checkbox) and a ticked box (the Select button).
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"></path>',
+  select: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"></rect><path d="m7.5 12 3 3 6-6.5"></path>',
 };
 
 export function iconMarkup(name: IconName): string {
