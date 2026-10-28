@@ -100,15 +100,21 @@ describe('listing off the job records before starting a claude process', () => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
-  it('answers an empty list without starting claude when there are no records (or no folder)', async () => {
+  it('with no records (or no folder) still asks claude once, then reuses the answer for five minutes', async () => {
+    // The records only stretch the cache: a claude that keeps its records elsewhere (or a fake one
+    // in a harness) must still be asked — just not every poll.
     fakeClaude(() => ({ code: 0 }));
     const m = await import('./backgroundAgents.js');
     const dir = jobsDir();
     writeFileSync(join(dir, 'pins.json'), '[]'); // not a record
-    expect(await m.listBackgroundAgents(Date.now(), { jobsDir: dir })).toEqual([]);
-    m._clearBackgroundAgentCache();
-    expect(await m.listBackgroundAgents(Date.now(), { jobsDir: join(dir, 'missing') })).toEqual([]);
-    expect(spawn).not.toHaveBeenCalled();
+    const t0 = Date.now();
+    expect(await m.listBackgroundAgents(t0, { jobsDir: dir })).toEqual([]);
+    expect(calls()).toEqual(['agents --json --all']);
+    expect(await m.listBackgroundAgents(t0 + 60_000, { jobsDir: dir })).toEqual([]);
+    expect(await m.listBackgroundAgents(t0 + 240_000, { jobsDir: join(dir, 'missing') })).toEqual([]);
+    expect(calls()).toHaveLength(1);
+    expect(await m.listBackgroundAgents(t0 + 6 * 60_000, { jobsDir: dir })).toEqual([]);
+    expect(calls()).toHaveLength(2);
   });
 
   it('runs the listing when a record exists, and not again while the records are unchanged', async () => {
