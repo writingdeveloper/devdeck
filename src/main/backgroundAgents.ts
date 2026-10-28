@@ -33,8 +33,10 @@ export async function pauseBackgroundAgents(on: boolean): Promise<void> {
  * Claude Code process (~340 ms, a 300 MB executable) started every poll, here and on every paired
  * PC, almost always to answer what it answered last time. It reads the job records under
  * `~/.claude/jobs`, so those are looked at first (a readdir and a stat per record, about a
- * millisecond): no records means no sessions and no process; records unchanged since the last
- * listing means the last answer, for up to five minutes; only a change runs the command.
+ * millisecond): records unchanged since the last listing — including none at all — mean the last
+ * answer holds, for up to five minutes; a change runs the command at once. The records only
+ * stretch the cache, they never replace the command: a `claude` that keeps its records elsewhere
+ * (or a fake one in a harness) is still asked, at the slow cadence.
  */
 export async function listBackgroundAgents(nowMs = Date.now(), opts: { jobsDir?: string } = {}): Promise<BackgroundAgent[]> {
   if (paused) return cached?.list ?? [];
@@ -42,7 +44,6 @@ export async function listBackgroundAgents(nowMs = Date.now(), opts: { jobsDir?:
   if (inFlight) return inFlight;
   inFlight = (async () => {
     const records = await jobRecordsSignature(opts.jobsDir ?? JOBS_DIR);
-    if (records === '') return { list: [], records, listedAt: nowMs };
     if (cached && records !== null && cached.records === records && nowMs - cached.listedAt < UNCHANGED_RELIST_MS) {
       return { list: cached.list, records, listedAt: cached.listedAt };
     }
