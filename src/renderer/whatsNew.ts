@@ -24,6 +24,7 @@ export interface Feature {
 
 /** Newest first. A feature's NEW dot is shown on its `target` until the person uses it. */
 export const FEATURES: readonly Feature[] = [
+  { id: 'multi-close', version: '1.49.0', icon: 'select', target: { view: 'cockpit', selector: '#shell-select-toggle' } },
   // No Show me: the ⋯ of a background row exists only while Claude has background sessions.
   { id: 'bg-close', version: '1.46.0', icon: 'close' },
   { id: 'send-any-file', version: '1.45.0', icon: 'paperclip', target: { view: 'cockpit', selector: '#ck-header .ck-attach-btn' } },

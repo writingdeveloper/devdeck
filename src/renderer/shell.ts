@@ -28,6 +28,11 @@ import {
   type ShellSessionInput,
 } from '../shared/shellNavigation';
 import type { ViewId } from './nav';
+import {
+  allSelected, beginSelecting, emptySelection, endSelecting, pruneSelection, rangeTo, selectAll, toggleGroup, toggleKey,
+  type SessionSelection,
+} from '../shared/sessionSelection';
+import { newDot } from './whatsNew';
 
 const viewIcons: Record<ViewId, IconName> = {
   projects: 'projects', usage: 'usage', settings: 'settings', next: 'tasks', cockpit: 'sessions',
@@ -129,6 +134,8 @@ export function mountShell(options: {
   const projectsToggle = document.getElementById('shell-projects-toggle') as HTMLButtonElement;
   const projectsMore = document.getElementById('shell-projects-more') as HTMLButtonElement;
   const restoreAll = document.getElementById('shell-restore-all') as HTMLButtonElement;
+  const sessionTools = document.getElementById('shell-session-tools')!;
+  const selectToggle = document.getElementById('shell-select-toggle') as HTMLButtonElement;
   const mobileToggle = document.getElementById('shell-mobile-toggle') as HTMLButtonElement;
   const mobileToggleLabel = document.getElementById('shell-mobile-toggle-label')!;
   const mobileBackdrop = document.getElementById('shell-mobile-backdrop') as HTMLButtonElement;
@@ -212,6 +219,40 @@ export function mountShell(options: {
     const row = focusedKey ? rows.get(focusedKey) : undefined;
     if (row && (document.activeElement === document.body || document.activeElement == null)) row.focus();
   };
+  /**
+   * Where the keyboard is inside the session list, as something that survives a re-render: a row's
+   * key plus which of its controls (the row, its ⋯, an item of its open menu), or a group's key plus
+   * which of its heading controls. Moving a section or a row in the DOM (every publish that
+   * reorders) blurs whatever was focused inside it; a row was already put back, but the ⋯ button,
+   * an open menu's item, a group's fold/check/close were not — a keyboard user lost the menu they
+   * were in every time a sibling changed state.
+   */
+  const focusedSessionControl = (): { wrapKey?: string; groupKey?: string; selector: string } | null => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLElement) || !sessionHost.contains(el)) return null;
+    const wrap = el.closest<HTMLElement>('.shell-session-wrap');
+    if (wrap) {
+      const key = wrap.querySelector<HTMLButtonElement>('.shell-session')?.dataset.shellEntityKey;
+      if (!key) return null;
+      if (el.classList.contains('shell-session')) return { wrapKey: key, selector: '.shell-session' };
+      if (el.classList.contains('shell-session-actions')) return { wrapKey: key, selector: '.shell-session-actions' };
+      if (el.classList.contains('shell-session-pick')) return { wrapKey: key, selector: '.shell-session-pick' };
+      if (el.dataset.sessionAction) return { wrapKey: key, selector: `[data-session-action="${el.dataset.sessionAction}"]` };
+      return null;
+    }
+    const section = el.closest<HTMLElement>('.shell-group');
+    if (!section?.dataset.groupKey) return null;
+    for (const cls of ['shell-group-toggle', 'shell-group-check', 'shell-group-bulk', 'shell-more']) {
+      if (el.classList.contains(cls)) return { groupKey: section.dataset.groupKey, selector: `.${cls}` };
+    }
+    return null;
+  };
+  const restoreFocusedSessionControl = (at: ReturnType<typeof focusedSessionControl>): void => {
+    if (!at || (document.activeElement !== document.body && document.activeElement != null)) return;
+    const scope = at.wrapKey ? sessionWraps.get(at.wrapKey) : at.groupKey ? sessionSections.get(at.groupKey) : undefined;
+    const target = scope?.querySelector<HTMLElement>(at.selector);
+    if (target && !target.classList.contains('hidden') && !target.closest('.hidden')) target.focus();
+  };
 
   mobileToggle.querySelector('.shell-mobile-toggle-icon')?.append(createIcon('sessions'));
   restoreAll.prepend(createIcon('restart'));
@@ -232,11 +273,40 @@ export function mountShell(options: {
     for (const [key, menu] of sessionMenus) {
       if (menu.classList.contains('hidden')) continue;
       menu.classList.add('hidden');
+      menu.style.cssText = '';
       const trigger = sessionWraps.get(key)?.querySelector<HTMLButtonElement>('.shell-session-actions');
       trigger?.setAttribute('aria-expanded', 'false');
       if (restoreFocus) trigger?.focus();
     }
   };
+  /**
+   * Put a row's ⋯ menu where it can be seen. The session list is its own `overflow` box, sized to its
+   * content when short: a menu dropping down from the last row is clipped at the box's bottom, and
+   * one flipped up from the first row is clipped at its top — on a fresh install with one session,
+   * only the bottom item (Close) showed. So on the desktop the menu is positioned against the
+   * viewport instead, below the ⋯ when there is room and above it otherwise, and closed on scroll
+   * (it would stay put while the row moved). The mobile drawer is a transformed box, inside which
+   * fixed coordinates mean something else, so there the menu stays where the CSS puts it.
+   */
+  const placeSessionMenu = (menu: HTMLElement, trigger: HTMLElement): void => {
+    menu.classList.remove('drop-up');
+    if (matchMedia('(max-width: 720px)').matches) {
+      const scroller = menu.closest('#shell-session-groups');
+      if (scroller && menu.getBoundingClientRect().bottom > scroller.getBoundingClientRect().bottom) menu.classList.add('drop-up');
+      return;
+    }
+    const at = trigger.getBoundingClientRect();
+    const height = menu.offsetHeight, width = menu.offsetWidth;
+    const below = at.bottom - 2;
+    const top = below + height <= window.innerHeight - 4 ? below : Math.max(4, at.top + 2 - height);
+    menu.style.position = 'fixed';
+    menu.style.right = 'auto';
+    menu.style.bottom = 'auto';
+    menu.style.top = `${Math.round(top)}px`;
+    menu.style.left = `${Math.round(Math.max(4, at.right - width))}px`;
+  };
+  sessionHost.addEventListener('scroll', () => closeSessionMenus(), { passive: true });
+  window.addEventListener('resize', () => closeSessionMenus());
 
   const mobileFocusable = (): HTMLElement[] => Array.from(sidebar.querySelectorAll<HTMLElement>(
     'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
@@ -301,11 +371,13 @@ export function mountShell(options: {
       const id = row.dataset.sessionId;
       if (!id) return;
       // Ctrl+click picks a session (or un-picks it); Shift+click picks everything between the last
-      // pick and this row, in the order the rail shows them. Either way the row is NOT opened — a
-      // selection is for closing several at once, and opening each while picking would be absurd.
-      if (event.ctrlKey || event.metaKey) { event.preventDefault(); toggleSelected(key); return; }
-      if (event.shiftKey && selectionAnchor) { event.preventDefault(); selectRange(selectionAnchor, key); return; }
-      clearSelection();
+      // pick and this row, in the order the rail shows them; and while the selection mode is on (the
+      // Select button, a row's "Select…", or any pick), a plain click picks too. None of these opens
+      // the row — a selection is for closing several at once, and opening each while picking would
+      // be absurd.
+      if (event.ctrlKey || event.metaKey) { event.preventDefault(); setSelection(toggleKey(selection, key)); return; }
+      if (event.shiftKey) { event.preventDefault(); setSelection(rangeTo(selection, visibleSessionKeys(), key)); return; }
+      if (selection.mode) { event.preventDefault(); setSelection(toggleKey(selection, key)); return; }
       updateActiveEntity(row, key);
       closeMobileDrawer();
       options.onSession(id);
@@ -313,6 +385,17 @@ export function mountShell(options: {
     const actions = document.createElement('button'); actions.type = 'button'; actions.className = 'shell-session-actions';
     actions.append(createIcon('more')); actions.setAttribute('aria-haspopup', 'menu'); actions.setAttribute('aria-expanded', 'false');
     const menu = document.createElement('div'); menu.className = 'menu shell-session-menu hidden'; menu.setAttribute('role', 'menu');
+    // "Select…" picks this row and turns the selection mode on — the way in for anyone who does not
+    // know Ctrl+click. Every row offers it, whatever else it can do.
+    const pick = document.createElement('button');
+    pick.type = 'button'; pick.className = 'menu-item shell-session-pick'; pick.setAttribute('role', 'menuitem');
+    pick.addEventListener('click', (event) => {
+      event.stopPropagation();
+      closeSessionMenus();
+      setSelection(toggleKey(selection, key));
+      sessionRows.get(key)?.focus();
+    });
+    menu.appendChild(pick);
     // One menu item per action the row can currently offer. `close` and `forget` both destroy state,
     // so they keep the destructive styling — and `close` still routes through cockpit's confirm.
     for (const action of ['pin', 'unpin', 'rename', 'close', 'forget'] as ShellSessionAction[]) {
@@ -337,14 +420,7 @@ export function mountShell(options: {
       closeSessionMenus();
       if (!opening) return;
       menu.classList.remove('hidden'); actions.setAttribute('aria-expanded', 'true');
-      // The session list is its own `overflow-y: auto` box, so a menu dropping DOWN from a row near
-      // the bottom is clipped by the scroller and its lower items become unreachable. Flip it above
-      // the row when there isn't room below.
-      menu.classList.remove('drop-up');
-      const scroller = menu.closest('#shell-session-groups');
-      if (scroller && menu.getBoundingClientRect().bottom > scroller.getBoundingClientRect().bottom) {
-        menu.classList.add('drop-up');
-      }
+      placeSessionMenu(menu, actions);
     });
     actions.addEventListener('keydown', (event) => {
       if (event.key !== 'ArrowDown') return;
@@ -380,14 +456,28 @@ export function mountShell(options: {
     let signal = row.querySelector<HTMLElement>('.shell-signal');
     let copy = row.querySelector<HTMLElement>('.shell-entity-copy');
     if (!signal || !copy) {
+      // The checkbox is drawn only while the selection mode is on (CSS); aria-pressed on the row
+      // carries the picked state either way.
+      const check = document.createElement('span'); check.className = 'shell-session-check'; check.setAttribute('aria-hidden', 'true');
+      check.appendChild(createIcon('check', 'ui-icon shell-session-check-mark'));
       signal = document.createElement('span'); signal.className = 'shell-signal'; signal.setAttribute('aria-hidden', 'true');
       copy = document.createElement('span'); copy.className = 'shell-entity-copy';
       copy.append(document.createElement('strong'), ' ', document.createElement('small'), ' ', document.createElement('em'));
-      row.replaceChildren(signal, copy);
+      row.replaceChildren(check, signal, copy);
+    }
+    const pickItem = wrap.querySelector<HTMLButtonElement>('.shell-session-pick');
+    if (pickItem && pickItem.dataset.rendered !== currentLang()) {
+      pickItem.replaceChildren(createIcon('select'), document.createTextNode(tr('shell.select_rows')));
+      pickItem.dataset.rendered = currentLang();
     }
     // Shape (not just hue) carries the state, and "working" spins — a still sidebar reads as a dead one.
     signal.className = `shell-signal signal-${sessionStatusShape(item)}`;
     copy.querySelector('strong')!.textContent = item.label;
+    // A pinned row says so on the row. The urgent groups (needs you, working, another PC) come
+    // before the pinned one, so a pin on such a row moved nothing — and read as having done nothing.
+    let pinMark = row.querySelector<HTMLElement>('.shell-session-pin');
+    if (item.pinned && !pinMark) { pinMark = createIcon('pin', 'ui-icon shell-session-pin') as unknown as HTMLElement; row.appendChild(pinMark); }
+    else if (!item.pinned && pinMark) pinMark.remove();
     const detail = copy.querySelector('small')!;
     detail.textContent = item.detail;
     detail.classList.toggle('shell-session-warning', item.conversationGone === true);
@@ -431,7 +521,12 @@ export function mountShell(options: {
     const domId = key.replace(/[^A-Za-z0-9_-]/g, '-');
     const section = document.createElement('section'); section.className = `shell-group group-${kind}`;
     section.dataset.groupKey = key;
-    const heading = document.createElement('h2'); heading.className = 'shell-group-heading'; heading.id = `shell-session-${domId}`;
+    // The sticky bar is a div; the HEADING inside it is only the fold toggle with the name and count.
+    // The section is named by that heading (`aria-labelledby` below), so the group checkbox and the
+    // bulk close, which share the bar, do not end up in the name — a region announced as "Idle 5
+    // Select every session in Idle Close all 5 sessions in Idle" is not a name.
+    const heading = document.createElement('div'); heading.className = 'shell-group-heading';
+    const title = document.createElement('h2'); title.className = 'shell-group-title'; title.id = `shell-session-${domId}`;
     const toggle = document.createElement('button');
     toggle.type = 'button'; toggle.className = 'shell-group-toggle'; toggle.setAttribute('aria-controls', `shell-session-${domId}-body`);
     toggle.append(
@@ -448,7 +543,25 @@ export function mountShell(options: {
       try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(collapsedGroups)); } catch { /* private mode / quota — folding just won't survive the restart */ }
       renderSessions(sessions);
     });
-    heading.appendChild(toggle);
+    title.appendChild(toggle);
+    heading.appendChild(title);
+    // In the selection mode, a checkbox on the heading picks the whole group (opening it in full
+    // first, so nothing is picked that cannot be seen) — or un-picks it when it is all picked.
+    const groupCheck = document.createElement('button');
+    groupCheck.type = 'button'; groupCheck.className = 'shell-group-check'; groupCheck.setAttribute('role', 'checkbox');
+    groupCheck.appendChild(createIcon('check', 'ui-icon shell-session-check-mark'));
+    groupCheck.addEventListener('click', (event) => {
+      event.stopPropagation();
+      closeSessionMenus();
+      if (collapsedGroups.includes(key)) {
+        collapsedGroups = toggleCollapsedGroup(collapsedGroups, key);
+        try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(collapsedGroups)); } catch { /* see above */ }
+      }
+      expandedGroups.add(key);
+      renderSessions(sessions);
+      setSelection(toggleGroup(selection, groupSessionKeys(key)));
+    });
+    heading.appendChild(groupCheck);
     // Close (or forget) a whole group at once. Shutting down a dozen sessions one confirmation at a
     // time is the kind of chore people simply stop doing, and the groups are already the units
     // someone thinks in: everything idle, everything that has exited, everything on that machine.
@@ -457,6 +570,7 @@ export function mountShell(options: {
     bulk.appendChild(createIcon('close', 'ui-icon'));
     bulk.addEventListener('click', (event) => {
       event.stopPropagation();
+      closeSessionMenus(); // a ⋯ menu left open would sit above the question and could ask a second
       const current = buildSessionGroups(sessions).find((entry) => entry.key === key);
       if (current) options.onGroupClose?.(current);
     });
@@ -464,64 +578,116 @@ export function mountShell(options: {
     const body = document.createElement('div'); body.className = 'shell-group-body'; body.id = `shell-session-${domId}-body`;
     const more = document.createElement('button'); more.type = 'button'; more.className = 'shell-more hidden';
     more.addEventListener('click', () => { expandedGroups.add(key); renderSessions(sessions); });
-    section.setAttribute('aria-labelledby', heading.id);
+    section.setAttribute('aria-labelledby', title.id);
     section.append(heading, body, more);
     return section;
   };
 
   // ---- picking several sessions to close at once ----
-  const selected = new Set<string>();
-  let selectionAnchor: string | null = null;
+  // The selection itself is a value (shared/sessionSelection); this block is the DOM around it:
+  // the Select button that turns the mode on, the bar that shows the count and closes, the
+  // checkboxes on rows and group headings, and the keys (Escape, Delete, Ctrl+A).
+  let selection: SessionSelection = emptySelection();
   const selectionBar = document.createElement('div');
   selectionBar.className = 'shell-selection hidden';
   selectionBar.setAttribute('role', 'toolbar');
   const selectionCount = document.createElement('span'); selectionCount.className = 'shell-selection-count'; selectionCount.setAttribute('aria-live', 'polite');
   const selectionClose = document.createElement('button'); selectionClose.type = 'button'; selectionClose.className = 'chip chip-danger shell-selection-close';
   const selectionAll = document.createElement('button'); selectionAll.type = 'button'; selectionAll.className = 'chip shell-selection-all';
-  const selectionClear = document.createElement('button'); selectionClear.type = 'button'; selectionClear.className = 'chip shell-selection-clear';
-  selectionBar.append(selectionCount, selectionClose, selectionAll, selectionClear);
+  const selectionDone = document.createElement('button'); selectionDone.type = 'button'; selectionDone.className = 'chip shell-selection-done';
+  selectionBar.append(selectionCount, selectionClose, selectionAll, selectionDone);
   sessionHost.parentElement?.insertBefore(selectionBar, sessionHost);
+  selectToggle.replaceChildren(createIcon('select'), document.createElement('span'));
+  newDot(selectToggle, 'multi-close');
   /** Rows in rail order — what a Shift+click range and "select all" mean. */
   const visibleSessionKeys = (): string[] => Array.from(sessionHost.querySelectorAll('.shell-session-wrap'))
     .map((wrap) => (wrap.querySelector('.shell-session') as HTMLButtonElement | null)?.dataset.shellEntityKey ?? '').filter(Boolean);
+  /** The rows one group currently shows, in rail order. */
+  const groupSessionKeys = (groupKey: string): string[] => {
+    const section = sessionSections.get(groupKey);
+    if (!section) return [];
+    return Array.from(section.querySelectorAll<HTMLButtonElement>('.shell-session')).map((row) => row.dataset.shellEntityKey ?? '').filter(Boolean);
+  };
   const applySelection = (): void => {
+    const { keys, mode } = selection;
+    sessionHost.classList.toggle('is-selecting', mode);
     for (const [key, row] of sessionRows) {
-      const on = selected.has(key);
+      const on = keys.has(key);
       sessionWraps.get(key)?.classList.toggle('is-selected', on);
-      row.setAttribute('aria-pressed', String(on));
+      // A toggle only while picking: outside the mode the row is a plain navigation button, and
+      // `aria-pressed="false"` on every row made each one read as a switch.
+      if (mode) row.setAttribute('aria-pressed', String(on)); else row.removeAttribute('aria-pressed');
     }
-    selectionBar.classList.toggle('hidden', selected.size === 0);
-    selectionCount.textContent = tr('shell.selected_n', { n: String(selected.size) });
-    selectionClose.textContent = tr('shell.close_selected');
+    for (const [groupKey, section] of sessionSections) {
+      const check = section.querySelector<HTMLButtonElement>('.shell-group-check');
+      if (!check) continue;
+      const rows = groupSessionKeys(groupKey);
+      const all = allSelected(selection, rows);
+      const some = !all && rows.some((k) => keys.has(k));
+      check.classList.toggle('is-checked', all);
+      check.classList.toggle('is-mixed', some);
+      check.setAttribute('aria-checked', all ? 'true' : some ? 'mixed' : 'false');
+      const name = section.querySelector('.shell-group-name')?.textContent ?? '';
+      check.title = tr('shell.select_group', { name });
+      check.setAttribute('aria-label', tr('shell.select_group', { name }));
+    }
+    selectionBar.classList.toggle('hidden', !mode);
+    sessionTools.classList.toggle('hidden', mode || sessions.length === 0);
+    selectionCount.textContent = tr('shell.selected_n', { n: String(keys.size) });
+    selectionClose.textContent = keys.size > 0 ? `${tr('shell.close_selected')} · ${keys.size}` : tr('shell.close_selected');
+    selectionClose.disabled = keys.size === 0;
     selectionAll.textContent = tr('shell.select_all');
-    selectionClear.textContent = tr('shell.clear_selection');
+    selectionDone.textContent = tr('shell.selection_done');
     selectionBar.title = tr('shell.selection_hint');
-    selectionBar.setAttribute('aria-label', tr('shell.selected_n', { n: String(selected.size) }));
+    selectionBar.setAttribute('aria-label', tr('shell.selected_n', { n: String(keys.size) }));
   };
-  const clearSelection = (): void => { if (selected.size === 0) return; selected.clear(); selectionAnchor = null; applySelection(); };
-  const toggleSelected = (key: string): void => {
-    if (selected.has(key)) selected.delete(key); else selected.add(key);
-    selectionAnchor = key;
-    applySelection();
+  const setSelection = (next: SessionSelection): void => { selection = next; applySelection(); };
+  const closeSelected = (): void => {
+    const ids = [...selection.keys].map((key) => sessionRows.get(key)?.dataset.sessionId ?? '').filter(Boolean);
+    if (!ids.length) return;
+    void options.onCloseSessions(ids).then((done) => { if (done) setSelection(endSelecting()); });
   };
-  const selectRange = (from: string, to: string): void => {
-    const keys = visibleSessionKeys();
-    const a = keys.indexOf(from), b = keys.indexOf(to);
-    if (a < 0 || b < 0) { toggleSelected(to); return; }
-    for (const key of keys.slice(Math.min(a, b), Math.max(a, b) + 1)) selected.add(key);
-    applySelection();
-  };
-  selectionClear.addEventListener('click', clearSelection);
-  selectionAll.addEventListener('click', () => { for (const key of visibleSessionKeys()) selected.add(key); applySelection(); });
-  selectionClose.addEventListener('click', () => {
-    const ids = [...selected].map((key) => sessionRows.get(key)?.dataset.sessionId ?? '').filter(Boolean);
-    void options.onCloseSessions(ids).then((done) => { if (done) clearSelection(); });
+  selectToggle.addEventListener('click', () => {
+    setSelection(beginSelecting(selection));
+    // The keyboard goes to the first row: Space/Enter picks it, arrows and Tab move on, Delete closes.
+    const first = visibleSessionKeys()[0];
+    if (first) sessionRows.get(first)?.focus();
   });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && selected.size > 0) { event.preventDefault(); clearSelection(); } });
+  selectionDone.addEventListener('click', () => { setSelection(endSelecting()); selectToggle.focus(); });
+  /** "Select all" means every session, so the folded and cut-away groups are opened first — a pick
+   *  that cannot be seen is not made (and would be dropped by the next render anyway). */
+  const selectEverything = (): void => {
+    let opened = false;
+    for (const group of buildSessionGroups(sessions)) {
+      if (collapsedGroups.includes(group.key)) { collapsedGroups = toggleCollapsedGroup(collapsedGroups, group.key); opened = true; }
+      if (!expandedGroups.has(group.key)) { expandedGroups.add(group.key); opened = true; }
+    }
+    if (opened) {
+      try { localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify(collapsedGroups)); } catch { /* see above */ }
+      renderSessions(sessions);
+    }
+    setSelection(selectAll(selection, visibleSessionKeys()));
+  };
+  selectionAll.addEventListener('click', selectEverything);
+  selectionClose.addEventListener('click', closeSelected);
+  /** Keys act on the selection only where typing them cannot mean something else — never inside a terminal or a text field. */
+  const typingElsewhere = (): boolean => {
+    const el = document.activeElement;
+    return el instanceof HTMLElement && (el.closest('.xterm') != null || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.isContentEditable);
+  };
+  document.addEventListener('keydown', (event) => {
+    if (!selection.mode || typingElsewhere()) return;
+    if (event.key === 'Escape') { event.preventDefault(); setSelection(endSelecting()); return; }
+    // Delete and Ctrl+A act from the session rows and the bar, not from a project row or the resizer.
+    if (!sessionSection.contains(document.activeElement)) return;
+    if ((event.key === 'Delete' || event.key === 'Backspace') && selection.keys.size > 0) { event.preventDefault(); closeSelected(); }
+    else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a') { event.preventDefault(); selectEverything(); }
+  });
 
   const renderSessions = (items: ShellSessionInput[]): void => {
     const focusedKey = document.activeElement instanceof HTMLButtonElement
       ? document.activeElement.dataset.shellEntityKey : undefined;
+    const focusedControl = focusedSessionControl();
     const groups = buildSessionGroups(items);
     // Only rows that are actually RENDERED may keep their DOM: a row cut by a "show more" limit is
     // gone from the rail, so leaving its node cached would resurrect it under the next group.
@@ -610,10 +776,10 @@ export function mountShell(options: {
     renderCollapsedStatus();
     applyProjectActivity(); // session state changed → the project rows' inherited marks follow
     // A picked row that left the rail (closed, folded away) leaves the selection with it.
-    for (const key of [...selected]) if (!sessionRows.has(key)) selected.delete(key);
-    if (selectionAnchor && !sessionRows.has(selectionAnchor)) selectionAnchor = null;
+    selection = pruneSelection(selection, new Set(sessionRows.keys()));
     applySelection();
     preserveFocusedRow(focusedKey, sessionRows);
+    restoreFocusedSessionControl(focusedControl);
   };
 
   /** Selecting a session that lives in a folded (or truncated-away) group must not select something
@@ -942,6 +1108,9 @@ export function mountShell(options: {
       button.title = label; button.setAttribute('aria-label', label);
     }
     projectSection.setAttribute('aria-labelledby', 'shell-projects-label');
+    selectToggle.querySelector('span')!.textContent = tr('shell.select_mode');
+    selectToggle.title = tr('shell.select_mode_hint');
+    selectToggle.setAttribute('aria-label', tr('shell.select_mode'));
     resizer.title = tr('shell.resize');
     resizer.setAttribute('aria-label', tr('shell.resize'));
     mobileBackdrop.setAttribute('aria-label', tr('shell.collapse'));

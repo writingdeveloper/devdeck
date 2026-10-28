@@ -2,14 +2,20 @@
 // Read Claude Code's background sessions from `claude agents --json --all` (~200 ms; cached briefly,
 // since the sidebar asks every 30 s and a paired machine may ask too).
 import { spawn, type ChildProcess } from 'node:child_process';
+import { readdir, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { isBackgroundAgentId, parseBackgroundAgents, type BackgroundAgent } from '../shared/backgroundAgents';
 import { cliInvocation, killChildTree } from './aiSummary';
 import { resolveAgentCliPath } from './cliExecutable';
 
 const CACHE_MS = 15_000;
 const TIMEOUT_MS = 10_000;
-let cached: { at: number; list: BackgroundAgent[] } | null = null;
+/** With the records unchanged, the last answer is reused this long before the listing runs anyway. */
+const UNCHANGED_RELIST_MS = 5 * 60_000;
+/** Claude Code keeps one folder per background session here (its `state.json` inside); `claude rm` deletes it. */
+const JOBS_DIR = join(homedir(), '.claude', 'jobs');
+let cached: { at: number; listedAt: number; list: BackgroundAgent[]; records: string | null } | null = null;
 let inFlight: Promise<BackgroundAgent[]> | null = null;
 
 let paused = false;
@@ -22,14 +28,45 @@ export async function pauseBackgroundAgents(on: boolean): Promise<void> {
   if (on) await inFlight?.catch(() => undefined); // one already running finishes first
 }
 
-export async function listBackgroundAgents(nowMs = Date.now()): Promise<BackgroundAgent[]> {
+/**
+ * The background sessions, as `claude agents --json --all` lists them — but that command is a
+ * Claude Code process (~340 ms, a 300 MB executable) started every poll, here and on every paired
+ * PC, almost always to answer what it answered last time. It reads the job records under
+ * `~/.claude/jobs`, so those are looked at first (a readdir and a stat per record, about a
+ * millisecond): no records means no sessions and no process; records unchanged since the last
+ * listing means the last answer, for up to five minutes; only a change runs the command.
+ */
+export async function listBackgroundAgents(nowMs = Date.now(), opts: { jobsDir?: string } = {}): Promise<BackgroundAgent[]> {
   if (paused) return cached?.list ?? [];
   if (cached && nowMs - cached.at < CACHE_MS) return cached.list;
   if (inFlight) return inFlight;
-  inFlight = run().then((json) => parseBackgroundAgents(json, Date.now())).catch(() => [] as BackgroundAgent[])
-    .then((list) => { cached = { at: Date.now(), list }; return list; })
+  inFlight = (async () => {
+    const records = await jobRecordsSignature(opts.jobsDir ?? JOBS_DIR);
+    if (records === '') return { list: [], records, listedAt: nowMs };
+    if (cached && records !== null && cached.records === records && nowMs - cached.listedAt < UNCHANGED_RELIST_MS) {
+      return { list: cached.list, records, listedAt: cached.listedAt };
+    }
+    const list = await run().then((json) => parseBackgroundAgents(json, Date.now())).catch(() => [] as BackgroundAgent[]);
+    return { list, records, listedAt: Date.now() };
+  })()
+    .then(({ list, records, listedAt }) => { cached = { at: Date.now(), listedAt, list, records }; return list; })
     .finally(() => { inFlight = null; });
   return inFlight;
+}
+
+/**
+ * What the listing would be reading: the session folders under the jobs dir and when each one's
+ * `state.json` last changed. '' when there are none (or no such dir); null when it could not be read,
+ * in which case the command runs as before.
+ */
+export async function jobRecordsSignature(dir: string): Promise<string | null> {
+  let names: string[];
+  try { names = await readdir(dir); } catch (err) { return (err as NodeJS.ErrnoException).code === 'ENOENT' ? '' : null; }
+  const parts = await Promise.all(names.filter((name) => isBackgroundAgentId(name)).map(async (name) => {
+    try { const s = await stat(join(dir, name, 'state.json')); return `${name}:${Math.round(s.mtimeMs)}:${s.size}`; }
+    catch { return `${name}:-`; }
+  }));
+  return parts.sort().join('|');
 }
 
 export function _clearBackgroundAgentCache(): void { cached = null; }
