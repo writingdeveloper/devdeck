@@ -31,6 +31,7 @@ import { basename } from '../shared/paths';
 import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
 import { currentImageRefs, currentImageSourceKey, imageStripState, imageThumbUrl, initImageStrip, openImageById, openSingleImage, refreshImages, showImagesFor, toggleImageStrip, type ImageSource } from './imageStrip';
 import { jumpToPrompt, marksFor, promptRows, revealRow } from './termMarks';
+import { isElementDrawn, skipRenderWhileHidden, type HiddenRenderGuard } from './hiddenTerminal';
 import { attachFiles, pathsAsPrompt, sendInPieces } from './attachments';
 import { initTimeline, isTimelineOpen, refreshTimeline, showTimelineFor, toggleTimeline, type TimelineSource } from './timeline';
 import { pairTurnsWithRows } from '../shared/timeline';
@@ -103,6 +104,8 @@ interface Live {
 export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; branch: string | null; dirty: number; tileId?: string; sessionId?: string | null; mode: OpenMode; label?: string | null; pinned?: boolean; agentId: AgentId; /** Which machine the project lives on; absent means this one. */ machineId?: string; /** Bind to a terminal that is ALREADY running under this id instead of starting one. */ adoptId?: string; instanceId?: string; labelRevision?: number; /** Picked up because a machine announced it, not because anybody here asked: build it without taking the screen or the keyboard. */ background?: boolean; /** Open one of Claude Code's own background sessions by its short id (`claude attach`). */ attachId?: string; }
 
 const live = new Map<string, Live>();
+/** Each tile's "do not draw while hidden" guard, by its element (which outlives a rebind of its id). */
+const renderGuards = new WeakMap<HTMLElement, HiddenRenderGuard>();
 /** How long after a size change a terminal's output is taken to be the repaint, not the agent. */
 const RESIZE_ECHO_MS = 700;
 /** Sessions closed here that their machine may still list for a moment — never adopted back. */
@@ -1083,6 +1086,11 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   const term = new Terminal({ fontFamily: 'Cascadia Mono, Consolas, monospace', fontSize: 12, theme: { background: '#0a0b0e' }, cursorBlink: false, scrollback: 10_000, windowsPty, allowProposedApi: true }); // markers and decorations (termMarks) are "proposed" API
   const fit = new FitAddon(); term.loadAddon(fit); term.open(el); fit.fit();
   el.dataset.termRenderer = 'dom'; // read by the perf/link harnesses and by anyone debugging a slow machine
+  // Every tile but the selected one is display:none, and xterm goes on drawing those — a full screen
+  // per scrolled line, at its very slowest (see hiddenTerminal.ts). The perf gate reads the stamp.
+  const guard = skipRenderWhileHidden(term, () => isElementDrawn(el));
+  renderGuards.set(el, guard);
+  el.dataset.termHiddenSkip = guard.installed ? 'on' : 'off';
   // The size this terminal is actually drawing at. Written on every resize because a pty is shared:
   // when two machines watch one session, "do both terminals agree with the pty" is the whole
   // question, and it cannot be read back off the screen — a row of text is as long as its content.
@@ -1362,6 +1370,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   if (p.background && current) {
     el.classList.remove('show');
     current.el.classList.add('show');
+    renderGuards.get(current.el)?.redrawIfSkipped(); // it was behind the new tile while that one was measured
     renderList();
   } else select(res.id);
   updateRailBadge();
@@ -1985,6 +1994,8 @@ function select(id: string): void {
   setActiveUsageProvider(live.get(id)?.session.agentId ?? null);
   hideAllTerminals();
   selected?.el.classList.add('show');
+  // Hidden and shown again inside one frame (a re-select), no observer tells xterm it was ever away.
+  if (selected) renderGuards.get(selected.el)?.redrawIfSkipped();
   mainEl.classList.toggle('has-session', live.size > 0);
   renderList(); renderHeader();
   void refreshMeta(id);
@@ -2729,7 +2740,7 @@ async function addSessionToCurrentProject(): Promise<void> {
 }
 
 function actBtn(icon: IconName, title: string, onClick: () => void): HTMLButtonElement {
-  const b = document.createElement('button'); b.className = 'ck-act'; b.appendChild(createIcon(icon)); b.title = title; b.setAttribute('aria-label', title); b.addEventListener('click', onClick); return b;
+  const b = document.createElement('button'); b.className = 'ck-act'; b.dataset.act = icon; /* how a harness finds a header button, whatever order they are in */ b.appendChild(createIcon(icon)); b.title = title; b.setAttribute('aria-label', title); b.addEventListener('click', onClick); return b;
 }
 
 /**
