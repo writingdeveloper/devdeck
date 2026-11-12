@@ -118,10 +118,11 @@ async function selectRow(win, label) {
   return waitFor(async () => (await headerTitle(win)).includes(label), 5000, 150);
 }
 
-/** Header button by position: new session, pin, rename, folder, restart, close. */
-const HEADER = { newSession: 0, restart: 4, close: 5 };
+/** Header button by what it does (`data-act`, its icon's name) — by position this pressed the wrong
+ *  button as soon as the header grew one (attach, quick reply, timeline, images). */
+const HEADER = { newSession: 'plus', restart: 'restart', close: 'close' };
 async function pressHeader(win, which) {
-  await win.evaluate((i) => document.querySelectorAll('#ck-header .ck-act')[i].click(), HEADER[which]);
+  await win.evaluate((act) => document.querySelector(`#ck-header .ck-act[data-act="${act}"]`).click(), HEADER[which]);
 }
 async function closeViaUi(win, label) {
   if (!(await selectRow(win, label))) return false;
