@@ -83,3 +83,31 @@ export function isElementDrawn(el: HTMLElement): boolean {
   if (typeof el.checkVisibility === 'function') return el.checkVisibility();
   return el.getClientRects().length > 0;
 }
+
+/**
+ * Is this tile on screen? Asked by every tile for every draw it is about to make, so the answer for
+ * the ones that are not must be free: a hidden tile is one without `show`, which is a class lookup.
+ * Asking the document instead (`checkVisibility`) makes it bring its styles up to date first — and
+ * with twenty tiles scrolling behind the one that is being redrawn, that was 333 ms of every 1.7 s
+ * spent answering "no" (measured on v1.49.1).
+ * `paneDrawn` is only asked for the selected tile: whether the pane holding it is displayed at all.
+ */
+export function tileDrawn(el: { classList: { contains(name: string): boolean } }, paneDrawn: () => boolean): boolean {
+  return el.classList.contains('show') && paneDrawn();
+}
+
+/**
+ * `read`, asked at most once per task. A terminal draws more than once in a frame (a scroll is a
+ * selection refresh and a row refresh), and a question put to the document between two of those
+ * draws is answered by laying out what the first one just wrote.
+ */
+export function oncePerTask(read: () => boolean, later: (fn: () => void) => void = (fn) => { setTimeout(fn, 0); }): () => boolean {
+  let known: boolean | null = null;
+  return () => {
+    if (known === null) {
+      known = read();
+      later(() => { known = null; });
+    }
+    return known;
+  };
+}
