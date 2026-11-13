@@ -43,6 +43,7 @@ const LIMITS = {
   workingOutsideMutations: 400, // sidebar/header/footer while two tiles repaint at 10fps for 8s (a rebuild per chunk is ~10k)
   hiddenWidthMeasurements: 300, // character-width measurements while a hidden tile scrolls 60 lines (drawing it hidden is ~100k)
   hiddenLongestTaskMs: 250,
+  hiddenLayoutQuestions: 0,   // times a tile that is off screen, or the list nobody sees, made the document lay itself out to say so
   streamMainStallMs: 600,     // longest main-process stall while 20k lines stream
   streamLongestTaskMs: 600,
   streamSeconds: 45,          // the stream must finish drawing at all
@@ -156,7 +157,7 @@ try {
 
   // ---- instruments ---------------------------------------------------------------------------
   await win.evaluate(() => {
-    window.__gate = { long: [], mutations: 0, outside: 0, measures: 0 };
+    window.__gate = { long: [], mutations: 0, outside: 0, measures: 0, asked: 0 };
     // xterm's DOM renderer sizes a cell by reading offsetWidth off a helper span. Counted, because a
     // terminal drawn while it is display:none measures every cell on every draw (the answer is 0,
     // and 0 is never cached) — the v1.49.0 "everything stutters" report, with 20 tiles open.
@@ -165,6 +166,17 @@ try {
       if (this.classList.contains('xterm-char-measure-element')) window.__gate.measures++;
       return width.get.call(this);
     } });
+    // "Are you on screen?" put to the document is not free: it brings styles and layout up to date
+    // first, in the middle of a frame that is still writing rows. A tile that is off screen has to
+    // know that without asking (v1.49.1 asked for every draw: a fifth of the frame with 20 tiles),
+    // and so does the pre-redesign session list, which is never displayed.
+    for (const question of ['checkVisibility', 'getClientRects']) {
+      const ask = Element.prototype[question];
+      Element.prototype[question] = function (...args) {
+        if ((this.classList.contains('ck-term') && !this.classList.contains('show')) || this.id === 'ck-list') window.__gate.asked++;
+        return ask.apply(this, args);
+      };
+    }
     new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__gate.long.push(Math.round(e.duration)); }).observe({ entryTypes: ['longtask'] });
     new MutationObserver((records) => {
       window.__gate.mutations += records.length;
@@ -179,11 +191,11 @@ try {
     globalThis.__lagTimer = setInterval(() => { const now = Date.now(); globalThis.__lag.max = Math.max(globalThis.__lag.max, now - globalThis.__lag.last - 20); globalThis.__lag.last = now; }, 20);
   });
   const reset = async () => {
-    await win.evaluate(() => { window.__gate.long = []; window.__gate.mutations = 0; window.__gate.outside = 0; window.__gate.measures = 0; });
+    await win.evaluate(() => { window.__gate.long = []; window.__gate.mutations = 0; window.__gate.outside = 0; window.__gate.measures = 0; window.__gate.asked = 0; });
     await app.evaluate(() => { globalThis.__lag.max = 0; globalThis.__lag.last = Date.now(); });
   };
   const read = async () => ({
-    ...(await win.evaluate(() => ({ long: [...window.__gate.long], mutations: window.__gate.mutations, outside: window.__gate.outside, measures: window.__gate.measures }))),
+    ...(await win.evaluate(() => ({ long: [...window.__gate.long], mutations: window.__gate.mutations, outside: window.__gate.outside, measures: window.__gate.measures, asked: window.__gate.asked }))),
     stall: await app.evaluate(() => globalThis.__lag.max),
   });
 
@@ -225,6 +237,7 @@ try {
   await win.waitForTimeout(500);
   const hidden = await read();
   judge('hidden: width measurements while a hidden tile scrolls 60 lines', hidden.measures, LIMITS.hiddenWidthMeasurements);
+  judge('hidden: layout questions asked on behalf of what is not on screen', hidden.asked, LIMITS.hiddenLayoutQuestions);
   judge('hidden: longest UI task ms', Math.max(0, ...hidden.long), LIMITS.hiddenLongestTaskMs);
   // ...and the tile that was hidden shows what it printed the moment it is looked at.
   await win.locator('#shell-session-groups .shell-session').nth(1).click();

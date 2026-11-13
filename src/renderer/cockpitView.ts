@@ -31,7 +31,7 @@ import { basename } from '../shared/paths';
 import type { PtySessionInfo as RunningSession } from '../main/ptyHost';
 import { currentImageRefs, currentImageSourceKey, imageStripState, imageThumbUrl, initImageStrip, openImageById, openSingleImage, refreshImages, showImagesFor, toggleImageStrip, type ImageSource } from './imageStrip';
 import { jumpToPrompt, marksFor, promptRows, revealRow } from './termMarks';
-import { isElementDrawn, skipRenderWhileHidden, type HiddenRenderGuard } from './hiddenTerminal';
+import { isElementDrawn, oncePerTask, skipRenderWhileHidden, tileDrawn, type HiddenRenderGuard } from './hiddenTerminal';
 import { attachFiles, pathsAsPrompt, sendInPieces } from './attachments';
 import { initTimeline, isTimelineOpen, refreshTimeline, showTimelineFor, toggleTimeline, type TimelineSource } from './timeline';
 import { pairTurnsWithRows } from '../shared/timeline';
@@ -106,6 +106,8 @@ export interface OpenReq { path: string; name: string; staleLevel: StaleLevel; b
 const live = new Map<string, Live>();
 /** Each tile's "do not draw while hidden" guard, by its element (which outlives a rebind of its id). */
 const renderGuards = new WeakMap<HTMLElement, HiddenRenderGuard>();
+/** Is the pane the tiles are stacked in displayed (the deck is the open view)? Only the selected tile asks. */
+const termPaneDrawn = oncePerTask(() => isElementDrawn(termsEl));
 /** How long after a size change a terminal's output is taken to be the repaint, not the agent. */
 const RESIZE_ECHO_MS = 700;
 /** Sessions closed here that their machine may still list for a moment — never adopted back. */
@@ -1088,7 +1090,7 @@ async function buildTile(p: OpenReq): Promise<boolean> {
   el.dataset.termRenderer = 'dom'; // read by the perf/link harnesses and by anyone debugging a slow machine
   // Every tile but the selected one is display:none, and xterm goes on drawing those — a full screen
   // per scrolled line, at its very slowest (see hiddenTerminal.ts). The perf gate reads the stamp.
-  const guard = skipRenderWhileHidden(term, () => isElementDrawn(el));
+  const guard = skipRenderWhileHidden(term, () => tileDrawn(el, termPaneDrawn));
   renderGuards.set(el, guard);
   el.dataset.termHiddenSkip = guard.installed ? 'on' : 'off';
   // The size this terminal is actually drawing at. Written on every resize because a pty is shared:
@@ -2054,6 +2056,9 @@ function layoutTerminals(): void {
   const selected = selectedId ? live.get(selectedId) : null;
   const shown = selected?.el.classList.contains('show') ? selected : [...live.values()].find((l) => l.el.classList.contains('show'));
   if (!shown) return;
+  // The pane is on screen and so is this tile: a draw skipped on a stale answer (the deck opened in the
+  // same task that last found it hidden) is paid here at the latest.
+  renderGuards.get(shown.el)?.redrawIfSkipped();
   const dims = shown.fit.proposeDimensions();
   if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return; // nothing measurable yet
   const pane = { cols: dims.cols, rows: dims.rows };
@@ -2224,8 +2229,16 @@ function renderList(): void {
 /** Is the pre-redesign session list on screen? It is hidden today, and this is the single question
  *  every legacy-list code path asks before doing DOM work for it. */
 function legacyListVisible(): boolean {
-  return (document.getElementById('ck-list')?.getClientRects().length ?? 0) > 0;
+  // Its own `display`, read once: what hides it is a stylesheet rule (features/cockpit/cockpit.css),
+  // which does not change while the app runs. Asking for its boxes instead made the document lay
+  // itself out on every list render — every activity change of every session.
+  if (legacyListShown === null) {
+    const list = document.getElementById('ck-list');
+    legacyListShown = list !== null && getComputedStyle(list).display !== 'none';
+  }
+  return legacyListShown;
 }
+let legacyListShown: boolean | null = null;
 
 function renderLegacyList(liveSessions: CockpitSession[], prev: PersistedSession[], prevLabels: string[]): void {
   const liveLive = [...live.values()];
