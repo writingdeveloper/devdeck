@@ -2056,6 +2056,9 @@ function layoutTerminals(): void {
   const selected = selectedId ? live.get(selectedId) : null;
   const shown = selected?.el.classList.contains('show') ? selected : [...live.values()].find((l) => l.el.classList.contains('show'));
   if (!shown) return;
+  // The pane is on screen and so is this tile: a draw skipped on a stale answer (the deck opened in the
+  // same task that last found it hidden) is paid here at the latest.
+  renderGuards.get(shown.el)?.redrawIfSkipped();
   const dims = shown.fit.proposeDimensions();
   if (!dims || !Number.isFinite(dims.cols) || !Number.isFinite(dims.rows)) return; // nothing measurable yet
   const pane = { cols: dims.cols, rows: dims.rows };
